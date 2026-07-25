@@ -289,5 +289,11 @@ To close out the outstanding items (`connected SSID`, `obtained IP`, live `/api/
 
 ## 16. Commit
 
-`fix: stabilize startup and implement production WiFi manager` — commit hash recorded in the
-final summary for this session and retrievable with `git log -1 --format=%H`.
+`fix: stabilize startup and implement production WiFi manager`
+
+Full hash: `0a347f18081ed0a4228df82d152ccc054553900d` (short `0a347f1`) on branch
+`agent/minimal-pvdg-foundation`.
+
+The firmware currently running on the board was built from exactly this source. Untracked files
+that pre-existed this session (`.clangd`, `dependencies.lock`, the `.code-workspace` file and
+`managed_components/`) were deliberately left untouched and uncommitted.
