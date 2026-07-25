@@ -35,7 +35,11 @@ static void set_state(network_wifi_state_t state)
 
 static bool parse_ip(const char *text, esp_ip4_addr_t *out)
 {
-    return text && text[0] && ip4addr_aton(text, out) != 0;
+    if (!text || !text[0] || !out) return false;
+    ip4_addr_t parsed = {0};
+    if (ip4addr_aton(text, &parsed) == 0) return false;
+    out->addr = parsed.addr;
+    return true;
 }
 
 static esp_err_t apply_ip_profile(const app_wifi_sta_profile_t *profile)
@@ -144,7 +148,6 @@ static void event_handler(void *arg, esp_event_base_t base, int32_t id, void *da
         s_status.disconnect_count++;
         strlcpy(s_status.ip, "0.0.0.0", sizeof(s_status.ip));
         portEXIT_CRITICAL(&s_lock);
-        const app_wifi_sta_profile_t *active = s_using_fallback ? &s_cfg.fallback : &s_cfg.primary;
         if (++s_retry_count <= s_cfg.max_retries_per_profile) {
             set_state(s_using_fallback ? NETWORK_WIFI_CONNECTING_FALLBACK : NETWORK_WIFI_CONNECTING_PRIMARY);
             esp_wifi_connect();
