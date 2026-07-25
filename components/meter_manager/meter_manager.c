@@ -9,6 +9,7 @@
 #include "freertos/task.h"
 #include "modbus_decoder.h"
 #include "modbus_tcp.h"
+#include "network_manager.h"
 
 static const char *TAG = "meters";
 
@@ -29,6 +30,12 @@ static void meter_task(void *argument)
     const size_t count = modbus_data_register_count(meter->config.active_power_type);
     uint16_t registers[2] = {0};
     while (true) {
+        if (!network_manager_wait_ready(5000)) {
+            portENTER_CRITICAL(&meter->lock);
+            meter->data.online = false;
+            portEXIT_CRITICAL(&meter->lock);
+            continue;
+        }
         esp_err_t err = modbus_tcp_read_registers(&meter->connection, meter->config.function_code,
                                                  meter->config.active_power_address, count, registers);
         meter_data_t next;
@@ -44,7 +51,7 @@ static void meter_task(void *argument)
         } else {
             next.online = false;
             next.response_errors++;
-            ESP_LOGW(TAG, "%s read failed: %s", meter->config.name, esp_err_to_name(err));
+            ESP_LOGW(TAG, "%s read failed after network ready: %s", meter->config.name, esp_err_to_name(err));
         }
         portENTER_CRITICAL(&meter->lock);
         meter->data = next;
