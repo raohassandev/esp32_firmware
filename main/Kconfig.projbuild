@@ -4,13 +4,32 @@ config PVDG_DEVICE_NAME
     string "Device name"
     default "automatrix-pvdg"
 
+config PVDG_PRIMARY_WIFI_SSID
+    string "Default primary Wi-Fi SSID"
+    default "Rao-EXT"
+
+config PVDG_PRIMARY_WIFI_PASSWORD
+    string "Default primary Wi-Fi password"
+    default ""
+    help
+      Set the real password in the local sdkconfig, which is gitignored, so the
+      credential is never committed. Leave the default empty.
+
 config PVDG_DEFAULT_WIFI_SSID
     string "Default fallback Wi-Fi SSID"
     default "Rao1"
 
 config PVDG_DEFAULT_WIFI_PASSWORD
-    string "Default Wi-Fi password"
+    string "Default fallback Wi-Fi password"
     default ""
+
+config PVDG_WIFI_PROVISION_ID
+    int "Wi-Fi provisioning id"
+    default 0
+    help
+      Increment this when a build should push its compiled-in Wi-Fi credentials
+      onto devices that already hold a stored configuration. The credentials are
+      applied once per new id, then left alone so operator changes persist.
 
 config PVDG_DEFAULT_ZLAN_HOST
     string "Default ZLAN5143D IP address"

@@ -1,9 +1,7 @@
 ﻿Executing action: all (aliases: build)
 Running ninja in directory D:\Working\esp32_firmware\build
 Executing "ninja all"...
-[1/9] Building C object esp-idf/main/CMakeFiles/__idf_main.dir/app_main.c.obj
-
-[2/9] Performing build step for 'bootloader'
+[1/9] Performing build step for 'bootloader'
 
 [1/1] C:\WINDOWS\system32\cmd.exe /C "cd /D D:\Working\esp32_firmware\build\bootloader && C:\Espressif\tools\python\v6.0.1\venv\Scripts\python.exe C:/esp/v6.0.1/esp-idf/components/partition_table/check_sizes.py --offset 0x8000 bootloader 0x0 D:/Working/esp32_firmware/build/bootloader/bootloader.bin"
 
@@ -12,11 +10,13 @@ Bootloader binary size 0x5240 bytes. 0x2dc0 bytes (36%) free.
 
 
 
-[3/9] Linking C static library esp-idf\main\libmain.a
+[2/9] Building C object esp-idf/modbus_tcp/CMakeFiles/__idf_modbus_tcp.dir/modbus_tcp.c.obj
 
-[4/9] No install step for 'bootloader'
+[3/9] No install step for 'bootloader'
 
-[5/9] Completed 'bootloader'
+[4/9] Completed 'bootloader'
+
+[5/9] Linking C static library esp-idf\modbus_tcp\libmodbus_tcp.a
 
 [6/9] Generating esp-idf/esp_system/ld/sections.ld
 
@@ -40,7 +40,7 @@ Generated D:/Working/esp32_firmware/build/automatrix_pvdg.bin
 
 [9/9] C:\WINDOWS\system32\cmd.exe /C "cd /D D:\Working\esp32_firmware\build && C:\Espressif\tools\python\v6.0.1\venv\Scripts\python.exe C:/esp/v6.0.1/esp-idf/components/partition_table/check_sizes.py --offset 0x8000 partition --type app D:/Working/esp32_firmware/build/partition_table/partition-table.bin D:/Working/esp32_firmware/build/automatrix_pvdg.bin"
 
-automatrix_pvdg.bin binary size 0xd2080 bytes. Smallest app partition is 0x300000 bytes. 0x22df80 bytes (73%) free.
+automatrix_pvdg.bin binary size 0xd2c80 bytes. Smallest app partition is 0x300000 bytes. 0x22d380 bytes (73%) free.
 
 
 

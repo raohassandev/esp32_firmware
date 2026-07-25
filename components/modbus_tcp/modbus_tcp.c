@@ -1,14 +1,15 @@
 #include "modbus_tcp.h"
 #include <stdio.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <string.h>
-#include "esp_log.h"
 #include "esp_timer.h"
 #include "lwip/inet.h"
 #include "lwip/netdb.h"
 #include "lwip/sockets.h"
 
-static const char *TAG = "modbus_tcp";
+/* This layer reports failures through esp_err_t only; the meter manager owns
+ * the rate-limited logging so repeated errors cannot flood the console. */
 
 static void put_u16(uint8_t *dst, uint16_t value)
 {
@@ -48,6 +49,53 @@ static esp_err_t recv_all(int fd, uint8_t *data, size_t length)
     return ESP_OK;
 }
 
+/* A blocking connect() ignores the endpoint timeout and can stall a meter task
+ * for the whole TCP SYN retry period when the gateway is unplugged, which both
+ * delays the offline status and starves the throttled error reporting. Drive it
+ * non-blocking and bound it with select() instead. */
+static esp_err_t connect_with_timeout(int fd, const struct sockaddr *addr, socklen_t len,
+                                      const struct timeval *timeout)
+{
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) return ESP_FAIL;
+
+    esp_err_t result = ESP_OK;
+    if (connect(fd, addr, len) != 0) {
+        if (errno == EHOSTUNREACH || errno == ENETUNREACH) {
+            result = ESP_ERR_INVALID_STATE;
+        } else if (errno != EINPROGRESS) {
+            result = ESP_FAIL;
+        } else {
+            fd_set writable;
+            FD_ZERO(&writable);
+            FD_SET(fd, &writable);
+            struct timeval remaining = *timeout;
+            int ready = select(fd + 1, NULL, &writable, NULL, &remaining);
+            if (ready == 0) {
+                result = ESP_ERR_TIMEOUT;
+            } else if (ready < 0) {
+                result = ESP_FAIL;
+            } else {
+                int so_error = 0;
+                socklen_t error_len = sizeof(so_error);
+                if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &so_error, &error_len) != 0) {
+                    result = ESP_FAIL;
+                } else if (so_error == EHOSTUNREACH || so_error == ENETUNREACH) {
+                    result = ESP_ERR_INVALID_STATE;
+                } else if (so_error == ETIMEDOUT) {
+                    result = ESP_ERR_TIMEOUT;
+                } else if (so_error != 0) {
+                    result = ESP_FAIL;
+                }
+            }
+        }
+    }
+
+    /* Restore blocking mode; the socket keeps SO_RCVTIMEO/SO_SNDTIMEO. */
+    if (result == ESP_OK && fcntl(fd, F_SETFL, flags) < 0) return ESP_FAIL;
+    return result;
+}
+
 static esp_err_t ensure_connected(modbus_connection_t *c)
 {
     if (c->socket_fd >= 0) return ESP_OK;
@@ -68,15 +116,13 @@ static esp_err_t ensure_connected(modbus_connection_t *c)
     };
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
-    if (connect(fd, result->ai_addr, result->ai_addrlen) != 0) {
-        esp_err_t err = (errno == EHOSTUNREACH || errno == ENETUNREACH) ? ESP_ERR_INVALID_STATE
-                        : (errno == EINPROGRESS || errno == ETIMEDOUT || errno == EAGAIN) ? ESP_ERR_TIMEOUT
-                        : ESP_FAIL;
+
+    esp_err_t err = connect_with_timeout(fd, result->ai_addr, result->ai_addrlen, &timeout);
+    freeaddrinfo(result);
+    if (err != ESP_OK) {
         close(fd);
-        freeaddrinfo(result);
         return err;
     }
-    freeaddrinfo(result);
     c->socket_fd = fd;
     return ESP_OK;
 }

@@ -5,7 +5,7 @@
 #include "modbus_types.h"
 
 #define APP_CONFIG_MAGIC 0x50564447u
-#define APP_CONFIG_VERSION 2u
+#define APP_CONFIG_VERSION 3u
 #define APP_MAX_METERS 4
 #define APP_MAX_INVERTERS 12
 
@@ -83,4 +83,10 @@ typedef struct {
     uint8_t inverter_count;
     inverter_config_t inverters[APP_MAX_INVERTERS];
     control_config_t control;
+    /* Identifies the build whose compiled-in Wi-Fi credentials were last
+     * applied. When a flashed build carries a different id, its credentials are
+     * written once and this is updated, so commissioning can hand a device new
+     * credentials without erasing NVS and without overriding what an operator
+     * later sets through the web UI. Kept last so older layouts stay a prefix. */
+    uint32_t wifi_provision_id;
 } app_config_t;

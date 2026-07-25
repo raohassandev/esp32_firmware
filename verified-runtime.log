@@ -1,6 +1,6 @@
 ESP-ROM:esp32s3-20210327
 Build:Mar 27 2021
-rst:0x15 (USB_UART_CHIP_RESET),boot:0xb (SPI_FAST_FLASH_BOOT)
+rst:0x15 (USB_UART_CHIP_RESET),boot:0x28 (SPI_FAST_FLASH_BOOT)
 Saved PC:0x4037b2ee
 SPIWP:0xee
 mode:DIO, clock div:1
@@ -12,7 +12,7 @@ I (24) boot: ESP-IDF v6.0.1 2nd stage bootloader
 I (24) boot: compile time Jul 25 2026 17:21:14
 I (25) boot: Multicore bootloader
 I (25) boot: chip revision: v0.2
-I (27) boot: efuse block revision: v1.3
+I (28) boot: efuse block revision: v1.3
 I (31) boot.esp32s3: Boot SPI Speed : 80MHz
 I (35) boot.esp32s3: SPI Mode       : DIO
 I (39) boot.esp32s3: SPI Flash Size : 16MB
@@ -20,119 +20,97 @@ I (43) boot: Enabling RNG early entropy source...
 I (47) boot: Partition Table:
 I (50) boot: ## Label            Usage          Type ST Offset   Length
 I (56) boot:  0 nvs              WiFi data        01 02 00009000 00006000
-I (62) boot:  1 otadata          OTA data         01 00 0000f000 00002000
+I (63) boot:  1 otadata          OTA data         01 00 0000f000 00002000
 I (69) boot:  2 phy_init         RF data          01 01 00011000 00001000
-I (75) boot:  3 ota_0            OTA app          00 10 00020000 00300000
+I (76) boot:  3 ota_0            OTA app          00 10 00020000 00300000
 I (82) boot:  4 ota_1            OTA app          00 11 00320000 00300000
 I (89) boot:  5 storage          Unknown data     01 82 00620000 001e0000
 I (95) boot: End of partition table
-I (98) esp_image: segment 0: paddr=00020020 vaddr=3c0a0020 size=211bch (135612) map
-I (130) esp_image: segment 1: paddr=000411e4 vaddr=3fc97800 size=05080h ( 20608) load
-I (135) esp_image: segment 2: paddr=0004626c vaddr=40374000 size=09dach ( 40364) load
-I (144) esp_image: segment 3: paddr=00050020 vaddr=42000020 size=98714h (624404) map
-I (256) esp_image: segment 4: paddr=000e873c vaddr=4037ddac size=09a28h ( 39464) load
-I (266) esp_image: segment 5: paddr=000f216c vaddr=50000000 size=00024h (    36) load
-I (274) boot: Loaded app from partition at offset 0x20000
+I (99) esp_image: segment 0: paddr=00020020 vaddr=3c0a0020 size=212dch (135900) map
+I (130) esp_image: segment 1: paddr=00041304 vaddr=3fc97800 size=05080h ( 20608) load
+I (135) esp_image: segment 2: paddr=0004638c vaddr=40374000 size=09c8ch ( 40076) load
+I (144) esp_image: segment 3: paddr=00050020 vaddr=42000020 size=990bch (626876) map
+I (257) esp_image: segment 4: paddr=000e90e4 vaddr=4037dc8c size=09b48h ( 39752) load
+I (266) esp_image: segment 5: paddr=000f2c34 vaddr=50000000 size=00024h (    36) load
+I (275) boot: Loaded app from partition at offset 0x20000
 I (275) boot: Disabling RNG early entropy source...
 I (285) cpu_start: Multicore app
-I (293) cpu_start: GPIO 44 and 43 are used as console UART I/O pins
-I (294) cpu_start: Pro cpu start user code
-I (294) cpu_start: cpu freq: 240000000 Hz
+I (294) cpu_start: GPIO 44 and 43 are used as console UART I/O pins
+I (295) cpu_start: Pro cpu start user code
+I (295) cpu_start: cpu freq: 240000000 Hz
 I (296) app_init: Application information:
-I (299) app_init: Project name:     automatrix_pvdg
-I (304) app_init: App version:      9043f92-dirty
-I (308) app_init: Compile time:     Jul 25 2026 17:20:59
-I (313) app_init: ELF file SHA256:  53071f2c4...
+I (300) app_init: Project name:     automatrix_pvdg
+I (305) app_init: App version:      00cf149-dirty
+I (309) app_init: Compile time:     Jul 25 2026 21:56:01
+I (314) app_init: ELF file SHA256:  73853d7bc...
 I (318) app_init: ESP-IDF:          v6.0.1
 I (322) efuse_init: Min chip rev:     v0.0
-I (325) efuse_init: Max chip rev:     v0.99 
-I (329) efuse_init: Chip rev:         v0.2
-I (333) heap_init: Initializing. RAM available for dynamic allocation:
+I (326) efuse_init: Max chip rev:     v0.99 
+I (330) efuse_init: Chip rev:         v0.2
+I (334) heap_init: Initializing. RAM available for dynamic allocation:
 I (340) heap_init: At 3FCA27B0 len 00046F60 (283 KiB): RAM
 I (345) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM
 I (350) heap_init: At 3FCF0000 len 00008000 (32 KiB): DRAM
-I (355) heap_init: At 600FE000 len 00001FE8 (7 KiB): RTCRAM
-I (361) spi_flash: detected chip: boya
+I (356) heap_init: At 600FE000 len 00001FE8 (7 KiB): RTCRAM
+I (362) spi_flash: detected chip: boya
 I (364) spi_flash: flash io: dio
-I (367) sleep_gpio: Configure to isolate all GPIO pins in sleep state
-I (373) sleep_gpio: Enable automatic switching of GPIO sleep configuration
-I (380) main_task: Started on CPU0
-I (390) main_task: Calling app_main()
-I (390) app_core: Initializing configuration
-I (410) app_core: Initializing network
-I (410) wifi_manager: Profiles: primary 'Rao-EXT', fallback 'Rao1', recovery AP 'Automatrix-PVDG-Setup'
-I (410) pp: pp rom version: e7ae62f
-I (410) net80211: net80211 rom version: e7ae62f
-I (420) main_task: Returned from app_main()
-I (430) wifi:wifi driver task: 3fcaa3a4, prio:23, stack:6656, core=0
-I (440) wifi:wifi firmware version: b37c951
-I (440) wifi:wifi certification version: v7.0
-I (440) wifi:config NVS flash: enabled
-I (440) wifi:config nano formatting: disabled
-I (440) wifi:Init data frame dynamic rx buffer num: 32
-I (450) wifi:Init static rx mgmt buffer num: 5
-I (450) wifi:Init management short buffer num: 32
-I (460) wifi:Init dynamic tx buffer num: 32
-I (460) wifi:Init static tx FG buffer num: 2
-I (470) wifi:Init static rx buffer size: 1600
-I (470) wifi:Init static rx buffer num: 10
-I (470) wifi:Init dynamic rx buffer num: 32
-I (480) wifi_init: rx ba win: 6
-I (480) wifi_init: accept mbox: 6
-I (480) wifi_init: tcpip mbox: 32
-I (490) wifi_init: udp mbox: 6
-I (490) wifi_init: tcp mbox: 6
-I (490) wifi_init: tcp tx win: 5760
-I (490) wifi_init: tcp rx win: 5760
-I (500) wifi_init: tcp mss: 1440
-I (500) wifi_init: WiFi IRAM OP enabled
-I (500) wifi_init: WiFi RX IRAM OP enabled
-I (510) phy_init: phy_version 711,97bcf0a2,Aug 25 2025,19:04:10
-I (550) wifi:mode : sta (3c:0f:02:d9:8e:1c)
-I (550) wifi:enable tsf
-I (550) app_main: Bootstrap stack headroom: 10492 bytes of 12288; free heap 249616 bytes (min 249616)
-I (550) app_main: PV-DG controller started
-I (5050) wifi_manager: Scan found 13 APs; primary 'Rao-EXT' not visible, fallback 'Rao1' visible
-W (5050) wifi_manager: Primary SSID 'Rao-EXT' not visible in scan; attempting it anyway
-W (5050) wifi:Password length matches WPA2 standards, authmode threshold changes from OPEN to WPA2
-I (5060) wifi_manager: Connecting to primary SSID 'Rao-EXT' using DHCP
-W (7480) wifi_manager: Disconnected from primary profile, reason=201; retry 1/5
-W (9890) wifi_manager: Disconnected from primary profile, reason=201; retry 2/5
-W (12300) wifi_manager: Disconnected from primary profile, reason=201; retry 3/5
-W (14710) wifi_manager: Disconnected from primary profile, reason=201; retry 4/5
-W (17130) wifi_manager: Disconnected from primary profile, reason=201; retry 5/5
-W (19540) wifi_manager: Primary profile exhausted 5 attempts (last reason=201); switching to fallback SSID 'Rao1'
-I (19540) wifi_manager: Connecting to fallback SSID 'Rao1' using DHCP
-W (21960) wifi_manager: Disconnected from fallback profile, reason=210; retry 1/5
-W (24370) wifi_manager: Disconnected from fallback profile, reason=210; retry 2/5
-W (26780) wifi_manager: Disconnected from fallback profile, reason=210; retry 3/5
-W (29190) wifi_manager: Disconnected from fallback profile, reason=210; retry 4/5
-W (31600) wifi_manager: Disconnected from fallback profile, reason=210; retry 5/5
-W (34020) wifi_manager: All configured STA profiles exhausted (last reason=210); enabling recovery AP
-I (34020) wifi:mode : sta (3c:0f:02:d9:8e:1c) + softAP (3c:0f:02:d9:8e:1d)
-I (34020) wifi:Total power save buffer number: 16
-I (34030) wifi:Init max length of beacon: 752/752
-I (34030) wifi:Init max length of beacon: 752/752
-I (34100) wifi:Total power save buffer number: 16
-W (34110) wifi_manager: No configured STA available; setup AP 'Automatrix-PVDG-Setup' is active
-I (34110) wifi_manager: Recovery AP 'Automatrix-PVDG-Setup' serving on 192.168.4.1 (radio mode 3); next STA sweep in 30000 ms
-I (34110) esp_netif_lwip: DHCP server started on interface WIFI_AP_DEF with IP: 192.168.4.1
-I (34130) esp_netif_lwip: DHCP server started on interface WIFI_AP_DEF with IP: 192.168.4.1
-I (67020) wifi_manager: Scan found 12 APs; primary 'Rao-EXT' not visible, fallback 'Rao1' visible
-I (67020) wifi_manager: Connecting to fallback SSID 'Rao1' using DHCP
-W (69860) wifi_manager: Disconnected from fallback profile, reason=210; retry 1/5
-W (72690) wifi_manager: Disconnected from fallback profile, reason=210; retry 2/5
-W (75530) wifi_manager: Disconnected from fallback profile, reason=210; retry 3/5
-W (78370) wifi_manager: Disconnected from fallback profile, reason=210; retry 4/5
-W (81200) wifi_manager: Disconnected from fallback profile, reason=210; retry 5/5
-W (84040) wifi_manager: All configured STA profiles exhausted (last reason=210); enabling recovery AP
-I (84040) wifi_manager: Recovery AP 'Automatrix-PVDG-Setup' serving on 192.168.4.1 (radio mode 3); next STA sweep in 60000 ms
-I (146950) wifi_manager: Scan found 15 APs; primary 'Rao-EXT' not visible, fallback 'Rao1' visible
-I (146950) wifi_manager: Connecting to fallback SSID 'Rao1' using DHCP
-W (149790) wifi_manager: Disconnected from fallback profile, reason=210; retry 1/5
-W (152620) wifi_manager: Disconnected from fallback profile, reason=210; retry 2/5
-W (155460) wifi_manager: Disconnected from fallback profile, reason=210; retry 3/5
-W (158300) wifi_manager: Disconnected from fallback profile, reason=210; retry 4/5
-W (161130) wifi_manager: Disconnected from fallback profile, reason=210; retry 5/5
-W (163970) wifi_manager: All configured STA profiles exhausted (last reason=210); enabling recovery AP
-I (163970) wifi_manager: Recovery AP 'Automatrix-PVDG-Setup' serving on 192.168.4.1 (radio mode 3); next STA sweep in 120000 ms
+I (368) sleep_gpio: Configure to isolate all GPIO pins in sleep state
+I (374) sleep_gpio: Enable automatic switching of GPIO sleep configuration
+I (381) main_task: Started on CPU0
+I (391) main_task: Calling app_main()
+I (391) app_core: Initializing configuration
+I (411) app_core: Initializing network
+I (411) wifi_manager: Profiles: primary 'Rao', fallback 'Rao1', recovery AP 'Automatrix-PVDG-Setup'
+I (411) pp: pp rom version: e7ae62f
+I (411) net80211: net80211 rom version: e7ae62f
+I (421) main_task: Returned from app_main()
+I (431) wifi:wifi driver task: 3fcaa3a4, prio:23, stack:6656, core=0
+I (441) wifi:wifi firmware version: b37c951
+I (441) wifi:wifi certification version: v7.0
+I (441) wifi:config NVS flash: enabled
+I (441) wifi:config nano formatting: disabled
+I (441) wifi:Init data frame dynamic rx buffer num: 32
+I (451) wifi:Init static rx mgmt buffer num: 5
+I (451) wifi:Init management short buffer num: 32
+I (461) wifi:Init dynamic tx buffer num: 32
+I (461) wifi:Init static tx FG buffer num: 2
+I (471) wifi:Init static rx buffer size: 1600
+I (471) wifi:Init static rx buffer num: 10
+I (471) wifi:Init dynamic rx buffer num: 32
+I (481) wifi_init: rx ba win: 6
+I (481) wifi_init: accept mbox: 6
+I (481) wifi_init: tcpip mbox: 32
+I (491) wifi_init: udp mbox: 6
+I (491) wifi_init: tcp mbox: 6
+I (491) wifi_init: tcp tx win: 5760
+I (491) wifi_init: tcp rx win: 5760
+I (501) wifi_init: tcp mss: 1440
+I (501) wifi_init: WiFi IRAM OP enabled
+I (501) wifi_init: WiFi RX IRAM OP enabled
+I (511) phy_init: phy_version 711,97bcf0a2,Aug 25 2025,19:04:10
+I (611) phy_init: Saving new calibration data due to checksum failure or outdated calibration data, mode(0)
+I (621) wifi:mode : sta (3c:0f:02:d9:8e:1c)
+I (621) wifi:enable tsf
+I (631) app_main: Bootstrap stack headroom: 10492 bytes of 12288; free heap 249616 bytes (min 249616)
+I (631) app_main: PV-DG controller started
+I (5131) wifi_manager: Scan found 6 APs; primary 'Rao' visible, fallback 'Rao1' not visible
+W (5131) wifi:Password length matches WPA2 standards, authmode threshold changes from OPEN to WPA2
+I (5131) wifi_manager: Connecting to primary SSID 'Rao' using DHCP
+I (7611) wifi:new:<2,1>, old:<1,0>, ap:<255,255>, sta:<2,1>, prof:1, snd_ch_cfg:0x0
+I (7621) wifi:state: init -> auth (0xb0)
+I (7641) wifi:state: auth -> assoc (0x0)
+I (7651) wifi:state: assoc -> run (0x10)
+I (8661) wifi:connected with Rao, aid = 6, channel 2, 40U, bssid = e4:fa:c4:82:8f:48
+I (8661) wifi:security: WPA2-PSK, phy: bgn, rssi: -55, cipher(pairwise:0x3, group:0x3), pmf:0
+I (8661) wifi:pm start, type: 1
+
+I (8671) wifi:dp: 1, bi: 102400, li: 3, scale listen interval from 307200 us to 307200 us
+I (8671) wifi:set rx beacon pti, rx_bcn_pti: 0, bcn_timeout: 25000, mt_pti: 0, mt_time: 10000
+I (8711) wifi:AP's beacon interval = 102400 us, DTIM period = 1
+I (10921) wifi:<ba-add>idx:0 (ifx:0, e4:fa:c4:82:8f:48), tid:0, ssn:161, winSize:64
+I (13451) esp_netif_handlers: sta ip: 192.168.0.110, mask: 255.255.255.0, gw: 192.168.0.1
+I (13451) wifi_manager: Ready: SSID=Rao IP=192.168.0.110 GW=192.168.0.1 MASK=255.255.255.0 RSSI=-56
+W (13961) meters: Grid Meter: TCP timeout, no response (ESP_ERR_TIMEOUT) reading 192.168.0.200:502 [failure 1]
+W (36001) meters: Grid Meter: TCP timeout, no response (ESP_ERR_TIMEOUT) reading 192.168.0.200:502 [failure 30]
+W (58801) meters: Grid Meter: TCP timeout, no response (ESP_ERR_TIMEOUT) reading 192.168.0.200:502 [failure 60]
+W (81601) meters: Grid Meter: TCP timeout, no response (ESP_ERR_TIMEOUT) reading 192.168.0.200:502 [failure 90]

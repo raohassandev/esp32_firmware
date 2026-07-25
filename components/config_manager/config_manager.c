@@ -33,6 +33,23 @@ typedef struct {
     control_config_t control;
 } legacy_app_config_v1_t;
 
+/* Schema 2 is the current layout without the trailing provisioning id, so it is
+ * an exact prefix of app_config_t and migrates with a single copy. */
+typedef struct {
+    uint32_t magic;
+    uint16_t version;
+    char device_name[32];
+    app_wifi_config_t wifi;
+    uint8_t meter_count;
+    meter_config_t meters[APP_MAX_METERS];
+    uint8_t inverter_count;
+    inverter_config_t inverters[APP_MAX_INVERTERS];
+    control_config_t control;
+} legacy_app_config_v2_t;
+
+_Static_assert(sizeof(app_config_t) == sizeof(legacy_app_config_v2_t) + sizeof(uint32_t),
+               "schema 2 must remain a byte-exact prefix of the current layout");
+
 static void defaults(app_config_t *c)
 {
     memset(c, 0, sizeof(*c));
@@ -41,8 +58,8 @@ static void defaults(app_config_t *c)
     strlcpy(c->device_name, CONFIG_PVDG_DEVICE_NAME, sizeof(c->device_name));
 
     c->wifi.primary.enabled = true;
-    strlcpy(c->wifi.primary.ssid, "Rao-EXT", sizeof(c->wifi.primary.ssid));
-    strlcpy(c->wifi.primary.password, CONFIG_PVDG_DEFAULT_WIFI_PASSWORD, sizeof(c->wifi.primary.password));
+    strlcpy(c->wifi.primary.ssid, CONFIG_PVDG_PRIMARY_WIFI_SSID, sizeof(c->wifi.primary.ssid));
+    strlcpy(c->wifi.primary.password, CONFIG_PVDG_PRIMARY_WIFI_PASSWORD, sizeof(c->wifi.primary.password));
     c->wifi.primary.ip_mode = APP_WIFI_IP_DHCP;
 
     const char *default_ssid = CONFIG_PVDG_DEFAULT_WIFI_SSID;
@@ -94,6 +111,37 @@ static void defaults(app_config_t *c)
     c->control.ramp_down_percent_per_second = 20.0f;
     c->control.interval_ms = 250;
     c->control.meter_stale_timeout_ms = 3000;
+
+    c->wifi_provision_id = CONFIG_PVDG_WIFI_PROVISION_ID;
+}
+
+/* Applies the credentials compiled into this build, once per provisioning id.
+ * Returns true when the configuration was changed and must be persisted. */
+static bool apply_build_provisioning(app_config_t *c)
+{
+    if (c->wifi_provision_id == CONFIG_PVDG_WIFI_PROVISION_ID) return false;
+
+    const char *ssid = CONFIG_PVDG_PRIMARY_WIFI_SSID;
+    if (!ssid[0]) {
+        c->wifi_provision_id = CONFIG_PVDG_WIFI_PROVISION_ID;
+        return true;
+    }
+
+    strlcpy(c->wifi.primary.ssid, ssid, sizeof(c->wifi.primary.ssid));
+    strlcpy(c->wifi.primary.password, CONFIG_PVDG_PRIMARY_WIFI_PASSWORD, sizeof(c->wifi.primary.password));
+    c->wifi.primary.enabled = true;
+    c->wifi.primary.ip_mode = APP_WIFI_IP_DHCP;
+
+    const char *fallback_ssid = CONFIG_PVDG_DEFAULT_WIFI_SSID;
+    strlcpy(c->wifi.fallback.ssid, fallback_ssid, sizeof(c->wifi.fallback.ssid));
+    strlcpy(c->wifi.fallback.password, CONFIG_PVDG_DEFAULT_WIFI_PASSWORD, sizeof(c->wifi.fallback.password));
+    c->wifi.fallback.enabled = fallback_ssid[0] != '\0' && strcmp(fallback_ssid, ssid) != 0;
+
+    c->wifi_provision_id = CONFIG_PVDG_WIFI_PROVISION_ID;
+    ESP_LOGW(TAG, "Applied build provisioning %d: primary SSID '%s', fallback '%s'%s",
+             CONFIG_PVDG_WIFI_PROVISION_ID, c->wifi.primary.ssid,
+             c->wifi.fallback.ssid, c->wifi.fallback.enabled ? "" : " (disabled)");
+    return true;
 }
 
 static bool profile_valid(const app_wifi_sta_profile_t *p)
@@ -170,6 +218,22 @@ esp_err_t config_manager_init(void)
             have_valid_config = err == ESP_OK && valid(loaded);
             stored_matches = have_valid_config;
             if (!have_valid_config) ESP_LOGW(TAG, "Stored configuration rejected by validation");
+        } else if (err == ESP_OK && stored_size == sizeof(legacy_app_config_v2_t)) {
+            legacy_app_config_v2_t *legacy = malloc(sizeof(*legacy));
+            if (legacy) {
+                size_t size = sizeof(*legacy);
+                if (nvs_get_blob(h, KEY, legacy, &size) == ESP_OK &&
+                    legacy->magic == APP_CONFIG_MAGIC && legacy->version == 2) {
+                    memcpy(loaded, legacy, sizeof(*legacy));
+                    loaded->version = APP_CONFIG_VERSION;
+                    loaded->wifi_provision_id = 0;
+                    loaded->control.enabled = false;
+                    have_valid_config = valid(loaded);
+                    if (have_valid_config) ESP_LOGI(TAG, "Migrated configuration schema 2 to schema %u", APP_CONFIG_VERSION);
+                    else ESP_LOGW(TAG, "Schema 2 migration produced an invalid configuration; discarding it");
+                }
+                free(legacy);
+            }
         } else if (err == ESP_OK && stored_size == sizeof(legacy_app_config_v1_t)) {
             legacy_app_config_v1_t *legacy = malloc(sizeof(*legacy));
             if (legacy) {
@@ -193,6 +257,8 @@ esp_err_t config_manager_init(void)
         defaults(loaded);
         ESP_LOGW(TAG, "No valid stored configuration; safe defaults loaded (primary SSID '%s')",
                  loaded->wifi.primary.ssid);
+    } else if (apply_build_provisioning(loaded)) {
+        stored_matches = false;
     }
 
     set_active(loaded);

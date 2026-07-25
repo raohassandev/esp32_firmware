@@ -174,7 +174,79 @@ reused. Configuration persistence across restart is confirmed, and the profile s
 byte-identical to the first boot. `Rao-EXT` is again attempted before `Rao1`, and no password
 string appears in the capture.
 
-## 9. Connected SSID / obtained IP — externally blocked
+## 9a. Network validation completed with supplied credentials
+
+After the operator supplied working credentials (SSID `Rao`), the controller was commissioned
+and the full network path validated.
+
+Because erasing NVS was not permitted in this environment and the device had no network to
+receive a configuration over, a **one-shot provisioning id** was added
+(`CONFIG_PVDG_WIFI_PROVISION_ID`). When a flashed build carries an id different from the stored
+one, its compiled-in Wi-Fi credentials are written once and the id recorded; afterwards the
+stored configuration wins, so operator changes made through the web UI are never overwritten by
+a reflash. The password itself lives only in the gitignored `sdkconfig`, never in git.
+
+Applying it also exercised the migration path: the stored schema-2 blob was migrated to schema 3
+and the operator's existing settings survived intact — `/api/config` still reports
+`active_power_address: 58`, `scale: 0.01`, `poll_ms: 250` and `grid_import_target_kw: 50`, none
+of which are defaults. Only the Wi-Fi credentials changed.
+
+**Connected SSID `Rao`, IP `192.168.0.110`, gateway `192.168.0.1`, netmask `255.255.255.0`,
+RSSI −56 dBm:**
+
+```
+I (5050) wifi_manager: Scan found 3 APs; primary 'Rao' visible, fallback 'Rao1' not visible
+I (5050) wifi_manager: Connecting to primary SSID 'Rao' using DHCP
+I (9650) wifi_manager: Ready: SSID=Rao IP=192.168.0.110 GW=192.168.0.1 MASK=255.255.255.0 RSSI=-56
+```
+
+Restart was exercised through the API (`POST /api/system/restart` → `{"restarting":true}`), which
+produced a clean `rst:0xc (RTC_SW_CPU_RST)`. On the following boot the stored configuration was
+reused with **no** defaults warning and **no** re-provisioning, and the device reconnected to
+`Rao` with the same IP in 9.6 s. Persistence is confirmed end to end.
+
+### Defect found and fixed during this validation
+
+The meter reported only two errors in 42 seconds and logged none of them. Root cause:
+`ensure_connected()` used a **blocking `connect()`**, which ignores `endpoint.timeout_ms` and
+stalls for the whole TCP SYN retry period when the gateway is unplugged — delaying the offline
+status and starving the throttled reporting. `connect()` is now non-blocking and bounded with
+`select()`. The meter now fails within ~510 ms of network-ready, honouring the 500 ms timeout,
+and throttling behaves exactly as designed (first failure, then every thirtieth):
+
+```
+I (13451) wifi_manager: Ready: SSID=Rao IP=192.168.0.110 ...
+W (13961) meters: Grid Meter: TCP timeout, no response (ESP_ERR_TIMEOUT) reading 192.168.0.200:502 [failure 1]
+W (36001) meters: ... [failure 30]
+W (58801) meters: ... [failure 60]
+W (81601) meters: ... [failure 90]
+```
+
+### Web API verified over the LAN
+
+The controller landed on the same subnet as the engineering PC, so the API was exercised
+directly:
+
+- `GET /` → `200`, 11,427 bytes, `text/html; charset=utf-8`.
+- `GET /api/status` → correct SSID, IP, gateway, netmask, RSSI, `using_fallback_sta:false`,
+  `fallback_ap_active:false`, `control_enabled:false`, and
+  `alarm_names:["Meter offline","Meter data stale"]` rather than a bare hex mask.
+- `GET /api/config` → `schema: 3`, `primary.password: "********"`,
+  `fallback_ap_password: "********"`; the empty fallback password correctly stays `""`.
+- `POST /api/system/restart` → `{"restarting":true}`.
+
+`meter_stale: true` with `meter_has_data: false` means the UI shows **Unavailable** rather than a
+misleading `0.00 kW`, which was the required behaviour.
+
+### Remaining item: the ZLAN gateway
+
+The meter still cannot be read, but this is external and confirmed: `192.168.0.200:502` is now
+unreachable **from this PC as well** (`Test-NetConnection` → `False`), matching the operator's
+note that the ZLAN is currently powered down. The firmware classifies it correctly as
+`TCP timeout, no response`, keeps the meter marked offline and stale, and issues no inverter
+commands.
+
+## 9b. Original blocker, for the record — superseded
 
 **No STA association was achieved, for an external reason that is proven by the logs.**
 
@@ -252,16 +324,15 @@ every thirtieth.
 
 ## 14. Remaining external blocker
 
-Valid credentials for a Wi-Fi network that is actually in range of the bench. Until then the
-controller correctly ends every sweep in recovery-AP mode with bounded backoff, which is the
-designed and safe outcome — not a fault.
+Only one: **the ZLAN Modbus TCP gateway at `192.168.0.200:502` is powered down**, confirmed
+unreachable from the engineering PC as well as from the controller. Everything on the firmware
+side of that link is implemented and exercised — the failure is classified as a TCP timeout,
+rate-limited, and reflected as offline/stale in the API and UI. Once the gateway is powered up,
+the meter should read without any firmware change; if it lands on a different subnet the
+cross-subnet diagnostic will print the local IP, netmask and gateway in use.
 
-To close out the outstanding items (`connected SSID`, `obtained IP`, live `/api/status` and
-`/api/config` responses, and the Modbus path) exactly one of these is needed:
-
-1. The real password for `Rao1`, or `Rao-EXT` brought within range of the bench; or
-2. Approval to briefly connect this PC to `Automatrix-PVDG-Setup` (which drops the PC's own
-   network for the duration), after which the API can be queried at `http://192.168.4.1`.
+Note that the earlier Wi-Fi blocker is resolved: with the supplied credentials the controller
+associates with `Rao` and is fully reachable.
 
 ## 15. Acceptance criteria status
 
@@ -274,14 +345,14 @@ To close out the outstanding items (`connected SSID`, `obtained IP`, live `/api/
 | No configuration init failure | Pass |
 | No reboot loop ≥ 60 s | Pass (240 s, 1 intentional reset) |
 | `Rao-EXT` attempted before `Rao1` | Pass |
-| Connected SSID logged | Blocked — no association possible (§9) |
-| Obtained IP / gateway / netmask logged | Blocked — same cause |
+| Connected SSID logged | Pass — `Rao` |
+| Obtained IP / gateway / netmask logged | Pass — 192.168.0.110 / .1 / 255.255.255.0 |
 | Password never printed | Pass |
 | Config survives restart | Pass |
 | Meter task waits for network-ready | Pass (0 meter polls while offline) |
-| Repeated meter failures rate-limited | Implemented; not exercised (no link) |
-| Web server responds | Starts successfully; not reachable without an IP |
-| API masks passwords | Verified by code inspection, not over the wire |
+| Repeated meter failures rate-limited | Pass — failures 1, 30, 60, 90 |
+| Web server responds | Pass — `GET /` 200, 11,427 bytes |
+| API masks passwords | Pass — verified over the wire |
 | Automatic inverter control disabled | Pass |
 | Runtime log saved in repo | Pass |
 | Git diff reviewed | Pass |
