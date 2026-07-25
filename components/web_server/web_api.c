@@ -1,9 +1,12 @@
 #include "web_api.h"
 #include "esp_check.h"
+#include "esp_system.h"
 #include <stdlib.h>
 #include "cJSON.h"
 #include "config_manager.h"
 #include "control_engine.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "meter_manager.h"
 #include "network_manager.h"
 #include "safety_manager.h"
@@ -101,13 +104,30 @@ static esp_err_t wifi_rescan_post(httpd_req_t *request)
     return httpd_resp_sendstr(request, "{\"accepted\":true}");
 }
 
+static void restart_task(void *argument)
+{
+    (void)argument;
+    vTaskDelay(pdMS_TO_TICKS(700));
+    esp_restart();
+}
+
+static esp_err_t restart_post(httpd_req_t *request)
+{
+    if (xTaskCreate(restart_task, "api_restart", 2048, NULL, 5, NULL) != pdPASS) {
+        return httpd_resp_send_err(request, HTTPD_500_INTERNAL_SERVER_ERROR, "Restart scheduling failed");
+    }
+    httpd_resp_set_type(request, "application/json");
+    return httpd_resp_sendstr(request, "{\"restarting\":true}");
+}
+
 esp_err_t web_api_register(httpd_handle_t server)
 {
     const httpd_uri_t handlers[] = {
         {.uri = "/api/status", .method = HTTP_GET, .handler = status_get},
         {.uri = "/api/config", .method = HTTP_GET, .handler = config_get},
         {.uri = "/api/config", .method = HTTP_POST, .handler = config_post},
-        {.uri = "/api/wifi/rescan", .method = HTTP_POST, .handler = wifi_rescan_post}
+        {.uri = "/api/wifi/rescan", .method = HTTP_POST, .handler = wifi_rescan_post},
+        {.uri = "/api/system/restart", .method = HTTP_POST, .handler = restart_post}
     };
 
     for (size_t i = 0; i < sizeof(handlers) / sizeof(handlers[0]); ++i) {
