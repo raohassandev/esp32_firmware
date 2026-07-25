@@ -1,34 +1,85 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Automatrix PV-DG Controller</title>
 <style>
-:root{font-family:Arial,sans-serif;color:#eaf0f8;background:#08182b;--panel:#10243d;--line:#29425f;--orange:#f58b28;--muted:#9fb0c5}*{box-sizing:border-box}body{margin:0}.shell{max-width:1120px;margin:auto;padding:24px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}.brand{font-size:22px;font-weight:700}.brand span{color:var(--orange)}.badge{padding:7px 11px;border:1px solid var(--line);border-radius:999px;color:var(--muted)}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.card,.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}.label{color:var(--muted);font-size:12px;text-transform:uppercase}.value{font-size:28px;font-weight:700;margin-top:8px}.panel{margin-top:14px}.panel h2{margin:0 0 14px;font-size:17px}.form{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}label{display:block;color:var(--muted);font-size:12px}input{width:100%;margin-top:6px;padding:10px;border-radius:7px;border:1px solid var(--line);background:#08182b;color:#fff}button{border:0;border-radius:7px;padding:10px 15px;font-weight:700;cursor:pointer}.primary{background:var(--orange);color:#111}.secondary{background:#263d59;color:#fff}.actions{display:flex;gap:10px;margin-top:15px}.status{margin-left:auto;color:var(--muted)}textarea{width:100%;min-height:180px;background:#08182b;color:#dce8f7;border:1px solid var(--line);border-radius:8px;padding:12px}@media(max-width:760px){.grid,.form{grid-template-columns:1fr 1fr}}@media(max-width:480px){.grid,.form{grid-template-columns:1fr}.top{align-items:flex-start;gap:10px;flex-direction:column}}
+:root{font-family:Arial,sans-serif;color:#eaf0f8;background:#08182b;--panel:#10243d;--line:#29425f;--orange:#f58b28;--muted:#9fb0c5;--good:#68d391;--bad:#fc8181}*{box-sizing:border-box}body{margin:0}.shell{max-width:1180px;margin:auto;padding:24px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}.brand{font-size:22px;font-weight:700}.brand span{color:var(--orange)}.badge{padding:7px 11px;border:1px solid var(--line);border-radius:999px;color:var(--muted)}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.card,.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}.label{color:var(--muted);font-size:12px;text-transform:uppercase}.value{font-size:24px;font-weight:700;margin-top:8px;word-break:break-word}.small{font-size:13px;color:var(--muted);margin-top:6px}.panel{margin-top:14px}.panel h2{margin:0 0 14px;font-size:17px}.panel h3{font-size:15px;margin:18px 0 10px}.form{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}label{display:block;color:var(--muted);font-size:12px}input,select{width:100%;margin-top:6px;padding:10px;border-radius:7px;border:1px solid var(--line);background:#08182b;color:#fff}input[type=checkbox]{width:auto;margin-right:8px}.check{display:flex;align-items:center;padding-top:20px}.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:15px}button{border:0;border-radius:7px;padding:10px 15px;font-weight:700;cursor:pointer}.primary{background:var(--orange);color:#111}.secondary{background:#263d59;color:#fff}.danger{background:#7f1d1d;color:#fff}.status{margin-left:auto;color:var(--muted);align-self:center}textarea{width:100%;min-height:230px;background:#08182b;color:#dce8f7;border:1px solid var(--line);border-radius:8px;padding:12px}.good{color:var(--good)}.bad{color:var(--bad)}@media(max-width:820px){.grid,.form{grid-template-columns:1fr 1fr}}@media(max-width:520px){.grid,.form{grid-template-columns:1fr}.top{align-items:flex-start;gap:10px;flex-direction:column}.status{margin-left:0;width:100%}}
 </style>
 </head>
 <body><div class="shell">
 <div class="top"><div class="brand">AUTOMATRIX <span>PV-DG</span></div><div class="badge" id="connection">Connecting…</div></div>
 <div class="grid">
-<div class="card"><div class="label">Grid power</div><div class="value" id="grid">-- kW</div></div>
-<div class="card"><div class="label">PV command</div><div class="value" id="pv">-- kW</div></div>
-<div class="card"><div class="label">Control mode</div><div class="value" id="mode">--</div></div>
-<div class="card"><div class="label">Alarms</div><div class="value" id="alarms">--</div></div>
+<div class="card"><div class="label">Wi-Fi network</div><div class="value" id="currentSsid">--</div><div class="small" id="wifiRole">--</div></div>
+<div class="card"><div class="label">Controller IP</div><div class="value" id="currentIp">--</div><div class="small" id="networkDetail">--</div></div>
+<div class="card"><div class="label">Grid power</div><div class="value" id="grid">Unavailable</div><div class="small" id="meterState">Meter offline</div></div>
+<div class="card"><div class="label">Control state</div><div class="value" id="mode">--</div><div class="small" id="alarms">--</div></div>
 </div>
-<div class="panel"><h2>Quick configuration</h2><div class="form">
-<label>Wi-Fi SSID<input id="ssid"></label><label>ZLAN IP<input id="zlan"></label><label>ZLAN port<input id="zport" type="number"></label>
-<label>Meter unit ID<input id="unit" type="number"></label><label>Power register<input id="address" type="number"></label><label>Power scale<input id="scale" type="number" step="0.001"></label>
-<label>Grid import target kW<input id="target" type="number" step="0.1"></label><label>Deadband kW<input id="deadband" type="number" step="0.1"></label><label>Control interval ms<input id="interval" type="number"></label>
-</div><div class="actions"><button class="primary" onclick="saveQuick()">Save configuration</button><button class="secondary" onclick="exportConfig()">Export JSON</button><span class="status" id="message"></span></div></div>
-<div class="panel"><h2>Import / advanced JSON</h2><textarea id="json"></textarea><div class="actions"><button class="primary" onclick="importConfig()">Validate and save</button><button class="secondary" onclick="loadConfig()">Reload</button></div></div>
+
+<div class="panel">
+<h2>Wi-Fi Manager</h2>
+<h3>Primary station</h3>
+<div class="form">
+<label class="check"><input id="pEnabled" type="checkbox">Enabled</label>
+<label>SSID<input id="pSsid"></label>
+<label>Password<input id="pPassword" type="password" placeholder="Leave blank to preserve"></label>
+<label>IP mode<select id="pMode"><option value="0">DHCP</option><option value="1">Static IP</option></select></label>
+<label>Static IP<input id="pIp" placeholder="192.168.0.104"></label>
+<label>Gateway<input id="pGateway" placeholder="192.168.0.1"></label>
+<label>Netmask<input id="pNetmask" placeholder="255.255.255.0"></label>
+<label>Primary DNS<input id="pDns1" placeholder="8.8.8.8"></label>
+<label>Backup DNS<input id="pDns2" placeholder="1.1.1.1"></label>
+</div>
+<h3>Fallback station</h3>
+<div class="form">
+<label class="check"><input id="fEnabled" type="checkbox">Enabled</label>
+<label>SSID<input id="fSsid"></label>
+<label>Password<input id="fPassword" type="password" placeholder="Leave blank to preserve"></label>
+<label>IP mode<select id="fMode"><option value="0">DHCP</option><option value="1">Static IP</option></select></label>
+<label>Static IP<input id="fIp"></label>
+<label>Gateway<input id="fGateway"></label>
+<label>Netmask<input id="fNetmask"></label>
+<label>Primary DNS<input id="fDns1"></label>
+<label>Backup DNS<input id="fDns2"></label>
+</div>
+<h3>Recovery and connection policy</h3>
+<div class="form">
+<label class="check"><input id="scanFirst" type="checkbox">Scan before connecting</label>
+<label class="check"><input id="apEnabled" type="checkbox">Setup AP fallback</label>
+<label>Setup AP SSID<input id="apSsid"></label>
+<label>Setup AP password<input id="apPassword" type="password" placeholder="Leave blank to preserve"></label>
+<label>Retries per profile<input id="retries" type="number" min="1" max="20"></label>
+<label>Reconnect backoff ms<input id="backoff" type="number" min="500" max="60000"></label>
+</div>
+<div class="actions">
+<button class="primary" onclick="saveAndRestart()">Save and restart</button>
+<button class="secondary" onclick="rescan()">Rescan Wi-Fi</button>
+<span class="status" id="message"></span>
+</div>
+</div>
+
+<div class="panel"><h2>Meter and control configuration</h2><div class="form">
+<label>ZLAN IP<input id="zlan"></label><label>ZLAN port<input id="zport" type="number"></label><label>Meter unit ID<input id="unit" type="number"></label>
+<label>Power wire register<input id="address" type="number"></label><label>Power scale to kW<input id="scale" type="number" step="0.00001"></label><label>Grid import target kW<input id="target" type="number" step="0.1"></label>
+<label>Deadband kW<input id="deadband" type="number" step="0.1"></label><label>Control interval ms<input id="interval" type="number"></label>
+</div></div>
+
+<div class="panel"><h2>Advanced JSON</h2><textarea id="json"></textarea><div class="actions">
+<button class="primary" onclick="saveJson()">Validate and save</button><button class="secondary" onclick="loadConfig()">Reload</button><button class="secondary" onclick="exportConfig()">Export JSON</button>
+</div></div>
 </div>
 <script>
-let cfg=null;const modes=['Disabled','Grid','Generator','Manual','Failsafe','Emergency'];
-async function refresh(){try{const s=await fetch('/api/status').then(r=>r.json());grid.textContent=s.grid_power_kw.toFixed(2)+' kW';pv.textContent=s.applied_pv_kw.toFixed(2)+' kW';mode.textContent=modes[s.mode]||s.mode;alarms.textContent=s.alarms?'0x'+s.alarms.toString(16):'Clear';connection.textContent=s.network_online?'Online · '+s.ip:'Network offline'}catch(e){connection.textContent='Controller unavailable'}}
-async function loadConfig(){cfg=await fetch('/api/config').then(r=>r.json());json.value=JSON.stringify(cfg,null,2);ssid.value=cfg.wifi?.ssid||'';const m=cfg.meters?.[0]||{};zlan.value=m.host||'';zport.value=m.port||502;unit.value=m.unit_id||1;address.value=m.active_power_address||0;scale.value=m.scale??1;target.value=cfg.control?.grid_import_target_kw??5;deadband.value=cfg.control?.deadband_kw??2;interval.value=cfg.control?.interval_ms??250}
-async function postConfig(data){message.textContent='Saving…';const r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});message.textContent=r.ok?'Saved; restart controller to apply':'Save failed'}
-function saveQuick(){if(!cfg)return;cfg.wifi.ssid=ssid.value;const m=cfg.meters[0];m.host=zlan.value;m.port=+zport.value;m.unit_id=+unit.value;m.active_power_address=+address.value;m.scale=+scale.value;cfg.control.grid_import_target_kw=+target.value;cfg.control.deadband_kw=+deadband.value;cfg.control.interval_ms=+interval.value;json.value=JSON.stringify(cfg,null,2);postConfig(cfg)}
-function importConfig(){try{cfg=JSON.parse(json.value);postConfig(cfg)}catch(e){message.textContent='Invalid JSON'}}
-function exportConfig(){const blob=new Blob([json.value],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='automatrix-pvdg-config.json';a.click();URL.revokeObjectURL(a.href)}
-loadConfig();refresh();setInterval(refresh,1000);
+const q=id=>document.getElementById(id);let cfg=null;const modes=['Disabled','Grid','Generator','Manual','Failsafe','Emergency'];const wifiStates=['Idle','Scanning','Connecting primary','Connecting fallback','Connected','Setup AP','Disconnected'];
+function setProfile(prefix,p){q(prefix+'Enabled').checked=!!p.enabled;q(prefix+'Ssid').value=p.ssid||'';q(prefix+'Password').value='';q(prefix+'Mode').value=String(p.ip_mode??0);q(prefix+'Ip').value=p.static_ip||'';q(prefix+'Gateway').value=p.gateway||'';q(prefix+'Netmask').value=p.netmask||'';q(prefix+'Dns1').value=p.dns1||'';q(prefix+'Dns2').value=p.dns2||''}
+function getProfile(prefix,p){p.enabled=q(prefix+'Enabled').checked;p.ssid=q(prefix+'Ssid').value.trim();const pass=q(prefix+'Password').value;if(pass)p.password=pass;p.ip_mode=+q(prefix+'Mode').value;p.static_ip=q(prefix+'Ip').value.trim();p.gateway=q(prefix+'Gateway').value.trim();p.netmask=q(prefix+'Netmask').value.trim();p.dns1=q(prefix+'Dns1').value.trim();p.dns2=q(prefix+'Dns2').value.trim()}
+async function refresh(){try{const s=await fetch('/api/status',{cache:'no-store'}).then(r=>r.json());q('currentSsid').textContent=s.ssid||'--';q('currentIp').textContent=s.ip||'--';q('wifiRole').textContent=(s.using_fallback_sta?'Fallback STA':s.fallback_ap_active?'Setup AP':'Primary STA')+' · '+(wifiStates[s.wifi_state]||s.wifi_state);q('networkDetail').textContent='GW '+(s.gateway||'--')+' · RSSI '+(s.rssi??'--')+' dBm';q('grid').textContent=s.meter_online?Number(s.grid_power_kw).toFixed(2)+' kW':'Unavailable';q('meterState').textContent=s.meter_online?'Meter online':'Meter offline';q('mode').textContent=modes[s.mode]||s.mode;q('alarms').textContent=s.alarms?'Alarms 0x'+Number(s.alarms).toString(16):'Alarms clear';q('connection').textContent=s.network_online?'Online · '+s.ip:(s.fallback_ap_active?'Setup AP active':'Network offline');q('connection').className='badge '+(s.network_online?'good':'bad')}catch(e){q('connection').textContent='Controller unavailable';q('connection').className='badge bad'}}
+async function loadConfig(){const r=await fetch('/api/config',{cache:'no-store'});if(!r.ok)throw new Error(await r.text());cfg=await r.json();q('json').value=JSON.stringify(cfg,null,2);const w=cfg.wifi||{};setProfile('p',w.primary||{});setProfile('f',w.fallback||{});q('scanFirst').checked=!!w.scan_before_connect;q('apEnabled').checked=!!w.fallback_ap_enabled;q('apSsid').value=w.fallback_ap_ssid||'';q('apPassword').value='';q('retries').value=w.max_retries_per_profile??5;q('backoff').value=w.reconnect_backoff_ms??2000;const m=cfg.meters?.[0]||{};q('zlan').value=m.host||'';q('zport').value=m.port||502;q('unit').value=m.unit_id||1;q('address').value=m.active_power_address??57;q('scale').value=m.scale??0.00001;q('target').value=cfg.control?.grid_import_target_kw??5;q('deadband').value=cfg.control?.deadband_kw??2;q('interval').value=cfg.control?.interval_ms??250}
+function updateCfgFromForm(){const w=cfg.wifi;getProfile('p',w.primary);getProfile('f',w.fallback);w.scan_before_connect=q('scanFirst').checked;w.fallback_ap_enabled=q('apEnabled').checked;w.fallback_ap_ssid=q('apSsid').value.trim();const apPass=q('apPassword').value;if(apPass)w.fallback_ap_password=apPass;w.max_retries_per_profile=+q('retries').value;w.reconnect_backoff_ms=+q('backoff').value;const m=cfg.meters[0];m.host=q('zlan').value.trim();m.port=+q('zport').value;m.unit_id=+q('unit').value;m.active_power_address=+q('address').value;m.scale=+q('scale').value;cfg.control.grid_import_target_kw=+q('target').value;cfg.control.deadband_kw=+q('deadband').value;cfg.control.interval_ms=+q('interval').value;q('json').value=JSON.stringify(cfg,null,2)}
+async function postConfig(data){q('message').textContent='Saving…';const r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});if(!r.ok)throw new Error(await r.text());q('message').textContent='Saved and verified in flash';return r.json()}
+async function saveAndRestart(){try{if(!cfg)return;updateCfgFromForm();await postConfig(cfg);q('message').textContent='Restarting controller…';await fetch('/api/system/restart',{method:'POST'});}catch(e){q('message').textContent='Save failed: '+e.message}}
+async function saveJson(){try{cfg=JSON.parse(q('json').value);await postConfig(cfg);await loadConfig()}catch(e){q('message').textContent='Save failed: '+e.message}}
+async function rescan(){try{q('message').textContent='Rescanning…';const r=await fetch('/api/wifi/rescan',{method:'POST'});if(!r.ok)throw new Error(await r.text());q('message').textContent='Wi-Fi rescan started'}catch(e){q('message').textContent='Rescan failed: '+e.message}}
+function exportConfig(){const blob=new Blob([q('json').value],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='automatrix-pvdg-config.json';a.click();URL.revokeObjectURL(a.href)}
+loadConfig().catch(e=>q('message').textContent='Load failed: '+e.message);refresh();setInterval(refresh,1000);
 </script></body></html>
