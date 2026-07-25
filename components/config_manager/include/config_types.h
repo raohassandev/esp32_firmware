@@ -5,13 +5,36 @@
 #include "modbus_types.h"
 
 #define APP_CONFIG_MAGIC 0x50564447u
-#define APP_CONFIG_VERSION 1u
+#define APP_CONFIG_VERSION 2u
 #define APP_MAX_METERS 4
 #define APP_MAX_INVERTERS 12
 
+typedef enum {
+    APP_WIFI_IP_DHCP = 0,
+    APP_WIFI_IP_STATIC = 1
+} app_wifi_ip_mode_t;
+
 typedef struct {
+    bool enabled;
     char ssid[33];
     char password[65];
+    app_wifi_ip_mode_t ip_mode;
+    char static_ip[16];
+    char gateway[16];
+    char netmask[16];
+    char dns1[16];
+    char dns2[16];
+} app_wifi_sta_profile_t;
+
+typedef struct {
+    app_wifi_sta_profile_t primary;
+    app_wifi_sta_profile_t fallback;
+    bool scan_before_connect;
+    bool fallback_ap_enabled;
+    char fallback_ap_ssid[33];
+    char fallback_ap_password[65];
+    uint8_t max_retries_per_profile;
+    uint32_t reconnect_backoff_ms;
 } app_wifi_config_t;
 
 typedef struct {
