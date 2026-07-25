@@ -1,4 +1,5 @@
 #include "safety_manager.h"
+#include <stdlib.h>
 #include "esp_check.h"
 #include "config_manager.h"
 
@@ -7,11 +8,15 @@ static control_config_t s_control;
 
 esp_err_t safety_manager_init(void)
 {
-    app_config_t cfg;
-    ESP_RETURN_ON_ERROR(config_manager_get_snapshot(&cfg), "safety", "configuration unavailable");
-    s_control = cfg.control;
-    s_alarm_flags = 0;
-    return ESP_OK;
+    app_config_t *cfg = malloc(sizeof(*cfg));
+    if (!cfg) return ESP_ERR_NO_MEM;
+    esp_err_t err = config_manager_get_snapshot(cfg);
+    if (err == ESP_OK) {
+        s_control = cfg->control;
+        s_alarm_flags = 0;
+    }
+    free(cfg);
+    return err;
 }
 
 float safety_manager_limit_target_kw(float requested_kw, const meter_data_t *meter, uint32_t now_ms)

@@ -5,11 +5,14 @@
 #include "cJSON.h"
 #include "config_manager.h"
 #include "control_engine.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "meter_manager.h"
 #include "network_manager.h"
 #include "safety_manager.h"
+
+#define METER_STALE_AFTER_MS 5000
 
 static esp_err_t status_get(httpd_req_t *request)
 {
@@ -35,12 +38,25 @@ static esp_err_t status_get(httpd_req_t *request)
     cJSON_AddNumberToObject(root, "disconnect_count", network.disconnect_count);
     cJSON_AddNumberToObject(root, "reconnect_count", network.reconnect_count);
 
+    uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
+    bool meter_has_data = meter.last_update_ms != 0;
+    uint32_t meter_age_ms = meter_has_data ? now_ms - meter.last_update_ms : 0;
     cJSON_AddBoolToObject(root, "meter_online", meter.online);
+    cJSON_AddBoolToObject(root, "meter_has_data", meter_has_data);
+    cJSON_AddBoolToObject(root, "meter_stale", !meter_has_data || meter_age_ms > METER_STALE_AFTER_MS);
+    cJSON_AddNumberToObject(root, "meter_age_ms", meter_has_data ? (double)meter_age_ms : -1);
+    cJSON_AddNumberToObject(root, "meter_errors", meter.response_errors);
     cJSON_AddNumberToObject(root, "grid_power_kw", meter.active_power_kw);
+    cJSON_AddBoolToObject(root, "control_enabled", control.enabled);
     cJSON_AddNumberToObject(root, "mode", control.mode);
     cJSON_AddNumberToObject(root, "requested_pv_kw", control.requested_pv_kw);
     cJSON_AddNumberToObject(root, "applied_pv_kw", control.applied_pv_kw);
-    cJSON_AddNumberToObject(root, "alarms", safety_manager_get_alarm_flags());
+
+    uint32_t alarms = safety_manager_get_alarm_flags();
+    cJSON_AddNumberToObject(root, "alarms", alarms);
+    cJSON *alarm_names = cJSON_AddArrayToObject(root, "alarm_names");
+    if (alarms & SAFETY_ALARM_METER_OFFLINE) cJSON_AddItemToArray(alarm_names, cJSON_CreateString("Meter offline"));
+    if (alarms & SAFETY_ALARM_METER_STALE) cJSON_AddItemToArray(alarm_names, cJSON_CreateString("Meter data stale"));
 
     char *json = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);

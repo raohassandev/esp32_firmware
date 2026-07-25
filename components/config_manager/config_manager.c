@@ -137,10 +137,18 @@ static void migrate_v1(const legacy_app_config_v1_t *old, app_config_t *next)
     }
 }
 
+static void set_active(const app_config_t *c)
+{
+    portENTER_CRITICAL(&s_lock);
+    s_cfg = *c;
+    portEXIT_CRITICAL(&s_lock);
+}
+
 esp_err_t config_manager_init(void)
 {
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_LOGW(TAG, "NVS partition unusable (%s); erasing only the NVS partition", esp_err_to_name(err));
         ESP_RETURN_ON_ERROR(nvs_flash_erase(), TAG, "NVS erase failed");
         err = nvs_flash_init();
     }
@@ -150,6 +158,7 @@ esp_err_t config_manager_init(void)
     if (!loaded) return ESP_ERR_NO_MEM;
 
     bool have_valid_config = false;
+    bool stored_matches = false;
     nvs_handle_t h;
     err = nvs_open(NS, NVS_READONLY, &h);
     if (err == ESP_OK) {
@@ -159,6 +168,8 @@ esp_err_t config_manager_init(void)
             size_t size = sizeof(*loaded);
             err = nvs_get_blob(h, KEY, loaded, &size);
             have_valid_config = err == ESP_OK && valid(loaded);
+            stored_matches = have_valid_config;
+            if (!have_valid_config) ESP_LOGW(TAG, "Stored configuration rejected by validation");
         } else if (err == ESP_OK && stored_size == sizeof(legacy_app_config_v1_t)) {
             legacy_app_config_v1_t *legacy = malloc(sizeof(*legacy));
             if (legacy) {
@@ -167,21 +178,33 @@ esp_err_t config_manager_init(void)
                     migrate_v1(legacy, loaded);
                     have_valid_config = valid(loaded);
                     if (have_valid_config) ESP_LOGI(TAG, "Migrated configuration schema 1 to schema %u", APP_CONFIG_VERSION);
+                    else ESP_LOGW(TAG, "Schema 1 migration produced an invalid configuration; discarding it");
                 }
                 free(legacy);
             }
+        } else if (err == ESP_OK) {
+            ESP_LOGW(TAG, "Stored configuration blob is %u bytes but no known schema matches; discarding it",
+                     (unsigned)stored_size);
         }
         nvs_close(h);
     }
 
     if (!have_valid_config) {
         defaults(loaded);
-        ESP_LOGW(TAG, "No valid stored configuration; safe defaults loaded");
+        ESP_LOGW(TAG, "No valid stored configuration; safe defaults loaded (primary SSID '%s')",
+                 loaded->wifi.primary.ssid);
     }
 
-    err = config_manager_save(loaded);
+    set_active(loaded);
+    if (!stored_matches) {
+        err = config_manager_save(loaded);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Configuration persistence failed (%s); continuing with in-memory configuration",
+                     esp_err_to_name(err));
+        }
+    }
     free(loaded);
-    return err;
+    return ESP_OK;
 }
 
 esp_err_t config_manager_get_snapshot(app_config_t *out)

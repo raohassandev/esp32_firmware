@@ -12,11 +12,14 @@
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
 #include "lwip/inet.h"
+#include "sdkconfig.h"
 
 #define READY_BIT BIT0
 #define CONNECT_REQUEST_BIT BIT1
 #define MAX_SCAN_RESULTS 32
 #define AP_RESCAN_INTERVAL_MS 15000
+#define AP_RESCAN_MAX_INTERVAL_MS 240000
+#define AP_RESCAN_MAX_SHIFT 4
 
 static const char *TAG = "wifi_manager";
 static EventGroupHandle_t s_events;
@@ -28,6 +31,8 @@ static network_status_t s_status;
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 static bool s_using_fallback;
 static uint8_t s_retry_count;
+static uint32_t s_failed_sweeps;
+static volatile bool s_force_primary_attempt;
 
 static void set_state(network_wifi_state_t state)
 {
@@ -78,7 +83,11 @@ static esp_err_t connect_profile(const app_wifi_sta_profile_t *profile, bool fal
 {
     if (!profile || !profile->enabled || !profile->ssid[0]) return ESP_ERR_INVALID_STATE;
 
-    ESP_RETURN_ON_ERROR(esp_wifi_set_mode(WIFI_MODE_STA), TAG, "STA mode failed");
+    portENTER_CRITICAL(&s_lock);
+    bool keep_ap = s_status.fallback_ap_active;
+    portEXIT_CRITICAL(&s_lock);
+
+    ESP_RETURN_ON_ERROR(esp_wifi_set_mode(keep_ap ? WIFI_MODE_APSTA : WIFI_MODE_STA), TAG, "STA mode failed");
     ESP_RETURN_ON_ERROR(apply_ip_profile(profile), TAG, "IP configuration failed");
 
     wifi_config_t wifi = {0};
@@ -93,9 +102,6 @@ static esp_err_t connect_profile(const app_wifi_sta_profile_t *profile, bool fal
 
     s_using_fallback = fallback;
     s_retry_count = 0;
-    portENTER_CRITICAL(&s_lock);
-    s_status.fallback_ap_active = false;
-    portEXIT_CRITICAL(&s_lock);
     set_state(fallback ? NETWORK_WIFI_CONNECTING_FALLBACK : NETWORK_WIFI_CONNECTING_PRIMARY);
 
     ESP_LOGI(TAG, "Connecting to %s SSID '%s' using %s",
@@ -129,6 +135,11 @@ static esp_err_t scan_configured_networks(bool *primary_found, bool *fallback_fo
             if (s_cfg.primary.enabled && strcmp(ssid, s_cfg.primary.ssid) == 0) *primary_found = true;
             if (s_cfg.fallback.enabled && strcmp(ssid, s_cfg.fallback.ssid) == 0) *fallback_found = true;
         }
+        ESP_LOGI(TAG, "Scan found %u APs; primary '%s' %s, fallback '%s' %s",
+                 (unsigned)count,
+                 s_cfg.primary.ssid, *primary_found ? "visible" : "not visible",
+                 s_cfg.fallback.enabled ? s_cfg.fallback.ssid : "(disabled)",
+                 *fallback_found ? "visible" : "not visible");
     }
     free(records);
     return err;
@@ -137,6 +148,11 @@ static esp_err_t scan_configured_networks(bool *primary_found, bool *fallback_fo
 static esp_err_t start_fallback_ap(void)
 {
     if (!s_cfg.fallback_ap_enabled || !s_cfg.fallback_ap_ssid[0]) return ESP_ERR_INVALID_STATE;
+
+    portENTER_CRITICAL(&s_lock);
+    bool already_active = s_status.fallback_ap_active;
+    portEXIT_CRITICAL(&s_lock);
+    if (already_active) return ESP_OK;
 
     wifi_config_t ap = {0};
     strlcpy((char *)ap.ap.ssid, s_cfg.fallback_ap_ssid, sizeof(ap.ap.ssid));
@@ -163,24 +179,43 @@ static esp_err_t start_fallback_ap(void)
 
 static void choose_and_connect(void)
 {
-    set_state(NETWORK_WIFI_SCANNING);
+    network_status_t status;
+    network_manager_get_status(&status);
+    const bool ap_active = status.fallback_ap_active;
 
-    bool primary_found = !s_cfg.scan_before_connect;
-    bool fallback_found = !s_cfg.scan_before_connect;
+    set_state(ap_active ? NETWORK_WIFI_AP_FALLBACK : NETWORK_WIFI_SCANNING);
+
+    bool primary_found = true;
+    bool fallback_found = true;
     if (s_cfg.scan_before_connect) {
         esp_err_t scan_err = scan_configured_networks(&primary_found, &fallback_found);
         if (scan_err != ESP_OK) {
             ESP_LOGW(TAG, "Wi-Fi scan unavailable: %s; attempting configured profiles", esp_err_to_name(scan_err));
-            primary_found = s_cfg.primary.enabled;
-            fallback_found = s_cfg.fallback.enabled;
+            primary_found = true;
+            fallback_found = true;
         }
     }
 
-    if (s_cfg.primary.enabled && primary_found) {
+    /* Before the recovery AP is up, the primary profile is attempted even when
+     * the scan did not see it (hidden SSID or marginal signal). Once the
+     * recovery AP is serving, a blind attempt on an absent SSID is skipped so
+     * the radio spends its time on the AP instead of doomed connect attempts;
+     * boot and an operator rescan still force the attempt. */
+    const bool force_primary = s_force_primary_attempt;
+    s_force_primary_attempt = false;
+    if (s_cfg.primary.enabled && (primary_found || !ap_active || force_primary)) {
+        if (!primary_found) {
+            ESP_LOGW(TAG, "Primary SSID '%s' not visible in scan; attempting it anyway", s_cfg.primary.ssid);
+        }
         if (connect_profile(&s_cfg.primary, false) == ESP_OK) return;
     }
     if (s_cfg.fallback.enabled && fallback_found) {
         if (connect_profile(&s_cfg.fallback, true) == ESP_OK) return;
+    }
+
+    if (ap_active) {
+        set_state(NETWORK_WIFI_AP_FALLBACK);
+        return;
     }
 
     esp_err_t ap_err = start_fallback_ap();
@@ -190,18 +225,37 @@ static void choose_and_connect(void)
     }
 }
 
+/* Bounded exponential backoff between STA sweeps while the recovery AP is up,
+ * so a visible but permanently unusable SSID (wrong credentials, reason 210) is
+ * not retried every few seconds forever, flooding the log and consuming the
+ * airtime the AP needs to serve its clients. */
+static uint32_t ap_retry_delay_ms(void)
+{
+    uint32_t shift = s_failed_sweeps < AP_RESCAN_MAX_SHIFT ? s_failed_sweeps : AP_RESCAN_MAX_SHIFT;
+    uint32_t delay = AP_RESCAN_INTERVAL_MS << shift;
+    return delay > AP_RESCAN_MAX_INTERVAL_MS ? AP_RESCAN_MAX_INTERVAL_MS : delay;
+}
+
 static void manager_task(void *arg)
 {
     (void)arg;
     while (true) {
         xEventGroupWaitBits(s_events, CONNECT_REQUEST_BIT, pdTRUE, pdFALSE, portMAX_DELAY);
-        vTaskDelay(pdMS_TO_TICKS(s_cfg.reconnect_backoff_ms));
-        choose_and_connect();
 
         network_status_t status;
         network_manager_get_status(&status);
+        uint32_t delay_ms = status.fallback_ap_active ? ap_retry_delay_ms() : s_cfg.reconnect_backoff_ms;
+        if (status.fallback_ap_active) {
+            wifi_mode_t mode = WIFI_MODE_NULL;
+            esp_wifi_get_mode(&mode);
+            ESP_LOGI(TAG, "Recovery AP '%s' serving on 192.168.4.1 (radio mode %d); next STA sweep in %u ms",
+                     s_cfg.fallback_ap_ssid, (int)mode, (unsigned)delay_ms);
+        }
+        vTaskDelay(pdMS_TO_TICKS(delay_ms));
+        choose_and_connect();
+
+        network_manager_get_status(&status);
         if (status.state == NETWORK_WIFI_AP_FALLBACK) {
-            vTaskDelay(pdMS_TO_TICKS(AP_RESCAN_INTERVAL_MS));
             xEventGroupSetBits(s_events, CONNECT_REQUEST_BIT);
         }
     }
@@ -224,20 +278,28 @@ static void event_handler(void *arg, esp_event_base_t base, int32_t id, void *da
         strlcpy(s_status.ip, "0.0.0.0", sizeof(s_status.ip));
         portEXIT_CRITICAL(&s_lock);
 
-        ESP_LOGW(TAG, "Disconnected from %s profile, reason=%u, retry=%u/%u",
-                 s_using_fallback ? "fallback" : "primary",
-                 event ? event->reason : 0,
-                 (unsigned)(s_retry_count + 1),
-                 (unsigned)s_cfg.max_retries_per_profile);
-
-        if (++s_retry_count <= s_cfg.max_retries_per_profile) {
+        s_retry_count++;
+        if (s_retry_count <= s_cfg.max_retries_per_profile) {
+            ESP_LOGW(TAG, "Disconnected from %s profile, reason=%u; retry %u/%u",
+                     s_using_fallback ? "fallback" : "primary",
+                     event ? event->reason : 0,
+                     (unsigned)s_retry_count,
+                     (unsigned)s_cfg.max_retries_per_profile);
             set_state(s_using_fallback ? NETWORK_WIFI_CONNECTING_FALLBACK : NETWORK_WIFI_CONNECTING_PRIMARY);
             esp_wifi_connect();
         } else if (!s_using_fallback && s_cfg.fallback.enabled) {
+            ESP_LOGW(TAG, "Primary profile exhausted %u attempts (last reason=%u); switching to fallback SSID '%s'",
+                     (unsigned)s_cfg.max_retries_per_profile,
+                     event ? event->reason : 0,
+                     s_cfg.fallback.ssid);
             if (connect_profile(&s_cfg.fallback, true) != ESP_OK) {
                 xEventGroupSetBits(s_events, CONNECT_REQUEST_BIT);
             }
         } else {
+            ESP_LOGW(TAG, "All configured STA profiles exhausted (last reason=%u); enabling recovery AP",
+                     event ? event->reason : 0);
+            if (s_failed_sweeps < UINT32_MAX) s_failed_sweeps++;
+            if (start_fallback_ap() != ESP_OK) set_state(NETWORK_WIFI_DISCONNECTED);
             xEventGroupSetBits(s_events, CONNECT_REQUEST_BIT);
         }
         return;
@@ -247,6 +309,14 @@ static void event_handler(void *arg, esp_event_base_t base, int32_t id, void *da
         const ip_event_got_ip_t *event = data;
         wifi_ap_record_t ap = {0};
         esp_wifi_sta_get_ap_info(&ap);
+
+        portENTER_CRITICAL(&s_lock);
+        bool ap_was_active = s_status.fallback_ap_active;
+        portEXIT_CRITICAL(&s_lock);
+        if (ap_was_active) {
+            ESP_LOGI(TAG, "STA connected; stopping recovery AP");
+            esp_wifi_set_mode(WIFI_MODE_STA);
+        }
 
         portENTER_CRITICAL(&s_lock);
         s_status.state = NETWORK_WIFI_CONNECTED;
@@ -261,6 +331,7 @@ static void event_handler(void *arg, esp_event_base_t base, int32_t id, void *da
         s_status.reconnect_count++;
         portEXIT_CRITICAL(&s_lock);
 
+        s_failed_sweeps = 0;
         xEventGroupSetBits(s_events, READY_BIT);
         ESP_LOGI(TAG, "Ready: SSID=%s IP=%s GW=%s MASK=%s RSSI=%d",
                  s_status.ssid, s_status.ip, s_status.gateway, s_status.netmask, s_status.rssi);
@@ -282,6 +353,11 @@ esp_err_t network_manager_init(void)
     memset(&s_status, 0, sizeof(s_status));
     strlcpy(s_status.ip, "0.0.0.0", sizeof(s_status.ip));
 
+    ESP_LOGI(TAG, "Profiles: primary '%s'%s, fallback '%s'%s, recovery AP '%s'%s",
+             s_cfg.primary.ssid, s_cfg.primary.enabled ? "" : " (disabled)",
+             s_cfg.fallback.ssid, s_cfg.fallback.enabled ? "" : " (disabled)",
+             s_cfg.fallback_ap_ssid, s_cfg.fallback_ap_enabled ? "" : " (disabled)");
+
     s_events = xEventGroupCreate();
     if (!s_events) return ESP_ERR_NO_MEM;
 
@@ -292,6 +368,7 @@ esp_err_t network_manager_init(void)
     s_sta_netif = esp_netif_create_default_wifi_sta();
     s_ap_netif = esp_netif_create_default_wifi_ap();
     if (!s_sta_netif || !s_ap_netif) return ESP_ERR_NO_MEM;
+    esp_netif_set_hostname(s_sta_netif, CONFIG_PVDG_DEVICE_NAME);
 
     wifi_init_config_t init = WIFI_INIT_CONFIG_DEFAULT();
     ESP_RETURN_ON_ERROR(esp_wifi_init(&init), TAG, "Wi-Fi init failed");
@@ -331,6 +408,10 @@ void network_manager_get_status(network_status_t *out)
 esp_err_t network_manager_rescan_and_connect(void)
 {
     if (!s_events) return ESP_ERR_INVALID_STATE;
+    /* An operator-triggered rescan clears the backoff and always attempts the
+     * primary profile, even if the scan cannot see it (hidden SSID). */
+    s_failed_sweeps = 0;
+    s_force_primary_attempt = true;
     esp_wifi_disconnect();
     xEventGroupSetBits(s_events, CONNECT_REQUEST_BIT);
     return ESP_OK;

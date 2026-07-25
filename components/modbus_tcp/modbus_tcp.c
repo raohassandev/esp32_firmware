@@ -21,11 +21,16 @@ static uint16_t get_u16(const uint8_t *src)
     return ((uint16_t)src[0] << 8) | src[1];
 }
 
+static esp_err_t socket_io_error(void)
+{
+    return (errno == EAGAIN || errno == EWOULDBLOCK || errno == ETIMEDOUT) ? ESP_ERR_TIMEOUT : ESP_FAIL;
+}
+
 static esp_err_t send_all(int fd, const uint8_t *data, size_t length)
 {
     while (length) {
         int sent = send(fd, data, length, 0);
-        if (sent <= 0) return ESP_FAIL;
+        if (sent <= 0) return socket_io_error();
         data += sent;
         length -= (size_t)sent;
     }
@@ -36,7 +41,7 @@ static esp_err_t recv_all(int fd, uint8_t *data, size_t length)
 {
     while (length) {
         int received = recv(fd, data, length, 0);
-        if (received <= 0) return ESP_FAIL;
+        if (received <= 0) return socket_io_error();
         data += received;
         length -= (size_t)received;
     }
@@ -50,7 +55,7 @@ static esp_err_t ensure_connected(modbus_connection_t *c)
     snprintf(port, sizeof(port), "%u", c->endpoint.port);
     struct addrinfo hints = {.ai_family = AF_INET, .ai_socktype = SOCK_STREAM};
     struct addrinfo *result = NULL;
-    if (getaddrinfo(c->endpoint.host, port, &hints, &result) != 0 || !result) return ESP_FAIL;
+    if (getaddrinfo(c->endpoint.host, port, &hints, &result) != 0 || !result) return ESP_ERR_NOT_FOUND;
 
     int fd = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
     if (fd < 0) {
@@ -64,9 +69,12 @@ static esp_err_t ensure_connected(modbus_connection_t *c)
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
     if (connect(fd, result->ai_addr, result->ai_addrlen) != 0) {
+        esp_err_t err = (errno == EHOSTUNREACH || errno == ENETUNREACH) ? ESP_ERR_INVALID_STATE
+                        : (errno == EINPROGRESS || errno == ETIMEDOUT || errno == EAGAIN) ? ESP_ERR_TIMEOUT
+                        : ESP_FAIL;
         close(fd);
         freeaddrinfo(result);
-        return ESP_FAIL;
+        return err;
     }
     freeaddrinfo(result);
     c->socket_fd = fd;

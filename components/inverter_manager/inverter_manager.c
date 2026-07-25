@@ -1,6 +1,7 @@
 #include "inverter_manager.h"
 #include "esp_check.h"
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 #include "config_manager.h"
 #include "esp_log.h"
@@ -21,21 +22,29 @@ static float s_total_rated_kw;
 
 esp_err_t inverter_manager_init(void)
 {
-    app_config_t cfg;
-    ESP_RETURN_ON_ERROR(config_manager_get_snapshot(&cfg), TAG, "configuration unavailable");
-    s_inverter_count = cfg.inverter_count;
+    app_config_t *cfg = malloc(sizeof(*cfg));
+    if (!cfg) return ESP_ERR_NO_MEM;
+    esp_err_t err = config_manager_get_snapshot(cfg);
+    if (err != ESP_OK) {
+        free(cfg);
+        ESP_LOGE(TAG, "configuration unavailable: %s", esp_err_to_name(err));
+        return err;
+    }
+    s_inverter_count = cfg->inverter_count;
     s_total_rated_kw = 0.0f;
-    for (uint8_t i = 0; i < s_inverter_count; ++i) {
+    for (uint8_t i = 0; i < s_inverter_count && err == ESP_OK; ++i) {
         inverter_runtime_t *runtime = &s_inverters[i];
         memset(runtime, 0, sizeof(*runtime));
-        runtime->config = cfg.inverters[i];
+        runtime->config = cfg->inverters[i];
         runtime->lock = (portMUX_TYPE)portMUX_INITIALIZER_UNLOCKED;
         runtime->data.rated_power_kw = runtime->config.rated_power_kw;
         if (!runtime->config.enabled) continue;
         s_total_rated_kw += runtime->config.rated_power_kw;
-        ESP_RETURN_ON_ERROR(modbus_tcp_connection_init(&runtime->connection, &runtime->config.endpoint), TAG, "inverter connection init failed");
+        err = modbus_tcp_connection_init(&runtime->connection, &runtime->config.endpoint);
+        if (err != ESP_OK) ESP_LOGE(TAG, "inverter %u connection init failed: %s", i, esp_err_to_name(err));
     }
-    return ESP_OK;
+    free(cfg);
+    return err;
 }
 
 float inverter_manager_get_total_rated_kw(void)

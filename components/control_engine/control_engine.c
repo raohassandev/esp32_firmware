@@ -1,6 +1,7 @@
 #include "control_engine.h"
 #include "esp_check.h"
 #include <math.h>
+#include <stdlib.h>
 #include "config_manager.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -54,10 +55,15 @@ static void control_task(void *argument)
         }
 
         float applied_kw = safety_manager_limit_target_kw(requested_kw, &grid, now_ms);
-        if (safety_manager_get_alarm_flags()) mode = APP_MODE_FAILSAFE;
-        esp_err_t write_result = inverter_manager_set_total_power_kw(applied_kw);
-        if (write_result != ESP_OK && applied_kw > 0.0f) ESP_LOGW(TAG, "inverter write failed: %s", esp_err_to_name(write_result));
-        current_target_kw = applied_kw;
+        if (s_config.enabled && safety_manager_get_alarm_flags()) mode = APP_MODE_FAILSAFE;
+        if (s_config.enabled) {
+            esp_err_t write_result = inverter_manager_set_total_power_kw(applied_kw);
+            if (write_result != ESP_OK && applied_kw > 0.0f) ESP_LOGW(TAG, "inverter write failed: %s", esp_err_to_name(write_result));
+            current_target_kw = applied_kw;
+        } else {
+            applied_kw = 0.0f;
+            current_target_kw = 0.0f;
+        }
 
         control_status_t next = {
             .enabled = s_config.enabled,
@@ -79,9 +85,16 @@ static void control_task(void *argument)
 
 esp_err_t control_engine_init(void)
 {
-    app_config_t cfg;
-    ESP_RETURN_ON_ERROR(config_manager_get_snapshot(&cfg), TAG, "configuration unavailable");
-    s_config = cfg.control;
+    app_config_t *cfg = malloc(sizeof(*cfg));
+    if (!cfg) return ESP_ERR_NO_MEM;
+    esp_err_t err = config_manager_get_snapshot(cfg);
+    if (err != ESP_OK) {
+        free(cfg);
+        ESP_LOGE(TAG, "configuration unavailable: %s", esp_err_to_name(err));
+        return err;
+    }
+    s_config = cfg->control;
+    free(cfg);
     if (xTaskCreate(control_task, "pvdg_control", 4096, NULL, 10, NULL) != pdPASS) return ESP_ERR_NO_MEM;
     return ESP_OK;
 }
