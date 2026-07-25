@@ -1,0 +1,24 @@
+menu "PV-DG controller"
+
+config PVDG_DEVICE_NAME
+    string "Device name"
+    default "automatrix-pvdg"
+
+config PVDG_DEFAULT_WIFI_SSID
+    string "Default Wi-Fi SSID"
+    default ""
+
+config PVDG_DEFAULT_WIFI_PASSWORD
+    string "Default Wi-Fi password"
+    default ""
+
+config PVDG_DEFAULT_ZLAN_HOST
+    string "Default ZLAN5143D IP address"
+    default "192.168.1.200"
+
+config PVDG_DEFAULT_ZLAN_PORT
+    int "Default ZLAN5143D TCP port"
+    range 1 65535
+    default 502
+
+endmenu

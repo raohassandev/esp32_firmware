@@ -1,0 +1,12 @@
+{
+  "profile_id": "generic-meter",
+  "description": "Template for a meter reached through ZLAN5143D",
+  "active_power": {
+    "function": 3,
+    "address": 0,
+    "data_type": "int32",
+    "word_order": "ABCD",
+    "scale": 0.01,
+    "poll_ms": 250
+  }
+}

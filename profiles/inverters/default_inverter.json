@@ -1,0 +1,13 @@
+{
+  "profile_id": "generic-inverter",
+  "description": "Template only; replace addresses with verified manufacturer values",
+  "rated_power_kw": 100,
+  "power_limit": {
+    "function": 6,
+    "address": 0,
+    "command_unit": "percent",
+    "raw_units_per_percent": 100,
+    "minimum_percent": 0,
+    "maximum_percent": 100
+  }
+}
