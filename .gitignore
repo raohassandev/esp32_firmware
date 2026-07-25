@@ -1,5 +1,21 @@
+# Build output
 build/
 sdkconfig
 sdkconfig.old
+
+# Transient build/flash transcripts, regenerated on every run.
+# Validation evidence that must persist lives in verified-runtime*.log.
+build-log.txt
+flash-log.txt
+
+# Fetched by the IDF component manager from idf_component.yml +
+# dependencies.lock, so the lock file is committed and these are not.
+managed_components/
+
+# Local Python virtualenv
+.venv/
+
+# Editor / OS
 .vscode/
+*.code-workspace
 .DS_Store
