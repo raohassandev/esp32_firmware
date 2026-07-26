@@ -53,11 +53,20 @@ jobs:
             exit 1
           }
           test -f build/automatrix_pvdg.bin
-          grep -E "Project build complete|binary size|Smallest app partition|free" /tmp/idf-build.log || true
-          stat -c "Application binary bytes: %s" build/automatrix_pvdg.bin
           if grep -E "warning:" /tmp/idf-build.log > /tmp/project-warnings.log; then
             echo "Compiler warnings detected:"
             cat /tmp/project-warnings.log
             exit 1
           fi
-          echo "Compiler warnings: 0"
+          {
+            grep -E "Project build complete|binary size|Smallest app partition|free" /tmp/idf-build.log || true
+            stat -c "Application binary bytes: %s" build/automatrix_pvdg.bin
+            echo "Compiler warnings: 0"
+          } | tee build/build-metrics.txt
+      - name: Publish non-secret build metrics
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-build-metrics
+          path: build/build-metrics.txt
+          if-no-files-found: error
+          retention-days: 14
