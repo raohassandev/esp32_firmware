@@ -69,7 +69,8 @@ static esp_err_t js_handler(httpd_req_t *request)
         web_assets_devices_utils_js,
         web_assets_devices_js,
         web_assets_inverter_telemetry_utils_js,
-        web_assets_inverter_telemetry_js
+        web_assets_inverter_telemetry_js,
+        web_assets_inverter_telemetry_sync_js
     };
     return send_asset_parts(request, "application/javascript; charset=utf-8",
                             assets, sizeof(assets) / sizeof(assets[0]));
