@@ -31,24 +31,35 @@ esp_err_t inverter_manager_init(void)
         ESP_LOGE(TAG, "configuration unavailable: %s", esp_err_to_name(err));
         return err;
     }
+
     s_inverter_count = cfg->inverter_count;
     s_total_rated_kw = 0.0f;
-    for (uint8_t i = 0; i < s_inverter_count && err == ESP_OK; ++i) {
+    for (uint8_t i = 0; i < s_inverter_count; ++i) {
         inverter_runtime_t *runtime = &s_inverters[i];
         memset(runtime, 0, sizeof(*runtime));
         runtime->config = cfg->inverters[i];
         runtime->lock = (portMUX_TYPE)portMUX_INITIALIZER_UNLOCKED;
         runtime->data.rated_power_kw = runtime->config.rated_power_kw;
-        if (!runtime->config.enabled) continue;
-        s_total_rated_kw += runtime->config.rated_power_kw;
-        err = modbus_tcp_connection_init(&runtime->connection, &runtime->config.endpoint);
-        if (err != ESP_OK) {
-            runtime->data.last_error = err;
-            ESP_LOGE(TAG, "inverter %u connection init failed: %s", i, esp_err_to_name(err));
-        }
+        if (runtime->config.enabled) s_total_rated_kw += runtime->config.rated_power_kw;
     }
+
+    esp_err_t first_error = ESP_OK;
+    for (uint8_t i = 0; i < s_inverter_count; ++i) {
+        inverter_runtime_t *runtime = &s_inverters[i];
+        if (!runtime->config.enabled) continue;
+
+        esp_err_t init_err = modbus_tcp_connection_init(&runtime->connection, &runtime->config.endpoint);
+        if (init_err != ESP_OK) {
+            runtime->data.last_error = init_err;
+            if (first_error == ESP_OK) first_error = init_err;
+            ESP_LOGE(TAG, "inverter %u connection init failed: %s", i, esp_err_to_name(init_err));
+            continue;
+        }
+        runtime->data.connection_initialized = true;
+    }
+
     free(cfg);
-    return err;
+    return first_error;
 }
 
 uint8_t inverter_manager_get_count(void)
@@ -71,18 +82,23 @@ esp_err_t inverter_manager_set_total_power_kw(float target_kw)
     for (uint8_t i = 0; i < s_inverter_count; ++i) {
         inverter_runtime_t *runtime = &s_inverters[i];
         if (!runtime->config.enabled || runtime->config.rated_power_kw <= 0.0f) continue;
+
+        esp_err_t err = ESP_ERR_INVALID_STATE;
         float share_kw = target_kw * runtime->config.rated_power_kw / s_total_rated_kw;
         float percent = 100.0f * share_kw / runtime->config.rated_power_kw;
         percent = fmaxf(runtime->config.minimum_percent, fminf(runtime->config.maximum_percent, percent));
-        uint32_t raw = (uint32_t)lroundf(percent * runtime->config.raw_units_per_percent);
-        if (raw > UINT16_MAX) raw = UINT16_MAX;
-        esp_err_t err;
-        if (runtime->config.power_limit_function == 16) {
-            uint16_t value = (uint16_t)raw;
-            err = modbus_tcp_write_multiple(&runtime->connection, runtime->config.power_limit_address, &value, 1);
-        } else {
-            err = modbus_tcp_write_single(&runtime->connection, runtime->config.power_limit_address, (uint16_t)raw);
+
+        if (runtime->data.connection_initialized) {
+            uint32_t raw = (uint32_t)lroundf(percent * runtime->config.raw_units_per_percent);
+            if (raw > UINT16_MAX) raw = UINT16_MAX;
+            if (runtime->config.power_limit_function == 16) {
+                uint16_t value = (uint16_t)raw;
+                err = modbus_tcp_write_multiple(&runtime->connection, runtime->config.power_limit_address, &value, 1);
+            } else {
+                err = modbus_tcp_write_single(&runtime->connection, runtime->config.power_limit_address, (uint16_t)raw);
+            }
         }
+
         portENTER_CRITICAL(&runtime->lock);
         runtime->data.commanded_percent = percent;
         runtime->data.commanded_power_kw = share_kw;
@@ -93,6 +109,7 @@ esp_err_t inverter_manager_set_total_power_kw(float target_kw)
         if (err == ESP_OK) runtime->data.write_successes++;
         else runtime->data.write_errors++;
         portEXIT_CRITICAL(&runtime->lock);
+
         if (err != ESP_OK) {
             final_result = err;
             ESP_LOGW(TAG, "%s command failed: %s", runtime->config.name, esp_err_to_name(err));
