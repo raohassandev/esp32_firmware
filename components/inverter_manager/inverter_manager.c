@@ -87,6 +87,7 @@ esp_err_t inverter_manager_set_total_power_kw(float target_kw)
         float share_kw = target_kw * runtime->config.rated_power_kw / s_total_rated_kw;
         float percent = 100.0f * share_kw / runtime->config.rated_power_kw;
         percent = fmaxf(runtime->config.minimum_percent, fminf(runtime->config.maximum_percent, percent));
+        float commanded_kw = runtime->config.rated_power_kw * percent / 100.0f;
         uint32_t raw = (uint32_t)lroundf(percent * runtime->config.raw_units_per_percent);
         if (raw > UINT16_MAX) raw = UINT16_MAX;
 
@@ -100,7 +101,7 @@ esp_err_t inverter_manager_set_total_power_kw(float target_kw)
 
         portENTER_CRITICAL(&runtime->lock);
         runtime->data.commanded_percent = percent;
-        runtime->data.commanded_power_kw = share_kw;
+        runtime->data.commanded_power_kw = commanded_kw;
         runtime->data.online = err == ESP_OK;
         runtime->data.has_command = true;
         runtime->data.last_command_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
