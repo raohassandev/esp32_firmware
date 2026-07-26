@@ -5,4 +5,5 @@
 #include "meter_types.h"
 
 esp_err_t meter_manager_init(void);
+uint8_t meter_manager_get_count(void);
 bool meter_manager_get_data(uint8_t meter_index, meter_data_t *out_data);
