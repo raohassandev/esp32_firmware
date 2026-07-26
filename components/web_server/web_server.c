@@ -2,6 +2,7 @@
 #include "device_api.h"
 #include "esp_check.h"
 #include "esp_http_server.h"
+#include "telemetry_profile_api.h"
 #include "web_api.h"
 #include "web_assets.h"
 
@@ -51,7 +52,8 @@ static esp_err_t css_handler(httpd_req_t *request)
     static const asset_getter_t assets[] = {
         web_assets_css,
         web_assets_wifi_css,
-        web_assets_devices_css
+        web_assets_devices_css,
+        web_assets_inverter_telemetry_css
     };
     return send_asset_parts(request, "text/css; charset=utf-8",
                             assets, sizeof(assets) / sizeof(assets[0]));
@@ -65,7 +67,9 @@ static esp_err_t js_handler(httpd_req_t *request)
         web_assets_wifi_guard_js,
         web_assets_wifi_js,
         web_assets_devices_utils_js,
-        web_assets_devices_js
+        web_assets_devices_js,
+        web_assets_inverter_telemetry_utils_js,
+        web_assets_inverter_telemetry_js
     };
     return send_asset_parts(request, "application/javascript; charset=utf-8",
                             assets, sizeof(assets) / sizeof(assets[0]));
@@ -92,7 +96,8 @@ esp_err_t web_server_start(void)
     }
 
     ESP_RETURN_ON_ERROR(web_api_register(s_server), "web", "core API registration failed");
-    return device_api_register(s_server);
+    ESP_RETURN_ON_ERROR(device_api_register(s_server), "web", "device API registration failed");
+    return telemetry_profile_api_register(s_server);
 }
 
 void web_server_stop(void)
