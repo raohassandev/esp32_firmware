@@ -116,15 +116,40 @@ static void defaults(app_config_t *c)
 }
 
 /* Applies the credentials compiled into this build, once per provisioning id.
- * Returns true when the configuration was changed and must be persisted. */
+ * Returns true when the configuration was changed and must be persisted.
+ *
+ * A disabled Kconfig bool is not defined at all, so the opt-in switch has to be
+ * tested with #ifdef rather than a numeric comparison. */
+#ifndef CONFIG_PVDG_APPLY_BUILD_WIFI_PROVISIONING
+
+/* Build provisioning is opt-in and off by default. Changing nothing here is
+ * what stops an ordinary build - including one from a fresh worktree whose
+ * sdkconfig was regenerated from Kconfig defaults - from replacing the
+ * credentials of a commissioned device and persisting them to NVS. */
 static bool apply_build_provisioning(app_config_t *c)
 {
-    if (c->wifi_provision_id == CONFIG_PVDG_WIFI_PROVISION_ID) return false;
+    (void)c;
+    return false;
+}
+
+#else
+
+static bool apply_build_provisioning(app_config_t *c)
+{
+    /* Strictly monotonic: only a genuinely newer generation may apply. An equal
+     * or lower id - including the default 0 of a fresh worktree - must never
+     * reapply credentials nor roll a device back to an older set. */
+    if (CONFIG_PVDG_WIFI_PROVISION_ID <= 0) return false;
+    if ((uint32_t)CONFIG_PVDG_WIFI_PROVISION_ID <= c->wifi_provision_id) return false;
 
     const char *ssid = CONFIG_PVDG_PRIMARY_WIFI_SSID;
     if (!ssid[0]) {
-        c->wifi_provision_id = CONFIG_PVDG_WIFI_PROVISION_ID;
-        return true;
+        /* Nothing to provision. Leaving the stored id untouched keeps this a
+         * no-op, so a build with a blank SSID can neither erase the stored
+         * profile nor consume the provisioning generation. */
+        ESP_LOGW(TAG, "Build provisioning %d ignored: no primary SSID compiled in",
+                 CONFIG_PVDG_WIFI_PROVISION_ID);
+        return false;
     }
 
     strlcpy(c->wifi.primary.ssid, ssid, sizeof(c->wifi.primary.ssid));
@@ -143,6 +168,8 @@ static bool apply_build_provisioning(app_config_t *c)
              c->wifi.fallback.ssid, c->wifi.fallback.enabled ? "" : " (disabled)");
     return true;
 }
+
+#endif /* CONFIG_PVDG_APPLY_BUILD_WIFI_PROVISIONING */
 
 static bool profile_valid(const app_wifi_sta_profile_t *p)
 {

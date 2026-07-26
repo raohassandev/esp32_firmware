@@ -23,13 +23,34 @@ config PVDG_DEFAULT_WIFI_PASSWORD
     string "Default fallback Wi-Fi password"
     default ""
 
+config PVDG_APPLY_BUILD_WIFI_PROVISIONING
+    bool "Allow this build to replace stored Wi-Fi credentials"
+    default n
+    help
+      DANGER: enabling this permits the firmware build to overwrite the primary
+      and fallback Wi-Fi credentials already stored on a device, replacing them
+      with the values compiled into this build.
+
+      This is a manufacturing or field-service action. It is NOT a normal
+      development-build setting. A development build that leaves this enabled
+      will silently re-provision any device it is flashed onto, including one
+      already commissioned on site.
+
+      While this is disabled the firmware never applies or persists build
+      provisioning, so a build from a fresh worktree cannot disturb a
+      commissioned device.
+
 config PVDG_WIFI_PROVISION_ID
     int "Wi-Fi provisioning id"
     default 0
     help
-      Increment this when a build should push its compiled-in Wi-Fi credentials
-      onto devices that already hold a stored configuration. The credentials are
-      applied once per new id, then left alone so operator changes persist.
+      Identifies the provisioning generation compiled into this build. It has
+      no effect unless PVDG_APPLY_BUILD_WIFI_PROVISIONING is enabled.
+
+      The id must strictly increase. Credentials are applied only when this
+      value is greater than the id already stored on the device, so a build
+      carrying an equal or lower id, including a fresh worktree defaulting to
+      0, can never reapply credentials or roll a device back.
 
 config PVDG_DEFAULT_ZLAN_HOST
     string "Default ZLAN5143D IP address"
