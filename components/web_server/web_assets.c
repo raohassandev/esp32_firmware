@@ -27,6 +27,8 @@ extern const uint8_t inverter_telemetry_utils_js_start[] asm("_binary_inverter_t
 extern const uint8_t inverter_telemetry_utils_js_end[] asm("_binary_inverter_telemetry_utils_js_end");
 extern const uint8_t inverter_telemetry_js_start[] asm("_binary_inverter_telemetry_js_start");
 extern const uint8_t inverter_telemetry_js_end[] asm("_binary_inverter_telemetry_js_end");
+extern const uint8_t inverter_telemetry_sync_js_start[] asm("_binary_inverter_telemetry_sync_js_start");
+extern const uint8_t inverter_telemetry_sync_js_end[] asm("_binary_inverter_telemetry_sync_js_end");
 
 static const char *asset(const uint8_t *start, const uint8_t *end, size_t *length)
 {
@@ -103,4 +105,10 @@ const char *web_assets_inverter_telemetry_js(size_t *length)
 {
     return asset(inverter_telemetry_js_start,
                  inverter_telemetry_js_end, length);
+}
+
+const char *web_assets_inverter_telemetry_sync_js(size_t *length)
+{
+    return asset(inverter_telemetry_sync_js_start,
+                 inverter_telemetry_sync_js_end, length);
 }
