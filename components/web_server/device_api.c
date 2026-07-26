@@ -75,6 +75,7 @@ static esp_err_t meters_get(httpd_req_t *request)
     uint8_t online_count = 0;
     uint8_t stale_count = 0;
     uint8_t data_count = 0;
+    uint8_t initialization_failed_count = 0;
 
     cJSON_AddNumberToObject(root, "generated_ms", current_ms);
     cJSON_AddNumberToObject(root, "configured_count", config->meter_count);
@@ -86,16 +87,23 @@ static esp_err_t meters_get(httpd_req_t *request)
         bool runtime_available = index < meter_manager_get_count() &&
                                  meter_manager_get_data(index, &data);
         bool enabled = meter->enabled;
+        bool connection_initialized = runtime_available && data.connection_initialized;
+        bool initialization_failed = enabled &&
+                                     (!connection_initialized ||
+                                      (data.last_attempt_ms == 0 && data.last_error != ESP_OK));
         bool has_data = runtime_available && data.last_update_ms != 0;
         uint32_t stale_after_ms = meter_stale_after_ms(config, index);
         uint32_t age_ms = has_data ? current_ms - data.last_update_ms : 0;
-        bool stale = enabled && (!has_data || age_ms > stale_after_ms);
-        bool online = enabled && runtime_available && data.online && !stale;
+        bool stale = enabled && !initialization_failed &&
+                     (!has_data || age_ms > stale_after_ms);
+        bool online = enabled && !initialization_failed && runtime_available &&
+                      data.online && !stale;
 
         if (enabled) enabled_count++;
         if (online) online_count++;
         if (stale) stale_count++;
         if (has_data) data_count++;
+        if (initialization_failed) initialization_failed_count++;
 
         cJSON *item = cJSON_CreateObject();
         cJSON_AddNumberToObject(item, "index", index);
@@ -114,6 +122,8 @@ static esp_err_t meters_get(httpd_req_t *request)
 
         cJSON *runtime = cJSON_AddObjectToObject(item, "runtime");
         cJSON_AddBoolToObject(runtime, "available", runtime_available);
+        cJSON_AddBoolToObject(runtime, "connection_initialized", connection_initialized);
+        cJSON_AddBoolToObject(runtime, "initialization_failed", initialization_failed);
         cJSON_AddBoolToObject(runtime, "online", online);
         cJSON_AddBoolToObject(runtime, "has_data", has_data);
         cJSON_AddBoolToObject(runtime, "stale", stale);
@@ -129,15 +139,18 @@ static esp_err_t meters_get(httpd_req_t *request)
         cJSON_AddNumberToObject(runtime, "last_error", data.last_error);
         cJSON_AddStringToObject(runtime, "last_error_name", esp_err_to_name(data.last_error));
         cJSON_AddStringToObject(runtime, "state",
-                                !enabled ? "disabled" : online ? "online" :
-                                has_data ? "stale" : "unavailable");
+                                !enabled ? "disabled" :
+                                initialization_failed ? "initialization_failed" :
+                                online ? "online" : has_data ? "stale" : "unavailable");
         cJSON_AddItemToArray(meters, item);
     }
 
     cJSON *summary = cJSON_AddObjectToObject(root, "summary");
     cJSON_AddNumberToObject(summary, "enabled", enabled_count);
     cJSON_AddNumberToObject(summary, "online", online_count);
-    cJSON_AddNumberToObject(summary, "stale_or_unavailable", stale_count);
+    cJSON_AddNumberToObject(summary, "stale_or_unavailable",
+                            stale_count + initialization_failed_count);
+    cJSON_AddNumberToObject(summary, "initialization_failed", initialization_failed_count);
     cJSON_AddNumberToObject(summary, "with_data", data_count);
 
     free(config);
@@ -165,6 +178,7 @@ static esp_err_t inverters_get(httpd_req_t *request)
     uint8_t enabled_count = 0;
     uint8_t command_tested_count = 0;
     uint8_t last_write_ok_count = 0;
+    uint8_t initialization_failed_count = 0;
     float configured_rated_kw = 0.0f;
 
     cJSON_AddNumberToObject(root, "generated_ms", current_ms);
@@ -178,6 +192,8 @@ static esp_err_t inverters_get(httpd_req_t *request)
         bool runtime_available = index < inverter_manager_get_count() &&
                                  inverter_manager_get_data(index, &data);
         bool enabled = inverter->enabled;
+        bool connection_initialized = runtime_available && data.connection_initialized;
+        bool initialization_failed = enabled && !connection_initialized;
         bool has_command = runtime_available && data.has_command;
         bool last_write_ok = has_command && data.online;
 
@@ -185,6 +201,7 @@ static esp_err_t inverters_get(httpd_req_t *request)
         if (enabled) enabled_count++;
         if (has_command) command_tested_count++;
         if (last_write_ok) last_write_ok_count++;
+        if (initialization_failed) initialization_failed_count++;
 
         cJSON *item = cJSON_CreateObject();
         cJSON_AddNumberToObject(item, "index", index);
@@ -204,6 +221,8 @@ static esp_err_t inverters_get(httpd_req_t *request)
 
         cJSON *runtime = cJSON_AddObjectToObject(item, "runtime");
         cJSON_AddBoolToObject(runtime, "available", runtime_available);
+        cJSON_AddBoolToObject(runtime, "connection_initialized", connection_initialized);
+        cJSON_AddBoolToObject(runtime, "initialization_failed", initialization_failed);
         cJSON_AddBoolToObject(runtime, "has_command", has_command);
         if (has_command) {
             cJSON_AddBoolToObject(runtime, "last_write_ok", last_write_ok);
@@ -221,7 +240,9 @@ static esp_err_t inverters_get(httpd_req_t *request)
         cJSON_AddNumberToObject(runtime, "last_error", data.last_error);
         cJSON_AddStringToObject(runtime, "last_error_name", esp_err_to_name(data.last_error));
         cJSON_AddStringToObject(runtime, "state",
-                                !enabled ? "disabled" : !has_command ? "not_tested" :
+                                !enabled ? "disabled" :
+                                initialization_failed ? "initialization_failed" :
+                                !has_command ? "not_tested" :
                                 last_write_ok ? "last_write_ok" : "last_write_failed");
         cJSON_AddItemToArray(inverters, item);
     }
@@ -232,6 +253,7 @@ static esp_err_t inverters_get(httpd_req_t *request)
     cJSON_AddNumberToObject(summary, "enabled_rated_kw", inverter_manager_get_total_rated_kw());
     cJSON_AddNumberToObject(summary, "command_tested", command_tested_count);
     cJSON_AddNumberToObject(summary, "last_write_ok", last_write_ok_count);
+    cJSON_AddNumberToObject(summary, "initialization_failed", initialization_failed_count);
 
     free(config);
     return send_json(request, root);
