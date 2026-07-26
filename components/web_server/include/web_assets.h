@@ -11,3 +11,4 @@ const char *web_assets_wifi_guard_js(size_t *length);
 const char *web_assets_wifi_js(size_t *length);
 const char *web_assets_devices_utils_js(size_t *length);
 const char *web_assets_devices_js(size_t *length);
+const char *web_assets_devices_refresh_js(size_t *length);
