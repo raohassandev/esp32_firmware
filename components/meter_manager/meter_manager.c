@@ -155,26 +155,37 @@ esp_err_t meter_manager_init(void)
     }
 
     s_meter_count = cfg->meter_count;
-    for (uint8_t i = 0; i < s_meter_count && err == ESP_OK; ++i) {
+    for (uint8_t i = 0; i < s_meter_count; ++i) {
         meter_runtime_t *runtime = &s_meters[i];
         memset(runtime, 0, sizeof(*runtime));
         runtime->index = i;
         runtime->config = cfg->meters[i];
         runtime->lock = (portMUX_TYPE)portMUX_INITIALIZER_UNLOCKED;
+    }
+
+    esp_err_t first_error = ESP_OK;
+    for (uint8_t i = 0; i < s_meter_count; ++i) {
+        meter_runtime_t *runtime = &s_meters[i];
         if (!runtime->config.enabled) continue;
 
-        err = modbus_tcp_connection_init(&runtime->connection, &runtime->config.endpoint);
-        if (err != ESP_OK) {
-            runtime->data.last_error = err;
-            ESP_LOGE(TAG, "meter %u connection init failed: %s", i, esp_err_to_name(err));
-            break;
+        esp_err_t init_err = modbus_tcp_connection_init(&runtime->connection, &runtime->config.endpoint);
+        if (init_err != ESP_OK) {
+            runtime->data.last_error = init_err;
+            if (first_error == ESP_OK) first_error = init_err;
+            ESP_LOGE(TAG, "meter %u connection init failed: %s", i, esp_err_to_name(init_err));
+            continue;
         }
+
         char task_name[16];
         snprintf(task_name, sizeof(task_name), "meter_%u", i);
-        if (xTaskCreate(meter_task, task_name, 4096, runtime, 8, NULL) != pdPASS) err = ESP_ERR_NO_MEM;
+        if (xTaskCreate(meter_task, task_name, 4096, runtime, 8, NULL) != pdPASS) {
+            runtime->data.last_error = ESP_ERR_NO_MEM;
+            if (first_error == ESP_OK) first_error = ESP_ERR_NO_MEM;
+            ESP_LOGE(TAG, "meter %u task creation failed", i);
+        }
     }
     free(cfg);
-    return err;
+    return first_error;
 }
 
 uint8_t meter_manager_get_count(void)
