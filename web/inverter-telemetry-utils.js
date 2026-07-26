@@ -38,7 +38,7 @@
         return errors;
     }
 
-    function huaweiV3Example(index, current = {}) {
+    function huaweiV3Example(index) {
         return {
             index: Number(index),
             enabled: true,
@@ -49,8 +49,7 @@
                 word_order: 0,
                 scale: 0.001,
                 offset: 0,
-                poll_ms: 1000,
-                ...(current.active_power || {})
+                poll_ms: 1000
             }
         };
     }
