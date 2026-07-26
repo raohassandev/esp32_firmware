@@ -1,16 +1,37 @@
-name: ESP-IDF build
+name: Firmware and web checks
 
 on:
   pull_request:
   push:
     branches:
       - fix/pvdg-reconnect-admission-gate
+      - feature/pvdg-batch3-consolidated
 
 permissions:
   contents: read
 
 jobs:
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check browser modules
+        run: |
+          set -euo pipefail
+          node --check web/app.js
+          node --check web/wifi-utils.js
+          node --check web/wifi-guard.js
+          node --check web/wifi.js
+          node --check web/devices-utils.js
+          node --check web/devices.js
+          node web/tests/wifi-utils.test.js
+          node web/tests/devices-utils.test.js
+      - name: Check telemetry source contract
+        run: python3 tests/telemetry_source_contract.py
+
   build:
+    needs: web
     runs-on: ubuntu-latest
     timeout-minutes: 45
     container: espressif/idf:v6.0.1
