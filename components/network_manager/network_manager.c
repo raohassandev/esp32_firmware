@@ -16,6 +16,8 @@
 
 #define READY_BIT BIT0
 #define CONNECT_REQUEST_BIT BIT1
+#define OPERATOR_RECONNECT_REQUEST_BIT BIT2
+#define OPERATOR_RESPONSE_GRACE_MS 500
 #define MAX_SCAN_RESULTS 32
 #define AP_RESCAN_INTERVAL_MS 15000
 #define AP_RESCAN_MAX_INTERVAL_MS 240000
@@ -256,6 +258,37 @@ static void choose_and_connect(void)
     }
 }
 
+/* Start an operator-owned reconnect only after the HTTP handler has had time to
+ * send its 202 or 409 response over the current STA transport. The manager task
+ * remains the sole owner of radio sequencing; no additional worker is created. */
+static void begin_operator_reconnect(void)
+{
+    if (!operator_reconnect_is_pending()) return;
+
+    s_failed_sweeps = 0;
+    s_retry_count = 0;
+    s_force_primary_attempt = true;
+
+    esp_err_t scan_stop = esp_wifi_scan_stop();
+    if (scan_stop != ESP_OK && scan_stop != ESP_ERR_WIFI_STATE) {
+        ESP_LOGW(TAG, "Scan stop before operator reconnect returned %s", esp_err_to_name(scan_stop));
+    }
+
+    const bool associated = (xEventGroupGetBits(s_events) & READY_BIT) != 0;
+    set_state(NETWORK_WIFI_SCANNING);
+
+    if (!associated) {
+        xEventGroupSetBits(s_events, CONNECT_REQUEST_BIT);
+        return;
+    }
+
+    esp_err_t err = esp_wifi_disconnect();
+    if (err != ESP_OK) {
+        clear_operator_reconnect();
+        ESP_LOGE(TAG, "Operator reconnect could not disconnect the station: %s", esp_err_to_name(err));
+    }
+}
+
 /* Bounded exponential backoff between STA sweeps while the recovery AP is up,
  * so a visible but permanently unusable SSID (wrong credentials, reason 210) is
  * not retried every few seconds forever, flooding the log and consuming the
@@ -271,7 +304,18 @@ static void manager_task(void *arg)
 {
     (void)arg;
     while (true) {
-        xEventGroupWaitBits(s_events, CONNECT_REQUEST_BIT, pdTRUE, pdFALSE, portMAX_DELAY);
+        EventBits_t bits = xEventGroupWaitBits(
+            s_events,
+            CONNECT_REQUEST_BIT | OPERATOR_RECONNECT_REQUEST_BIT,
+            pdTRUE,
+            pdFALSE,
+            portMAX_DELAY);
+
+        if ((bits & OPERATOR_RECONNECT_REQUEST_BIT) != 0) {
+            vTaskDelay(pdMS_TO_TICKS(OPERATOR_RESPONSE_GRACE_MS));
+            begin_operator_reconnect();
+            continue;
+        }
 
         network_status_t status;
         network_manager_get_status(&status);
@@ -454,8 +498,9 @@ esp_err_t network_manager_rescan_and_connect(void)
 {
     if (!s_events) return ESP_ERR_INVALID_STATE;
 
-    /* Claim ownership of the transition before touching the radio so a second
-     * operator reconnect cannot interleave with this one. */
+    /* Claim the transition and queue it for the existing manager task. The radio
+     * is deliberately untouched here so the HTTP server can deliver the 202 or
+     * 409 response over the current STA connection before the grace period ends. */
     portENTER_CRITICAL(&s_lock);
     if (s_operator_reconnect_pending) {
         portEXIT_CRITICAL(&s_lock);
@@ -464,39 +509,6 @@ esp_err_t network_manager_rescan_and_connect(void)
     s_operator_reconnect_pending = true;
     portEXIT_CRITICAL(&s_lock);
 
-    /* An operator-triggered rescan clears the backoff and always attempts the
-     * primary profile, even if the scan cannot see it (hidden SSID). */
-    s_failed_sweeps = 0;
-    s_retry_count = 0;
-    s_force_primary_attempt = true;
-
-    /* Cancel any scan still holding the radio. ESP_ERR_WIFI_STATE only reports
-     * that the station is mid-connect, and no scan running is reported as
-     * ESP_OK, so neither is a reason to abort the transition. */
-    esp_err_t scan_stop = esp_wifi_scan_stop();
-    if (scan_stop != ESP_OK && scan_stop != ESP_ERR_WIFI_STATE) {
-        ESP_LOGW(TAG, "Scan stop before operator reconnect returned %s", esp_err_to_name(scan_stop));
-    }
-
-    /* Exactly one wakeup may reach the manager task. When the station is
-     * associated, esp_wifi_disconnect() guarantees a STA_DISCONNECTED event and
-     * that handler performs the signalling. Signalling here as well would queue
-     * a second sweep that runs while the first attempt is still connecting,
-     * which fails the scan with ESP_ERR_WIFI_STATE and falls through to the
-     * recovery AP. Only signal directly when no event is coming. */
-    const bool associated = (xEventGroupGetBits(s_events) & READY_BIT) != 0;
-
-    esp_err_t err = esp_wifi_disconnect();
-    if (err != ESP_OK) {
-        /* Never leave the manager permanently owned by a failed transition. */
-        clear_operator_reconnect();
-        ESP_LOGE(TAG, "Operator reconnect could not disconnect the station: %s", esp_err_to_name(err));
-        return err;
-    }
-
-    set_state(NETWORK_WIFI_SCANNING);
-    if (!associated) {
-        xEventGroupSetBits(s_events, CONNECT_REQUEST_BIT);
-    }
+    xEventGroupSetBits(s_events, OPERATOR_RECONNECT_REQUEST_BIT);
     return ESP_OK;
 }
