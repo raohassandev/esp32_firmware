@@ -3,6 +3,7 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/app.css" "${CMAKE_CURRENT_BI
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/wifi.css" "${CMAKE_CURRENT_BINARY_DIR}/wifi.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/app.js" "${CMAKE_CURRENT_BINARY_DIR}/app.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/wifi-utils.js" "${CMAKE_CURRENT_BINARY_DIR}/wifi-utils.js" COPYONLY)
+configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/wifi-guard.js" "${CMAKE_CURRENT_BINARY_DIR}/wifi-guard.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/wifi.js" "${CMAKE_CURRENT_BINARY_DIR}/wifi.js" COPYONLY)
 
 idf_component_register(
@@ -15,5 +16,6 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/wifi.css"
         "${CMAKE_CURRENT_BINARY_DIR}/app.js"
         "${CMAKE_CURRENT_BINARY_DIR}/wifi-utils.js"
+        "${CMAKE_CURRENT_BINARY_DIR}/wifi-guard.js"
         "${CMAKE_CURRENT_BINARY_DIR}/wifi.js"
 )
