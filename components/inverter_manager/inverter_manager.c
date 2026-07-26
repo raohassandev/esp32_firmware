@@ -40,7 +40,6 @@ esp_err_t inverter_manager_init(void)
         runtime->config = cfg->inverters[i];
         runtime->lock = (portMUX_TYPE)portMUX_INITIALIZER_UNLOCKED;
         runtime->data.rated_power_kw = runtime->config.rated_power_kw;
-        if (runtime->config.enabled) s_total_rated_kw += runtime->config.rated_power_kw;
     }
 
     esp_err_t first_error = ESP_OK;
@@ -56,6 +55,7 @@ esp_err_t inverter_manager_init(void)
             continue;
         }
         runtime->data.connection_initialized = true;
+        s_total_rated_kw += runtime->config.rated_power_kw;
     }
 
     free(cfg);
@@ -81,22 +81,21 @@ esp_err_t inverter_manager_set_total_power_kw(float target_kw)
 
     for (uint8_t i = 0; i < s_inverter_count; ++i) {
         inverter_runtime_t *runtime = &s_inverters[i];
-        if (!runtime->config.enabled || runtime->config.rated_power_kw <= 0.0f) continue;
+        if (!runtime->config.enabled || !runtime->data.connection_initialized ||
+            runtime->config.rated_power_kw <= 0.0f) continue;
 
-        esp_err_t err = ESP_ERR_INVALID_STATE;
         float share_kw = target_kw * runtime->config.rated_power_kw / s_total_rated_kw;
         float percent = 100.0f * share_kw / runtime->config.rated_power_kw;
         percent = fmaxf(runtime->config.minimum_percent, fminf(runtime->config.maximum_percent, percent));
+        uint32_t raw = (uint32_t)lroundf(percent * runtime->config.raw_units_per_percent);
+        if (raw > UINT16_MAX) raw = UINT16_MAX;
 
-        if (runtime->data.connection_initialized) {
-            uint32_t raw = (uint32_t)lroundf(percent * runtime->config.raw_units_per_percent);
-            if (raw > UINT16_MAX) raw = UINT16_MAX;
-            if (runtime->config.power_limit_function == 16) {
-                uint16_t value = (uint16_t)raw;
-                err = modbus_tcp_write_multiple(&runtime->connection, runtime->config.power_limit_address, &value, 1);
-            } else {
-                err = modbus_tcp_write_single(&runtime->connection, runtime->config.power_limit_address, (uint16_t)raw);
-            }
+        esp_err_t err;
+        if (runtime->config.power_limit_function == 16) {
+            uint16_t value = (uint16_t)raw;
+            err = modbus_tcp_write_multiple(&runtime->connection, runtime->config.power_limit_address, &value, 1);
+        } else {
+            err = modbus_tcp_write_single(&runtime->connection, runtime->config.power_limit_address, (uint16_t)raw);
         }
 
         portENTER_CRITICAL(&runtime->lock);
