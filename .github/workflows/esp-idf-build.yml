@@ -16,9 +16,12 @@ jobs:
     container: espressif/idf:v6.0.1
     steps:
       - uses: actions/checkout@v4
-      - name: Configure target
-        run: idf.py set-target esp32s3
-      - name: Build firmware
-        run: idf.py build
-      - name: Check firmware output
-        run: test -f build/automatrix_pvdg.bin
+      - name: Build ESP32-S3 firmware
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$IDF_PATH/export.sh"
+          idf.py --version
+          idf.py set-target esp32s3
+          idf.py build
+          test -f build/automatrix_pvdg.bin
