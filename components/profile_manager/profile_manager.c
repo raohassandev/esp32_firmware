@@ -132,47 +132,52 @@ esp_err_t profile_manager_save_inverter_telemetry_set(
 
 esp_err_t profile_manager_init(void)
 {
-    inverter_telemetry_profile_set_t loaded;
-    profile_defaults(&loaded);
+    inverter_telemetry_profile_set_t safe_defaults;
+    inverter_telemetry_profile_set_t candidate;
+    profile_defaults(&safe_defaults);
+    candidate = safe_defaults;
 
     nvs_handle_t handle;
     esp_err_t err = nvs_open(PROFILE_NAMESPACE, NVS_READONLY, &handle);
     if (err == ESP_OK) {
         size_t stored_size = 0;
         err = nvs_get_blob(handle, INVERTER_PROFILE_KEY, NULL, &stored_size);
-        if (err == ESP_OK && stored_size == sizeof(loaded)) {
-            size_t read_size = sizeof(loaded);
+        if (err == ESP_OK && stored_size != sizeof(candidate)) {
+            err = ESP_ERR_NVS_INVALID_LENGTH;
+        }
+        if (err == ESP_OK) {
+            size_t read_size = sizeof(candidate);
             err = nvs_get_blob(handle, INVERTER_PROFILE_KEY,
-                               &loaded, &read_size);
-            if (err == ESP_OK) err = validate_set(&loaded);
+                               &candidate, &read_size);
+            if (err == ESP_OK) err = validate_set(&candidate);
         }
         nvs_close(handle);
     }
 
     if (err == ESP_OK) {
-        set_active(&loaded);
+        set_active(&candidate);
         ESP_LOGI(TAG, "Loaded inverter telemetry profile version %u",
-                 (unsigned)loaded.version);
+                 (unsigned)candidate.version);
         return ESP_OK;
     }
 
+    set_active(&safe_defaults);
     if (err != ESP_ERR_NVS_NOT_FOUND && err != ESP_ERR_NVS_INVALID_LENGTH &&
         err != ESP_ERR_INVALID_VERSION && err != ESP_ERR_INVALID_ARG &&
         err != ESP_ERR_NOT_SUPPORTED) {
-        set_active(&loaded);
         ESP_LOGE(TAG, "Telemetry profile storage unavailable: %s; using safe in-memory defaults",
                  esp_err_to_name(err));
         return err;
     }
 
-    set_active(&loaded);
-    err = profile_manager_save_inverter_telemetry_set(&loaded);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Unable to persist safe telemetry defaults: %s",
-                 esp_err_to_name(err));
-        return err;
+    esp_err_t save_err = profile_manager_save_inverter_telemetry_set(&safe_defaults);
+    if (save_err != ESP_OK) {
+        ESP_LOGE(TAG, "Unable to persist safe telemetry defaults after %s: %s",
+                 esp_err_to_name(err), esp_err_to_name(save_err));
+        return save_err;
     }
-    ESP_LOGW(TAG, "Initialized safe inverter telemetry defaults; all profiles disabled");
+    ESP_LOGW(TAG, "Initialized safe inverter telemetry defaults after %s; all profiles disabled",
+             esp_err_to_name(err));
     return ESP_OK;
 }
 
