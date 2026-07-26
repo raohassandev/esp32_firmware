@@ -5,6 +5,7 @@
 #include <string.h>
 #include "config_manager.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "modbus_tcp.h"
 
 static const char *TAG = "inverters";
@@ -41,10 +42,18 @@ esp_err_t inverter_manager_init(void)
         if (!runtime->config.enabled) continue;
         s_total_rated_kw += runtime->config.rated_power_kw;
         err = modbus_tcp_connection_init(&runtime->connection, &runtime->config.endpoint);
-        if (err != ESP_OK) ESP_LOGE(TAG, "inverter %u connection init failed: %s", i, esp_err_to_name(err));
+        if (err != ESP_OK) {
+            runtime->data.last_error = err;
+            ESP_LOGE(TAG, "inverter %u connection init failed: %s", i, esp_err_to_name(err));
+        }
     }
     free(cfg);
     return err;
+}
+
+uint8_t inverter_manager_get_count(void)
+{
+    return s_inverter_count;
 }
 
 float inverter_manager_get_total_rated_kw(void)
@@ -78,7 +87,11 @@ esp_err_t inverter_manager_set_total_power_kw(float target_kw)
         runtime->data.commanded_percent = percent;
         runtime->data.commanded_power_kw = share_kw;
         runtime->data.online = err == ESP_OK;
-        if (err != ESP_OK) runtime->data.write_errors++;
+        runtime->data.has_command = true;
+        runtime->data.last_command_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
+        runtime->data.last_error = err;
+        if (err == ESP_OK) runtime->data.write_successes++;
+        else runtime->data.write_errors++;
         portEXIT_CRITICAL(&runtime->lock);
         if (err != ESP_OK) {
             final_result = err;
