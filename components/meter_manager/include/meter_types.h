@@ -5,6 +5,7 @@
 typedef struct {
     float active_power_kw;
     bool online;
+    bool connection_initialized;
     uint32_t last_update_ms;
     uint32_t last_attempt_ms;
     uint32_t success_count;
