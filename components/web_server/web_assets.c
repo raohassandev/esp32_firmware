@@ -7,6 +7,8 @@ extern const uint8_t app_css_start[] asm("_binary_app_css_start");
 extern const uint8_t app_css_end[] asm("_binary_app_css_end");
 extern const uint8_t wifi_css_start[] asm("_binary_wifi_css_start");
 extern const uint8_t wifi_css_end[] asm("_binary_wifi_css_end");
+extern const uint8_t devices_css_start[] asm("_binary_devices_css_start");
+extern const uint8_t devices_css_end[] asm("_binary_devices_css_end");
 extern const uint8_t app_js_start[] asm("_binary_app_js_start");
 extern const uint8_t app_js_end[] asm("_binary_app_js_end");
 extern const uint8_t wifi_utils_js_start[] asm("_binary_wifi_utils_js_start");
@@ -15,6 +17,10 @@ extern const uint8_t wifi_guard_js_start[] asm("_binary_wifi_guard_js_start");
 extern const uint8_t wifi_guard_js_end[] asm("_binary_wifi_guard_js_end");
 extern const uint8_t wifi_js_start[] asm("_binary_wifi_js_start");
 extern const uint8_t wifi_js_end[] asm("_binary_wifi_js_end");
+extern const uint8_t devices_utils_js_start[] asm("_binary_devices_utils_js_start");
+extern const uint8_t devices_utils_js_end[] asm("_binary_devices_utils_js_end");
+extern const uint8_t devices_js_start[] asm("_binary_devices_js_start");
+extern const uint8_t devices_js_end[] asm("_binary_devices_js_end");
 
 static const char *asset(const uint8_t *start, const uint8_t *end, size_t *length)
 {
@@ -41,6 +47,11 @@ const char *web_assets_wifi_css(size_t *length)
     return asset(wifi_css_start, wifi_css_end, length);
 }
 
+const char *web_assets_devices_css(size_t *length)
+{
+    return asset(devices_css_start, devices_css_end, length);
+}
+
 const char *web_assets_js(size_t *length)
 {
     return asset(app_js_start, app_js_end, length);
@@ -59,4 +70,14 @@ const char *web_assets_wifi_guard_js(size_t *length)
 const char *web_assets_wifi_js(size_t *length)
 {
     return asset(wifi_js_start, wifi_js_end, length);
+}
+
+const char *web_assets_devices_utils_js(size_t *length)
+{
+    return asset(devices_utils_js_start, devices_utils_js_end, length);
+}
+
+const char *web_assets_devices_js(size_t *length)
+{
+    return asset(devices_js_start, devices_js_end, length);
 }
