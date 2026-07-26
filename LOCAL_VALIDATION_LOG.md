@@ -9,8 +9,9 @@ physical ESP32-S3, so those results can be reviewed without access to the bench.
 **Controller network:** SSID `Rao`, currently `192.168.0.105` (DHCP; it has moved during the
 engagement, so it is rediscovered from serial after every restart rather than assumed)
 
-**Last updated:** 2026-07-26, mid-qualification of `fix/pvdg-reconnect-response-delivery`.
-Section 6 is incomplete and explicitly marked so.
+**Last updated:** 2026-07-26. Qualification of `fix/pvdg-reconnect-response-delivery` FAILED at the
+late-duplicate and drain-extension phases; see §6. Nothing was committed or pushed.
+
 
 ---
 
@@ -228,23 +229,78 @@ Changed files: `network_manager.c`, `network_manager.h`, `web_api.c` (125 insert
 Build exit 0, 0xea880, 69% free, no project warnings. Flashed without erase; runtime clean — 1
 reset, 0 panic/watchdog, 0 provisioning, 0 safe-default load, `/api/config` byte-identical.
 
-### Results so far
+### Results — QUALIFICATION FAILED, not committed, not pushed
 
-| Phase | Status |
+| Phase | Result |
 | --- | --- |
-| Single reconnect ×10 | **Pass** — 10/10 complete 202 with valid bodies, max latency **63.4 ms**, 0 AP activations |
-| Simultaneous ×50 | Running |
-| Late duplicate 300 ms ×20 | Queued |
-| Late duplicate 450 ms ×10 | Queued |
-| Five sockets ×20 | Queued |
-| Active-scan stress ×100 | Queued |
-| UI reconnect ×5 | Queued |
+| Single reconnect ×10 | **Pass** — 10/10 complete 202, valid bodies, max latency 63.4 ms |
+| Simultaneous ×50 | **Pass** — 50 × 202 and 50 × 409, 0 missing, 0 HTTP 500, max latency 337 ms, 50/50 cycles |
+| Late duplicate 300 ms ×20 | **Pass** — 20 × 202 and 20 × 409, 0 missing, max latency 363 ms, 20/20 cycles |
+| Late duplicate 450 ms ×10 | **FAIL** — 202 10/10, but **409 only 2/10; 8 duplicates received no response** |
+| Five sockets ×20 | **FAIL** — 202 20/20, but **409 79/80; 1 duplicate lost**; 19/20 cycles |
+| Drain-extension timing probe ×8 @450 ms | **FAIL** — see below |
+| Active-scan stress ×100 | **NOT EXECUTED** — driver stopped deliberately; `scan100.txt` is 0 bytes and no result is claimed |
+| UI reconnect ×5 | **NOT EXECUTED** — §17 stops qualification once a phase fails |
 
-Serial across everything executed so far: **0** recovery-AP activations, **0** panics, **0**
-watchdogs, **0** unexpected resets.
+### The failure
 
-Acceptance is strict: every cycle of every phase must pass, and a later passing run does not excuse
-an earlier failed cycle. Nothing will be committed or pushed unless all phases pass.
+A dedicated probe measured how long the STA link survives *after the duplicate's own response
+completed*, which is the property §12 actually requires (≥500 ms). The discriminator is sharp: with
+the duplicate sent at +450 ms, a request-start timer leaves roughly **0 ms**, whereas a
+completion-aware drain must leave roughly **500 ms**.
+
+| Cycle | Duplicate completed at | Last successful probe | Survival after duplicate | Meets ≥500 ms |
+| --- | --- | --- | --- | --- |
+| 2 | t0+557.5 ms | t0+711.0 ms | **153.5 ms** | no |
+| 4 | t0+526.9 ms | t0+864.5 ms | **337.5 ms** | no |
+| 1, 3, 5, 6, 7, 8 | duplicate unanswered | — | — | no |
+
+**0 of 8 cycles met the drain requirement.** The two answered duplicates completed at t0+527 ms and
+t0+557 ms — essentially *at* the gate-opening instant (accepted response completes ~60 ms, plus the
+500 ms drain ≈ 560 ms) rather than a full drain before it.
+
+Reading the state machine against this data, the in-flight counter protects a duplicate only when its
+`begin()` lands **before** the manager task's final gate evaluation. A duplicate whose `begin()`
+arrives a few milliseconds *after* that read is unprotected: the manager has already called
+`begin_operator_reconnect()` and disconnected, and the 409 then races the radio teardown. The gate
+read and the `begin()` claim are not atomic with respect to each other, so the 450 ms sub-test lands
+exactly in that window. Judging by these numbers this is a narrow but real ordering gap, not merely
+machine load — although load is a genuine confounder (see caveats).
+
+**Caveats on the probe, stated so the numbers are not over-read:** it treats any failed `/api/status`
+fetch as link death, so socket pressure can produce a false "dead" reading and `lastAlive` is a lower
+bound with up to ~100 ms of polling error. It also cannot distinguish "ESP disconnected early" from
+"my request arrived late" for the six unanswered cycles. The two *answered* cycles are the trustworthy
+evidence, and both fall well short of 500 ms.
+
+**Machine-load context:** an unrelated SolTrix `enduser-FE` vitest run (~18 node processes) started
+on this PC at 16:03 and CPU sat around 47% during these phases. That inflates client-side jitter and
+is a real confounder for the six unanswered cycles. It does not explain the two measured survival
+intervals, which are ESP-side.
+
+### What did hold
+
+Across **110 reconnect cycles** executed today, serial shows **0** recovery-AP activations
+(`setup AP`, `Recovery AP serving` and `stopping recovery AP` all absent), **0** panics, **0**
+watchdogs, **0** unexpected resets, and **0** "response could not be delivered". Ack spacing is
+uniform at 12.2–13.0 s with exactly one reconnect per cycle, so there are no duplicate reconnect
+sequences. The recovery-AP regression from §2.3 is thoroughly closed and the firmware never wedges.
+
+`/api/config` is byte-identical to the pre-test backup; SSID `Rao`, meter `192.168.0.200:502` unit 1
+address 58 scale 0.01 poll 250 timeout 500; control and inverter disabled; no configuration POST, no
+NVS erase, no raw NVS read, no credential exposure.
+
+### Handed back to ChatGPT
+
+Per §17 the source was not modified to make the test pass, nothing was committed and nothing was
+pushed. `fix/pvdg-reconnect-response-delivery` remains at `a3cdb8a` on the remote with the two-phase
+work present only as an uncommitted local diff. Batch 2 and PR #6 stay draft.
+
+The design question for ChatGPT: make the gate decision and the `begin()` claim atomic with respect
+to each other, so a duplicate arriving at the deadline cannot slip past the gate read. Options worth
+considering are evaluating the gate under the same `s_lock` acquisition that would admit a new
+`begin()`, or having the accepted request publish an explicit "no further duplicates" latch before
+the manager is allowed to proceed.
 
 ---
 
