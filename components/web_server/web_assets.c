@@ -10,7 +10,11 @@ extern const uint8_t app_js_end[] asm("_binary_app_js_end");
 
 static const char *asset(const uint8_t *start, const uint8_t *end, size_t *length)
 {
-    if (length) *length = (size_t)(end - start);
+    size_t size = (size_t)(end - start);
+    if (size > 0 && start[size - 1] == '\0') {
+        --size;
+    }
+    if (length) *length = size;
     return (const char *)start;
 }
 
