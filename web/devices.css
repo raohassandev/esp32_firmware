@@ -1,3 +1,4 @@
+[hidden] { display: none !important; }
 .device-toolbar { display: flex; justify-content: space-between; gap: 14px; align-items: center; margin: 14px 0; }
 .device-toolbar-copy { color: var(--muted); font-size: 12px; line-height: 1.5; }
 .device-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 14px 0; }
