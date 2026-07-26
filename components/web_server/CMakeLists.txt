@@ -11,6 +11,7 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/devices-utils.js" "${CMAKE_C
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/devices.js" "${CMAKE_CURRENT_BINARY_DIR}/devices.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/inverter-telemetry-utils.js" "${CMAKE_CURRENT_BINARY_DIR}/inverter-telemetry-utils.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/inverter-telemetry.js" "${CMAKE_CURRENT_BINARY_DIR}/inverter-telemetry.js" COPYONLY)
+configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/inverter-telemetry-sync.js" "${CMAKE_CURRENT_BINARY_DIR}/inverter-telemetry-sync.js" COPYONLY)
 
 idf_component_register(
     SRCS "web_server.c" "web_api.c" "device_api.c" "telemetry_profile_api.c" "web_assets.c"
@@ -30,4 +31,5 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/devices.js"
         "${CMAKE_CURRENT_BINARY_DIR}/inverter-telemetry-utils.js"
         "${CMAKE_CURRENT_BINARY_DIR}/inverter-telemetry.js"
+        "${CMAKE_CURRENT_BINARY_DIR}/inverter-telemetry-sync.js"
 )
