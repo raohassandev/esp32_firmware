@@ -25,6 +25,7 @@ jobs:
           node --check web/wifi.js
           node --check web/devices-utils.js
           node --check web/devices.js
+          node --check web/devices-refresh.js
           node web/tests/wifi-utils.test.js
           node web/tests/devices-utils.test.js
       - name: Check telemetry source contract
