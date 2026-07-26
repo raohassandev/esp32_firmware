@@ -8,6 +8,7 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/wifi-guard.js" "${CMAKE_CURR
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/wifi.js" "${CMAKE_CURRENT_BINARY_DIR}/wifi.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/devices-utils.js" "${CMAKE_CURRENT_BINARY_DIR}/devices-utils.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/devices.js" "${CMAKE_CURRENT_BINARY_DIR}/devices.js" COPYONLY)
+configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/devices-refresh.js" "${CMAKE_CURRENT_BINARY_DIR}/devices-refresh.js" COPYONLY)
 
 idf_component_register(
     SRCS "web_server.c" "web_api.c" "device_api.c" "web_assets.c"
@@ -24,4 +25,5 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/wifi.js"
         "${CMAKE_CURRENT_BINARY_DIR}/devices-utils.js"
         "${CMAKE_CURRENT_BINARY_DIR}/devices.js"
+        "${CMAKE_CURRENT_BINARY_DIR}/devices-refresh.js"
 )
