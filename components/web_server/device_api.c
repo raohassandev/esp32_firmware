@@ -180,6 +180,7 @@ static esp_err_t inverters_get(httpd_req_t *request)
     uint8_t last_write_ok_count = 0;
     uint8_t initialization_failed_count = 0;
     float configured_rated_kw = 0.0f;
+    float enabled_rated_kw = 0.0f;
 
     cJSON_AddNumberToObject(root, "generated_ms", current_ms);
     cJSON_AddNumberToObject(root, "configured_count", config->inverter_count);
@@ -198,7 +199,10 @@ static esp_err_t inverters_get(httpd_req_t *request)
         bool last_write_ok = has_command && data.online;
 
         configured_rated_kw += inverter->rated_power_kw;
-        if (enabled) enabled_count++;
+        if (enabled) {
+            enabled_count++;
+            enabled_rated_kw += inverter->rated_power_kw;
+        }
         if (has_command) command_tested_count++;
         if (last_write_ok) last_write_ok_count++;
         if (initialization_failed) initialization_failed_count++;
@@ -250,7 +254,8 @@ static esp_err_t inverters_get(httpd_req_t *request)
     cJSON *summary = cJSON_AddObjectToObject(root, "summary");
     cJSON_AddNumberToObject(summary, "enabled", enabled_count);
     cJSON_AddNumberToObject(summary, "configured_rated_kw", configured_rated_kw);
-    cJSON_AddNumberToObject(summary, "enabled_rated_kw", inverter_manager_get_total_rated_kw());
+    cJSON_AddNumberToObject(summary, "enabled_rated_kw", enabled_rated_kw);
+    cJSON_AddNumberToObject(summary, "commandable_rated_kw", inverter_manager_get_total_rated_kw());
     cJSON_AddNumberToObject(summary, "command_tested", command_tested_count);
     cJSON_AddNumberToObject(summary, "last_write_ok", last_write_ok_count);
     cJSON_AddNumberToObject(summary, "initialization_failed", initialization_failed_count);
