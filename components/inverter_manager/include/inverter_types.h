@@ -7,6 +7,7 @@ typedef struct {
     float commanded_percent;
     float commanded_power_kw;
     bool online;
+    bool connection_initialized;
     bool has_command;
     uint32_t last_command_ms;
     uint32_t write_successes;
