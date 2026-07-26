@@ -60,6 +60,7 @@ static esp_err_t js_handler(httpd_req_t *request)
     static const asset_getter_t assets[] = {
         web_assets_js,
         web_assets_wifi_utils_js,
+        web_assets_wifi_guard_js,
         web_assets_wifi_js
     };
     return send_asset_parts(request, "application/javascript; charset=utf-8",
