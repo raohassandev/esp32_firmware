@@ -18,6 +18,8 @@ It is embedded directly into the ESP-IDF firmware and served by the
 - `devices-utils.js` — pure formatting and state-classification helpers for
   meters, inverter command channels and operational readiness.
 - `devices.js` — read-only Dashboard, meter and inverter runtime diagnostics.
+- `devices-refresh.js` — connects the common top-bar refresh action to the
+  active read-only diagnostics route.
 - `devices.css` — responsive diagnostics cards, summaries and tables.
 - `tests/wifi-utils.test.js` — dependency-free Wi-Fi validation tests.
 - `tests/devices-utils.test.js` — dependency-free null, stale and command-state
@@ -29,9 +31,9 @@ for an embedded controller.
 
 The server streams the common, Wi-Fi and device CSS modules as one `/app.css`
 response. The common application, Wi-Fi utilities, credential guard,
-commissioning module, device utilities and device diagnostics module are
-streamed as one `/app.js` response. ESP-IDF's trailing text-asset NUL byte is
-excluded from every streamed part.
+commissioning module, device utilities, device diagnostics and refresh bridge
+are streamed as one `/app.js` response. ESP-IDF's trailing text-asset NUL byte
+is excluded from every streamed part.
 
 ## Routes
 
@@ -94,15 +96,17 @@ registers or enable automatic control.
    meter states.
 3. A successful inverter command write is not measured inverter production and
    is not proof of continuous inverter availability.
-4. Measured inverter power, generator power and facility load remain `null`
+4. The reported commanded kW must be derived from the final clamped percentage
+   actually written, not from the unconstrained requested share.
+5. Measured inverter power, generator power and facility load remain `null`
    until dedicated register mappings and runtime acquisition exist.
-5. Keep exported password values masked. Password inputs are always blank when
+6. Keep exported password values masked. Password inputs are always blank when
    configuration is loaded.
-6. Do not add an automatic-control enable action without a separately reviewed
+7. Do not add an automatic-control enable action without a separately reviewed
    commissioning workflow and safety confirmation.
-7. Label Modbus addresses as **PDU addresses**; do not silently apply FUXA's
+8. Label Modbus addresses as **PDU addresses**; do not silently apply FUXA's
    one-based display convention.
-8. The generic configuration importer accepts only a subset of exported fields.
+9. The generic configuration importer accepts only a subset of exported fields.
    Controls that are not yet writable remain read-only.
 
 ## Development and validation standard
@@ -122,8 +126,10 @@ node --check web/wifi-guard.js
 node --check web/wifi.js
 node --check web/devices-utils.js
 node --check web/devices.js
+node --check web/devices-refresh.js
 node web/tests/wifi-utils.test.js
 node web/tests/devices-utils.test.js
+python3 tests/telemetry_source_contract.py
 ```
 
 - Hardware qualification must verify reconnect admission timing, scan
