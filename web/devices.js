@@ -79,9 +79,14 @@
                 summaryCard('inverterRatedTotal', 'Enabled rating'),
                 summaryCard('inverterCommandTested', 'Command-tested')
             );
-            const list = byId('inverterList');
-            if (list) list.classList.add('device-list');
-            notice.after(bar, summary);
+            const legacyList = byId('inverterList');
+            if (legacyList) {
+                legacyList.hidden = true;
+                legacyList.setAttribute('aria-hidden', 'true');
+            }
+            const runtimeList = element('div', 'device-list');
+            runtimeList.id = 'inverterRuntimeList';
+            notice.after(bar, summary, runtimeList);
         }
     }
 
@@ -209,7 +214,7 @@
 
     function renderInverters() {
         const data = state.inverters;
-        const list = byId('inverterList');
+        const list = byId('inverterRuntimeList');
         if (!list) return;
         list.replaceChildren();
         if (!data || !Array.isArray(data.inverters)) {
@@ -246,6 +251,10 @@
         return route === 'meters' || route === 'inverters';
     }
 
+    function errorMessage(reason) {
+        return reason && reason.message ? reason.message : String(reason || 'Unknown error');
+    }
+
     async function refresh(force = false) {
         if (state.loading || (!force && !activeDevicePage())) return;
         state.loading = true;
@@ -262,8 +271,11 @@
             renderMeters();
             renderInverters();
             const timestamp = state.lastUpdated.toLocaleTimeString();
-            setText('meterTelemetryMessage', results[0].status === 'fulfilled' ? `Runtime diagnostics updated ${timestamp}` : `Meter diagnostics failed: ${results[0].reason.message}`);
-            setText('inverterTelemetryMessage', results[1].status === 'fulfilled' ? `Runtime diagnostics updated ${timestamp}` : `Inverter diagnostics failed: ${results[1].reason.message}`);
+            setText('meterTelemetryMessage', results[0].status === 'fulfilled' ? `Runtime diagnostics updated ${timestamp}` : `Meter diagnostics failed: ${errorMessage(results[0].reason)}`);
+            setText('inverterTelemetryMessage', results[1].status === 'fulfilled' ? `Runtime diagnostics updated ${timestamp}` : `Inverter diagnostics failed: ${errorMessage(results[1].reason)}`);
+        } catch (error) {
+            setText('meterTelemetryMessage', `Device rendering failed: ${errorMessage(error)}`);
+            setText('inverterTelemetryMessage', `Device rendering failed: ${errorMessage(error)}`);
         } finally {
             state.loading = false;
             setLoading(false);
