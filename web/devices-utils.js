@@ -35,6 +35,9 @@
         if (!meter || !meter.enabled) {
             return { label: 'Disabled', tone: 'neutral', detail: 'Polling is disabled by configuration.' };
         }
+        if (runtime.initialization_failed) {
+            return { label: 'Initialization failed', tone: 'bad', detail: 'The Modbus runtime could not be initialized. Review the endpoint and system resources.' };
+        }
         if (runtime.online && !runtime.stale) {
             return { label: 'Online', tone: 'good', detail: 'Latest Modbus sample is current.' };
         }
@@ -48,6 +51,9 @@
         const runtime = inverter && inverter.runtime ? inverter.runtime : {};
         if (!inverter || !inverter.enabled) {
             return { label: 'Disabled', tone: 'neutral', detail: 'Command channel is disabled by configuration.' };
+        }
+        if (runtime.initialization_failed) {
+            return { label: 'Initialization failed', tone: 'bad', detail: 'The Modbus command channel could not be initialized.' };
         }
         if (!runtime.has_command) {
             return { label: 'Not tested', tone: 'neutral', detail: 'No command has been issued since this boot.' };
