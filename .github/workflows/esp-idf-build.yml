@@ -44,6 +44,20 @@ jobs:
           set -euo pipefail
           source "$IDF_PATH/export.sh"
           idf.py --version
-          idf.py set-target esp32s3
-          idf.py build
+          idf.py set-target esp32s3 > /tmp/idf-target.log 2>&1 || {
+            cat /tmp/idf-target.log
+            exit 1
+          }
+          idf.py build > /tmp/idf-build.log 2>&1 || {
+            tail -n 250 /tmp/idf-build.log
+            exit 1
+          }
           test -f build/automatrix_pvdg.bin
+          grep -E "Project build complete|binary size|Smallest app partition|free" /tmp/idf-build.log || true
+          stat -c "Application binary bytes: %s" build/automatrix_pvdg.bin
+          if grep -E "warning:" /tmp/idf-build.log > /tmp/project-warnings.log; then
+            echo "Compiler warnings detected:"
+            cat /tmp/project-warnings.log
+            exit 1
+          fi
+          echo "Compiler warnings: 0"
