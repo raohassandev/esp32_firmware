@@ -175,6 +175,7 @@ esp_err_t meter_manager_init(void)
             ESP_LOGE(TAG, "meter %u connection init failed: %s", i, esp_err_to_name(init_err));
             continue;
         }
+        runtime->data.connection_initialized = true;
 
         char task_name[16];
         snprintf(task_name, sizeof(task_name), "meter_%u", i);
