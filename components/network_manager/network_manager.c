@@ -33,6 +33,27 @@ static bool s_using_fallback;
 static uint8_t s_retry_count;
 static uint32_t s_failed_sweeps;
 static volatile bool s_force_primary_attempt;
+/* Set while an operator-requested reconnect owns the radio transition. The
+ * disconnect it causes must not be mistaken for a spontaneous link loss, or the
+ * event handler would race the manager task and could reach the recovery AP
+ * even though a perfectly good profile is about to be retried. Guarded by
+ * s_lock: it is written from the HTTP task and read from the Wi-Fi event loop. */
+static bool s_operator_reconnect_pending;
+
+static bool operator_reconnect_is_pending(void)
+{
+    portENTER_CRITICAL(&s_lock);
+    bool pending = s_operator_reconnect_pending;
+    portEXIT_CRITICAL(&s_lock);
+    return pending;
+}
+
+static void clear_operator_reconnect(void)
+{
+    portENTER_CRITICAL(&s_lock);
+    s_operator_reconnect_pending = false;
+    portEXIT_CRITICAL(&s_lock);
+}
 
 static void set_state(network_wifi_state_t state)
 {
@@ -200,18 +221,28 @@ static void choose_and_connect(void)
      * the scan did not see it (hidden SSID or marginal signal). Once the
      * recovery AP is serving, a blind attempt on an absent SSID is skipped so
      * the radio spends its time on the AP instead of doomed connect attempts;
-     * boot and an operator rescan still force the attempt. */
+     * boot and an operator rescan still force the attempt.
+     *
+     * Selection is also the point where an operator transition hands the radio
+     * back to the normal retry state machine: the pending flag is released
+     * immediately before each attempt, because connect_profile() starts a fresh
+     * retry sequence and any later disconnect is a genuine failure of it. */
     const bool force_primary = s_force_primary_attempt;
     s_force_primary_attempt = false;
     if (s_cfg.primary.enabled && (primary_found || !ap_active || force_primary)) {
         if (!primary_found) {
             ESP_LOGW(TAG, "Primary SSID '%s' not visible in scan; attempting it anyway", s_cfg.primary.ssid);
         }
+        clear_operator_reconnect();
         if (connect_profile(&s_cfg.primary, false) == ESP_OK) return;
     }
     if (s_cfg.fallback.enabled && fallback_found) {
+        clear_operator_reconnect();
         if (connect_profile(&s_cfg.fallback, true) == ESP_OK) return;
     }
+
+    /* No profile could be started, so this is a genuine recovery situation. */
+    clear_operator_reconnect();
 
     if (ap_active) {
         set_state(NETWORK_WIFI_AP_FALLBACK);
@@ -278,6 +309,17 @@ static void event_handler(void *arg, esp_event_base_t base, int32_t id, void *da
         strlcpy(s_status.ip, "0.0.0.0", sizeof(s_status.ip));
         portEXIT_CRITICAL(&s_lock);
 
+        /* An operator reconnect owns this disconnect. Acknowledge it and let the
+         * manager task perform selection; competing here could exhaust the retry
+         * budget and start the recovery AP while a usable profile is pending. */
+        if (operator_reconnect_is_pending()) {
+            ESP_LOGI(TAG, "Intentional disconnect acknowledged (reason=%u); operator reconnect in progress",
+                     event ? event->reason : 0);
+            set_state(NETWORK_WIFI_SCANNING);
+            xEventGroupSetBits(s_events, CONNECT_REQUEST_BIT);
+            return;
+        }
+
         s_retry_count++;
         if (s_retry_count <= s_cfg.max_retries_per_profile) {
             ESP_LOGW(TAG, "Disconnected from %s profile, reason=%u; retry %u/%u",
@@ -332,6 +374,9 @@ static void event_handler(void *arg, esp_event_base_t base, int32_t id, void *da
         portEXIT_CRITICAL(&s_lock);
 
         s_failed_sweeps = 0;
+        /* Safety net: an association that succeeded by any path ends the
+         * operator transition, so the flag can never outlive a working link. */
+        clear_operator_reconnect();
         xEventGroupSetBits(s_events, READY_BIT);
         ESP_LOGI(TAG, "Ready: SSID=%s IP=%s GW=%s MASK=%s RSSI=%d",
                  s_status.ssid, s_status.ip, s_status.gateway, s_status.netmask, s_status.rssi);
@@ -408,11 +453,50 @@ void network_manager_get_status(network_status_t *out)
 esp_err_t network_manager_rescan_and_connect(void)
 {
     if (!s_events) return ESP_ERR_INVALID_STATE;
+
+    /* Claim ownership of the transition before touching the radio so a second
+     * operator reconnect cannot interleave with this one. */
+    portENTER_CRITICAL(&s_lock);
+    if (s_operator_reconnect_pending) {
+        portEXIT_CRITICAL(&s_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_operator_reconnect_pending = true;
+    portEXIT_CRITICAL(&s_lock);
+
     /* An operator-triggered rescan clears the backoff and always attempts the
      * primary profile, even if the scan cannot see it (hidden SSID). */
     s_failed_sweeps = 0;
+    s_retry_count = 0;
     s_force_primary_attempt = true;
-    esp_wifi_disconnect();
-    xEventGroupSetBits(s_events, CONNECT_REQUEST_BIT);
+
+    /* Cancel any scan still holding the radio. ESP_ERR_WIFI_STATE only reports
+     * that the station is mid-connect, and no scan running is reported as
+     * ESP_OK, so neither is a reason to abort the transition. */
+    esp_err_t scan_stop = esp_wifi_scan_stop();
+    if (scan_stop != ESP_OK && scan_stop != ESP_ERR_WIFI_STATE) {
+        ESP_LOGW(TAG, "Scan stop before operator reconnect returned %s", esp_err_to_name(scan_stop));
+    }
+
+    /* Exactly one wakeup may reach the manager task. When the station is
+     * associated, esp_wifi_disconnect() guarantees a STA_DISCONNECTED event and
+     * that handler performs the signalling. Signalling here as well would queue
+     * a second sweep that runs while the first attempt is still connecting,
+     * which fails the scan with ESP_ERR_WIFI_STATE and falls through to the
+     * recovery AP. Only signal directly when no event is coming. */
+    const bool associated = (xEventGroupGetBits(s_events) & READY_BIT) != 0;
+
+    esp_err_t err = esp_wifi_disconnect();
+    if (err != ESP_OK) {
+        /* Never leave the manager permanently owned by a failed transition. */
+        clear_operator_reconnect();
+        ESP_LOGE(TAG, "Operator reconnect could not disconnect the station: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    set_state(NETWORK_WIFI_SCANNING);
+    if (!associated) {
+        xEventGroupSetBits(s_events, CONNECT_REQUEST_BIT);
+    }
     return ESP_OK;
 }
