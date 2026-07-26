@@ -18,11 +18,13 @@ assert.deepStrictEqual(
     utils.meterState({ enabled: false, runtime: {} }),
     { label: 'Disabled', tone: 'neutral', detail: 'Polling is disabled by configuration.' }
 );
+assert.strictEqual(utils.meterState({ enabled: true, runtime: { initialization_failed: true } }).label, 'Initialization failed');
 assert.strictEqual(utils.meterState({ enabled: true, runtime: { online: true, stale: false } }).label, 'Online');
 assert.strictEqual(utils.meterState({ enabled: true, runtime: { has_data: true, stale: true } }).label, 'Stale');
 assert.strictEqual(utils.meterState({ enabled: true, runtime: { has_data: false } }).label, 'Unavailable');
 
 assert.strictEqual(utils.inverterState({ enabled: false, runtime: {} }).label, 'Disabled');
+assert.strictEqual(utils.inverterState({ enabled: true, runtime: { initialization_failed: true } }).label, 'Initialization failed');
 assert.strictEqual(utils.inverterState({ enabled: true, runtime: { has_command: false } }).label, 'Not tested');
 assert.strictEqual(utils.inverterState({ enabled: true, runtime: { has_command: true, last_write_ok: true } }).label, 'Last write OK');
 assert.strictEqual(utils.inverterState({ enabled: true, runtime: { has_command: true, last_write_ok: false } }).label, 'Last write failed');
