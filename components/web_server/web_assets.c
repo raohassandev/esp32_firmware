@@ -21,6 +21,8 @@ extern const uint8_t devices_utils_js_start[] asm("_binary_devices_utils_js_star
 extern const uint8_t devices_utils_js_end[] asm("_binary_devices_utils_js_end");
 extern const uint8_t devices_js_start[] asm("_binary_devices_js_start");
 extern const uint8_t devices_js_end[] asm("_binary_devices_js_end");
+extern const uint8_t devices_refresh_js_start[] asm("_binary_devices_refresh_js_start");
+extern const uint8_t devices_refresh_js_end[] asm("_binary_devices_refresh_js_end");
 
 static const char *asset(const uint8_t *start, const uint8_t *end, size_t *length)
 {
@@ -80,4 +82,9 @@ const char *web_assets_devices_utils_js(size_t *length)
 const char *web_assets_devices_js(size_t *length)
 {
     return asset(devices_js_start, devices_js_end, length);
+}
+
+const char *web_assets_devices_refresh_js(size_t *length)
+{
+    return asset(devices_refresh_js_start, devices_refresh_js_end, length);
 }
