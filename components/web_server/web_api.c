@@ -454,17 +454,27 @@ static esp_err_t wifi_scan_post(httpd_req_t *request)
 
 static esp_err_t wifi_rescan_post(httpd_req_t *request)
 {
-    esp_err_t err = network_manager_rescan_and_connect();
-    if (err == ESP_ERR_INVALID_STATE) {
-        /* The manager already owns an operator reconnect. That is a conflicting
-         * request rather than a server fault, so report it as such. */
+    bool accepted = false;
+    esp_err_t begin_err = network_manager_operator_reconnect_response_begin(&accepted);
+    if (begin_err == ESP_ERR_INVALID_STATE) {
         return send_json_error(request, "409 Conflict",
                                "An operator reconnect is already in progress");
     }
-    if (err != ESP_OK) {
-        return send_json_error(request, "500 Internal Server Error", "Wi-Fi reconnect failed");
+    if (begin_err != ESP_OK) {
+        return send_json_error(request, "500 Internal Server Error",
+                               "Wi-Fi reconnect could not be scheduled");
     }
-    return send_json_text(request, "202 Accepted", "{\"accepted\":true}");
+
+    esp_err_t send_err = accepted
+        ? send_json_text(request, "202 Accepted", "{\"accepted\":true}")
+        : send_json_error(request, "409 Conflict",
+                          "An operator reconnect is already in progress");
+
+    /* The manager cannot close admission or touch the radio until this send
+     * attempt has returned and the response handler is removed from in-flight
+     * tracking. */
+    network_manager_operator_reconnect_response_complete(accepted, send_err);
+    return send_err;
 }
 
 static void restart_task(void *argument)
