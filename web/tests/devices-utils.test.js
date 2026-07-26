@@ -4,6 +4,9 @@ const assert = require('assert');
 const utils = require('../devices-utils.js');
 
 assert.strictEqual(utils.formatPower(null), 'Unavailable');
+assert.strictEqual(utils.formatPower(undefined), 'Unavailable');
+assert.strictEqual(utils.formatPower(''), 'Unavailable');
+assert.strictEqual(utils.formatPower(false), 'Unavailable');
 assert.strictEqual(utils.formatPower(-4.901), '-4.90 kW');
 assert.strictEqual(utils.formatPercent(50), '50.0%');
 assert.strictEqual(utils.formatAge(null), 'Never');
