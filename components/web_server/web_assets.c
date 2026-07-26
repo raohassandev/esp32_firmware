@@ -11,6 +11,8 @@ extern const uint8_t app_js_start[] asm("_binary_app_js_start");
 extern const uint8_t app_js_end[] asm("_binary_app_js_end");
 extern const uint8_t wifi_utils_js_start[] asm("_binary_wifi_utils_js_start");
 extern const uint8_t wifi_utils_js_end[] asm("_binary_wifi_utils_js_end");
+extern const uint8_t wifi_guard_js_start[] asm("_binary_wifi_guard_js_start");
+extern const uint8_t wifi_guard_js_end[] asm("_binary_wifi_guard_js_end");
 extern const uint8_t wifi_js_start[] asm("_binary_wifi_js_start");
 extern const uint8_t wifi_js_end[] asm("_binary_wifi_js_end");
 
@@ -47,6 +49,11 @@ const char *web_assets_js(size_t *length)
 const char *web_assets_wifi_utils_js(size_t *length)
 {
     return asset(wifi_utils_js_start, wifi_utils_js_end, length);
+}
+
+const char *web_assets_wifi_guard_js(size_t *length)
+{
+    return asset(wifi_guard_js_start, wifi_guard_js_end, length);
 }
 
 const char *web_assets_wifi_js(size_t *length)
