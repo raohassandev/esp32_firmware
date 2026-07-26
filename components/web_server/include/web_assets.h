@@ -14,3 +14,4 @@ const char *web_assets_devices_utils_js(size_t *length);
 const char *web_assets_devices_js(size_t *length);
 const char *web_assets_inverter_telemetry_utils_js(size_t *length);
 const char *web_assets_inverter_telemetry_js(size_t *length);
+const char *web_assets_inverter_telemetry_sync_js(size_t *length);
