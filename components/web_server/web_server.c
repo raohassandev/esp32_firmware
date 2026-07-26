@@ -1,6 +1,7 @@
 #include "web_server.h"
 #include "esp_check.h"
 #include "esp_http_server.h"
+#include "operational_api.h"
 #include "web_api.h"
 #include "web_assets.h"
 
@@ -49,7 +50,8 @@ static esp_err_t css_handler(httpd_req_t *request)
 {
     static const asset_getter_t assets[] = {
         web_assets_css,
-        web_assets_wifi_css
+        web_assets_wifi_css,
+        web_assets_operational_css
     };
     return send_asset_parts(request, "text/css; charset=utf-8",
                             assets, sizeof(assets) / sizeof(assets[0]));
@@ -61,7 +63,8 @@ static esp_err_t js_handler(httpd_req_t *request)
         web_assets_js,
         web_assets_wifi_utils_js,
         web_assets_wifi_guard_js,
-        web_assets_wifi_js
+        web_assets_wifi_js,
+        web_assets_operational_js
     };
     return send_asset_parts(request, "application/javascript; charset=utf-8",
                             assets, sizeof(assets) / sizeof(assets[0]));
@@ -72,7 +75,7 @@ esp_err_t web_server_start(void)
     if (s_server) return ESP_OK;
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 16;
+    config.max_uri_handlers = 20;
     config.stack_size = 7168;
     ESP_RETURN_ON_ERROR(httpd_start(&s_server, &config), "web", "HTTP server start failed");
 
@@ -87,7 +90,8 @@ esp_err_t web_server_start(void)
                             "web", "asset registration failed");
     }
 
-    return web_api_register(s_server);
+    ESP_RETURN_ON_ERROR(web_api_register(s_server), "web", "API registration failed");
+    return operational_api_register(s_server);
 }
 
 void web_server_stop(void)
