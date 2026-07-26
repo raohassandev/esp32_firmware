@@ -11,6 +11,8 @@ It is embedded directly into the ESP-IDF firmware and served by the
 - `app.js` — API client, hash router, application state and common pages.
 - `wifi-utils.js` — pure IPv4, netmask, security and signal helpers shared by
   the browser and Node tests.
+- `wifi-guard.js` — capture-phase protection against changing an enabled SSID
+  without a suitable new credential.
 - `wifi.js` — Wi-Fi scan, commissioning, validation and restart workflow.
 - `wifi.css` — responsive Wi-Fi scan and commissioning styles.
 - `tests/wifi-utils.test.js` — dependency-free Node validation tests.
@@ -20,9 +22,9 @@ This keeps the firmware build deterministic and the browser payload suitable
 for an embedded controller.
 
 The server streams the common and Wi-Fi CSS modules as one `/app.css`
-response, and the common application, Wi-Fi utilities and commissioning module
-as one `/app.js` response. ESP-IDF's trailing text-asset NUL byte is excluded
-from every streamed part.
+response, and the common application, Wi-Fi utilities, credential guard and
+commissioning module as one `/app.js` response. ESP-IDF's trailing text-asset
+NUL byte is excluded from every streamed part.
 
 ## Routes
 
@@ -60,11 +62,14 @@ Navigation uses URL hashes and does not require server-side route handling:
 7. A blank or masked password preserves the credential only while the SSID is
    unchanged. Changing an SSID without a new password clears the old
    credential, preventing cross-network credential carry-over.
-8. Selecting an open network explicitly clears the profile password.
-9. Wi-Fi changes use the dedicated `/api/wifi/config` endpoint and require an
+8. The browser blocks an enabled SSID change without a new password unless the
+   latest scan identifies that SSID as Open or OWE.
+9. Changing the recovery-AP SSID requires a new recovery password.
+10. Selecting an open network explicitly clears the station password.
+11. Wi-Fi changes use the dedicated `/api/wifi/config` endpoint and require an
    operator confirmation before the controller restarts.
-10. The reconnect action is separate from a non-disruptive network scan and
-    requires its own confirmation.
+12. The reconnect action is separate from a non-disruptive network scan and
+   requires its own confirmation.
 
 ## Safety and data rules
 
@@ -94,6 +99,7 @@ Navigation uses URL hashes and does not require server-side route handling:
 ```text
 node --check web/app.js
 node --check web/wifi-utils.js
+node --check web/wifi-guard.js
 node --check web/wifi.js
 node web/tests/wifi-utils.test.js
 ```
