@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "config_manager.h"
+#include "esp_check.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
@@ -16,7 +17,6 @@
 static const char *TAG = "wifi_scan";
 static EventGroupHandle_t s_scan_events;
 static SemaphoreHandle_t s_snapshot_lock;
-static TaskHandle_t s_scan_task;
 static network_scan_snapshot_t s_snapshot;
 static portMUX_TYPE s_init_lock = portMUX_INITIALIZER_UNLOCKED;
 static bool s_initializing;
@@ -185,30 +185,29 @@ static esp_err_t ensure_scan_service(void)
 
     EventGroupHandle_t events = xEventGroupCreate();
     SemaphoreHandle_t lock = xSemaphoreCreateMutex();
-    TaskHandle_t task = NULL;
     esp_err_t err = ESP_OK;
 
     if (!events || !lock) {
         err = ESP_ERR_NO_MEM;
-    } else if (xTaskCreate(scan_worker, "wifi_scan", 4096, NULL, 8, &task) != pdPASS) {
-        err = ESP_ERR_NO_MEM;
+    } else {
+        s_scan_events = events;
+        s_snapshot_lock = lock;
+        memset(&s_snapshot, 0, sizeof(s_snapshot));
+        s_snapshot.state = NETWORK_SCAN_IDLE;
+        if (xTaskCreate(scan_worker, "wifi_scan", 4096, NULL, 8, NULL) != pdPASS) {
+            s_scan_events = NULL;
+            s_snapshot_lock = NULL;
+            err = ESP_ERR_NO_MEM;
+        }
     }
 
     if (err != ESP_OK) {
-        if (task) vTaskDelete(task);
         if (lock) vSemaphoreDelete(lock);
         if (events) vEventGroupDelete(events);
     }
 
     portENTER_CRITICAL(&s_init_lock);
-    if (err == ESP_OK) {
-        s_scan_events = events;
-        s_snapshot_lock = lock;
-        s_scan_task = task;
-        memset(&s_snapshot, 0, sizeof(s_snapshot));
-        s_snapshot.state = NETWORK_SCAN_IDLE;
-        s_initialized = true;
-    }
+    s_initialized = err == ESP_OK;
     s_initializing = false;
     portEXIT_CRITICAL(&s_init_lock);
     return err;
