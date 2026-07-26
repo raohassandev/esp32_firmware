@@ -13,4 +13,14 @@ typedef struct {
     uint32_t write_successes;
     uint32_t write_errors;
     int32_t last_error;
+
+    float active_power_kw;
+    bool telemetry_enabled;
+    bool telemetry_online;
+    uint32_t telemetry_last_update_ms;
+    uint32_t telemetry_last_attempt_ms;
+    uint32_t telemetry_successes;
+    uint32_t telemetry_errors;
+    uint32_t telemetry_consecutive_failures;
+    int32_t telemetry_last_error;
 } inverter_data_t;
