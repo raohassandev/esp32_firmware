@@ -19,10 +19,10 @@ late-duplicate and drain-extension phases; see §6. Nothing was committed or pus
 
 | Branch | Commit | Local status |
 | --- | --- | --- |
-| `feature/pvdg-wifi-commissioning` | `fe0dd68` | Batch 2 line, validated except the item in §6 |
+| `feature/pvdg-wifi-commissioning` | `fe0dd68` | Batch 2 line; stays draft, blocked by §6 |
 | `fix/pvdg-wifi-reconnect-race` | `e7018b9` | Pushed, validated, folded into the Batch 2 line |
 | `fix/pvdg-provisioning-safety` | `fe0dd68` | Pushed, validated |
-| `fix/pvdg-reconnect-response-delivery` | `a3cdb8a` → local WIP | **Not committed** — qualification in progress |
+| `fix/pvdg-reconnect-response-delivery` | `a3cdb8a` on remote; local WIP diff | **Not committed** — qualification FAILED (§6) |
 | `feature/pvdg-device-telemetry` | `1e0d830` | Untouched, never checked out |
 | `feature/pvdg-operational-telemetry` | `aca1b27` | Untouched, never checked out |
 
