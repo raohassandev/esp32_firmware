@@ -63,6 +63,15 @@ bool network_manager_is_connected(void);
 bool network_manager_wait_ready(uint32_t timeout_ms);
 const char *network_manager_get_ip(void);
 void network_manager_get_status(network_status_t *out_status);
+
+/* Two-phase operator reconnect API. Every successful begin call admits one HTTP
+ * response handler and must be paired with exactly one complete call. */
+esp_err_t network_manager_operator_reconnect_response_begin(bool *accepted);
+void network_manager_operator_reconnect_response_complete(bool accepted, esp_err_t send_result);
+
+/* Compatibility wrapper for non-HTTP callers. New HTTP code must use the
+ * response-aware begin/complete pair above. */
 esp_err_t network_manager_rescan_and_connect(void);
+
 esp_err_t network_manager_request_scan(void);
 void network_manager_get_scan_snapshot(network_scan_snapshot_t *out_snapshot);
