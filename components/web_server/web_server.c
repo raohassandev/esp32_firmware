@@ -6,13 +6,36 @@
 
 static httpd_handle_t s_server;
 
-static esp_err_t send_asset(httpd_req_t *request, const char *content_type,
-                            const char *content, size_t length)
+typedef const char *(*asset_getter_t)(size_t *length);
+
+static void set_asset_headers(httpd_req_t *request, const char *content_type)
 {
     httpd_resp_set_type(request, content_type);
     httpd_resp_set_hdr(request, "Cache-Control", "no-store");
     httpd_resp_set_hdr(request, "X-Content-Type-Options", "nosniff");
+}
+
+static esp_err_t send_asset(httpd_req_t *request, const char *content_type,
+                             const char *content, size_t length)
+{
+    set_asset_headers(request, content_type);
     return httpd_resp_send(request, content, length);
+}
+
+static esp_err_t send_asset_parts(httpd_req_t *request, const char *content_type,
+                                   const asset_getter_t *getters, size_t count)
+{
+    set_asset_headers(request, content_type);
+    for (size_t index = 0; index < count; ++index) {
+        size_t length = 0;
+        const char *content = getters[index](&length);
+        esp_err_t err = httpd_resp_send_chunk(request, content, length);
+        if (err != ESP_OK) {
+            httpd_resp_send_chunk(request, NULL, 0);
+            return err;
+        }
+    }
+    return httpd_resp_send_chunk(request, NULL, 0);
 }
 
 static esp_err_t index_handler(httpd_req_t *request)
@@ -24,16 +47,23 @@ static esp_err_t index_handler(httpd_req_t *request)
 
 static esp_err_t css_handler(httpd_req_t *request)
 {
-    size_t length = 0;
-    const char *content = web_assets_css(&length);
-    return send_asset(request, "text/css; charset=utf-8", content, length);
+    static const asset_getter_t assets[] = {
+        web_assets_css,
+        web_assets_wifi_css
+    };
+    return send_asset_parts(request, "text/css; charset=utf-8",
+                            assets, sizeof(assets) / sizeof(assets[0]));
 }
 
 static esp_err_t js_handler(httpd_req_t *request)
 {
-    size_t length = 0;
-    const char *content = web_assets_js(&length);
-    return send_asset(request, "application/javascript; charset=utf-8", content, length);
+    static const asset_getter_t assets[] = {
+        web_assets_js,
+        web_assets_wifi_utils_js,
+        web_assets_wifi_js
+    };
+    return send_asset_parts(request, "application/javascript; charset=utf-8",
+                            assets, sizeof(assets) / sizeof(assets[0]));
 }
 
 esp_err_t web_server_start(void)
@@ -42,7 +72,7 @@ esp_err_t web_server_start(void)
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.max_uri_handlers = 16;
-    config.stack_size = 6144;
+    config.stack_size = 7168;
     ESP_RETURN_ON_ERROR(httpd_start(&s_server, &config), "web", "HTTP server start failed");
 
     const httpd_uri_t assets[] = {
