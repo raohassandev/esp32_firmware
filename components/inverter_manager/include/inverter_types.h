@@ -4,13 +4,24 @@
 
 typedef struct {
     float rated_power_kw;
+    float measured_power_kw;
     float commanded_percent;
     float commanded_power_kw;
+    float readback_percent;
     bool online;
     bool connection_initialized;
+    bool telemetry_supported;
+    bool telemetry_valid;
     bool has_command;
+    bool has_readback;
+    bool command_mismatch;
+    uint32_t last_telemetry_ms;
     uint32_t last_command_ms;
+    uint32_t last_readback_ms;
+    uint32_t read_successes;
+    uint32_t read_errors;
     uint32_t write_successes;
     uint32_t write_errors;
+    uint32_t mismatch_count;
     int32_t last_error;
 } inverter_data_t;
