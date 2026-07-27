@@ -42,8 +42,8 @@ require("meter_manager_read_registers" in API,
         "settings reads must use the serialized meter-manager connection")
 require("em500_settings_api_register(s_server)" in SERVER,
         "settings endpoint is not registered")
-require("config.max_uri_handlers = 19" in SERVER,
-        "HTTP handler capacity must include the settings endpoint")
+require("config.max_uri_handlers = 20" in SERVER,
+        "HTTP handler capacity must include the settings planner")
 require('"em500_settings_api.c"' in CMAKE,
         "settings source is missing from the ESP-IDF component")
 
