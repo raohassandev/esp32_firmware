@@ -1,5 +1,6 @@
 #include "web_server.h"
 #include "device_api.h"
+#include "em500_api.h"
 #include "esp_check.h"
 #include "esp_http_server.h"
 #include "meter_config_api.h"
@@ -79,8 +80,8 @@ esp_err_t web_server_start(void)
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     /* 3 asset handlers + 8 core API handlers + 3 read-only device handlers +
-     * 1 dedicated multi-meter configuration handler. */
-    config.max_uri_handlers = 17;
+     * 1 multi-meter configuration handler + 1 EM500 snapshot handler. */
+    config.max_uri_handlers = 18;
     config.stack_size = 7168;
     ESP_RETURN_ON_ERROR(httpd_start(&s_server, &config), "web", "HTTP server start failed");
 
@@ -97,7 +98,8 @@ esp_err_t web_server_start(void)
 
     ESP_RETURN_ON_ERROR(web_api_register(s_server), "web", "core API registration failed");
     ESP_RETURN_ON_ERROR(device_api_register(s_server), "web", "device API registration failed");
-    return meter_config_api_register(s_server);
+    ESP_RETURN_ON_ERROR(meter_config_api_register(s_server), "web", "meter configuration API registration failed");
+    return em500_api_register(s_server);
 }
 
 void web_server_stop(void)
