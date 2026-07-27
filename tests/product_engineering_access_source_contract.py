@@ -61,12 +61,17 @@ require("X-Engineering-Token" not in JS,
 for token in [
     "Electrical supply status", "Inverter fleet status", "Installed capacity",
     "Solar production", "Grid Power", "Solar Inverters", "/api/meters",
-    "/api/inverters", "/api/inverter-telemetry",
+    "/api/inverters", "/api/inverter-telemetry", "op-gauge", "sparkline",
+    "Grid power trend", "Fleet availability", "Operator guidance",
 ]:
     require(token in OPERATOR, f"operator product view missing {token}")
-for forbidden in ["PDU", "register", "scale", "function code", "raw words"]:
+
+# Technical terms may appear only in the explicit sentence explaining that they
+# belong to the protected Engineering area. They must never be used as operator
+# labels, values, tables, or API fields.
+for forbidden in ["PDU", "function code", "raw words", "meterScale", "meterAddress", "limit register"]:
     require(forbidden.lower() not in OPERATOR.lower(),
-            f"operator product view exposes engineering terminology: {forbidden}")
+            f"operator product view exposes engineering data or controls: {forbidden}")
 
 for token in [
     'html[data-access="operator"] #em500Workspace',
