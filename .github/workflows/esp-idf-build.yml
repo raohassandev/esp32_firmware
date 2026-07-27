@@ -23,6 +23,7 @@ jobs:
           set -euo pipefail
           node --check web/theme.js
           node --check web/app.js
+          node --check web/ui-enhancements.js
           node --check web/wifi-utils.js
           node --check web/wifi-guard.js
           node --check web/wifi.js
@@ -82,6 +83,8 @@ jobs:
         run: python3 tests/inverter_telemetry_simulator_source_contract.py
       - name: Check persistent light and dark theme contract
         run: python3 tests/theme_toggle_source_contract.py
+      - name: Check UI and runtime consistency contract
+        run: python3 tests/ui_runtime_consistency_source_contract.py
 
   build:
     needs: web
