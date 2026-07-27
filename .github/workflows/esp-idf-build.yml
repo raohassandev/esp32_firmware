@@ -23,6 +23,7 @@ jobs:
           set -euo pipefail
           node --check web/theme.js
           node --check web/product-mode.js
+          node --check web/operator-view.js
           node --check web/app.js
           node --check web/ui-enhancements.js
           node --check web/wifi-utils.js
