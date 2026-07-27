@@ -7,6 +7,7 @@ on:
       - fix/pvdg-reconnect-admission-gate
       - feature/pvdg-batch3-consolidated
       - feature/pvdg-multi-meter-commissioning
+      - feature/multibrand-inverter-profiles
 
 permissions:
   contents: read
@@ -50,6 +51,8 @@ jobs:
         run: python3 tests/em500_settings_plan_source_contract.py
       - name: Check EM500 web asset delivery contract
         run: python3 tests/em500_web_assets_source_contract.py
+      - name: Check inverter profile catalogue safety contract
+        run: python3 tests/inverter_profile_catalogue_source_contract.py
 
   build:
     needs: web
