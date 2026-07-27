@@ -12,6 +12,11 @@
 .em500-message.bad { color: var(--red); }
 .em500-content { display: grid; gap: 14px; }
 .em500-panel { overflow: hidden; }
+.em500-panel > .panel-header { align-items: center; }
+.em500-collapsible-body[hidden] { display: none !important; }
+.section-toggle { min-height: 34px; padding: 0 12px; border: 1px solid var(--line); border-radius: 9px; color: var(--text); background: var(--panel-strong); cursor: pointer; font-size: 11px; font-weight: 750; }
+.section-toggle:hover { border-color: var(--blue); }
+.power-consistency-notice { margin-bottom: 16px; }
 .em500-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .em500-summary-card { min-height: 124px; display: flex; flex-direction: column; justify-content: center; padding: 16px; border: 1px solid var(--line-soft); border-radius: 14px; background: rgba(8,24,39,0.64); }
 .em500-summary-card span { color: var(--muted); font-size: 11px; font-weight: 750; text-transform: uppercase; letter-spacing: 0.07em; }
@@ -53,4 +58,6 @@
     .em500-summary-card { min-height: 108px; }
     .em500-table { min-width: 660px; }
     .em500-tabs { margin-inline: -4px; }
+    .section-toggle { width: 100%; }
+    .em500-panel > .panel-header { align-items: stretch; flex-direction: column; }
 }
