@@ -77,6 +77,7 @@ static esp_err_t js_handler(httpd_req_t *request)
         web_assets_devices_refresh_js,
         web_assets_inverter_profiles_js,
         web_assets_inverter_config_js,
+        web_assets_inverter_telemetry_js,
         web_assets_em500_utils_js,
         web_assets_em500_core_js,
         web_assets_em500_profiles_js,
