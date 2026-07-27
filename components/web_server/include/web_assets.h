@@ -11,6 +11,7 @@ const char *web_assets_em500_css(size_t *length);
 const char *web_assets_js(size_t *length);
 const char *web_assets_theme_js(size_t *length);
 const char *web_assets_product_mode_js(size_t *length);
+const char *web_assets_operator_view_js(size_t *length);
 const char *web_assets_ui_enhancements_js(size_t *length);
 const char *web_assets_wifi_utils_js(size_t *length);
 const char *web_assets_wifi_guard_js(size_t *length);
