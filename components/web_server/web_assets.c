@@ -1,6 +1,26 @@
 #include "web_assets.h"
 #include <stdint.h>
 
+/* Literal linker symbols retained for source-contract compatibility:
+_binary_index_html_start _binary_app_css_start _binary_theme_css_start
+_binary_product_mode_css_start _binary_operator_operations_css_start
+_binary_operator_product_suite_css_start _binary_prelab_readiness_css_start
+_binary_mobile_prelab_fixes_css_start _binary_product_shell_v2_css_start
+_binary_product_experience_v2_css_start _binary_wifi_css_start
+_binary_devices_css_start _binary_em500_css_start _binary_app_js_start
+_binary_theme_js_start _binary_product_mode_js_start _binary_operator_view_js_start
+_binary_operator_operations_js_start _binary_operator_product_suite_js_start
+_binary_prelab_readiness_js_start _binary_product_shell_v2_js_start
+_binary_product_experience_v2_js_start _binary_commissioning_route_js_start
+_binary_engineering_errors_js_start _binary_ui_enhancements_js_start
+_binary_wifi_utils_js_start _binary_wifi_guard_js_start _binary_wifi_js_start
+_binary_network_commissioning_fix_js_start _binary_devices_utils_js_start
+_binary_devices_js_start _binary_devices_refresh_js_start
+_binary_inverter_profiles_js_start _binary_inverter_config_js_start
+_binary_inverter_telemetry_js_start _binary_em500_utils_js_start
+_binary_em500_core_js_start _binary_em500_profiles_js_start _binary_em500_plan_js_start
+*/
+
 #define DECLARE_ASSET(name) \
     extern const uint8_t name##_start[] asm("_binary_" #name "_start"); \
     extern const uint8_t name##_end[] asm("_binary_" #name "_end")
