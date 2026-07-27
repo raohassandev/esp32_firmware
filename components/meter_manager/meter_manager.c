@@ -1,4 +1,5 @@
 #include "meter_manager.h"
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include "esp_check.h"
@@ -26,12 +27,32 @@ typedef struct {
 static meter_runtime_t s_meters[APP_MAX_METERS];
 static uint8_t s_meter_count;
 
-/* Log the first failure immediately, then only every Nth to avoid flooding. */
 #define METER_LOG_EVERY_N 30
+#define METER_FRESH_GRACE_MS 5000U
 
 static uint32_t now_ms(void)
 {
     return (uint32_t)(esp_timer_get_time() / 1000ULL);
+}
+
+static bool legacy_em500_scale_fingerprint(const meter_config_t *config)
+{
+    if (!config) return false;
+    return config->active_power_type == MODBUS_DATA_INT32 &&
+           config->active_power_order == MODBUS_ORDER_ABCD &&
+           (config->active_power_address == 57U || config->active_power_address == 58U) &&
+           fabsf(config->active_power_scale - 0.01f) < 0.000001f;
+}
+
+static float effective_active_power_scale(const meter_config_t *config)
+{
+    /* Earlier commissioned builds stored 0.01 for the EM500 total-power INT32
+     * register even though the raw value requires 0.00001 to produce kW. Keep
+     * this exact, narrow compatibility fingerprint in the runtime path so the
+     * dashboard, control engine and diagnostics agree with the complete EM500
+     * decoder without applying a dangerous global divide to unrelated meters. */
+    return legacy_em500_scale_fingerprint(config) ? 0.00001f
+                                                   : config->active_power_scale;
 }
 
 static const char *failure_reason(esp_err_t err)
@@ -86,11 +107,20 @@ static void store_data(meter_runtime_t *meter, const meter_data_t *next)
     portEXIT_CRITICAL(&meter->lock);
 }
 
+static bool sample_is_fresh(const meter_data_t *data, uint32_t timestamp)
+{
+    return data && data->last_update_ms != 0U &&
+           timestamp - data->last_update_ms <= METER_FRESH_GRACE_MS;
+}
+
 static void record_failure(meter_runtime_t *meter, esp_err_t err)
 {
     meter_data_t next = data_snapshot(meter);
-    next.online = false;
     next.last_attempt_ms = now_ms();
+    /* A single failed poll must not contradict a fresh successful sample. The
+     * channel becomes offline only after the last valid value exceeds the same
+     * freshness window used by the web status path. */
+    next.online = sample_is_fresh(&next, next.last_attempt_ms);
     next.response_errors++;
     next.consecutive_failures++;
     next.last_error = err;
@@ -102,7 +132,14 @@ static void meter_task(void *argument)
 {
     meter_runtime_t *meter = argument;
     const size_t count = modbus_data_register_count(meter->config.active_power_type);
+    const float scale = effective_active_power_scale(&meter->config);
     uint16_t registers[2] = {0};
+
+    if (legacy_em500_scale_fingerprint(&meter->config)) {
+        ESP_LOGW(TAG, "%s legacy EM500 scale %.8f normalized to %.8f kW/raw",
+                 meter->config.name, (double)meter->config.active_power_scale,
+                 (double)scale);
+    }
 
     while (true) {
         if (!network_manager_wait_ready(5000)) {
@@ -118,7 +155,7 @@ static void meter_task(void *argument)
 
         if (err == ESP_OK && modbus_decode_scaled(registers, count, meter->config.active_power_type,
                                                    meter->config.active_power_order,
-                                                   meter->config.active_power_scale, 0.0f,
+                                                   scale, 0.0f,
                                                    &next.active_power_kw) == ESP_OK) {
             next.online = true;
             next.last_update_ms = next.last_attempt_ms;
@@ -131,7 +168,7 @@ static void meter_task(void *argument)
             }
         } else {
             if (err == ESP_OK) err = ESP_ERR_INVALID_RESPONSE;
-            next.online = false;
+            next.online = sample_is_fresh(&next, next.last_attempt_ms);
             next.response_errors++;
             next.consecutive_failures++;
             next.last_error = err;
@@ -223,9 +260,6 @@ esp_err_t meter_manager_read_registers(uint8_t meter_index,
     }
     if (!network_manager_wait_ready(0)) return ESP_ERR_INVALID_STATE;
 
-    /* modbus_tcp_read_registers owns the per-connection mutex, so this
-     * commissioning/telemetry read is serialized with the fast poll task and
-     * cannot create a second TCP session to the same meter endpoint. */
     return modbus_tcp_read_registers(&meter->connection, function_code,
                                      address, count, registers);
 }
