@@ -37,8 +37,8 @@ require("modbus_write" not in API and "modbus_tcp_write" not in API,
         "meter profile commissioning must not write meter registers")
 require("meter_config_api_register(s_server)" in SERVER,
         "meter configuration endpoint is not registered")
-require("config.max_uri_handlers = 17" in SERVER,
-        "HTTP handler capacity was not increased for the new endpoint")
+require("config.max_uri_handlers = 18" in SERVER,
+        "HTTP handler capacity must include meter configuration and EM500 snapshot endpoints")
 require('"meter_config_api.c"' in CMAKE,
         "meter configuration source is not part of the ESP-IDF component")
 
