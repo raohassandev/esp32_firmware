@@ -59,7 +59,7 @@ require("X-Engineering-Token" not in JS,
         "operator browser code must rely on the HTTP-only session cookie")
 
 for token in [
-    "Electrical supply status", "Inverter fleet status", "Installed capacity",
+    "Electrical supply status", "Inverter fleet status", "installed capacity",
     "Solar production", "Grid Power", "Solar Inverters", "/api/meters",
     "/api/inverters", "/api/inverter-telemetry", "op-gauge", "sparkline",
     "Grid power trend", "Fleet availability", "Operator guidance",
