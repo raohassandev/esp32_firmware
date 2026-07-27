@@ -2,15 +2,23 @@
     'use strict';
 
     const TOKEN_KEY = 'amxEngineeringToken';
+    const PROTECTED_ROUTES = new Set(['wifi', 'control', 'system']);
     const state = { token: sessionStorage.getItem(TOKEN_KEY) || '', authenticated: false };
     const originalFetch = window.fetch.bind(window);
+
+    function currentRoute() {
+        return location.hash.replace(/^#\/?/, '') || 'dashboard';
+    }
 
     window.fetch = async (input, init = {}) => {
         const url = typeof input === 'string' ? input : input?.url || '';
         const headers = new Headers(init.headers || (typeof input !== 'string' ? input.headers : undefined));
         if (state.token && url.startsWith('/api/')) headers.set('X-Engineering-Token', state.token);
         const response = await originalFetch(input, { ...init, headers });
-        if (response.status === 401 && url.startsWith('/api/') && !url.includes('/engineering/')) {
+        if (response.status === 401 && url.startsWith('/api/') && !url.includes('/engineering/') &&
+            (currentRoute() === 'engineering' || PROTECTED_ROUTES.has(currentRoute()) || state.authenticated)) {
+            state.token = '';
+            sessionStorage.removeItem(TOKEN_KEY);
             setEngineering(false);
             openLogin('Engineering session expired. Sign in again.');
         }
@@ -31,6 +39,8 @@
         document.querySelectorAll('[data-engineering-nav]').forEach((item) => item.hidden = !state.authenticated);
         const badge = document.getElementById('engineeringAccessBadge');
         if (badge) badge.textContent = state.authenticated ? 'Engineering unlocked' : 'Engineering locked';
+        const lock = document.getElementById('engineeringLockIcon');
+        if (lock) lock.textContent = state.authenticated ? '🔓' : '🔒';
         const logout = document.getElementById('engineeringLogout');
         if (logout) logout.hidden = !state.authenticated;
     }
@@ -77,21 +87,32 @@
         main.append(page);
     }
 
+    function activateEngineeringRoute() {
+        if (currentRoute() !== 'engineering') return;
+        document.querySelectorAll('.page').forEach((page) => page.classList.toggle('active', page.dataset.page === 'engineering'));
+        document.querySelectorAll('.nav-link').forEach((link) => link.classList.toggle('active', link.dataset.route === 'engineering'));
+        const title = document.getElementById('pageTitle');
+        const breadcrumb = document.getElementById('breadcrumbCurrent');
+        if (title) title.textContent = 'Engineering';
+        if (breadcrumb) breadcrumb.textContent = 'Engineering access';
+        document.title = 'Engineering · Automatrix PV-DG';
+    }
+
     function openLogin(message = '') {
-        location.hash = '#/engineering';
-        requestAnimationFrame(() => {
+        if (location.hash !== '#/engineering') location.hash = '#/engineering';
+        setTimeout(() => {
+            activateEngineeringRoute();
             const input = document.getElementById('engineeringPassword');
             const target = document.getElementById('engineeringLoginMessage');
             if (target) target.textContent = message;
             input?.focus();
-        });
+        }, 0);
     }
 
     async function refreshSession() {
         try {
             const response = await originalFetch('/api/engineering/session', {
-                cache: 'no-store',
-                headers: state.token ? { 'X-Engineering-Token': state.token } : {}
+                cache: 'no-store', headers: state.token ? { 'X-Engineering-Token': state.token } : {}
             });
             const payload = await response.json();
             if (!payload.authenticated) {
@@ -99,15 +120,12 @@
                 sessionStorage.removeItem(TOKEN_KEY);
             }
             setEngineering(payload.authenticated);
-        } catch {
-            setEngineering(false);
-        }
+        } catch { setEngineering(false); }
     }
 
     async function login(password) {
         const response = await originalFetch('/api/engineering/login', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ password })
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password })
         });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(payload.error || 'Engineering login failed');
@@ -157,8 +175,12 @@
     }
 
     function enforceRoute() {
-        const route = location.hash.replace(/^#\/?/, '') || 'dashboard';
-        if (['wifi', 'control', 'system'].includes(route) && !state.authenticated) openLogin('Sign in to open this engineering page.');
+        const route = currentRoute();
+        if (PROTECTED_ROUTES.has(route) && !state.authenticated) {
+            openLogin('Sign in to open this engineering page.');
+            return;
+        }
+        if (route === 'engineering') setTimeout(activateEngineeringRoute, 0);
     }
 
     document.addEventListener('DOMContentLoaded', async () => {
