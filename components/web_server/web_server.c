@@ -57,6 +57,7 @@ static esp_err_t css_handler(httpd_req_t *request)
 {
     static const asset_getter_t assets[] = {
         web_assets_css,
+        web_assets_theme_css,
         web_assets_wifi_css,
         web_assets_devices_css,
         web_assets_em500_css
@@ -68,6 +69,7 @@ static esp_err_t css_handler(httpd_req_t *request)
 static esp_err_t js_handler(httpd_req_t *request)
 {
     static const asset_getter_t assets[] = {
+        web_assets_theme_js,
         web_assets_js,
         web_assets_wifi_utils_js,
         web_assets_wifi_guard_js,
