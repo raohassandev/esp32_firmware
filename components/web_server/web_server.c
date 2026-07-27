@@ -26,14 +26,14 @@ static void set_asset_headers(httpd_req_t *request, const char *content_type)
 }
 
 static esp_err_t send_asset(httpd_req_t *request, const char *content_type,
-                             const char *content, size_t length)
+                            const char *content, size_t length)
 {
     set_asset_headers(request, content_type);
     return httpd_resp_send(request, content, length);
 }
 
 static esp_err_t send_asset_parts(httpd_req_t *request, const char *content_type,
-                                   const asset_getter_t *getters, size_t count)
+                                  const asset_getter_t *getters, size_t count)
 {
     set_asset_headers(request, content_type);
     for (size_t index = 0; index < count; ++index) {
@@ -67,10 +67,11 @@ static esp_err_t css_handler(httpd_req_t *request)
         web_assets_operator_operations_css,
         web_assets_operator_product_suite_css,
         web_assets_prelab_readiness_css,
-        web_assets_mobile_prelab_fixes_css
+        web_assets_mobile_prelab_fixes_css,
+        web_assets_product_shell_v2_css
     };
     return send_asset_parts(request, "text/css; charset=utf-8",
-                             assets, sizeof(assets) / sizeof(assets[0]));
+                            assets, sizeof(assets) / sizeof(assets[0]));
 }
 
 static esp_err_t js_handler(httpd_req_t *request)
@@ -99,10 +100,11 @@ static esp_err_t js_handler(httpd_req_t *request)
         web_assets_prelab_readiness_js,
         web_assets_commissioning_route_js,
         web_assets_engineering_errors_js,
-        web_assets_ui_enhancements_js
+        web_assets_ui_enhancements_js,
+        web_assets_product_shell_v2_js
     };
     return send_asset_parts(request, "application/javascript; charset=utf-8",
-                             assets, sizeof(assets) / sizeof(assets[0]));
+                            assets, sizeof(assets) / sizeof(assets[0]));
 }
 
 esp_err_t web_server_start(void)
@@ -124,7 +126,7 @@ esp_err_t web_server_start(void)
 
     for (size_t index = 0; index < sizeof(assets) / sizeof(assets[0]); ++index) {
         ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &assets[index]),
-                             "web", "asset registration failed");
+                            "web", "asset registration failed");
     }
 
     ESP_RETURN_ON_ERROR(engineering_auth_register(s_server), "web", "engineering auth API registration failed");
