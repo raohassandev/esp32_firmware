@@ -52,6 +52,8 @@ jobs:
         run: python3 tests/em500_settings_plan_source_contract.py
       - name: Check EM500 web asset delivery contract
         run: python3 tests/em500_web_assets_source_contract.py
+      - name: Check EM500 visibility and scaling contract
+        run: python3 tests/em500_visibility_and_scaling_source_contract.py
       - name: Check inverter profile catalogue safety contract
         run: python3 tests/inverter_profile_catalogue_source_contract.py
       - name: Check inverter profile catalogue API contract
