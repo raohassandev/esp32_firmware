@@ -13,6 +13,8 @@ extern const uint8_t operator_operations_css_start[] asm("_binary_operator_opera
 extern const uint8_t operator_operations_css_end[] asm("_binary_operator_operations_css_end");
 extern const uint8_t operator_product_suite_css_start[] asm("_binary_operator_product_suite_css_start");
 extern const uint8_t operator_product_suite_css_end[] asm("_binary_operator_product_suite_css_end");
+extern const uint8_t prelab_readiness_css_start[] asm("_binary_prelab_readiness_css_start");
+extern const uint8_t prelab_readiness_css_end[] asm("_binary_prelab_readiness_css_end");
 extern const uint8_t wifi_css_start[] asm("_binary_wifi_css_start");
 extern const uint8_t wifi_css_end[] asm("_binary_wifi_css_end");
 extern const uint8_t devices_css_start[] asm("_binary_devices_css_start");
@@ -31,6 +33,8 @@ extern const uint8_t operator_operations_js_start[] asm("_binary_operator_operat
 extern const uint8_t operator_operations_js_end[] asm("_binary_operator_operations_js_end");
 extern const uint8_t operator_product_suite_js_start[] asm("_binary_operator_product_suite_js_start");
 extern const uint8_t operator_product_suite_js_end[] asm("_binary_operator_product_suite_js_end");
+extern const uint8_t prelab_readiness_js_start[] asm("_binary_prelab_readiness_js_start");
+extern const uint8_t prelab_readiness_js_end[] asm("_binary_prelab_readiness_js_end");
 extern const uint8_t commissioning_route_js_start[] asm("_binary_commissioning_route_js_start");
 extern const uint8_t commissioning_route_js_end[] asm("_binary_commissioning_route_js_end");
 extern const uint8_t engineering_errors_js_start[] asm("_binary_engineering_errors_js_start");
@@ -78,6 +82,7 @@ const char *web_assets_theme_css(size_t *length) { return asset(theme_css_start,
 const char *web_assets_product_mode_css(size_t *length) { return asset(product_mode_css_start, product_mode_css_end, length); }
 const char *web_assets_operator_operations_css(size_t *length) { return asset(operator_operations_css_start, operator_operations_css_end, length); }
 const char *web_assets_operator_product_suite_css(size_t *length) { return asset(operator_product_suite_css_start, operator_product_suite_css_end, length); }
+const char *web_assets_prelab_readiness_css(size_t *length) { return asset(prelab_readiness_css_start, prelab_readiness_css_end, length); }
 const char *web_assets_wifi_css(size_t *length) { return asset(wifi_css_start, wifi_css_end, length); }
 const char *web_assets_devices_css(size_t *length) { return asset(devices_css_start, devices_css_end, length); }
 const char *web_assets_em500_css(size_t *length) { return asset(em500_css_start, em500_css_end, length); }
@@ -87,6 +92,7 @@ const char *web_assets_product_mode_js(size_t *length) { return asset(product_mo
 const char *web_assets_operator_view_js(size_t *length) { return asset(operator_view_js_start, operator_view_js_end, length); }
 const char *web_assets_operator_operations_js(size_t *length) { return asset(operator_operations_js_start, operator_operations_js_end, length); }
 const char *web_assets_operator_product_suite_js(size_t *length) { return asset(operator_product_suite_js_start, operator_product_suite_js_end, length); }
+const char *web_assets_prelab_readiness_js(size_t *length) { return asset(prelab_readiness_js_start, prelab_readiness_js_end, length); }
 const char *web_assets_commissioning_route_js(size_t *length) { return asset(commissioning_route_js_start, commissioning_route_js_end, length); }
 const char *web_assets_engineering_errors_js(size_t *length) { return asset(engineering_errors_js_start, engineering_errors_js_end, length); }
 const char *web_assets_ui_enhancements_js(size_t *length) { return asset(ui_enhancements_js_start, ui_enhancements_js_end, length); }
