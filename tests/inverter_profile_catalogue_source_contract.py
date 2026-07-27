@@ -22,10 +22,21 @@ require("profile->has_power_limit_readback" in SOURCE,
         "write eligibility must require command readback")
 require("profile->qualification == INVERTER_PROFILE_QUALIFICATION_PRODUCTION_APPROVED" in SOURCE,
         "only production-approved profiles may write")
-require("huawei.sun2000.pending" in SOURCE, "Huawei picker entry missing")
-require("goodwe.commercial.pending" in SOURCE, "GoodWe picker entry missing")
-require("solis.commercial.pending" in SOURCE, "Solis picker entry missing")
-require("foxess.commercial.pending" in SOURCE, "FoxESS/Knox picker entry missing")
+require("!profile->simulator_only" in SOURCE,
+        "simulator-only profiles must never pass the production write gate")
+require("profile->simulator_only" in SOURCE and
+        "INVERTER_PROFILE_QUALIFICATION_SIMULATOR_VERIFIED" in SOURCE,
+        "simulator-only profiles must have an explicit read qualification path")
+
+for profile_id in [
+    "soltrix.sim.huawei.v1",
+    "soltrix.sim.goodwe.v1",
+    "soltrix.sim.solis.v1",
+]:
+    require(profile_id in SOURCE, f"{profile_id} simulator profile missing")
+
+require("40125" in SOURCE and "10.0f" in SOURCE and "0.1f" in SOURCE,
+        "Huawei simulator percent_x10 command/readback contract is missing")
 
 for profile_id in [
     "huawei.sun2000.pending",
@@ -33,9 +44,12 @@ for profile_id in [
     "solis.commercial.pending",
     "foxess.commercial.pending",
 ]:
+    require(profile_id in SOURCE, f"{profile_id} picker entry missing")
     start = SOURCE.index(f'.id = "{profile_id}"')
     block = SOURCE[start:SOURCE.find("    },", start)]
-    require(".has_power_limit = false" in block,
+    require(".has_power_limit = true" not in block,
             f"{profile_id} must stay write-locked until manual extraction and qualification")
+    require("PRODUCTION_APPROVED" not in block,
+            f"{profile_id} must not claim production approval")
 
 print("Inverter profile catalogue safety contract passed")
