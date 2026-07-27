@@ -23,6 +23,12 @@
 #define AUTH_SHA256_BYTES 32U
 #define AUTH_HASH_INPUT_MAX 96U
 
+/* Development convenience only. Set to 0 before any resale/production build.
+ * When enabled, opening the web interface creates an authenticated engineering
+ * session automatically. The normal unique AMX-XXXXXX and stored-password
+ * mechanisms remain intact for production mode. */
+#define AUTH_DEVELOPMENT_AUTO_UNLOCK 1
+
 static uint8_t s_salt[16];
 static uint8_t s_hash[AUTH_SHA256_BYTES];
 static bool s_setup_required;
@@ -262,10 +268,20 @@ esp_err_t engineering_auth_require(httpd_req_t *request)
 static esp_err_t session_get(httpd_req_t *request)
 {
     bool authorized = engineering_auth_is_authorized(request);
+#if AUTH_DEVELOPMENT_AUTO_UNLOCK
+    if (!authorized) {
+        new_session();
+        set_session_cookie(request, true);
+        authorized = true;
+    }
+#endif
     cJSON *root = cJSON_CreateObject();
     cJSON_AddBoolToObject(root, "authenticated", authorized);
-    cJSON_AddBoolToObject(root, "setup_required", s_setup_required);
+    cJSON_AddBoolToObject(root, "setup_required",
+                          AUTH_DEVELOPMENT_AUTO_UNLOCK ? false : s_setup_required);
     cJSON_AddBoolToObject(root, "cookie_session", true);
+    cJSON_AddBoolToObject(root, "development_auto_unlock",
+                          AUTH_DEVELOPMENT_AUTO_UNLOCK != 0);
     cJSON_AddNumberToObject(root, "session_timeout_minutes", AUTH_SESSION_MS / 60000U);
     cJSON_AddStringToObject(root, "temporary_password_format",
                             "AMX-XXXXXX (device label / serial log)");
@@ -376,6 +392,9 @@ esp_err_t engineering_auth_init(void)
         if (err == ESP_OK && salt_size == sizeof(s_salt) &&
             hash_size == sizeof(s_hash)) {
             s_setup_required = false;
+#if AUTH_DEVELOPMENT_AUTO_UNLOCK
+            printf("Engineering development auto-unlock enabled\n");
+#endif
             return ESP_OK;
         }
     }
@@ -388,6 +407,9 @@ esp_err_t engineering_auth_init(void)
         return ESP_FAIL;
     }
     s_setup_required = true;
+#if AUTH_DEVELOPMENT_AUTO_UNLOCK
+    printf("Engineering development auto-unlock enabled\n");
+#endif
     printf("Engineering temporary password: %s\n", password);
     memset(password, 0, sizeof(password));
     return ESP_OK;
