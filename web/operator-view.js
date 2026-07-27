@@ -2,35 +2,60 @@
     'use strict';
 
     const byId = (id) => document.getElementById(id);
-    const state = { meterBusy: false, inverterBusy: false, timer: null };
+    const state = {
+        busy: false,
+        timer: null,
+        gridTrend: [],
+        solarTrend: [],
+        lastPayload: null
+    };
 
-    function isOperator() {
-        return document.documentElement.dataset.access !== 'engineering';
-    }
+    const ICONS = {
+        grid: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 7 9h3l-3 13h10L14 9h3z"/></svg>',
+        meter: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM8 16a4 4 0 0 1 8 0M12 8v4l3-2"/></svg>',
+        solar: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="6" r="3"/><path d="M3 11h12l2 9H5zM7 11l-1 9m5-9v9m4-5H4"/></svg>',
+        control: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 17h14M9 4v6m6 4v6"/></svg>',
+        alarm: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2 21h20zM12 9v5m0 3v1"/></svg>',
+        wifi: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9a15 15 0 0 1 18 0M6 13a10 10 0 0 1 12 0m-9 4a5 5 0 0 1 6 0m-3 3h.01"/></svg>',
+        shield: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3 9 8 11 5-2 8-6 8-11V5z"/><path d="m8 12 3 3 5-6"/></svg>',
+        clock: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>'
+    };
 
-    function route() {
-        return location.hash.replace(/^#\/?/, '') || 'dashboard';
-    }
-
+    function isOperator() { return document.documentElement.dataset.access !== 'engineering'; }
+    function route() { return location.hash.replace(/^#\/?/, '') || 'dashboard'; }
     function node(tag, className = '', text = null) {
         const item = document.createElement(tag);
         if (className) item.className = className;
         if (text != null) item.textContent = String(text);
         return item;
     }
-
+    function icon(name) {
+        const item = node('span', 'op-icon');
+        item.innerHTML = ICONS[name] || ICONS.shield;
+        return item;
+    }
+    function finite(value) { return Number.isFinite(Number(value)); }
+    function clamp(value, min, max) { return Math.min(max, Math.max(min, Number(value) || 0)); }
     function formatPower(value) {
-        const number = Number(value);
-        return Number.isFinite(number) ? `${number.toFixed(2)} kW` : 'Unavailable';
+        if (!finite(value)) return '—';
+        const n = Number(value);
+        const digits = Math.abs(n) >= 100 ? 1 : 2;
+        return `${n.toFixed(digits)} kW`;
     }
-
+    function formatPercent(value) { return finite(value) ? `${clamp(value, 0, 100).toFixed(0)}%` : '—'; }
     function formatAge(value) {
-        const number = Number(value);
-        if (!Number.isFinite(number) || number < 0) return 'Unavailable';
-        if (number < 1000) return `${Math.round(number)} ms`;
-        return `${(number / 1000).toFixed(1)} s`;
+        const n = Number(value);
+        if (!Number.isFinite(n) || n < 0) return 'No sample';
+        if (n < 1000) return 'Just now';
+        if (n < 60000) return `${Math.round(n / 1000)} s ago`;
+        return `${(n / 60000).toFixed(1)} min ago`;
     }
-
+    function toneForState(ok, warning = false) { return ok ? 'good' : warning ? 'warning' : 'bad'; }
+    function pushTrend(series, value) {
+        if (!finite(value)) return;
+        series.push(Number(value));
+        if (series.length > 36) series.shift();
+    }
     async function api(path) {
         const response = await fetch(path, { cache: 'no-store', credentials: 'same-origin' });
         const payload = await response.json().catch(() => ({}));
@@ -38,225 +63,403 @@
         return payload;
     }
 
-    function metric(label, value, detail = '', tone = '') {
-        const card = node('article', `operator-metric${tone ? ` ${tone}` : ''}`);
-        card.append(node('span', 'operator-metric-label', label),
-                    node('strong', 'operator-metric-value', value),
-                    node('small', 'operator-metric-detail', detail));
+    function sparkline(values, label) {
+        const wrap = node('div', 'op-sparkline');
+        if (!values.length) {
+            wrap.append(node('span', 'op-empty-inline', 'Trend starts after live samples arrive'));
+            return wrap;
+        }
+        const width = 320, height = 74, pad = 6;
+        const min = Math.min(...values), max = Math.max(...values);
+        const span = Math.max(1, max - min);
+        const points = values.map((value, index) => {
+            const x = values.length === 1 ? width / 2 : pad + (index * (width - pad * 2) / (values.length - 1));
+            const y = height - pad - ((value - min) / span) * (height - pad * 2);
+            return `${x.toFixed(1)},${y.toFixed(1)}`;
+        }).join(' ');
+        wrap.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${label}"><path class="op-spark-area" d="M ${points.replace(/ /g, ' L ')} L ${width - pad},${height - pad} L ${pad},${height - pad} Z"/><polyline class="op-spark-line" points="${points}"/></svg>`;
+        return wrap;
+    }
+
+    function gauge(value, max, title, unit, tone = 'good') {
+        const safeMax = Math.max(1, Number(max) || 1);
+        const ratio = clamp((Math.abs(Number(value) || 0) / safeMax) * 100, 0, 100);
+        const circumference = 251.2;
+        const offset = circumference - (circumference * ratio / 100);
+        const wrap = node('div', `op-gauge ${tone}`);
+        wrap.innerHTML = `<svg viewBox="0 0 120 72" role="img" aria-label="${title}"><path class="op-gauge-track" d="M18 62a42 42 0 0 1 84 0"/><path class="op-gauge-value" style="stroke-dashoffset:${offset}" d="M18 62a42 42 0 0 1 84 0"/></svg><div class="op-gauge-copy"><span>${title}</span><strong>${finite(value) ? Math.abs(Number(value)).toFixed(Math.abs(Number(value)) >= 100 ? 1 : 2) : '—'}</strong><small>${unit}</small></div>`;
+        return wrap;
+    }
+
+    function kpi(iconName, label, value, detail, tone = '') {
+        const card = node('article', `op-kpi ${tone}`);
+        const head = node('div', 'op-kpi-head');
+        head.append(icon(iconName), node('span', '', label));
+        card.append(head, node('strong', 'op-kpi-value', value), node('small', 'op-kpi-detail', detail));
         return card;
     }
 
-    function statusBadge(label, tone) {
-        return node('span', `subtle-badge ${tone || ''}`, label);
+    function statusLine(iconName, label, value, detail, tone) {
+        const row = node('div', `op-status-row ${tone || ''}`);
+        const lead = node('div', 'op-status-lead');
+        lead.append(icon(iconName), node('span', '', label));
+        const copy = node('div', 'op-status-copy');
+        copy.append(node('strong', '', value), node('small', '', detail));
+        row.append(lead, copy, node('span', 'op-status-dot'));
+        return row;
     }
 
-    function ensureMeterView() {
-        const page = document.querySelector('[data-page="meters"]');
-        if (!page || byId('operatorMeterView')) return;
-        const intro = page.querySelector('.page-intro');
-        const section = node('section', 'operator-product-view');
-        section.id = 'operatorMeterView';
-        section.innerHTML = `
-            <div class="operator-section-head">
-                <div><p class="eyebrow">Grid monitoring</p><h3>Electrical supply status</h3><p>Live grid power and meter communication health.</p></div>
-                <button class="button secondary" id="operatorMeterRefresh" type="button">Refresh status</button>
-            </div>
-            <div class="operator-metric-grid" id="operatorMeterMetrics"></div>
-            <div class="operator-equipment-list" id="operatorMeterList"></div>
-            <div class="operator-message" id="operatorMeterMessage" role="status">Loading grid status…</div>`;
-        intro?.after(section);
-        byId('operatorMeterRefresh')?.addEventListener('click', refreshMeter);
+    function sectionHeader(eyebrow, title, description, actionLabel = '') {
+        const head = node('div', 'op-section-head');
+        const copy = node('div');
+        copy.append(node('p', 'eyebrow', eyebrow), node('h3', '', title), node('p', '', description));
+        head.append(copy);
+        if (actionLabel) {
+            const button = node('button', 'button secondary op-refresh', actionLabel);
+            button.type = 'button';
+            button.addEventListener('click', refreshAll);
+            head.append(button);
+        }
+        return head;
     }
 
-    function ensureInverterView() {
-        const page = document.querySelector('[data-page="inverters"]');
-        if (!page || byId('operatorInverterView')) return;
-        const notice = page.querySelector('.notice');
-        const intro = page.querySelector('.page-intro');
-        const anchor = notice || intro;
-        const section = node('section', 'operator-product-view');
-        section.id = 'operatorInverterView';
-        section.innerHTML = `
-            <div class="operator-section-head">
-                <div><p class="eyebrow">Solar generation</p><h3>Inverter fleet status</h3><p>Installed capacity, availability and measured solar production.</p></div>
-                <button class="button secondary" id="operatorInverterRefresh" type="button">Refresh status</button>
-            </div>
-            <div class="operator-metric-grid" id="operatorInverterMetrics"></div>
-            <div class="operator-equipment-list" id="operatorInverterList"></div>
-            <div class="operator-message" id="operatorInverterMessage" role="status">Loading inverter status…</div>`;
-        anchor?.after(section);
-        byId('operatorInverterRefresh')?.addEventListener('click', refreshInverters);
+    function ensureView(pageName, id, afterSelector = '.page-intro') {
+        const page = document.querySelector(`[data-page="${pageName}"]`);
+        if (!page) return null;
+        let view = byId(id);
+        if (view) return view;
+        view = node('section', 'operator-product-view op-product-page');
+        view.id = id;
+        const anchor = page.querySelector(afterSelector);
+        if (anchor) anchor.after(view); else page.prepend(view);
+        return view;
     }
 
-    function renderMeter(data) {
-        const metrics = byId('operatorMeterMetrics');
-        const list = byId('operatorMeterList');
-        const message = byId('operatorMeterMessage');
-        if (!metrics || !list || !message) return;
-        const meters = Array.isArray(data?.meters) ? data.meters : [];
-        const summary = data?.summary || {};
+    function ensureViews() {
+        ensureView('dashboard', 'operatorDashboardView');
+        ensureView('meters', 'operatorMeterView');
+        ensureView('inverters', 'operatorInverterView');
+        ensureView('control', 'operatorControlView');
+        ensureView('system', 'operatorSystemView');
+    }
+
+    function renderDashboard(payload) {
+        const view = byId('operatorDashboardView');
+        if (!view) return;
+        const { status, meters, inverters, inverterTelemetry } = payload;
+        const meter = (meters?.meters || []).find((item) => item.enabled) || meters?.meters?.[0];
+        const meterRuntime = meter?.runtime || {};
+        const gridPower = finite(status?.grid_power_kw) ? Number(status.grid_power_kw) : meterRuntime.active_power_kw;
+        const gridOnline = Boolean(status?.meter_online) && !Boolean(status?.meter_stale);
+        const inverterSummary = inverters?.summary || {};
+        const solarPower = Number(inverterTelemetry?.summary?.telemetry_valid) > 0 ? Number(inverterTelemetry.summary.measured_total_kw) : NaN;
+        const installed = Number(inverterSummary.configured_rated_kw) || 0;
+        const utilization = installed > 0 && finite(solarPower) ? (solarPower / installed) * 100 : NaN;
+        const alarms = Array.isArray(status?.alarm_names) ? status.alarm_names : [];
+        const controlEnabled = Boolean(status?.control_enabled);
+        const importState = finite(gridPower) ? (gridPower > 0.01 ? 'Importing' : gridPower < -0.01 ? 'Exporting' : 'Balanced') : 'Unknown';
+        const systemHealthy = Boolean(status?.network_online) && gridOnline && alarms.length === 0;
+
+        pushTrend(state.gridTrend, gridPower);
+        pushTrend(state.solarTrend, solarPower);
+        view.replaceChildren();
+        view.append(sectionHeader('Plant overview', 'Energy operation at a glance', 'Only the measurements and conditions needed for day-to-day operation.', 'Refresh'));
+
+        const hero = node('div', 'op-hero-grid');
+        const flow = node('article', 'op-card op-flow-card');
+        const flowHead = node('div', 'op-card-head');
+        flowHead.append(node('div', '', '<p class="eyebrow">Live power flow</p><h3>Grid and solar balance</h3>'));
+        flowHead.firstChild.innerHTML = '<p class="eyebrow">Live power flow</p><h3>Grid and solar balance</h3>';
+        flowHead.append(node('span', `op-state-pill ${toneForState(gridOnline, !gridOnline)}`, importState));
+        const flowBody = node('div', 'op-flow-body');
+        const solarNode = node('div', 'op-flow-source');
+        solarNode.append(icon('solar'), node('span', '', 'Solar'), node('strong', '', finite(solarPower) ? formatPower(solarPower) : 'Not monitored'), node('small', '', installed ? `${formatPower(installed)} installed` : 'No commissioned capacity'));
+        const center = node('div', 'op-flow-center');
+        center.append(icon('control'), node('span', '', 'PV-DG controller'), node('strong', '', controlEnabled ? 'Automatic' : 'Monitoring'), node('small', '', controlEnabled ? 'Control active' : 'No commands issued'));
+        const gridNode = node('div', 'op-flow-source');
+        gridNode.append(icon('grid'), node('span', '', 'Utility grid'), node('strong', '', formatPower(gridPower)), node('small', '', gridOnline ? `${importState} · ${formatAge(status?.meter_age_ms)}` : 'Measurement unavailable'));
+        const arrow1 = node('div', 'op-flow-arrow', '→');
+        const arrow2 = node('div', 'op-flow-arrow', gridPower >= 0 ? '←' : '→');
+        flowBody.append(solarNode, arrow1, center, arrow2, gridNode);
+        flow.append(flowHead, flowBody);
+
+        const health = node('article', 'op-card op-health-card');
+        health.append(node('div', 'op-card-title', 'System readiness'));
+        const readiness = node('div', 'op-readiness');
+        readiness.append(
+            statusLine('wifi', 'Controller network', status?.network_online ? 'Online' : 'Offline', status?.ssid || 'No network', status?.network_online ? 'good' : 'bad'),
+            statusLine('meter', 'Grid measurement', gridOnline ? 'Healthy' : status?.meter_stale ? 'Stale' : 'Unavailable', gridOnline ? formatAge(status?.meter_age_ms) : 'Check meter communication', gridOnline ? 'good' : 'bad'),
+            statusLine('solar', 'Solar fleet', Number(inverterSummary.online) > 0 ? 'Available' : Number(inverterSummary.enabled) > 0 ? 'Attention' : 'Not commissioned', `${Number(inverterSummary.online) || 0} of ${Number(inverterSummary.enabled) || 0} enabled online`, Number(inverterSummary.online) > 0 ? 'good' : 'warning'),
+            statusLine('shield', 'Control safety', controlEnabled ? 'Enabled' : 'Safely disabled', controlEnabled ? 'Automatic commands permitted' : 'No inverter commands issued', controlEnabled ? 'warning' : 'good'),
+            statusLine('alarm', 'Active alarms', alarms.length ? `${alarms.length} active` : 'Clear', alarms.length ? alarms.slice(0, 2).join(', ') : 'No active alarms', alarms.length ? 'bad' : 'good')
+        );
+        health.append(readiness);
+        hero.append(flow, health);
+        view.append(hero);
+
+        const kpis = node('div', 'op-kpi-grid');
+        kpis.append(
+            kpi('grid', 'Grid exchange', formatPower(gridPower), gridOnline ? importState : 'No current sample', gridOnline ? 'good' : 'bad'),
+            kpi('solar', 'Solar production', finite(solarPower) ? formatPower(solarPower) : 'Not monitored', installed ? `${formatPercent(utilization)} of installed capacity` : 'Commissioning required', finite(solarPower) ? 'good' : 'warning'),
+            kpi('control', 'Control mode', controlEnabled ? 'Automatic' : 'Monitoring only', controlEnabled ? 'Closed-loop control active' : 'Automatic control is locked', controlEnabled ? 'warning' : 'good'),
+            kpi('alarm', 'Plant attention', alarms.length ? 'Action required' : systemHealthy ? 'Normal' : 'Review status', alarms.length ? alarms[0] : 'No active alarm', alarms.length ? 'bad' : systemHealthy ? 'good' : 'warning')
+        );
+        view.append(kpis);
+
+        const trendGrid = node('div', 'op-two-column');
+        const gridTrendCard = node('article', 'op-card op-trend-card');
+        gridTrendCard.append(node('div', 'op-card-headline', 'Grid power trend'), sparkline(state.gridTrend, 'Recent grid power trend'), node('small', 'op-chart-note', 'Recent live samples stored in this browser session'));
+        const solarTrendCard = node('article', 'op-card op-trend-card');
+        solarTrendCard.append(node('div', 'op-card-headline', 'Solar production trend'), sparkline(state.solarTrend, 'Recent solar production trend'), node('small', 'op-chart-note', finite(solarPower) ? 'Measured inverter output' : 'Trend appears after inverter telemetry is commissioned'));
+        trendGrid.append(gridTrendCard, solarTrendCard);
+        view.append(trendGrid);
+    }
+
+    function renderMeter(payload) {
+        const view = byId('operatorMeterView');
+        if (!view) return;
+        const status = payload.status || {};
+        const meters = payload.meters?.meters || [];
+        const summary = payload.meters?.summary || {};
         const primary = meters.find((item) => item.enabled) || meters[0];
         const runtime = primary?.runtime || {};
-        const healthy = runtime.online === true;
-        metrics.replaceChildren(
-            metric('Grid power', formatPower(runtime.active_power_kw), healthy ? `Updated ${formatAge(runtime.data_age_ms)} ago` : 'Current value unavailable', healthy ? 'good' : 'bad'),
-            metric('Meter communication', healthy ? 'Online' : 'Unavailable', healthy ? 'Live measurements are current' : 'Check field communication', healthy ? 'good' : 'bad'),
-            metric('Active meters', String(summary.online ?? 0), `${summary.enabled ?? 0} enabled`, Number(summary.online) > 0 ? 'good' : 'warning'),
-            metric('System attention', Number(summary.stale_or_unavailable) > 0 ? 'Required' : 'None', Number(summary.stale_or_unavailable) > 0 ? 'One or more meters need attention' : 'All enabled meters are healthy', Number(summary.stale_or_unavailable) > 0 ? 'warning' : 'good')
-        );
-        list.replaceChildren();
+        const power = finite(status.grid_power_kw) ? Number(status.grid_power_kw) : runtime.active_power_kw;
+        const online = runtime.online === true || (status.meter_online && !status.meter_stale);
+        const trendMax = Math.max(100, ...state.gridTrend.map(Math.abs), Math.abs(Number(power) || 0)) * 1.2;
+        const direction = finite(power) ? (power > 0.01 ? 'Importing from utility' : power < -0.01 ? 'Exporting to utility' : 'Near-zero exchange') : 'Measurement unavailable';
+
+        view.replaceChildren();
+        view.append(sectionHeader('Grid Power', 'Electrical supply status', 'Live demand, direction, freshness, and meter availability—without engineering register details.', 'Refresh'));
+        const overview = node('div', 'op-meter-overview');
+        const gaugeCard = node('article', 'op-card op-gauge-card');
+        gaugeCard.append(gauge(power, trendMax, 'Grid power', 'kW', online ? 'good' : 'bad'), node('strong', 'op-direction', direction), node('small', '', online ? `Measurement ${formatAge(runtime.data_age_ms ?? status.meter_age_ms)}` : 'Current measurement is not available'));
+        const trendCard = node('article', 'op-card op-trend-card');
+        trendCard.append(node('div', 'op-card-headline', 'Recent demand trend'), sparkline(state.gridTrend, 'Recent grid demand trend'), node('small', 'op-chart-note', 'Use the trend to identify rapid load changes and demand peaks'));
+        const stateCard = node('article', 'op-card op-readiness-card');
+        stateCard.append(node('div', 'op-card-headline', 'Measurement health'), statusLine('meter', 'Communication', online ? 'Online' : 'Attention required', online ? 'Measurements are current' : 'Field communication needs checking', online ? 'good' : 'bad'), statusLine('clock', 'Freshness', online ? formatAge(runtime.data_age_ms ?? status.meter_age_ms) : 'No current sample', online ? 'Suitable for monitoring and control interlock' : 'Values cannot be used for automatic decisions', online ? 'good' : 'bad'), statusLine('shield', 'Enabled meters', `${Number(summary.online) || 0} online`, `${Number(summary.enabled) || 0} enabled meter${Number(summary.enabled) === 1 ? '' : 's'}`, Number(summary.online) > 0 ? 'good' : 'warning'));
+        overview.append(gaugeCard, trendCard, stateCard);
+        view.append(overview);
+
+        const fleet = node('article', 'op-card');
+        fleet.append(node('div', 'op-card-headline', 'Meter availability'));
+        const list = node('div', 'op-equipment-bars');
         meters.forEach((meter, index) => {
-            const meterRuntime = meter.runtime || {};
-            const online = meterRuntime.online === true;
-            const card = node('article', 'operator-equipment-card');
-            const title = node('div', 'operator-equipment-title');
-            title.append(node('span', '', `Power meter ${index + 1}`), node('strong', '', meter.name || `Meter ${index + 1}`));
-            const values = node('div', 'operator-equipment-values');
-            values.append(
-                node('div', '', `Power ${formatPower(meterRuntime.active_power_kw)}`),
-                node('div', '', online ? `Fresh ${formatAge(meterRuntime.data_age_ms)} ago` : 'No current measurement')
-            );
-            card.append(title, values, statusBadge(online ? 'Online' : meter.enabled ? 'Attention' : 'Disabled', online ? 'good' : meter.enabled ? 'warning' : ''));
-            list.append(card);
+            const data = meter.runtime || {};
+            const healthy = data.online === true;
+            const row = node('div', 'op-equipment-bar');
+            const title = node('div', 'op-equipment-name');
+            title.append(icon('meter'), node('span', '', meter.name || `Grid meter ${index + 1}`));
+            const bar = node('div', 'op-bar-track');
+            const fill = node('span', `op-bar-fill ${healthy ? 'good' : meter.enabled ? 'warning' : ''}`);
+            fill.style.width = healthy ? '100%' : meter.enabled ? '35%' : '0%';
+            bar.append(fill);
+            row.append(title, bar, node('strong', '', healthy ? formatPower(data.active_power_kw) : meter.enabled ? 'Attention' : 'Disabled'), node('small', '', healthy ? formatAge(data.data_age_ms) : meter.enabled ? 'No current data' : 'Not active'));
+            list.append(row);
         });
-        if (!meters.length) list.append(node('div', 'device-empty', 'No grid meter is configured.'));
-        message.textContent = `Status updated ${new Date().toLocaleTimeString()}.`;
+        if (!meters.length) list.append(node('div', 'op-empty-state', 'No grid meter has been commissioned.'));
+        fleet.append(list);
+        view.append(fleet);
     }
 
-    function renderInverters(config, telemetry) {
-        const metrics = byId('operatorInverterMetrics');
-        const list = byId('operatorInverterList');
-        const message = byId('operatorInverterMessage');
-        if (!metrics || !list || !message) return;
-        const inverters = Array.isArray(config?.inverters) ? config.inverters : [];
-        const summary = config?.summary || {};
-        const telemetryItems = new Map((telemetry?.inverters || []).map((item) => [Number(item.index), item]));
-        const validTelemetry = Number(telemetry?.summary?.telemetry_valid) > 0;
-        const liveProduction = validTelemetry ? Number(telemetry?.summary?.measured_total_kw) : NaN;
-        const onlineCount = Number(summary.online ?? telemetry?.summary?.online ?? 0);
-        metrics.replaceChildren(
-            metric('Installed capacity', formatPower(summary.configured_rated_kw), `${inverters.length} installed unit${inverters.length === 1 ? '' : 's'}`),
-            metric('Available inverters', String(onlineCount), `${summary.enabled ?? 0} enabled`, onlineCount > 0 ? 'good' : 'warning'),
-            metric('Solar production', validTelemetry && Number.isFinite(liveProduction) ? formatPower(liveProduction) : 'Not monitored', validTelemetry ? 'Measured inverter output' : 'Production monitoring requires inverter commissioning', validTelemetry ? 'good' : 'warning'),
-            metric('Automatic control', Number(summary.commandable_rated_kw) > 0 ? 'Available' : 'Locked', Number(summary.commandable_rated_kw) > 0 ? 'Qualified control path ready' : 'Engineering qualification required', Number(summary.commandable_rated_kw) > 0 ? 'good' : 'warning')
-        );
-        list.replaceChildren();
+    function renderInverters(payload) {
+        const view = byId('operatorInverterView');
+        if (!view) return;
+        const config = payload.inverters || {};
+        const telemetry = payload.inverterTelemetry || {};
+        const inverters = config.inverters || [];
+        const summary = config.summary || {};
+        const telemetryMap = new Map((telemetry.inverters || []).map((item) => [Number(item.index), item]));
+        const production = Number(telemetry.summary?.telemetry_valid) > 0 ? Number(telemetry.summary.measured_total_kw) : NaN;
+        const installed = Number(summary.configured_rated_kw) || 0;
+        const availability = Number(summary.enabled) > 0 ? (Number(summary.online) / Number(summary.enabled)) * 100 : 0;
+        const utilization = installed > 0 && finite(production) ? (production / installed) * 100 : NaN;
+
+        view.replaceChildren();
+        view.append(sectionHeader('Solar Inverters', 'Inverter fleet status', 'Capacity, availability, live production, and equipment attention for plant operators.', 'Refresh'));
+        const top = node('div', 'op-inverter-overview');
+        const productionCard = node('article', 'op-card op-gauge-card');
+        productionCard.append(gauge(production, installed || 1, 'Solar production', 'kW', finite(production) ? 'good' : 'warning'), node('strong', 'op-direction', finite(production) ? `${formatPercent(utilization)} utilization` : 'Production not monitored'), node('small', '', installed ? `${formatPower(installed)} installed capacity` : 'No inverter capacity configured'));
+        const availabilityCard = node('article', 'op-card op-gauge-card');
+        availabilityCard.append(gauge(availability, 100, 'Fleet availability', '%', availability >= 99 ? 'good' : availability > 0 ? 'warning' : 'bad'), node('strong', 'op-direction', `${Number(summary.online) || 0} of ${Number(summary.enabled) || 0} online`), node('small', '', availability >= 99 ? 'All enabled units available' : 'Review unavailable units below'));
+        const trend = node('article', 'op-card op-trend-card');
+        trend.append(node('div', 'op-card-headline', 'Solar production trend'), sparkline(state.solarTrend, 'Recent solar production trend'), node('small', 'op-chart-note', finite(production) ? 'Recent measured inverter production' : 'Available after telemetry commissioning'));
+        top.append(productionCard, availabilityCard, trend);
+        view.append(top);
+
+        const fleet = node('article', 'op-card');
+        fleet.append(node('div', 'op-card-headline', 'Inverter performance'));
+        const list = node('div', 'op-inverter-list');
         inverters.forEach((inverter, index) => {
-            const live = telemetryItems.get(Number(inverter.index ?? index)) || {};
+            const live = telemetryMap.get(Number(inverter.index ?? index)) || {};
             const online = inverter.runtime?.online === true || live.online === true;
-            const measured = live.telemetry_valid ? live.measured_power_kw : inverter.measured_power_kw;
-            const card = node('article', 'operator-equipment-card');
-            const title = node('div', 'operator-equipment-title');
-            title.append(node('span', '', `Solar inverter ${index + 1}`), node('strong', '', inverter.name || `Inverter ${index + 1}`));
-            const values = node('div', 'operator-equipment-values');
-            values.append(
-                node('div', '', `Rated ${formatPower(inverter.rated_kw)}`),
-                node('div', '', Number.isFinite(Number(measured)) ? `Producing ${formatPower(measured)}` : 'Production not monitored')
-            );
-            card.append(title, values, statusBadge(online ? 'Online' : inverter.enabled ? 'Attention' : 'Disabled', online ? 'good' : inverter.enabled ? 'warning' : ''));
-            list.append(card);
+            const measured = live.telemetry_valid ? Number(live.measured_power_kw) : finite(inverter.measured_power_kw) ? Number(inverter.measured_power_kw) : NaN;
+            const rated = Number(inverter.rated_kw) || 0;
+            const load = rated > 0 && finite(measured) ? clamp((measured / rated) * 100, 0, 100) : 0;
+            const row = node('article', `op-inverter-row ${online ? 'good' : inverter.enabled ? 'warning' : ''}`);
+            const name = node('div', 'op-inverter-name');
+            name.append(icon('solar'), node('div', '', `<strong>${inverter.name || `Solar inverter ${index + 1}`}</strong><small>${formatPower(rated)} rated</small>`));
+            name.lastChild.innerHTML = `<strong>${inverter.name || `Solar inverter ${index + 1}`}</strong><small>${formatPower(rated)} rated</small>`;
+            const output = node('div', 'op-output-bar');
+            const bar = node('div', 'op-bar-track');
+            const fill = node('span', `op-bar-fill ${online ? 'good' : 'warning'}`);
+            fill.style.width = `${load}%`;
+            bar.append(fill);
+            output.append(bar, node('small', '', finite(measured) ? `${formatPower(measured)} · ${formatPercent(load)}` : 'Production not monitored'));
+            row.append(name, output, node('span', `op-state-pill ${online ? 'good' : inverter.enabled ? 'warning' : ''}`, online ? 'Online' : inverter.enabled ? 'Attention' : 'Disabled'));
+            list.append(row);
         });
-        if (!inverters.length) list.append(node('div', 'device-empty', 'No solar inverter is configured.'));
-        message.textContent = `Status updated ${new Date().toLocaleTimeString()}.`;
+        if (!inverters.length) list.append(node('div', 'op-empty-state', 'No solar inverter has been commissioned.'));
+        fleet.append(list);
+        view.append(fleet);
     }
 
-    async function refreshMeter() {
-        if (!isOperator() || route() !== 'meters' || state.meterBusy) return;
-        state.meterBusy = true;
-        const button = byId('operatorMeterRefresh');
-        if (button) { button.disabled = true; button.textContent = 'Refreshing…'; }
-        try {
-            renderMeter(await api('/api/meters'));
-        } catch (error) {
-            const message = byId('operatorMeterMessage');
-            if (message) message.textContent = `Grid status unavailable: ${error.message}`;
-        } finally {
-            state.meterBusy = false;
-            if (button) { button.disabled = false; button.textContent = 'Refresh status'; }
-        }
+    function renderControl(payload) {
+        const view = byId('operatorControlView');
+        if (!view) return;
+        const status = payload.status || {};
+        const enabled = Boolean(status.control_enabled);
+        const meterReady = Boolean(status.meter_online) && !Boolean(status.meter_stale);
+        const commandable = Number(payload.inverters?.summary?.commandable_rated_kw) || 0;
+        const ready = enabled && meterReady && commandable > 0;
+        view.replaceChildren();
+        view.append(sectionHeader('Control', 'PV-DG operating state', 'A clear operational view of whether automatic control is active, available, or safely blocked.'));
+        const hero = node('article', `op-card op-control-hero ${ready ? 'good' : enabled ? 'warning' : ''}`);
+        hero.append(icon('control'), node('div', '', `<p class="eyebrow">Current mode</p><h3>${enabled ? 'Automatic control enabled' : 'Monitoring only'}</h3><p>${enabled ? 'The controller may issue qualified inverter commands.' : 'No inverter commands are being issued.'}</p>`));
+        hero.lastChild.innerHTML = `<p class="eyebrow">Current mode</p><h3>${enabled ? 'Automatic control enabled' : 'Monitoring only'}</h3><p>${enabled ? 'The controller may issue qualified inverter commands.' : 'No inverter commands are being issued.'}</p>`;
+        view.append(hero);
+        const checks = node('div', 'op-three-column');
+        checks.append(
+            kpi('meter', 'Grid measurement', meterReady ? 'Ready' : 'Blocked', meterReady ? 'Fresh grid feedback available' : 'Meter data is not suitable for control', meterReady ? 'good' : 'bad'),
+            kpi('solar', 'Commandable solar', formatPower(commandable), commandable > 0 ? 'Qualified inverter capacity' : 'No production-approved control channel', commandable > 0 ? 'good' : 'warning'),
+            kpi('shield', 'Safety state', enabled ? 'Armed' : 'Safe', enabled ? 'Automatic action permitted' : 'No commands issued', enabled ? 'warning' : 'good')
+        );
+        view.append(checks);
+        const note = node('article', 'op-card op-decision-card');
+        note.append(node('div', 'op-card-headline', 'Operator guidance'), node('p', '', ready ? 'Automatic control is available. Observe alarms and power-flow behavior during operation.' : enabled ? 'Control is enabled but one or more required conditions are not ready. Engineering review is required.' : 'The controller is in a safe monitoring state. Engineering authorization is required to commission or enable automatic control.'));
+        view.append(note);
     }
 
-    async function refreshInverters() {
-        if (!isOperator() || route() !== 'inverters' || state.inverterBusy) return;
-        state.inverterBusy = true;
-        const button = byId('operatorInverterRefresh');
-        if (button) { button.disabled = true; button.textContent = 'Refreshing…'; }
-        try {
-            const [config, telemetry] = await Promise.all([
-                api('/api/inverters'),
-                api('/api/inverter-telemetry')
-            ]);
-            renderInverters(config, telemetry);
-        } catch (error) {
-            const message = byId('operatorInverterMessage');
-            if (message) message.textContent = `Inverter status unavailable: ${error.message}`;
-        } finally {
-            state.inverterBusy = false;
-            if (button) { button.disabled = false; button.textContent = 'Refresh status'; }
-        }
+    function renderSystem(payload) {
+        const view = byId('operatorSystemView');
+        if (!view) return;
+        const status = payload.status || {};
+        const alarms = Array.isArray(status.alarm_names) ? status.alarm_names : [];
+        view.replaceChildren();
+        view.append(sectionHeader('Controller', 'System and support status', 'Product identity, connectivity, health, and service information for operators.'));
+        const grid = node('div', 'op-two-column');
+        const identity = node('article', 'op-card');
+        identity.append(node('div', 'op-card-headline', 'Controller information'), statusLine('shield', 'Product', 'Automatrix PV-DG Controller', 'Industrial solar-generator-grid coordination', 'good'), statusLine('wifi', 'Connection', status.network_online ? 'Online' : 'Offline', status.network_online ? `${status.ssid || 'Wi-Fi'} · ${status.ip || 'Address unavailable'}` : 'Network connection unavailable', status.network_online ? 'good' : 'bad'), statusLine('clock', 'Last update', new Date().toLocaleTimeString(), 'Live browser refresh', 'good'));
+        const service = node('article', 'op-card');
+        service.append(node('div', 'op-card-headline', 'Service condition'), statusLine('alarm', 'Active alarms', alarms.length ? `${alarms.length} active` : 'Clear', alarms.length ? alarms.join(', ') : 'No active alarm', alarms.length ? 'bad' : 'good'), statusLine('meter', 'Grid monitoring', status.meter_online && !status.meter_stale ? 'Available' : 'Attention required', status.meter_online ? formatAge(status.meter_age_ms) : 'No current grid measurement', status.meter_online && !status.meter_stale ? 'good' : 'warning'), statusLine('control', 'Automatic control', status.control_enabled ? 'Enabled' : 'Disabled', status.control_enabled ? 'Qualified command path active' : 'No inverter commands issued', status.control_enabled ? 'warning' : 'good'));
+        grid.append(identity, service);
+        view.append(grid);
+        const support = node('article', 'op-card op-support-card');
+        support.append(icon('shield'), node('div', '', '<h3>Engineering and commissioning</h3><p>Network setup, meter and inverter configuration, diagnostics, register maps, scaling, and control parameters are available only through the protected Engineering area.</p>'));
+        support.lastChild.innerHTML = '<h3>Engineering and commissioning</h3><p>Network setup, meter and inverter configuration, diagnostics, register maps, scaling, and control parameters are available only through the protected Engineering area.</p>';
+        view.append(support);
     }
 
-    function replaceText(id, value) {
-        const target = byId(id);
-        if (target) target.textContent = value;
-    }
-
-    function updateProductLanguage() {
-        const operator = isOperator();
-        const meterLink = document.querySelector('[data-route="meters"] span:last-child');
-        const inverterLink = document.querySelector('[data-route="inverters"] span:last-child');
-        if (meterLink) meterLink.textContent = operator ? 'Grid Power' : 'Meters';
-        if (inverterLink) inverterLink.textContent = operator ? 'Solar Inverters' : 'Inverters';
-
-        const meterIntro = document.querySelector('[data-page="meters"] .page-intro');
-        const inverterIntro = document.querySelector('[data-page="inverters"] .page-intro');
-        meterIntro?.querySelector('h2')?.replaceChildren(operator ? 'Grid power' : 'Grid meters');
-        meterIntro?.querySelector('p:last-child')?.replaceChildren(operator
-            ? 'Monitor live electrical demand and grid-meter availability.'
-            : 'Review meter communication, freshness and Modbus acquisition settings.');
-        inverterIntro?.querySelector('h2')?.replaceChildren(operator ? 'Solar inverters' : 'Inverters');
-        inverterIntro?.querySelector('p:last-child')?.replaceChildren(operator
-            ? 'Monitor solar inverter availability, capacity and live production.'
-            : 'Configured inverter endpoints and command-safety state.');
-
-        if (operator) {
-            const currentRoute = route();
-            if (currentRoute === 'meters') {
-                replaceText('pageTitle', 'Grid Power');
-                replaceText('breadcrumbCurrent', 'Grid power');
-            } else if (currentRoute === 'inverters') {
-                replaceText('pageTitle', 'Solar Inverters');
-                replaceText('breadcrumbCurrent', 'Solar inverters');
-            }
-            const flowLoad = byId('flowLoad');
-            const flowLoadDetail = flowLoad?.nextElementSibling;
-            if (flowLoad?.textContent === 'Unavailable') flowLoad.textContent = 'Not monitored';
-            if (flowLoadDetail) flowLoadDetail.textContent = 'Optional plant-load measurement';
-            const generator = document.querySelector('.flow-secondary > div:first-child');
-            const generatorValue = generator?.querySelector('strong');
-            const generatorDetail = generator?.querySelector('small');
-            if (generatorValue?.textContent === 'Unavailable') generatorValue.textContent = 'Not connected';
-            if (generatorDetail) generatorDetail.textContent = 'Optional generator measurement';
-        }
-    }
-
-    function refreshRoute() {
-        updateProductLanguage();
+    function hideLegacyOperatorContent() {
         if (!isOperator()) return;
-        if (route() === 'meters') refreshMeter();
-        if (route() === 'inverters') refreshInverters();
+        ['dashboard', 'meters', 'inverters', 'control', 'system'].forEach((name) => {
+            const page = document.querySelector(`[data-page="${name}"]`);
+            if (!page) return;
+            Array.from(page.children).forEach((child) => {
+                if (!child.classList.contains('operator-product-view') && !child.classList.contains('page-intro')) child.classList.add('operator-legacy-hidden');
+            });
+        });
+    }
+
+    function updateLanguage() {
+        const operator = isOperator();
+        const labels = {
+            meters: operator ? 'Grid Power' : 'Meters',
+            inverters: operator ? 'Solar Inverters' : 'Inverters',
+            control: operator ? 'Control' : 'PV-DG Control',
+            system: operator ? 'Controller' : 'System'
+        };
+        Object.entries(labels).forEach(([key, value]) => {
+            const link = document.querySelector(`[data-route="${key}"] span:last-child`);
+            if (link) link.textContent = value;
+        });
+        const wifiLink = document.querySelector('[data-route="wifi"]');
+        if (wifiLink) wifiLink.dataset.engineeringNav = 'true';
+    }
+
+    async function refreshAll() {
+        if (!isOperator() || state.busy) return;
+        state.busy = true;
+        document.querySelectorAll('.op-refresh').forEach((button) => { button.disabled = true; button.textContent = 'Refreshing…'; });
+        try {
+            const [status, meters, inverters, inverterTelemetry] = await Promise.all([
+                api('/api/status'), api('/api/meters'), api('/api/inverters'), api('/api/inverter-telemetry')
+            ]);
+            state.lastPayload = { status, meters, inverters, inverterTelemetry };
+            const solar = Number(inverterTelemetry?.summary?.telemetry_valid) > 0 ? inverterTelemetry.summary.measured_total_kw : NaN;
+            pushTrend(state.gridTrend, status.grid_power_kw);
+            pushTrend(state.solarTrend, solar);
+            renderCurrent();
+        } catch (error) {
+            const view = document.querySelector('.page.active .operator-product-view');
+            if (view) {
+                view.replaceChildren(sectionHeader('Controller status', 'Live information unavailable', 'The controller did not return a valid operator response.'));
+                const message = node('article', 'op-card op-error-state');
+                message.append(icon('alarm'), node('div', '', `<h3>Connection problem</h3><p>${error.message}</p>`));
+                message.lastChild.innerHTML = `<h3>Connection problem</h3><p>${error.message}</p>`;
+                view.append(message);
+            }
+        } finally {
+            state.busy = false;
+            document.querySelectorAll('.op-refresh').forEach((button) => { button.disabled = false; button.textContent = 'Refresh'; });
+        }
+    }
+
+    function renderCurrent() {
+        if (!state.lastPayload || !isOperator()) return;
+        const current = route();
+        if (current === 'dashboard') renderDashboard(state.lastPayload);
+        else if (current === 'meters') renderMeter(state.lastPayload);
+        else if (current === 'inverters') renderInverters(state.lastPayload);
+        else if (current === 'control') renderControl(state.lastPayload);
+        else if (current === 'system') renderSystem(state.lastPayload);
+    }
+
+    function updateRouteTitles() {
+        if (!isOperator()) return;
+        const titles = {
+            dashboard: ['Dashboard', 'Dashboard'],
+            meters: ['Grid Power', 'Grid power'],
+            inverters: ['Solar Inverters', 'Solar inverters'],
+            control: ['Control', 'Control status'],
+            system: ['Controller', 'Controller status']
+        };
+        const current = titles[route()];
+        if (current) {
+            if (byId('pageTitle')) byId('pageTitle').textContent = current[0];
+            if (byId('breadcrumbCurrent')) byId('breadcrumbCurrent').textContent = current[1];
+        }
+    }
+
+    function onRoute() {
+        updateLanguage();
+        updateRouteTitles();
+        hideLegacyOperatorContent();
+        renderCurrent();
+        if (isOperator() && !state.lastPayload) refreshAll();
     }
 
     function start() {
-        ensureMeterView();
-        ensureInverterView();
-        updateProductLanguage();
-        refreshRoute();
-        window.addEventListener('hashchange', refreshRoute);
-        state.timer = window.setInterval(refreshRoute, 5000);
-        new MutationObserver(() => updateProductLanguage()).observe(document.documentElement, {
-            attributes: true, attributeFilter: ['data-access']
-        });
+        ensureViews();
+        updateLanguage();
+        hideLegacyOperatorContent();
+        onRoute();
+        window.addEventListener('hashchange', onRoute);
+        state.timer = window.setInterval(refreshAll, 5000);
+        new MutationObserver(() => {
+            updateLanguage();
+            hideLegacyOperatorContent();
+            onRoute();
+        }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-access'] });
     }
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
