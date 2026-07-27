@@ -1,0 +1,109 @@
+/* Automatrix PV-DG product shell V2 */
+:root {
+    --shell-header-height: 68px;
+    --shell-nav-width: 236px;
+}
+
+body.product-shell-v2 .workspace { margin-left: var(--shell-nav-width); }
+body.product-shell-v2 .sidebar { width: var(--shell-nav-width); padding: 18px 14px; }
+body.product-shell-v2 .brand-block { padding-bottom: 16px; }
+body.product-shell-v2 .nav-list { gap: 3px; margin-top: 16px; }
+body.product-shell-v2 .nav-link { min-height: 44px; border-radius: 10px; }
+body.product-shell-v2 .sidebar-footer { padding-top: 14px; }
+
+body.product-shell-v2 .topbar {
+    min-height: var(--shell-header-height);
+    padding: 10px 22px;
+    gap: 12px;
+    background: rgba(7, 17, 31, 0.96);
+}
+body.product-shell-v2 .page-heading { display: grid; gap: 2px; }
+body.product-shell-v2 .page-heading h1 { margin: 0; font-size: 20px; }
+body.product-shell-v2 .breadcrumb { display: none; }
+body.product-shell-v2 .shell-page-context { color: var(--muted); font-size: 11px; line-height: 1.35; }
+body.product-shell-v2 .topbar-actions { gap: 8px; }
+body.product-shell-v2 .topbar-actions > * { flex: 0 0 auto; }
+body.product-shell-v2 .product-tool-button,
+body.product-shell-v2 #themeToggle,
+body.product-shell-v2 #engineeringAccessButton { display: none !important; }
+body.product-shell-v2 #controllerPill { display: none; }
+
+.shell-health-button,
+.shell-overflow-button {
+    min-height: 42px;
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    color: var(--text);
+    background: var(--panel);
+    cursor: pointer;
+}
+.shell-health-button { display: inline-flex; align-items: center; gap: 8px; padding: 0 12px; }
+.shell-health-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted-2); }
+.shell-health-button.good .shell-health-dot { background: var(--green); }
+.shell-health-button.warning .shell-health-dot { background: var(--yellow); }
+.shell-health-button.bad .shell-health-dot { background: var(--red); }
+.shell-health-label { font-size: 12px; font-weight: 800; }
+.shell-overflow-button { width: 42px; font-size: 20px; }
+
+body.product-shell-v2 .status-strip { display: none; }
+body.product-shell-v2 .content { padding-top: 22px; }
+body.product-shell-v2 .page-intro { margin-bottom: 16px; }
+body.product-shell-v2 .page-intro h2 { font-size: clamp(21px, 2vw, 28px); }
+body.product-shell-v2 .page-intro p:not(.eyebrow) { max-width: 680px; }
+body.product-shell-v2 .metric-card,
+body.product-shell-v2 .panel { box-shadow: 0 12px 32px rgba(0,0,0,.18); }
+
+.shell-popover-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    display: grid;
+    place-items: start end;
+    padding: calc(var(--shell-header-height) + 8px) 16px 16px;
+    background: rgba(0,0,0,.28);
+}
+.shell-popover-backdrop[hidden] { display: none; }
+.shell-popover {
+    width: min(360px, calc(100vw - 24px));
+    max-height: calc(100vh - var(--shell-header-height) - 24px);
+    overflow: auto;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--panel);
+    box-shadow: 0 24px 70px rgba(0,0,0,.45);
+}
+.shell-popover-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px; border-bottom: 1px solid var(--line-soft); }
+.shell-popover-head h2 { margin: 0; font-size: 16px; }
+.shell-popover-close { width: 36px; height: 36px; border: 0; border-radius: 9px; color: var(--text); background: transparent; font-size: 22px; cursor: pointer; }
+.shell-popover-body { padding: 12px; }
+.shell-status-list { display: grid; gap: 8px; }
+.shell-status-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 11px 12px; border: 1px solid var(--line-soft); border-radius: 10px; background: rgba(8,24,39,.5); }
+.shell-status-row span { color: var(--muted); font-size: 11px; }
+.shell-status-row strong { max-width: 62%; font-size: 11px; text-align: right; overflow-wrap: anywhere; }
+.shell-menu { display: grid; gap: 7px; }
+.shell-menu button,
+.shell-menu a { width: 100%; min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 12px; border: 1px solid var(--line-soft); border-radius: 10px; color: var(--text); background: rgba(8,24,39,.5); text-decoration: none; cursor: pointer; }
+.shell-menu small { color: var(--muted); }
+
+body.product-shell-v2 .product-mobile-nav { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+
+@media (max-width: 900px) {
+    body.product-shell-v2 .workspace { margin-left: 0; }
+    body.product-shell-v2 .topbar { padding-inline: 14px; }
+}
+
+@media (max-width: 650px) {
+    :root { --shell-header-height: 62px; }
+    body.product-shell-v2 .topbar { min-height: var(--shell-header-height); padding: 8px 9px; gap: 8px; }
+    body.product-shell-v2 .page-heading { min-width: 0; }
+    body.product-shell-v2 .page-heading h1 { max-width: 40vw; font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    body.product-shell-v2 .shell-page-context { display: none; }
+    .shell-health-button { width: 40px; padding: 0; justify-content: center; }
+    .shell-health-label { display: none; }
+    .shell-overflow-button { width: 40px; }
+    body.product-shell-v2 #refreshButton,
+    body.product-shell-v2 #menuButton { width: 40px; height: 40px; flex-basis: 40px; }
+    body.product-shell-v2 .content { padding-top: 14px; }
+    .shell-popover-backdrop { place-items: end stretch; padding: 0; background: rgba(0,0,0,.48); }
+    .shell-popover { width: 100%; max-height: 82vh; border-radius: 18px 18px 0 0; padding-bottom: env(safe-area-inset-bottom); }
+}
