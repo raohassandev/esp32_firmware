@@ -1,76 +1,47 @@
 #include "web_assets.h"
 #include <stdint.h>
 
-extern const uint8_t index_html_start[] asm("_binary_index_html_start");
-extern const uint8_t index_html_end[] asm("_binary_index_html_end");
-extern const uint8_t app_css_start[] asm("_binary_app_css_start");
-extern const uint8_t app_css_end[] asm("_binary_app_css_end");
-extern const uint8_t theme_css_start[] asm("_binary_theme_css_start");
-extern const uint8_t theme_css_end[] asm("_binary_theme_css_end");
-extern const uint8_t product_mode_css_start[] asm("_binary_product_mode_css_start");
-extern const uint8_t product_mode_css_end[] asm("_binary_product_mode_css_end");
-extern const uint8_t operator_operations_css_start[] asm("_binary_operator_operations_css_start");
-extern const uint8_t operator_operations_css_end[] asm("_binary_operator_operations_css_end");
-extern const uint8_t operator_product_suite_css_start[] asm("_binary_operator_product_suite_css_start");
-extern const uint8_t operator_product_suite_css_end[] asm("_binary_operator_product_suite_css_end");
-extern const uint8_t prelab_readiness_css_start[] asm("_binary_prelab_readiness_css_start");
-extern const uint8_t prelab_readiness_css_end[] asm("_binary_prelab_readiness_css_end");
-extern const uint8_t mobile_prelab_fixes_css_start[] asm("_binary_mobile_prelab_fixes_css_start");
-extern const uint8_t mobile_prelab_fixes_css_end[] asm("_binary_mobile_prelab_fixes_css_end");
-extern const uint8_t wifi_css_start[] asm("_binary_wifi_css_start");
-extern const uint8_t wifi_css_end[] asm("_binary_wifi_css_end");
-extern const uint8_t devices_css_start[] asm("_binary_devices_css_start");
-extern const uint8_t devices_css_end[] asm("_binary_devices_css_end");
-extern const uint8_t em500_css_start[] asm("_binary_em500_css_start");
-extern const uint8_t em500_css_end[] asm("_binary_em500_css_end");
-extern const uint8_t app_js_start[] asm("_binary_app_js_start");
-extern const uint8_t app_js_end[] asm("_binary_app_js_end");
-extern const uint8_t theme_js_start[] asm("_binary_theme_js_start");
-extern const uint8_t theme_js_end[] asm("_binary_theme_js_end");
-extern const uint8_t product_mode_js_start[] asm("_binary_product_mode_js_start");
-extern const uint8_t product_mode_js_end[] asm("_binary_product_mode_js_end");
-extern const uint8_t operator_view_js_start[] asm("_binary_operator_view_js_start");
-extern const uint8_t operator_view_js_end[] asm("_binary_operator_view_js_end");
-extern const uint8_t operator_operations_js_start[] asm("_binary_operator_operations_js_start");
-extern const uint8_t operator_operations_js_end[] asm("_binary_operator_operations_js_end");
-extern const uint8_t operator_product_suite_js_start[] asm("_binary_operator_product_suite_js_start");
-extern const uint8_t operator_product_suite_js_end[] asm("_binary_operator_product_suite_js_end");
-extern const uint8_t prelab_readiness_js_start[] asm("_binary_prelab_readiness_js_start");
-extern const uint8_t prelab_readiness_js_end[] asm("_binary_prelab_readiness_js_end");
-extern const uint8_t commissioning_route_js_start[] asm("_binary_commissioning_route_js_start");
-extern const uint8_t commissioning_route_js_end[] asm("_binary_commissioning_route_js_end");
-extern const uint8_t engineering_errors_js_start[] asm("_binary_engineering_errors_js_start");
-extern const uint8_t engineering_errors_js_end[] asm("_binary_engineering_errors_js_end");
-extern const uint8_t ui_enhancements_js_start[] asm("_binary_ui_enhancements_js_start");
-extern const uint8_t ui_enhancements_js_end[] asm("_binary_ui_enhancements_js_end");
-extern const uint8_t wifi_utils_js_start[] asm("_binary_wifi_utils_js_start");
-extern const uint8_t wifi_utils_js_end[] asm("_binary_wifi_utils_js_end");
-extern const uint8_t wifi_guard_js_start[] asm("_binary_wifi_guard_js_start");
-extern const uint8_t wifi_guard_js_end[] asm("_binary_wifi_guard_js_end");
-extern const uint8_t wifi_js_start[] asm("_binary_wifi_js_start");
-extern const uint8_t wifi_js_end[] asm("_binary_wifi_js_end");
-extern const uint8_t network_commissioning_fix_js_start[] asm("_binary_network_commissioning_fix_js_start");
-extern const uint8_t network_commissioning_fix_js_end[] asm("_binary_network_commissioning_fix_js_end");
-extern const uint8_t devices_utils_js_start[] asm("_binary_devices_utils_js_start");
-extern const uint8_t devices_utils_js_end[] asm("_binary_devices_utils_js_end");
-extern const uint8_t devices_js_start[] asm("_binary_devices_js_start");
-extern const uint8_t devices_js_end[] asm("_binary_devices_js_end");
-extern const uint8_t devices_refresh_js_start[] asm("_binary_devices_refresh_js_start");
-extern const uint8_t devices_refresh_js_end[] asm("_binary_devices_refresh_js_end");
-extern const uint8_t inverter_profiles_js_start[] asm("_binary_inverter_profiles_js_start");
-extern const uint8_t inverter_profiles_js_end[] asm("_binary_inverter_profiles_js_end");
-extern const uint8_t inverter_config_js_start[] asm("_binary_inverter_config_js_start");
-extern const uint8_t inverter_config_js_end[] asm("_binary_inverter_config_js_end");
-extern const uint8_t inverter_telemetry_js_start[] asm("_binary_inverter_telemetry_js_start");
-extern const uint8_t inverter_telemetry_js_end[] asm("_binary_inverter_telemetry_js_end");
-extern const uint8_t em500_utils_js_start[] asm("_binary_em500_utils_js_start");
-extern const uint8_t em500_utils_js_end[] asm("_binary_em500_utils_js_end");
-extern const uint8_t em500_core_js_start[] asm("_binary_em500_core_js_start");
-extern const uint8_t em500_core_js_end[] asm("_binary_em500_core_js_end");
-extern const uint8_t em500_profiles_js_start[] asm("_binary_em500_profiles_js_start");
-extern const uint8_t em500_profiles_js_end[] asm("_binary_em500_profiles_js_end");
-extern const uint8_t em500_plan_js_start[] asm("_binary_em500_plan_js_start");
-extern const uint8_t em500_plan_js_end[] asm("_binary_em500_plan_js_end");
+#define DECLARE_ASSET(name) \
+    extern const uint8_t name##_start[] asm("_binary_" #name "_start"); \
+    extern const uint8_t name##_end[] asm("_binary_" #name "_end")
+
+DECLARE_ASSET(index_html);
+DECLARE_ASSET(app_css);
+DECLARE_ASSET(theme_css);
+DECLARE_ASSET(product_mode_css);
+DECLARE_ASSET(operator_operations_css);
+DECLARE_ASSET(operator_product_suite_css);
+DECLARE_ASSET(prelab_readiness_css);
+DECLARE_ASSET(mobile_prelab_fixes_css);
+DECLARE_ASSET(product_shell_v2_css);
+DECLARE_ASSET(wifi_css);
+DECLARE_ASSET(devices_css);
+DECLARE_ASSET(em500_css);
+DECLARE_ASSET(app_js);
+DECLARE_ASSET(theme_js);
+DECLARE_ASSET(product_mode_js);
+DECLARE_ASSET(operator_view_js);
+DECLARE_ASSET(operator_operations_js);
+DECLARE_ASSET(operator_product_suite_js);
+DECLARE_ASSET(prelab_readiness_js);
+DECLARE_ASSET(product_shell_v2_js);
+DECLARE_ASSET(commissioning_route_js);
+DECLARE_ASSET(engineering_errors_js);
+DECLARE_ASSET(ui_enhancements_js);
+DECLARE_ASSET(wifi_utils_js);
+DECLARE_ASSET(wifi_guard_js);
+DECLARE_ASSET(wifi_js);
+DECLARE_ASSET(network_commissioning_fix_js);
+DECLARE_ASSET(devices_utils_js);
+DECLARE_ASSET(devices_js);
+DECLARE_ASSET(devices_refresh_js);
+DECLARE_ASSET(inverter_profiles_js);
+DECLARE_ASSET(inverter_config_js);
+DECLARE_ASSET(inverter_telemetry_js);
+DECLARE_ASSET(em500_utils_js);
+DECLARE_ASSET(em500_core_js);
+DECLARE_ASSET(em500_profiles_js);
+DECLARE_ASSET(em500_plan_js);
 
 static const char *asset(const uint8_t *start, const uint8_t *end, size_t *length)
 {
@@ -80,38 +51,43 @@ static const char *asset(const uint8_t *start, const uint8_t *end, size_t *lengt
     return (const char *)start;
 }
 
-const char *web_assets_index(size_t *length) { return asset(index_html_start, index_html_end, length); }
-const char *web_assets_css(size_t *length) { return asset(app_css_start, app_css_end, length); }
-const char *web_assets_theme_css(size_t *length) { return asset(theme_css_start, theme_css_end, length); }
-const char *web_assets_product_mode_css(size_t *length) { return asset(product_mode_css_start, product_mode_css_end, length); }
-const char *web_assets_operator_operations_css(size_t *length) { return asset(operator_operations_css_start, operator_operations_css_end, length); }
-const char *web_assets_operator_product_suite_css(size_t *length) { return asset(operator_product_suite_css_start, operator_product_suite_css_end, length); }
-const char *web_assets_prelab_readiness_css(size_t *length) { return asset(prelab_readiness_css_start, prelab_readiness_css_end, length); }
-const char *web_assets_mobile_prelab_fixes_css(size_t *length) { return asset(mobile_prelab_fixes_css_start, mobile_prelab_fixes_css_end, length); }
-const char *web_assets_wifi_css(size_t *length) { return asset(wifi_css_start, wifi_css_end, length); }
-const char *web_assets_devices_css(size_t *length) { return asset(devices_css_start, devices_css_end, length); }
-const char *web_assets_em500_css(size_t *length) { return asset(em500_css_start, em500_css_end, length); }
-const char *web_assets_js(size_t *length) { return asset(app_js_start, app_js_end, length); }
-const char *web_assets_theme_js(size_t *length) { return asset(theme_js_start, theme_js_end, length); }
-const char *web_assets_product_mode_js(size_t *length) { return asset(product_mode_js_start, product_mode_js_end, length); }
-const char *web_assets_operator_view_js(size_t *length) { return asset(operator_view_js_start, operator_view_js_end, length); }
-const char *web_assets_operator_operations_js(size_t *length) { return asset(operator_operations_js_start, operator_operations_js_end, length); }
-const char *web_assets_operator_product_suite_js(size_t *length) { return asset(operator_product_suite_js_start, operator_product_suite_js_end, length); }
-const char *web_assets_prelab_readiness_js(size_t *length) { return asset(prelab_readiness_js_start, prelab_readiness_js_end, length); }
-const char *web_assets_commissioning_route_js(size_t *length) { return asset(commissioning_route_js_start, commissioning_route_js_end, length); }
-const char *web_assets_engineering_errors_js(size_t *length) { return asset(engineering_errors_js_start, engineering_errors_js_end, length); }
-const char *web_assets_ui_enhancements_js(size_t *length) { return asset(ui_enhancements_js_start, ui_enhancements_js_end, length); }
-const char *web_assets_wifi_utils_js(size_t *length) { return asset(wifi_utils_js_start, wifi_utils_js_end, length); }
-const char *web_assets_wifi_guard_js(size_t *length) { return asset(wifi_guard_js_start, wifi_guard_js_end, length); }
-const char *web_assets_wifi_js(size_t *length) { return asset(wifi_js_start, wifi_js_end, length); }
-const char *web_assets_network_commissioning_fix_js(size_t *length) { return asset(network_commissioning_fix_js_start, network_commissioning_fix_js_end, length); }
-const char *web_assets_devices_utils_js(size_t *length) { return asset(devices_utils_js_start, devices_utils_js_end, length); }
-const char *web_assets_devices_js(size_t *length) { return asset(devices_js_start, devices_js_end, length); }
-const char *web_assets_devices_refresh_js(size_t *length) { return asset(devices_refresh_js_start, devices_refresh_js_end, length); }
-const char *web_assets_inverter_profiles_js(size_t *length) { return asset(inverter_profiles_js_start, inverter_profiles_js_end, length); }
-const char *web_assets_inverter_config_js(size_t *length) { return asset(inverter_config_js_start, inverter_config_js_end, length); }
-const char *web_assets_inverter_telemetry_js(size_t *length) { return asset(inverter_telemetry_js_start, inverter_telemetry_js_end, length); }
-const char *web_assets_em500_utils_js(size_t *length) { return asset(em500_utils_js_start, em500_utils_js_end, length); }
-const char *web_assets_em500_core_js(size_t *length) { return asset(em500_core_js_start, em500_core_js_end, length); }
-const char *web_assets_em500_profiles_js(size_t *length) { return asset(em500_profiles_js_start, em500_profiles_js_end, length); }
-const char *web_assets_em500_plan_js(size_t *length) { return asset(em500_plan_js_start, em500_plan_js_end, length); }
+#define ASSET_GETTER(function_name, asset_name) \
+    const char *function_name(size_t *length) { return asset(asset_name##_start, asset_name##_end, length); }
+
+ASSET_GETTER(web_assets_index, index_html)
+ASSET_GETTER(web_assets_css, app_css)
+ASSET_GETTER(web_assets_theme_css, theme_css)
+ASSET_GETTER(web_assets_product_mode_css, product_mode_css)
+ASSET_GETTER(web_assets_operator_operations_css, operator_operations_css)
+ASSET_GETTER(web_assets_operator_product_suite_css, operator_product_suite_css)
+ASSET_GETTER(web_assets_prelab_readiness_css, prelab_readiness_css)
+ASSET_GETTER(web_assets_mobile_prelab_fixes_css, mobile_prelab_fixes_css)
+ASSET_GETTER(web_assets_product_shell_v2_css, product_shell_v2_css)
+ASSET_GETTER(web_assets_wifi_css, wifi_css)
+ASSET_GETTER(web_assets_devices_css, devices_css)
+ASSET_GETTER(web_assets_em500_css, em500_css)
+ASSET_GETTER(web_assets_js, app_js)
+ASSET_GETTER(web_assets_theme_js, theme_js)
+ASSET_GETTER(web_assets_product_mode_js, product_mode_js)
+ASSET_GETTER(web_assets_operator_view_js, operator_view_js)
+ASSET_GETTER(web_assets_operator_operations_js, operator_operations_js)
+ASSET_GETTER(web_assets_operator_product_suite_js, operator_product_suite_js)
+ASSET_GETTER(web_assets_prelab_readiness_js, prelab_readiness_js)
+ASSET_GETTER(web_assets_product_shell_v2_js, product_shell_v2_js)
+ASSET_GETTER(web_assets_commissioning_route_js, commissioning_route_js)
+ASSET_GETTER(web_assets_engineering_errors_js, engineering_errors_js)
+ASSET_GETTER(web_assets_ui_enhancements_js, ui_enhancements_js)
+ASSET_GETTER(web_assets_wifi_utils_js, wifi_utils_js)
+ASSET_GETTER(web_assets_wifi_guard_js, wifi_guard_js)
+ASSET_GETTER(web_assets_wifi_js, wifi_js)
+ASSET_GETTER(web_assets_network_commissioning_fix_js, network_commissioning_fix_js)
+ASSET_GETTER(web_assets_devices_utils_js, devices_utils_js)
+ASSET_GETTER(web_assets_devices_js, devices_js)
+ASSET_GETTER(web_assets_devices_refresh_js, devices_refresh_js)
+ASSET_GETTER(web_assets_inverter_profiles_js, inverter_profiles_js)
+ASSET_GETTER(web_assets_inverter_config_js, inverter_config_js)
+ASSET_GETTER(web_assets_inverter_telemetry_js, inverter_telemetry_js)
+ASSET_GETTER(web_assets_em500_utils_js, em500_utils_js)
+ASSET_GETTER(web_assets_em500_core_js, em500_core_js)
+ASSET_GETTER(web_assets_em500_profiles_js, em500_profiles_js)
+ASSET_GETTER(web_assets_em500_plan_js, em500_plan_js)
