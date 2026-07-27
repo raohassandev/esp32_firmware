@@ -36,7 +36,7 @@ raw = ((registers[0] << 48) |
        (registers[2] << 16) |
        registers[3])
 require(raw == 0x0001000200030004, "known U64 register vector is wrong")
-require(raw * 0.01 == 2814835668.67204,
+require(abs(raw * 0.01 - 2814835668418.6) < 0.001,
         "known scaled U64 energy vector is wrong")
 
 print("64-bit Modbus energy decoder source contract passed")
