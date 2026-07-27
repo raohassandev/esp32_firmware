@@ -5,12 +5,12 @@
     const byId = (id) => document.getElementById(id);
 
     function manufacturers(profiles) {
-        return [...new Set((profiles || []).map((p) => p.manufacturer).filter(Boolean))]
-            .sort((a, b) => a.localeCompare(b));
+        return [...new Set((profiles || []).map((profile) => profile.manufacturer).filter(Boolean))]
+            .sort((left, right) => left.localeCompare(right));
     }
 
     function profilesForManufacturer(profiles, manufacturer) {
-        return (profiles || []).filter((p) => p.manufacturer === manufacturer);
+        return (profiles || []).filter((profile) => profile.manufacturer === manufacturer);
     }
 
     function writeStatus(profile) {
@@ -18,6 +18,23 @@
         if (profile.write_allowed) return { label: 'Write approved', tone: 'good' };
         if (profile.capabilities?.power_limit) return { label: 'Write locked', tone: 'warning' };
         return { label: 'Read-only / pending', tone: 'neutral' };
+    }
+
+    function setBadge(label, tone = 'neutral') {
+        const badge = byId('inverterProfileQualification');
+        if (!badge) return;
+        badge.textContent = label;
+        badge.className = `subtle-badge${tone !== 'neutral' ? ` ${tone}` : ''}`;
+    }
+
+    function selectedProfile() {
+        const id = byId('inverterModelFamily')?.value;
+        return state.profiles.find((profile) => profile.id === id) || null;
+    }
+
+    function selectedChannel() {
+        const channel = Number(byId('inverterProfileChannel')?.value);
+        return Number.isInteger(channel) && channel >= 0 && channel < 12 ? channel : null;
     }
 
     function ensureScaffold() {
@@ -65,18 +82,6 @@
         byId('inverterProfileApply').addEventListener('click', applyProfile);
     }
 
-    function setBadge(label, tone) {
-        const badge = byId('inverterProfileQualification');
-        if (!badge) return;
-        badge.textContent = label;
-        badge.className = `subtle-badge${tone && tone !== 'neutral' ? ` ${tone}` : ''}`;
-    }
-
-    function selectedProfile() {
-        const id = byId('inverterModelFamily')?.value;
-        return state.profiles.find((profile) => profile.id === id) || null;
-    }
-
     function refreshModels() {
         const manufacturer = byId('inverterManufacturer')?.value || '';
         const select = byId('inverterModelFamily');
@@ -93,14 +98,13 @@
 
     function renderSelection() {
         const profile = selectedProfile();
-        const connection = byId('inverterProfileConnection');
-        const protocol = byId('inverterProfileProtocol');
         const notice = byId('inverterProfileNotice');
         const apply = byId('inverterProfileApply');
         const probe = byId('inverterProfileProbe');
+        byId('inverterProfileConnection').value = profile?.connection || '';
+        byId('inverterProfileProtocol').value = profile?.protocol || '';
+
         if (!profile) {
-            if (connection) connection.value = '';
-            if (protocol) protocol.value = '';
             if (notice) notice.textContent = 'No profile is available for this manufacturer.';
             if (apply) apply.disabled = true;
             if (probe) probe.disabled = true;
@@ -108,8 +112,6 @@
             return;
         }
 
-        if (connection) connection.value = profile.connection || '';
-        if (protocol) protocol.value = profile.protocol || '';
         if (apply) apply.disabled = state.saving;
         if (probe) probe.disabled = state.probing || !profile.read_allowed;
         const status = writeStatus(profile);
@@ -121,35 +123,31 @@
         if (profile.capabilities?.power_limit) capabilities.push('power-limit command mapping');
         if (profile.capabilities?.power_limit_readback) capabilities.push('command readback');
         const summary = capabilities.length ? capabilities.join(', ') : 'no verified register capabilities yet';
-        if (notice) {
-            notice.textContent = `${profile.manufacturer} ${profile.model_family}: ${summary}. ${profile.write_allowed ? 'Production write permission is approved.' : 'Live writes remain locked.'}`;
-        }
+        if (notice) notice.textContent = `${profile.manufacturer} ${profile.model_family}: ${summary}. ${profile.write_allowed ? 'Production write permission is approved.' : 'Live writes remain locked.'}`;
     }
 
     function renderCatalogue() {
         ensureScaffold();
-        const manufacturerSelect = byId('inverterManufacturer');
-        if (!manufacturerSelect) return;
-        const previous = manufacturerSelect.value;
-        manufacturerSelect.replaceChildren();
+        const select = byId('inverterManufacturer');
+        if (!select) return;
+        const previous = select.value;
+        select.replaceChildren();
         for (const manufacturer of manufacturers(state.profiles)) {
             const option = document.createElement('option');
             option.value = manufacturer;
             option.textContent = manufacturer;
-            manufacturerSelect.append(option);
+            select.append(option);
         }
-        if (previous && [...manufacturerSelect.options].some((o) => o.value === previous)) {
-            manufacturerSelect.value = previous;
-        }
+        if (previous && [...select.options].some((option) => option.value === previous)) select.value = previous;
         refreshModels();
     }
 
     async function applyProfile() {
         const profile = selectedProfile();
-        const channel = Number(byId('inverterProfileChannel')?.value);
+        const channel = selectedChannel();
         const notice = byId('inverterProfileNotice');
         const button = byId('inverterProfileApply');
-        if (!profile || !Number.isInteger(channel) || channel < 0 || channel > 11 || state.saving) return;
+        if (!profile || channel === null || state.saving) return;
 
         state.saving = true;
         if (button) button.disabled = true;
@@ -162,10 +160,9 @@
             });
             if (!response.ok) throw new Error(await response.text() || `HTTP ${response.status}`);
             const payload = await response.json();
-            if (notice) {
-                notice.textContent = `Profile saved for Inverter ${channel + 1}. Automatic control is disabled. Restart the controller to apply this profile; live writes remain ${payload.write_allowed_after_restart ? 'eligible after qualification' : 'locked'}.`;
-            }
-            setBadge('Saved · restart required', 'warning');
+            const restart = payload.restart_required ? 'Restart the controller to apply this profile.' : 'The profile is active without restart.';
+            if (notice) notice.textContent = `Profile saved for Inverter ${channel + 1}. Automatic control is disabled. ${restart} Live writes remain ${payload.write_allowed_after_restart ? 'eligible only after qualification' : 'locked'}.`;
+            setBadge(payload.restart_required ? 'Saved · restart required' : 'Saved', payload.restart_required ? 'warning' : 'good');
         } catch (error) {
             if (notice) notice.textContent = `Profile assignment failed: ${error.message}`;
             setBadge('Save failed', 'bad');
@@ -176,10 +173,10 @@
     }
 
     async function probeInverter() {
-        const channel = Number(byId('inverterProfileChannel')?.value);
+        const channel = selectedChannel();
         const notice = byId('inverterProfileNotice');
         const button = byId('inverterProfileProbe');
-        if (!Number.isInteger(channel) || channel < 0 || channel > 11 || state.probing) return;
+        if (channel === null || state.probing) return;
 
         state.probing = true;
         if (button) button.disabled = true;
@@ -209,7 +206,7 @@
         ensureScaffold();
         if (state.loading || (state.loaded && !force)) return;
         state.loading = true;
-        setBadge('Loading', 'neutral');
+        setBadge('Loading');
         const notice = byId('inverterProfileNotice');
         if (notice) notice.textContent = 'Loading inverter profile catalogue…';
         try {
@@ -229,17 +226,7 @@
         }
     }
 
-    window.PvdgInverterProfileUtils = {
-        manufacturers,
-        profilesForManufacturer,
-        writeStatus
-    };
-
-    document.addEventListener('DOMContentLoaded', () => {
-        ensureScaffold();
-        loadProfiles();
-    });
-    window.addEventListener('hashchange', () => {
-        if (location.hash === '#/inverters') loadProfiles();
-    });
+    window.PvdgInverterProfileUtils = { manufacturers, profilesForManufacturer, writeStatus };
+    document.addEventListener('DOMContentLoaded', () => { ensureScaffold(); loadProfiles(); });
+    window.addEventListener('hashchange', () => { if (location.hash === '#/inverters') loadProfiles(); });
 })();
