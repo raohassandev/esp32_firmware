@@ -2,6 +2,9 @@
 
 #include <string.h>
 
+#define LEGACY_SAFE_DEFAULT_PROFILE_ID "custom-advanced-modbus"
+#define SAFE_DEFAULT_PROFILE_ID "custom.modbus-percent-v1"
+
 /*
  * Profile entries are deliberately write-locked until the exact manual revision,
  * model family and command/readback sequence have been extracted and physically
@@ -9,7 +12,7 @@
  */
 static const inverter_profile_t PROFILES[] = {
     {
-        .id = "custom.modbus-percent-v1",
+        .id = SAFE_DEFAULT_PROFILE_ID,
         .manufacturer = "Custom",
         .model_family = "Advanced Modbus percentage control",
         .protocol = "Modbus",
@@ -98,6 +101,7 @@ const inverter_profile_t *inverter_profiles_get(size_t index)
 const inverter_profile_t *inverter_profiles_find(const char *id)
 {
     if (!id || !id[0]) return NULL;
+    if (strcmp(id, LEGACY_SAFE_DEFAULT_PROFILE_ID) == 0) id = SAFE_DEFAULT_PROFILE_ID;
     for (size_t index = 0; index < inverter_profiles_count(); ++index) {
         if (strcmp(PROFILES[index].id, id) == 0) return &PROFILES[index];
     }
