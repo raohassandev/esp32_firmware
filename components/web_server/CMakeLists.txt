@@ -9,6 +9,7 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/app.js" "${CMAKE_CURRENT_BIN
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/theme.js" "${CMAKE_CURRENT_BINARY_DIR}/theme.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/product-mode.js" "${CMAKE_CURRENT_BINARY_DIR}/product-mode.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-view.js" "${CMAKE_CURRENT_BINARY_DIR}/operator-view.js" COPYONLY)
+configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-operations.js" "${CMAKE_CURRENT_BINARY_DIR}/operator-operations.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/engineering-errors.js" "${CMAKE_CURRENT_BINARY_DIR}/engineering-errors.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/ui-enhancements.js" "${CMAKE_CURRENT_BINARY_DIR}/ui-enhancements.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/wifi-utils.js" "${CMAKE_CURRENT_BINARY_DIR}/wifi-utils.js" COPYONLY)
@@ -58,6 +59,7 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/theme.js"
         "${CMAKE_CURRENT_BINARY_DIR}/product-mode.js"
         "${CMAKE_CURRENT_BINARY_DIR}/operator-view.js"
+        "${CMAKE_CURRENT_BINARY_DIR}/operator-operations.js"
         "${CMAKE_CURRENT_BINARY_DIR}/engineering-errors.js"
         "${CMAKE_CURRENT_BINARY_DIR}/ui-enhancements.js"
         "${CMAKE_CURRENT_BINARY_DIR}/wifi-utils.js"
@@ -75,9 +77,6 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/em500-plan.js"
 )
 
-# Apply the registration gateway only to protected C translation units. Embedded
-# web assets are generated assembler, and operational_api.c exposes only the
-# deliberately sanitized public operator history/event endpoints.
 foreach(source IN LISTS WEB_SERVER_C_SOURCES)
     if(NOT source STREQUAL "engineering_guard.c" AND NOT source STREQUAL "operational_api.c")
         set_source_files_properties(${source} PROPERTIES COMPILE_OPTIONS "-include;engineering_auth.h")
