@@ -1,10 +1,11 @@
-#include "engineering_auth.h"
-
-/* The component uses a compile-time registration shim. This file must call the
- * actual ESP-IDF registration function rather than the shim itself. */
+/* The component normally replaces URI registration with the engineering
+ * gateway. This translation unit implements that gateway and must see the real
+ * ESP-IDF declaration before any headers are parsed. */
 #ifdef httpd_register_uri_handler
 #undef httpd_register_uri_handler
 #endif
+
+#include "engineering_auth.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -53,6 +54,10 @@ static esp_err_t safe_config(httpd_req_t *request)
         return httpd_resp_send_500(request);
     }
     cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        free(config);
+        return httpd_resp_send_500(request);
+    }
     cJSON_AddNumberToObject(root, "schema", config->version);
     cJSON_AddStringToObject(root, "device_name", config->device_name);
     cJSON_AddBoolToObject(root, "operator_view", true);
@@ -95,10 +100,19 @@ static esp_err_t safe_meters(httpd_req_t *request)
 {
     app_config_t *config = malloc(sizeof(*config));
     if (!config) return httpd_resp_send_500(request);
-    if (config_manager_get_snapshot(config) != ESP_OK) { free(config); return httpd_resp_send_500(request); }
+    if (config_manager_get_snapshot(config) != ESP_OK) {
+        free(config);
+        return httpd_resp_send_500(request);
+    }
     uint32_t current = now_ms();
-    uint8_t enabled = 0, online = 0, unavailable = 0;
+    uint8_t enabled = 0;
+    uint8_t online = 0;
+    uint8_t unavailable = 0;
     cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        free(config);
+        return httpd_resp_send_500(request);
+    }
     cJSON_AddBoolToObject(root, "operator_view", true);
     cJSON_AddNumberToObject(root, "configured_count", config->meter_count);
     cJSON *items = cJSON_AddArrayToObject(root, "meters");
@@ -107,7 +121,8 @@ static esp_err_t safe_meters(httpd_req_t *request)
         bool have = meter_manager_get_data(i, &data);
         bool fresh = have && data.online && data.last_update_ms && current - data.last_update_ms <= 5000U;
         if (config->meters[i].enabled) enabled++;
-        if (fresh) online++; else if (config->meters[i].enabled) unavailable++;
+        if (fresh) online++;
+        else if (config->meters[i].enabled) unavailable++;
         cJSON *item = cJSON_CreateObject();
         cJSON_AddNumberToObject(item, "index", i);
         cJSON_AddStringToObject(item, "name", config->meters[i].name);
@@ -141,10 +156,19 @@ static esp_err_t safe_inverters(httpd_req_t *request)
 {
     app_config_t *config = malloc(sizeof(*config));
     if (!config) return httpd_resp_send_500(request);
-    if (config_manager_get_snapshot(config) != ESP_OK) { free(config); return httpd_resp_send_500(request); }
-    uint8_t enabled = 0, online = 0;
-    float configured_kw = 0.0f, enabled_kw = 0.0f;
+    if (config_manager_get_snapshot(config) != ESP_OK) {
+        free(config);
+        return httpd_resp_send_500(request);
+    }
+    uint8_t enabled = 0;
+    uint8_t online = 0;
+    float configured_kw = 0.0f;
+    float enabled_kw = 0.0f;
     cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        free(config);
+        return httpd_resp_send_500(request);
+    }
     cJSON_AddBoolToObject(root, "operator_view", true);
     cJSON_AddNumberToObject(root, "configured_count", config->inverter_count);
     cJSON_AddBoolToObject(root, "measured_power_supported", true);
@@ -153,7 +177,10 @@ static esp_err_t safe_inverters(httpd_req_t *request)
         inverter_data_t data = {0};
         bool have = inverter_manager_get_data(i, &data);
         configured_kw += config->inverters[i].rated_power_kw;
-        if (config->inverters[i].enabled) { enabled++; enabled_kw += config->inverters[i].rated_power_kw; }
+        if (config->inverters[i].enabled) {
+            enabled++;
+            enabled_kw += config->inverters[i].rated_power_kw;
+        }
         if (have && data.online) online++;
         cJSON *item = cJSON_CreateObject();
         cJSON_AddNumberToObject(item, "index", i);
@@ -186,10 +213,13 @@ static esp_err_t safe_inverters(httpd_req_t *request)
 static esp_err_t safe_inverter_telemetry(httpd_req_t *request)
 {
     uint8_t count = inverter_manager_get_count();
-    uint8_t online = 0, valid = 0, stale = 0;
+    uint8_t online = 0;
+    uint8_t valid = 0;
+    uint8_t stale = 0;
     float total = 0.0f;
     uint32_t current = now_ms();
     cJSON *root = cJSON_CreateObject();
+    if (!root) return httpd_resp_send_500(request);
     cJSON_AddBoolToObject(root, "operator_view", true);
     cJSON_AddBoolToObject(root, "read_only_endpoint", true);
     cJSON_AddBoolToObject(root, "writes_issued", false);
@@ -199,7 +229,10 @@ static esp_err_t safe_inverter_telemetry(httpd_req_t *request)
         inverter_data_t data = {0};
         if (!inverter_manager_get_data(i, &data)) continue;
         if (data.online) online++;
-        if (data.telemetry_valid) { valid++; total += data.measured_power_kw; }
+        if (data.telemetry_valid) {
+            valid++;
+            total += data.measured_power_kw;
+        }
         if (data.telemetry_stale) stale++;
         cJSON *item = cJSON_CreateObject();
         cJSON_AddNumberToObject(item, "index", i);
