@@ -11,9 +11,9 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/devices.js" "${CMAKE_CURRENT
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/devices-refresh.js" "${CMAKE_CURRENT_BINARY_DIR}/devices-refresh.js" COPYONLY)
 
 idf_component_register(
-    SRCS "web_server.c" "web_api.c" "device_api.c" "meter_config_api.c" "web_assets.c"
+    SRCS "web_server.c" "web_api.c" "device_api.c" "meter_config_api.c" "em500_api.c" "web_assets.c"
     INCLUDE_DIRS "include"
-    REQUIRES esp_http_server esp_system esp_timer cjson config_manager network_manager meter_manager inverter_manager control_engine safety_manager
+    REQUIRES esp_http_server esp_system esp_timer cjson config_manager network_manager meter_manager modbus_tcp inverter_manager control_engine safety_manager
     EMBED_TXTFILES
         "${CMAKE_CURRENT_BINARY_DIR}/index.html"
         "${CMAKE_CURRENT_BINARY_DIR}/app.css"
