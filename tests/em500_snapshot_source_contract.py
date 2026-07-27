@@ -43,8 +43,8 @@ require("modbus_tcp_write" not in MANAGER.split("meter_manager_read_registers", 
         "meter-manager read helper must not perform a write")
 require("em500_api_register(s_server)" in SERVER,
         "EM500 endpoint is not registered")
-require("config.max_uri_handlers = 18" in SERVER,
-        "HTTP handler capacity was not updated")
+require("config.max_uri_handlers = 19" in SERVER,
+        "HTTP handler capacity must include snapshot and settings endpoints")
 require('"em500_api.c"' in CMAKE and "modbus_tcp" in CMAKE,
         "EM500 source/dependency is missing from the component build")
 
