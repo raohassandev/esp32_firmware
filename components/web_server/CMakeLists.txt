@@ -13,6 +13,7 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/product-mode.js" "${CMAKE_CU
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-view.js" "${CMAKE_CURRENT_BINARY_DIR}/operator-view.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-operations.js" "${CMAKE_CURRENT_BINARY_DIR}/operator-operations.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-product-suite.js" "${CMAKE_CURRENT_BINARY_DIR}/operator-product-suite.js" COPYONLY)
+configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/commissioning-route.js" "${CMAKE_CURRENT_BINARY_DIR}/commissioning-route.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/engineering-errors.js" "${CMAKE_CURRENT_BINARY_DIR}/engineering-errors.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/ui-enhancements.js" "${CMAKE_CURRENT_BINARY_DIR}/ui-enhancements.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/wifi-utils.js" "${CMAKE_CURRENT_BINARY_DIR}/wifi-utils.js" COPYONLY)
@@ -66,6 +67,7 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/operator-view.js"
         "${CMAKE_CURRENT_BINARY_DIR}/operator-operations.js"
         "${CMAKE_CURRENT_BINARY_DIR}/operator-product-suite.js"
+        "${CMAKE_CURRENT_BINARY_DIR}/commissioning-route.js"
         "${CMAKE_CURRENT_BINARY_DIR}/engineering-errors.js"
         "${CMAKE_CURRENT_BINARY_DIR}/ui-enhancements.js"
         "${CMAKE_CURRENT_BINARY_DIR}/wifi-utils.js"
