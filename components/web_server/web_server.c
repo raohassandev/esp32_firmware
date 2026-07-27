@@ -4,6 +4,7 @@
 #include "em500_history_api.h"
 #include "em500_settings_api.h"
 #include "em500_settings_plan_api.h"
+#include "engineering_auth.h"
 #include "esp_check.h"
 #include "esp_http_server.h"
 #include "inverter_config_api.h"
@@ -60,8 +61,8 @@ static esp_err_t css_handler(httpd_req_t *request)
         web_assets_wifi_css,
         web_assets_devices_css,
         web_assets_em500_css,
-        /* Theme and responsive overrides must load after component modules. */
-        web_assets_theme_css
+        web_assets_theme_css,
+        web_assets_product_mode_css
     };
     return send_asset_parts(request, "text/css; charset=utf-8",
                             assets, sizeof(assets) / sizeof(assets[0]));
@@ -71,6 +72,8 @@ static esp_err_t js_handler(httpd_req_t *request)
 {
     static const asset_getter_t assets[] = {
         web_assets_theme_js,
+        /* Product mode installs the authenticated fetch layer before modules run. */
+        web_assets_product_mode_js,
         web_assets_js,
         web_assets_wifi_utils_js,
         web_assets_wifi_guard_js,
@@ -95,9 +98,11 @@ esp_err_t web_server_start(void)
 {
     if (s_server) return ESP_OK;
 
+    ESP_RETURN_ON_ERROR(engineering_auth_init(), "web", "engineering authentication init failed");
+
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 26;
-    config.stack_size = 7168;
+    config.max_uri_handlers = 30;
+    config.stack_size = 8192;
     ESP_RETURN_ON_ERROR(httpd_start(&s_server, &config), "web", "HTTP server start failed");
 
     const httpd_uri_t assets[] = {
@@ -111,6 +116,7 @@ esp_err_t web_server_start(void)
                             "web", "asset registration failed");
     }
 
+    ESP_RETURN_ON_ERROR(engineering_auth_register(s_server), "web", "engineering auth API registration failed");
     ESP_RETURN_ON_ERROR(web_api_register(s_server), "web", "core API registration failed");
     ESP_RETURN_ON_ERROR(device_api_register(s_server), "web", "device API registration failed");
     ESP_RETURN_ON_ERROR(inverter_profile_api_register(s_server), "web", "inverter profile API registration failed");
