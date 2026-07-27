@@ -3,6 +3,7 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/app.css" "${CMAKE_CURRENT_BI
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/theme.css" "${CMAKE_CURRENT_BINARY_DIR}/theme.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/product-mode.css" "${CMAKE_CURRENT_BINARY_DIR}/product-mode.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-operations.css" "${CMAKE_CURRENT_BINARY_DIR}/operator-operations.css" COPYONLY)
+configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-product-suite.css" "${CMAKE_CURRENT_BINARY_DIR}/operator-product-suite.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/wifi.css" "${CMAKE_CURRENT_BINARY_DIR}/wifi.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/devices.css" "${CMAKE_CURRENT_BINARY_DIR}/devices.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500.css" "${CMAKE_CURRENT_BINARY_DIR}/em500.css" COPYONLY)
@@ -11,6 +12,7 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/theme.js" "${CMAKE_CURRENT_B
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/product-mode.js" "${CMAKE_CURRENT_BINARY_DIR}/product-mode.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-view.js" "${CMAKE_CURRENT_BINARY_DIR}/operator-view.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-operations.js" "${CMAKE_CURRENT_BINARY_DIR}/operator-operations.js" COPYONLY)
+configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-product-suite.js" "${CMAKE_CURRENT_BINARY_DIR}/operator-product-suite.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/engineering-errors.js" "${CMAKE_CURRENT_BINARY_DIR}/engineering-errors.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/ui-enhancements.js" "${CMAKE_CURRENT_BINARY_DIR}/ui-enhancements.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/wifi-utils.js" "${CMAKE_CURRENT_BINARY_DIR}/wifi-utils.js" COPYONLY)
@@ -54,6 +56,7 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/theme.css"
         "${CMAKE_CURRENT_BINARY_DIR}/product-mode.css"
         "${CMAKE_CURRENT_BINARY_DIR}/operator-operations.css"
+        "${CMAKE_CURRENT_BINARY_DIR}/operator-product-suite.css"
         "${CMAKE_CURRENT_BINARY_DIR}/wifi.css"
         "${CMAKE_CURRENT_BINARY_DIR}/devices.css"
         "${CMAKE_CURRENT_BINARY_DIR}/em500.css"
@@ -62,6 +65,7 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/product-mode.js"
         "${CMAKE_CURRENT_BINARY_DIR}/operator-view.js"
         "${CMAKE_CURRENT_BINARY_DIR}/operator-operations.js"
+        "${CMAKE_CURRENT_BINARY_DIR}/operator-product-suite.js"
         "${CMAKE_CURRENT_BINARY_DIR}/engineering-errors.js"
         "${CMAKE_CURRENT_BINARY_DIR}/ui-enhancements.js"
         "${CMAKE_CURRENT_BINARY_DIR}/wifi-utils.js"
