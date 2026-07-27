@@ -31,6 +31,7 @@ set(WEB_SERVER_C_SOURCES
     "device_api.c"
     "engineering_auth.c"
     "engineering_guard.c"
+    "operational_api.c"
     "inverter_profile_api.c"
     "inverter_config_api.c"
     "meter_config_api.c"
