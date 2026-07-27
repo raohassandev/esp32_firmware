@@ -38,8 +38,8 @@ require('"EM500_UNVERIFIED_COMMAND"' in API,
         "tariff command must remain classified as unverified")
 require("em500_settings_plan_api_register(s_server)" in SERVER,
         "settings planner is not registered")
-require("config.max_uri_handlers = 20" in SERVER,
-        "HTTP handler capacity must include the planner")
+require("config.max_uri_handlers = 21" in SERVER,
+        "HTTP handler capacity must include the history endpoint")
 require('"em500_settings_plan_api.c"' in CMAKE,
         "settings planner is missing from the ESP-IDF component")
 
