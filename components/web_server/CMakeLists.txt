@@ -26,19 +26,19 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500-profiles.js" "${CMAKE_
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500-plan.js" "${CMAKE_CURRENT_BINARY_DIR}/em500-plan.js" COPYONLY)
 
 set(WEB_SERVER_C_SOURCES
-    web_server.c
-    web_api.c
-    device_api.c
-    engineering_auth.c
-    engineering_guard.c
-    inverter_profile_api.c
-    inverter_config_api.c
-    meter_config_api.c
-    em500_api.c
-    em500_history_api.c
-    em500_settings_api.c
-    em500_settings_plan_api.c
-    web_assets.c
+    "web_server.c"
+    "web_api.c"
+    "device_api.c"
+    "engineering_auth.c"
+    "engineering_guard.c"
+    "inverter_profile_api.c"
+    "inverter_config_api.c"
+    "meter_config_api.c"
+    "em500_api.c"
+    "em500_history_api.c"
+    "em500_settings_api.c"
+    "em500_settings_plan_api.c"
+    "web_assets.c"
 )
 
 idf_component_register(
@@ -82,5 +82,5 @@ foreach(source IN LISTS WEB_SERVER_C_SOURCES)
         set_source_files_properties(${source} PROPERTIES COMPILE_OPTIONS "-include;engineering_auth.h")
     endif()
 endforeach()
-set_source_files_properties(engineering_guard.c PROPERTIES
+set_source_files_properties("engineering_guard.c" PROPERTIES
     COMPILE_DEFINITIONS ENGINEERING_GUARD_IMPLEMENTATION=1)
