@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
 API = (ROOT / "components/web_server/em500_api.c").read_text(encoding="utf-8")
@@ -43,8 +44,9 @@ require("modbus_tcp_write" not in MANAGER.split("meter_manager_read_registers", 
         "meter-manager read helper must not perform a write")
 require("em500_api_register(s_server)" in SERVER,
         "EM500 endpoint is not registered")
-require("config.max_uri_handlers = 21" in SERVER,
-        "HTTP handler capacity must include all meter/settings endpoints")
+capacity = re.search(r"config\.max_uri_handlers\s*=\s*(\d+)", SERVER)
+require(capacity is not None and int(capacity.group(1)) >= 21,
+        "HTTP handler capacity must retain room for all meter/settings endpoints")
 require('"em500_api.c"' in CMAKE and "modbus_tcp" in CMAKE,
         "EM500 source/dependency is missing from the component build")
 
