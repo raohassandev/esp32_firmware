@@ -9,16 +9,20 @@ server = (root / "components/web_server/web_server.c").read_text(encoding="utf-8
 
 required_js = [
     "/api/inverter-profiles",
+    "/api/inverter-profile-assignment",
+    "inverterProfileChannel",
     "inverterManufacturer",
     "inverterModelFamily",
     "write_allowed",
     "Live writes remain locked",
     "inverterProfileApply",
+    "restart_required",
 ]
 for token in required_js:
     assert token in js, f"missing picker behavior token: {token}"
 
-assert 'disabled title="Profile persistence is not enabled' in js
+assert "method: 'POST'" in js
+assert "automatic control is disabled" in js.lower()
 assert 'configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/inverter-profiles.js"' in cmake
 assert '"${CMAKE_CURRENT_BINARY_DIR}/inverter-profiles.js"' in cmake
 assert "web_assets_inverter_profiles_js" in assets_h
