@@ -131,12 +131,14 @@
         const inverters = Array.isArray(config?.inverters) ? config.inverters : [];
         const summary = config?.summary || {};
         const telemetryItems = new Map((telemetry?.inverters || []).map((item) => [Number(item.index), item]));
-        const liveProduction = Number(telemetry?.summary?.measured_total_kw);
+        const validTelemetry = Number(telemetry?.summary?.telemetry_valid) > 0;
+        const liveProduction = validTelemetry ? Number(telemetry?.summary?.measured_total_kw) : NaN;
+        const onlineCount = Number(summary.online ?? telemetry?.summary?.online ?? 0);
         metrics.replaceChildren(
             metric('Installed capacity', formatPower(summary.configured_rated_kw), `${inverters.length} installed unit${inverters.length === 1 ? '' : 's'}`),
-            metric('Available inverters', String(summary.online ?? telemetry?.summary?.online ?? 0), `${summary.enabled ?? 0} enabled`, Number(summary.online ?? telemetry?.summary?.online) > 0 ? 'good' : 'warning'),
-            metric('Solar production', Number.isFinite(liveProduction) ? formatPower(liveProduction) : 'Unavailable', Number(telemetry?.summary?.telemetry_valid) > 0 ? 'Measured inverter output' : 'Live production mapping not available', Number(telemetry?.summary?.telemetry_valid) > 0 ? 'good' : 'warning'),
-            metric('Automatic control', Number(summary.commandable_rated_kw) > 0 ? 'Available' : 'Locked', Number(summary.commandable_rated_kw) > 0 ? 'Qualified command path ready' : 'Commissioning or qualification required', Number(summary.commandable_rated_kw) > 0 ? 'good' : 'warning')
+            metric('Available inverters', String(onlineCount), `${summary.enabled ?? 0} enabled`, onlineCount > 0 ? 'good' : 'warning'),
+            metric('Solar production', validTelemetry && Number.isFinite(liveProduction) ? formatPower(liveProduction) : 'Not monitored', validTelemetry ? 'Measured inverter output' : 'Production monitoring requires inverter commissioning', validTelemetry ? 'good' : 'warning'),
+            metric('Automatic control', Number(summary.commandable_rated_kw) > 0 ? 'Available' : 'Locked', Number(summary.commandable_rated_kw) > 0 ? 'Qualified control path ready' : 'Engineering qualification required', Number(summary.commandable_rated_kw) > 0 ? 'good' : 'warning')
         );
         list.replaceChildren();
         inverters.forEach((inverter, index) => {
@@ -149,7 +151,7 @@
             const values = node('div', 'operator-equipment-values');
             values.append(
                 node('div', '', `Rated ${formatPower(inverter.rated_kw)}`),
-                node('div', '', Number.isFinite(Number(measured)) ? `Producing ${formatPower(measured)}` : 'Production unavailable')
+                node('div', '', Number.isFinite(Number(measured)) ? `Producing ${formatPower(measured)}` : 'Production not monitored')
             );
             card.append(title, values, statusBadge(online ? 'Online' : inverter.enabled ? 'Attention' : 'Disabled', online ? 'good' : inverter.enabled ? 'warning' : ''));
             list.append(card);
@@ -194,18 +196,47 @@
         }
     }
 
+    function replaceText(id, value) {
+        const target = byId(id);
+        if (target) target.textContent = value;
+    }
+
     function updateProductLanguage() {
+        const operator = isOperator();
         const meterLink = document.querySelector('[data-route="meters"] span:last-child');
         const inverterLink = document.querySelector('[data-route="inverters"] span:last-child');
-        if (meterLink) meterLink.textContent = isOperator() ? 'Grid Power' : 'Meters';
-        if (inverterLink) inverterLink.textContent = isOperator() ? 'Solar Inverters' : 'Inverters';
+        if (meterLink) meterLink.textContent = operator ? 'Grid Power' : 'Meters';
+        if (inverterLink) inverterLink.textContent = operator ? 'Solar Inverters' : 'Inverters';
+
         const meterIntro = document.querySelector('[data-page="meters"] .page-intro');
         const inverterIntro = document.querySelector('[data-page="inverters"] .page-intro');
-        if (isOperator()) {
-            meterIntro?.querySelector('h2')?.replaceChildren('Grid power');
-            meterIntro?.querySelector('p:last-child')?.replaceChildren('Monitor live electrical demand and grid-meter availability.');
-            inverterIntro?.querySelector('h2')?.replaceChildren('Solar inverters');
-            inverterIntro?.querySelector('p:last-child')?.replaceChildren('Monitor solar inverter availability, capacity and live production.');
+        meterIntro?.querySelector('h2')?.replaceChildren(operator ? 'Grid power' : 'Grid meters');
+        meterIntro?.querySelector('p:last-child')?.replaceChildren(operator
+            ? 'Monitor live electrical demand and grid-meter availability.'
+            : 'Review meter communication, freshness and Modbus acquisition settings.');
+        inverterIntro?.querySelector('h2')?.replaceChildren(operator ? 'Solar inverters' : 'Inverters');
+        inverterIntro?.querySelector('p:last-child')?.replaceChildren(operator
+            ? 'Monitor solar inverter availability, capacity and live production.'
+            : 'Configured inverter endpoints and command-safety state.');
+
+        if (operator) {
+            const currentRoute = route();
+            if (currentRoute === 'meters') {
+                replaceText('pageTitle', 'Grid Power');
+                replaceText('breadcrumbCurrent', 'Grid power');
+            } else if (currentRoute === 'inverters') {
+                replaceText('pageTitle', 'Solar Inverters');
+                replaceText('breadcrumbCurrent', 'Solar inverters');
+            }
+            const flowLoad = byId('flowLoad');
+            const flowLoadDetail = flowLoad?.nextElementSibling;
+            if (flowLoad?.textContent === 'Unavailable') flowLoad.textContent = 'Not monitored';
+            if (flowLoadDetail) flowLoadDetail.textContent = 'Optional plant-load measurement';
+            const generator = document.querySelector('.flow-secondary > div:first-child');
+            const generatorValue = generator?.querySelector('strong');
+            const generatorDetail = generator?.querySelector('small');
+            if (generatorValue?.textContent === 'Unavailable') generatorValue.textContent = 'Not connected';
+            if (generatorDetail) generatorDetail.textContent = 'Optional generator measurement';
         }
     }
 
