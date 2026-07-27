@@ -33,6 +33,18 @@
         return field(label, control);
     }
 
+    function requiresKwCorrection(profile) {
+        const scale = Number(profile?.scale);
+        const address = Number(profile?.active_power_address);
+        const type = Number(profile?.data_type);
+        return Number.isFinite(scale) && Math.abs(scale - 0.01) < 0.000001 &&
+            (address === 57 || address === 58) && type === 3;
+    }
+
+    function applyKwCorrection(profile) {
+        profile.scale = Number(profile.scale) / 1000;
+    }
+
     function profileCard(profile, index) {
         const card = panel(profile.name || `Meter ${index + 1}`, `Profile ${index + 1}`);
         const grid = node('div', 'field-grid em500-profile-grid');
@@ -50,6 +62,23 @@
             profileField(profile, 'scale', 'Scale to kW', { type: 'number', step: '0.00001' }),
             profileField(profile, 'poll_ms', 'Poll interval (ms)', { type: 'number', min: 100, max: 60000 })
         );
+
+        if (requiresKwCorrection(profile)) {
+            const warning = node('div', 'notice warning');
+            warning.append(
+                node('strong', '', 'Power scaling is 1,000× too high'),
+                node('span', '', 'This EM500 profile uses scale 0.01. Correct kW scaling is 0.00001, which divides the current displayed and control value by 1,000.')
+            );
+            const correct = button('Correct power scaling (÷1000)', 'button secondary');
+            correct.addEventListener('click', () => {
+                applyKwCorrection(profile);
+                renderProfiles();
+                setMessage('Power scale corrected to 0.00001. Save profiles and restart the controller to apply it everywhere.', 'warning');
+            });
+            warning.append(correct);
+            card.append(warning);
+        }
+
         const actions = node('div', 'panel-actions');
         const remove = button('Remove profile', 'button danger-button');
         remove.addEventListener('click', () => {
@@ -95,7 +124,7 @@
             await loadProfiles();
             refreshMeterSelector();
             renderProfiles();
-            setMessage(`Saved ${result.meter_count ?? payload.meters.length} profiles. Control is disabled. Restart to apply connection changes.`, 'good');
+            setMessage(`Saved ${result.meter_count ?? payload.meters.length} profiles. Control is disabled. Restart to apply connection and scaling changes.`, 'good');
         } catch (error) {
             setMessage(`Meter profile save failed: ${error.message}`, 'bad');
         } finally {
@@ -117,4 +146,9 @@
     }
 
     app.registerTab('profiles', 'Meter profiles', renderProfiles);
+
+    window.PvdgEm500ProfileUtils = Object.freeze({
+        requiresKwCorrection,
+        applyKwCorrection
+    });
 })();
