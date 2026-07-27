@@ -29,6 +29,7 @@ jobs:
           node --check web/devices.js
           node --check web/devices-refresh.js
           node --check web/inverter-profiles.js
+          node --check web/inverter-config.js
           node --check web/em500-utils.js
           node --check web/em500-core.js
           node --check web/em500-profiles.js
@@ -54,6 +55,8 @@ jobs:
         run: python3 tests/em500_web_assets_source_contract.py
       - name: Check EM500 visibility and scaling contract
         run: python3 tests/em500_visibility_and_scaling_source_contract.py
+      - name: Check inverter configuration contract
+        run: python3 tests/inverter_config_source_contract.py
       - name: Check inverter profile catalogue safety contract
         run: python3 tests/inverter_profile_catalogue_source_contract.py
       - name: Check inverter profile catalogue API contract
