@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include "cJSON.h"
 #include "esp_check.h"
+#include "inverter_manager.h"
 #include "inverter_profile_store.h"
 #include "inverter_profiles.h"
 
@@ -75,6 +76,15 @@ static esp_err_t receive_body(httpd_req_t *request, char *buffer, size_t size)
     return ESP_OK;
 }
 
+static bool read_inverter_index(cJSON *json, uint8_t *inverter_index)
+{
+    cJSON *index_item = cJSON_GetObjectItemCaseSensitive(json, "inverter_index");
+    if (!cJSON_IsNumber(index_item) || index_item->valueint < 0 ||
+        index_item->valueint >= APP_MAX_INVERTERS) return false;
+    *inverter_index = (uint8_t)index_item->valueint;
+    return true;
+}
+
 static esp_err_t profile_assignment_post(httpd_req_t *request)
 {
     char body[MAX_ASSIGNMENT_BODY];
@@ -89,16 +99,14 @@ static esp_err_t profile_assignment_post(httpd_req_t *request)
                                    "Profile assignment must be valid JSON");
     }
 
-    cJSON *index_item = cJSON_GetObjectItemCaseSensitive(json, "inverter_index");
+    uint8_t inverter_index = 0;
     cJSON *profile_item = cJSON_GetObjectItemCaseSensitive(json, "profile_id");
-    if (!cJSON_IsNumber(index_item) || !cJSON_IsString(profile_item) ||
-        index_item->valueint < 0 || index_item->valueint >= APP_MAX_INVERTERS) {
+    if (!read_inverter_index(json, &inverter_index) || !cJSON_IsString(profile_item)) {
         cJSON_Delete(json);
         return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST,
                                    "inverter_index and profile_id are required");
     }
 
-    const uint8_t inverter_index = (uint8_t)index_item->valueint;
     const inverter_profile_t *profile = inverter_profiles_find(profile_item->valuestring);
     if (!profile) {
         cJSON_Delete(json);
@@ -125,6 +133,70 @@ static esp_err_t profile_assignment_post(httpd_req_t *request)
     return send_json(request, response);
 }
 
+static void add_register_array(cJSON *parent, const char *name,
+                               const uint16_t *registers, uint8_t count)
+{
+    cJSON *array = cJSON_AddArrayToObject(parent, name);
+    for (uint8_t index = 0; index < count; ++index) {
+        cJSON_AddItemToArray(array, cJSON_CreateNumber(registers[index]));
+    }
+}
+
+static esp_err_t inverter_probe_post(httpd_req_t *request)
+{
+    char body[MAX_ASSIGNMENT_BODY];
+    if (receive_body(request, body, sizeof(body)) != ESP_OK) {
+        return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST,
+                                   "Invalid inverter probe body");
+    }
+
+    cJSON *json = cJSON_Parse(body);
+    if (!json) {
+        return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST,
+                                   "Inverter probe must be valid JSON");
+    }
+
+    uint8_t inverter_index = 0;
+    if (!read_inverter_index(json, &inverter_index)) {
+        cJSON_Delete(json);
+        return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST,
+                                   "Valid inverter_index is required");
+    }
+    cJSON_Delete(json);
+
+    inverter_probe_result_t probe = {0};
+    esp_err_t probe_error = inverter_manager_probe_read_only(inverter_index, &probe);
+
+    cJSON *response = cJSON_CreateObject();
+    if (!response) return httpd_resp_send_500(request);
+    cJSON_AddNumberToObject(response, "inverter_index", inverter_index);
+    cJSON_AddBoolToObject(response, "read_only", true);
+    cJSON_AddBoolToObject(response, "writes_issued", false);
+    cJSON_AddNumberToObject(response, "result_error", probe_error);
+    cJSON_AddStringToObject(response, "result_error_name", esp_err_to_name(probe_error));
+    cJSON_AddBoolToObject(response, "profile_read_allowed", probe.profile_read_allowed);
+    cJSON_AddBoolToObject(response, "connection_initialized", probe.connection_initialized);
+
+    cJSON *identity = cJSON_AddObjectToObject(response, "identity");
+    cJSON_AddBoolToObject(identity, "attempted", probe.identity_attempted);
+    cJSON_AddBoolToObject(identity, "ok", probe.identity_ok);
+    cJSON_AddNumberToObject(identity, "error", probe.identity_error);
+    cJSON_AddStringToObject(identity, "error_name", esp_err_to_name(probe.identity_error));
+    add_register_array(identity, "registers", probe.identity_registers,
+                       probe.identity_count);
+
+    cJSON *active_power = cJSON_AddObjectToObject(response, "active_power");
+    cJSON_AddBoolToObject(active_power, "attempted", probe.active_power_attempted);
+    cJSON_AddBoolToObject(active_power, "ok", probe.active_power_ok);
+    cJSON_AddNumberToObject(active_power, "error", probe.active_power_error);
+    cJSON_AddStringToObject(active_power, "error_name",
+                            esp_err_to_name(probe.active_power_error));
+    add_register_array(active_power, "registers", probe.active_power_registers,
+                       probe.active_power_count);
+
+    return send_json(request, response);
+}
+
 esp_err_t inverter_profile_api_register(httpd_handle_t server)
 {
     const httpd_uri_t handlers[] = {
@@ -137,6 +209,11 @@ esp_err_t inverter_profile_api_register(httpd_handle_t server)
             .uri = "/api/inverter-profile-assignment",
             .method = HTTP_POST,
             .handler = profile_assignment_post
+        },
+        {
+            .uri = "/api/inverter-probe",
+            .method = HTTP_POST,
+            .handler = inverter_probe_post
         }
     };
 
