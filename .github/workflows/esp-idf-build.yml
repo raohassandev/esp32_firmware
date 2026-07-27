@@ -34,9 +34,16 @@ jobs:
           node --check web/em500-core.js
           node --check web/em500-profiles.js
           node --check web/em500-plan.js
+          node --check tools/soltrix_modbus_simulator.js
+          node --check tools/soltrix_modbus_simulator_test.js
           node web/tests/wifi-utils.test.js
           node web/tests/devices-utils.test.js
           node web/tests/em500-utils.test.js
+      - name: Run SolTrix Modbus inverter simulator self-test
+        run: |
+          set -euo pipefail
+          node tools/soltrix_modbus_simulator.js --self-test
+          node tools/soltrix_modbus_simulator_test.js
       - name: Check telemetry source contract
         run: python3 tests/telemetry_source_contract.py
       - name: Check multi-meter configuration contract
