@@ -3,11 +3,17 @@
 #include <stdlib.h>
 #include "cJSON.h"
 #include "esp_check.h"
+#include "esp_timer.h"
 #include "inverter_manager.h"
 #include "inverter_profile_store.h"
 #include "inverter_profiles.h"
 
 #define MAX_ASSIGNMENT_BODY 256
+
+static uint32_t now_ms(void)
+{
+    return (uint32_t)(esp_timer_get_time() / 1000ULL);
+}
 
 static esp_err_t send_json(httpd_req_t *request, cJSON *root)
 {
@@ -43,12 +49,15 @@ static esp_err_t profiles_get(httpd_req_t *request)
         cJSON_AddStringToObject(item, "connection", inverter_profile_connection_label(profile->connection));
         cJSON_AddStringToObject(item, "qualification", inverter_profile_qualification_label(profile->qualification));
         cJSON_AddStringToObject(item, "manual_reference", profile->manual_reference ? profile->manual_reference : "");
+        cJSON_AddBoolToObject(item, "simulator_only", profile->simulator_only);
         cJSON_AddBoolToObject(item, "read_allowed", inverter_profile_allows_read(profile));
         cJSON_AddBoolToObject(item, "write_allowed", inverter_profile_allows_write(profile));
         cJSON_AddBoolToObject(item, "identity_probe_supported", profile->has_identity_probe);
         cJSON_AddBoolToObject(item, "active_power_supported", profile->has_active_power);
         cJSON_AddBoolToObject(item, "power_limit_supported", profile->has_power_limit);
         cJSON_AddBoolToObject(item, "power_limit_readback_supported", profile->has_power_limit_readback);
+        cJSON_AddNumberToObject(item, "telemetry_poll_ms", profile->telemetry_poll_ms);
+        cJSON_AddNumberToObject(item, "telemetry_stale_timeout_ms", profile->telemetry_stale_timeout_ms);
 
         cJSON *limits = cJSON_AddObjectToObject(item, "limits");
         cJSON_AddNumberToObject(limits, "minimum_percent", profile->minimum_percent);
@@ -60,11 +69,89 @@ static esp_err_t profiles_get(httpd_req_t *request)
     return send_json(request, root);
 }
 
+static esp_err_t telemetry_get(httpd_req_t *request)
+{
+    cJSON *root = cJSON_CreateObject();
+    if (!root) return httpd_resp_send_500(request);
+
+    uint32_t current_ms = now_ms();
+    uint8_t count = inverter_manager_get_count();
+    uint8_t online = 0;
+    uint8_t telemetry_valid = 0;
+    uint8_t stale = 0;
+    uint8_t identity_verified = 0;
+    uint8_t mismatched = 0;
+    float measured_total_kw = 0.0f;
+
+    cJSON_AddNumberToObject(root, "generated_ms", current_ms);
+    cJSON_AddNumberToObject(root, "count", count);
+    cJSON_AddBoolToObject(root, "read_only_endpoint", true);
+    cJSON_AddBoolToObject(root, "writes_issued", false);
+    cJSON *items = cJSON_AddArrayToObject(root, "inverters");
+
+    for (uint8_t index = 0; index < count; ++index) {
+        inverter_data_t data = {0};
+        if (!inverter_manager_get_data(index, &data)) continue;
+
+        if (data.online) online++;
+        if (data.telemetry_valid) {
+            telemetry_valid++;
+            measured_total_kw += data.measured_power_kw;
+        }
+        if (data.telemetry_stale) stale++;
+        if (data.identity_verified) identity_verified++;
+        if (data.command_mismatch) mismatched++;
+
+        cJSON *item = cJSON_CreateObject();
+        cJSON_AddNumberToObject(item, "index", index);
+        cJSON_AddBoolToObject(item, "connection_initialized", data.connection_initialized);
+        cJSON_AddBoolToObject(item, "online", data.online);
+        cJSON_AddBoolToObject(item, "identity_supported", data.identity_supported);
+        cJSON_AddBoolToObject(item, "identity_verified", data.identity_verified);
+        cJSON_AddBoolToObject(item, "telemetry_supported", data.telemetry_supported);
+        cJSON_AddBoolToObject(item, "telemetry_valid", data.telemetry_valid);
+        cJSON_AddBoolToObject(item, "telemetry_stale", data.telemetry_stale);
+        if (data.telemetry_valid) {
+            cJSON_AddNumberToObject(item, "measured_power_kw", data.measured_power_kw);
+            cJSON_AddNumberToObject(item, "telemetry_age_ms", current_ms - data.last_telemetry_ms);
+        } else {
+            cJSON_AddNullToObject(item, "measured_power_kw");
+            cJSON_AddNullToObject(item, "telemetry_age_ms");
+        }
+        cJSON_AddBoolToObject(item, "has_readback", data.has_readback);
+        if (data.has_readback) {
+            cJSON_AddNumberToObject(item, "readback_percent", data.readback_percent);
+            cJSON_AddNumberToObject(item, "readback_age_ms", current_ms - data.last_readback_ms);
+        } else {
+            cJSON_AddNullToObject(item, "readback_percent");
+            cJSON_AddNullToObject(item, "readback_age_ms");
+        }
+        cJSON_AddBoolToObject(item, "has_command", data.has_command);
+        cJSON_AddBoolToObject(item, "command_mismatch", data.command_mismatch);
+        cJSON_AddNumberToObject(item, "mismatch_count", data.mismatch_count);
+        cJSON_AddNumberToObject(item, "read_successes", data.read_successes);
+        cJSON_AddNumberToObject(item, "read_errors", data.read_errors);
+        cJSON_AddNumberToObject(item, "consecutive_read_failures", data.consecutive_read_failures);
+        cJSON_AddNumberToObject(item, "last_error", data.last_error);
+        cJSON_AddStringToObject(item, "last_error_name", esp_err_to_name(data.last_error));
+        cJSON_AddItemToArray(items, item);
+    }
+
+    cJSON *summary = cJSON_AddObjectToObject(root, "summary");
+    cJSON_AddNumberToObject(summary, "online", online);
+    cJSON_AddNumberToObject(summary, "telemetry_valid", telemetry_valid);
+    cJSON_AddNumberToObject(summary, "stale", stale);
+    cJSON_AddNumberToObject(summary, "identity_verified", identity_verified);
+    cJSON_AddNumberToObject(summary, "command_mismatched", mismatched);
+    cJSON_AddNumberToObject(summary, "measured_total_kw", measured_total_kw);
+    cJSON_AddNumberToObject(summary, "commandable_rated_kw", inverter_manager_get_total_rated_kw());
+
+    return send_json(request, root);
+}
+
 static esp_err_t receive_body(httpd_req_t *request, char *buffer, size_t size)
 {
-    if (request->content_len <= 0 || request->content_len >= size) {
-        return ESP_ERR_INVALID_SIZE;
-    }
+    if (request->content_len <= 0 || request->content_len >= size) return ESP_ERR_INVALID_SIZE;
     size_t received = 0;
     while (received < (size_t)request->content_len) {
         int result = httpd_req_recv(request, buffer + received,
@@ -92,7 +179,6 @@ static esp_err_t profile_assignment_post(httpd_req_t *request)
         return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST,
                                    "Invalid profile assignment body");
     }
-
     cJSON *json = cJSON_Parse(body);
     if (!json) {
         return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST,
@@ -126,6 +212,7 @@ static esp_err_t profile_assignment_post(httpd_req_t *request)
     cJSON_AddBoolToObject(response, "saved", true);
     cJSON_AddNumberToObject(response, "inverter_index", inverter_index);
     cJSON_AddStringToObject(response, "profile_id", profile->id);
+    cJSON_AddBoolToObject(response, "simulator_only", profile->simulator_only);
     cJSON_AddBoolToObject(response, "automatic_control_disabled", true);
     cJSON_AddBoolToObject(response, "restart_required", true);
     cJSON_AddBoolToObject(response, "write_allowed_after_restart",
@@ -149,7 +236,6 @@ static esp_err_t inverter_probe_post(httpd_req_t *request)
         return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST,
                                    "Invalid inverter probe body");
     }
-
     cJSON *json = cJSON_Parse(body);
     if (!json) {
         return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST,
@@ -200,21 +286,10 @@ static esp_err_t inverter_probe_post(httpd_req_t *request)
 esp_err_t inverter_profile_api_register(httpd_handle_t server)
 {
     const httpd_uri_t handlers[] = {
-        {
-            .uri = "/api/inverter-profiles",
-            .method = HTTP_GET,
-            .handler = profiles_get
-        },
-        {
-            .uri = "/api/inverter-profile-assignment",
-            .method = HTTP_POST,
-            .handler = profile_assignment_post
-        },
-        {
-            .uri = "/api/inverter-probe",
-            .method = HTTP_POST,
-            .handler = inverter_probe_post
-        }
+        {.uri = "/api/inverter-profiles", .method = HTTP_GET, .handler = profiles_get},
+        {.uri = "/api/inverter-telemetry", .method = HTTP_GET, .handler = telemetry_get},
+        {.uri = "/api/inverter-profile-assignment", .method = HTTP_POST, .handler = profile_assignment_post},
+        {.uri = "/api/inverter-probe", .method = HTTP_POST, .handler = inverter_probe_post}
     };
 
     for (size_t i = 0; i < sizeof(handlers) / sizeof(handlers[0]); ++i) {
