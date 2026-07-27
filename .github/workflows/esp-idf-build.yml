@@ -30,6 +30,7 @@ jobs:
           node --check web/devices-refresh.js
           node --check web/inverter-profiles.js
           node --check web/inverter-config.js
+          node --check web/inverter-telemetry.js
           node --check web/em500-utils.js
           node --check web/em500-core.js
           node --check web/em500-profiles.js
