@@ -37,6 +37,8 @@ jobs:
         run: python3 tests/modbus_u64_decoder_source_contract.py
       - name: Check EM500 snapshot contract
         run: python3 tests/em500_snapshot_source_contract.py
+      - name: Check complete EM500 settings contract
+        run: python3 tests/em500_settings_source_contract.py
 
   build:
     needs: web
