@@ -10,6 +10,7 @@
 #include "inverter_config_api.h"
 #include "inverter_profile_api.h"
 #include "meter_config_api.h"
+#include "operational_api.h"
 #include "web_api.h"
 #include "web_assets.h"
 
@@ -72,7 +73,6 @@ static esp_err_t js_handler(httpd_req_t *request)
 {
     static const asset_getter_t assets[] = {
         web_assets_theme_js,
-        /* Product mode installs the access gate before feature modules run. */
         web_assets_product_mode_js,
         web_assets_js,
         web_assets_wifi_utils_js,
@@ -103,7 +103,7 @@ esp_err_t web_server_start(void)
     ESP_RETURN_ON_ERROR(engineering_auth_init(), "web", "engineering authentication init failed");
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 30;
+    config.max_uri_handlers = 32;
     config.stack_size = 8192;
     ESP_RETURN_ON_ERROR(httpd_start(&s_server, &config), "web", "HTTP server start failed");
 
@@ -120,6 +120,7 @@ esp_err_t web_server_start(void)
 
     ESP_RETURN_ON_ERROR(engineering_auth_register(s_server), "web", "engineering auth API registration failed");
     ESP_RETURN_ON_ERROR(web_api_register(s_server), "web", "core API registration failed");
+    ESP_RETURN_ON_ERROR(operational_api_register(s_server), "web", "operator history/event API registration failed");
     ESP_RETURN_ON_ERROR(device_api_register(s_server), "web", "device API registration failed");
     ESP_RETURN_ON_ERROR(inverter_profile_api_register(s_server), "web", "inverter profile API registration failed");
     ESP_RETURN_ON_ERROR(inverter_config_api_register(s_server), "web", "inverter configuration API registration failed");
