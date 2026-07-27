@@ -76,6 +76,8 @@ jobs:
         run: python3 tests/inverter_read_probe_source_contract.py
       - name: Check inverter decoder contract
         run: python3 tests/inverter_profile_decode_source_contract.py
+      - name: Check inverter telemetry simulator contract
+        run: python3 tests/inverter_telemetry_simulator_source_contract.py
 
   build:
     needs: web
