@@ -212,16 +212,18 @@ async function runSelfTest() {
     }
 }
 
-if (SELF_TEST) {
-    runSelfTest().catch((error) => {
-        console.error(error);
-        process.exitCode = 1;
-    });
-} else {
-    const server = createServer();
-    server.listen(PORT, '0.0.0.0', () => {
-        console.log(`SolTrix Modbus simulator listening on 0.0.0.0:${PORT} scenario=${SCENARIO} units=21,22,23`);
-    });
+if (require.main === module) {
+    if (SELF_TEST) {
+        runSelfTest().catch((error) => {
+            console.error(error);
+            process.exitCode = 1;
+        });
+    } else {
+        const server = createServer();
+        server.listen(PORT, '0.0.0.0', () => {
+            console.log(`SolTrix Modbus simulator listening on 0.0.0.0:${PORT} scenario=${SCENARIO} units=21,22,23`);
+        });
+    }
 }
 
-module.exports = { DEVICES, createServer, request, wordsFor };
+module.exports = { DEVICES, createServer, request, wordsFor, runSelfTest };
