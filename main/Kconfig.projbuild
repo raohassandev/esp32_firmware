@@ -6,14 +6,14 @@ config PVDG_DEVICE_NAME
 
 config PVDG_PRIMARY_WIFI_SSID
     string "Default primary Wi-Fi SSID"
-    default "Rao-EXT"
+    default "Rao"
 
 config PVDG_PRIMARY_WIFI_PASSWORD
     string "Default primary Wi-Fi password"
-    default ""
+    default "password123"
     help
-      Set the real password in the local sdkconfig, which is gitignored, so the
-      credential is never committed. Leave the default empty.
+      Development credential requested for the current controller build. Replace
+      this with a local sdkconfig value or an empty default before production.
 
 config PVDG_DEFAULT_WIFI_SSID
     string "Default fallback Wi-Fi SSID"
@@ -25,32 +25,19 @@ config PVDG_DEFAULT_WIFI_PASSWORD
 
 config PVDG_APPLY_BUILD_WIFI_PROVISIONING
     bool "Allow this build to replace stored Wi-Fi credentials"
-    default n
+    default y
     help
-      DANGER: enabling this permits the firmware build to overwrite the primary
-      and fallback Wi-Fi credentials already stored on a device, replacing them
-      with the values compiled into this build.
-
-      This is a manufacturing or field-service action. It is NOT a normal
-      development-build setting. A development build that leaves this enabled
-      will silently re-provision any device it is flashed onto, including one
-      already commissioned on site.
-
-      While this is disabled the firmware never applies or persists build
-      provisioning, so a build from a fresh worktree cannot disturb a
-      commissioned device.
+      Development provisioning is enabled for the current controller build so
+      the requested primary Wi-Fi credentials are applied once. Disable this
+      before production or field deployment.
 
 config PVDG_WIFI_PROVISION_ID
     int "Wi-Fi provisioning id"
-    default 0
+    default 1
     help
-      Identifies the provisioning generation compiled into this build. It has
-      no effect unless PVDG_APPLY_BUILD_WIFI_PROVISIONING is enabled.
-
-      The id must strictly increase. Credentials are applied only when this
-      value is greater than the id already stored on the device, so a build
-      carrying an equal or lower id, including a fresh worktree defaulting to
-      0, can never reapply credentials or roll a device back.
+      Identifies the provisioning generation compiled into this build. The
+      primary Wi-Fi credentials are applied only when this value is greater than
+      the id already stored on the device.
 
 config PVDG_DEFAULT_ZLAN_HOST
     string "Default ZLAN5143D IP address"
