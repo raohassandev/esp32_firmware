@@ -22,14 +22,14 @@ static void set_asset_headers(httpd_req_t *request, const char *content_type)
 }
 
 static esp_err_t send_asset(httpd_req_t *request, const char *content_type,
-                              const char *content, size_t length)
+                            const char *content, size_t length)
 {
     set_asset_headers(request, content_type);
     return httpd_resp_send(request, content, length);
 }
 
 static esp_err_t send_asset_parts(httpd_req_t *request, const char *content_type,
-                                    const asset_getter_t *getters, size_t count)
+                                  const asset_getter_t *getters, size_t count)
 {
     set_asset_headers(request, content_type);
     for (size_t index = 0; index < count; ++index) {
@@ -56,7 +56,8 @@ static esp_err_t css_handler(httpd_req_t *request)
     static const asset_getter_t assets[] = {
         web_assets_css,
         web_assets_wifi_css,
-        web_assets_devices_css
+        web_assets_devices_css,
+        web_assets_em500_css
     };
     return send_asset_parts(request, "text/css; charset=utf-8",
                             assets, sizeof(assets) / sizeof(assets[0]));
@@ -71,7 +72,11 @@ static esp_err_t js_handler(httpd_req_t *request)
         web_assets_wifi_js,
         web_assets_devices_utils_js,
         web_assets_devices_js,
-        web_assets_devices_refresh_js
+        web_assets_devices_refresh_js,
+        web_assets_em500_utils_js,
+        web_assets_em500_core_js,
+        web_assets_em500_profiles_js,
+        web_assets_em500_plan_js
     };
     return send_asset_parts(request, "application/javascript; charset=utf-8",
                             assets, sizeof(assets) / sizeof(assets[0]));
