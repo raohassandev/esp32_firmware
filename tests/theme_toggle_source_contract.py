@@ -1,0 +1,41 @@
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+THEME_JS = (ROOT / "web/theme.js").read_text(encoding="utf-8")
+THEME_CSS = (ROOT / "web/theme.css").read_text(encoding="utf-8")
+CMAKE = (ROOT / "components/web_server/CMakeLists.txt").read_text(encoding="utf-8")
+ASSETS_H = (ROOT / "components/web_server/include/web_assets.h").read_text(encoding="utf-8")
+ASSETS_C = (ROOT / "components/web_server/web_assets.c").read_text(encoding="utf-8")
+SERVER = (ROOT / "components/web_server/web_server.c").read_text(encoding="utf-8")
+
+
+def require(condition: bool, message: str) -> None:
+    if not condition:
+        raise AssertionError(message)
+
+
+require("automatrix-pvdg-theme" in THEME_JS, "theme preference must use a stable storage key")
+require("localStorage.getItem" in THEME_JS and "localStorage.setItem" in THEME_JS,
+        "theme preference must persist in the browser")
+require("prefers-color-scheme: light" in THEME_JS,
+        "first-use theme must respect the operating-system preference")
+require("themeToggleButton" in THEME_JS and "topbar-actions" in THEME_JS,
+        "theme toggle button must be installed in the top bar")
+require("aria-label" in THEME_JS and "aria-pressed" in THEME_JS,
+        "theme toggle must expose accessible state")
+require("meta[name=\"theme-color\"]" in THEME_JS,
+        "browser theme color must follow the selected theme")
+require('html[data-theme="light"]' in THEME_CSS,
+        "light palette is missing")
+require("color-scheme: light" in THEME_CSS,
+        "light palette must set the browser color scheme")
+require("theme.css" in CMAKE and "theme.js" in CMAKE,
+        "theme assets must be embedded")
+require("web_assets_theme_css" in ASSETS_H and "web_assets_theme_js" in ASSETS_H,
+        "theme asset declarations are missing")
+require("web_assets_theme_css" in ASSETS_C and "web_assets_theme_js" in ASSETS_C,
+        "theme asset implementations are missing")
+require("web_assets_theme_css" in SERVER and "web_assets_theme_js" in SERVER,
+        "theme assets are not served")
+
+print("persistent light/dark theme toggle source contract passed")
