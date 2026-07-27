@@ -72,7 +72,7 @@ static esp_err_t js_handler(httpd_req_t *request)
 {
     static const asset_getter_t assets[] = {
         web_assets_theme_js,
-        /* Product mode installs the authenticated fetch layer before modules run. */
+        /* Product mode installs the access gate before feature modules run. */
         web_assets_product_mode_js,
         web_assets_js,
         web_assets_wifi_utils_js,
@@ -89,6 +89,7 @@ static esp_err_t js_handler(httpd_req_t *request)
         web_assets_em500_profiles_js,
         web_assets_em500_plan_js,
         web_assets_operator_view_js,
+        web_assets_engineering_errors_js,
         web_assets_ui_enhancements_js
     };
     return send_asset_parts(request, "application/javascript; charset=utf-8",
