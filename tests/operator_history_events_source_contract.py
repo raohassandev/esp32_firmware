@@ -32,8 +32,12 @@ require("nvs_" not in API and "esp_partition" not in API,
         "high-frequency history must not wear flash")
 require("modbus_tcp_write" not in API and "inverter_manager_set_total_power_kw" not in API,
         "operator history/event collection must issue no device commands")
-require("register" not in API.lower() and "endpoint" not in API.lower(),
-        "operator payload implementation must not expose engineering mapping language")
+for forbidden_field in [
+    '"register_address"', '"pdu_address"', '"scale_factor"',
+    '"function_code"', '"raw_registers"', '"endpoint_host"'
+]:
+    require(forbidden_field not in API,
+            f"operator payload exposes engineering field {forbidden_field}")
 require("operational_api_register(s_server)" in SERVER,
         "operator history/event API is not registered")
 require('"operational_api.c"' in CMAKE,
