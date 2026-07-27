@@ -16,9 +16,10 @@ def require(value: bool, message: str) -> None:
 
 for token in [
     "AUTH_SESSION_MS", "AUTH_LOCKOUT_MS", "AUTH_MAX_FAILURES",
-    "hash_password", "constant_time_equal", "new_session",
+    "hash_password", "constant_time_equal", "constant_time_token_equal", "new_session",
     "Engineering temporary password", "/api/engineering/login",
     "/api/engineering/logout", "/api/engineering/password",
+    "Set-Cookie", "HttpOnly", "SameSite=Strict", "AMXENG",
 ]:
     require(token in AUTH, f"engineering authentication missing {token}")
 
@@ -38,10 +39,14 @@ require("web_assets_product_mode_js" in SERVER and "web_assets_product_mode_css"
         "product-mode assets are not served")
 
 for token in [
-    "sessionStorage", "X-Engineering-Token", "Engineering and commissioning",
+    "credentials: 'same-origin'", "Engineering and commissioning",
     "Change engineering password", "PROTECTED_ROUTES", "activateEngineeringRoute",
 ]:
     require(token in JS, f"product UI access flow missing {token}")
+require("sessionStorage" not in JS,
+        "engineering session token must not be stored in browser-accessible sessionStorage")
+require("X-Engineering-Token" not in JS,
+        "operator browser code must rely on the HTTP-only session cookie")
 
 for token in [
     'html[data-access="operator"] #em500Workspace',
