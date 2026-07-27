@@ -1,7 +1,7 @@
 (() => {
     'use strict';
 
-    const state = { profiles: [], loading: false, loaded: false, saving: false };
+    const state = { profiles: [], loading: false, loaded: false, saving: false, probing: false };
     const byId = (id) => document.getElementById(id);
 
     function manufacturers(profiles) {
@@ -42,6 +42,7 @@
             <div class="device-readiness-note" id="inverterProfileNotice" role="status">Loading inverter profiles…</div>
             <div class="panel-actions">
                 <button class="button secondary" id="inverterProfilesReload" type="button">Reload catalogue</button>
+                <button class="button secondary" id="inverterProfileProbe" type="button">Test connection (read-only)</button>
                 <button class="button primary" id="inverterProfileApply" type="button">Apply profile</button>
             </div>`;
 
@@ -60,6 +61,7 @@
         byId('inverterManufacturer').addEventListener('change', refreshModels);
         byId('inverterModelFamily').addEventListener('change', renderSelection);
         byId('inverterProfilesReload').addEventListener('click', () => loadProfiles(true));
+        byId('inverterProfileProbe').addEventListener('click', probeInverter);
         byId('inverterProfileApply').addEventListener('click', applyProfile);
     }
 
@@ -95,11 +97,13 @@
         const protocol = byId('inverterProfileProtocol');
         const notice = byId('inverterProfileNotice');
         const apply = byId('inverterProfileApply');
+        const probe = byId('inverterProfileProbe');
         if (!profile) {
             if (connection) connection.value = '';
             if (protocol) protocol.value = '';
             if (notice) notice.textContent = 'No profile is available for this manufacturer.';
             if (apply) apply.disabled = true;
+            if (probe) probe.disabled = true;
             setBadge('Unavailable', 'bad');
             return;
         }
@@ -107,6 +111,7 @@
         if (connection) connection.value = profile.connection || '';
         if (protocol) protocol.value = profile.protocol || '';
         if (apply) apply.disabled = state.saving;
+        if (probe) probe.disabled = state.probing || !profile.read_allowed;
         const status = writeStatus(profile);
         setBadge(profile.qualification || status.label, status.tone);
 
@@ -167,6 +172,36 @@
         } finally {
             state.saving = false;
             if (button) button.disabled = !selectedProfile();
+        }
+    }
+
+    async function probeInverter() {
+        const channel = Number(byId('inverterProfileChannel')?.value);
+        const notice = byId('inverterProfileNotice');
+        const button = byId('inverterProfileProbe');
+        if (!Number.isInteger(channel) || channel < 0 || channel > 11 || state.probing) return;
+
+        state.probing = true;
+        if (button) button.disabled = true;
+        if (notice) notice.textContent = `Running read-only probe on Inverter ${channel + 1}; no Modbus writes will be sent…`;
+        try {
+            const response = await fetch('/api/inverter-probe', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ inverter_index: channel })
+            });
+            if (!response.ok) throw new Error(await response.text() || `HTTP ${response.status}`);
+            const payload = await response.json();
+            const identity = payload.identity?.attempted ? (payload.identity.ok ? 'identity read passed' : `identity read failed (${payload.identity.error_name})`) : 'identity read not supported';
+            const power = payload.active_power?.attempted ? (payload.active_power.ok ? 'active-power read passed' : `active-power read failed (${payload.active_power.error_name})`) : 'active-power read not supported';
+            if (notice) notice.textContent = `Read-only probe result: ${identity}; ${power}. Writes issued: ${payload.writes_issued ? 'YES — unexpected' : 'no'}.`;
+            setBadge(payload.result_error === 0 ? 'Read probe passed' : 'Read probe incomplete', payload.result_error === 0 ? 'good' : 'warning');
+        } catch (error) {
+            if (notice) notice.textContent = `Read-only probe failed: ${error.message}`;
+            setBadge('Probe failed', 'bad');
+        } finally {
+            state.probing = false;
+            renderSelection();
         }
     }
 
