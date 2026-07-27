@@ -92,7 +92,7 @@ esp_err_t web_server_start(void)
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     /* 3 asset handlers + core/device/profile/configuration/diagnostic APIs. */
-    config.max_uri_handlers = 25;
+    config.max_uri_handlers = 26;
     config.stack_size = 7168;
     ESP_RETURN_ON_ERROR(httpd_start(&s_server, &config), "web", "HTTP server start failed");
 
