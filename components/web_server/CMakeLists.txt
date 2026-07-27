@@ -75,13 +75,13 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/em500-plan.js"
 )
 
-# Apply the registration gateway only to C translation units. Embedded web
-# assets are compiled through generated assembler files and must never receive
-# C/FreeRTOS headers through a component-wide forced include.
+# Apply the registration gateway only to protected C translation units. Embedded
+# web assets are generated assembler, and operational_api.c exposes only the
+# deliberately sanitized public operator history/event endpoints.
 foreach(source IN LISTS WEB_SERVER_C_SOURCES)
-    if(NOT source STREQUAL "engineering_guard.c")
+    if(NOT source STREQUAL "engineering_guard.c" AND NOT source STREQUAL "operational_api.c")
         set_source_files_properties(${source} PROPERTIES COMPILE_OPTIONS "-include;engineering_auth.h")
     endif()
 endforeach()
-set_source_files_properties("engineering_guard.c" PROPERTIES
+set_source_files_properties("engineering_guard.c" "operational_api.c" PROPERTIES
     COMPILE_DEFINITIONS ENGINEERING_GUARD_IMPLEMENTATION=1)
