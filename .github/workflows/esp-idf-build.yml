@@ -28,6 +28,7 @@ jobs:
           node --check web/devices-utils.js
           node --check web/devices.js
           node --check web/devices-refresh.js
+          node --check web/inverter-profiles.js
           node --check web/em500-utils.js
           node --check web/em500-core.js
           node --check web/em500-profiles.js
@@ -55,6 +56,8 @@ jobs:
         run: python3 tests/inverter_profile_catalogue_source_contract.py
       - name: Check inverter profile catalogue API contract
         run: python3 tests/inverter_profile_api_source_contract.py
+      - name: Check inverter profile picker contract
+        run: python3 tests/inverter_profile_picker_source_contract.py
 
   build:
     needs: web
