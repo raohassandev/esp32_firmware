@@ -9,15 +9,9 @@ html[data-access="operator"] [data-page="system"] .panel-actions,
 html[data-access="operator"] #inverterProfilePicker,
 html[data-access="operator"] #inverterConfigurationEditor,
 html[data-access="operator"] #meterConfigurationEditor,
-html[data-access="operator"] .em500-controls,
-html[data-access="operator"] .em500-address,
-html[data-access="operator"] .em500-raw,
-html[data-access="operator"] .em500-table th:nth-child(3),
-html[data-access="operator"] .em500-table th:nth-child(4),
-html[data-access="operator"] .em500-table td:nth-child(3),
-html[data-access="operator"] .em500-table td:nth-child(4),
-html[data-access="operator"] .device-meta-item:nth-child(n+5),
+html[data-access="operator"] #em500Workspace,
 html[data-access="operator"] .device-toolbar,
+html[data-access="operator"] .device-meta-grid,
 html[data-access="operator"] .engineering-only {
     display: none !important;
 }
@@ -43,20 +37,22 @@ html[data-access="engineering"] #engineeringConsole { display: grid; }
 .password-form { display: grid; grid-template-columns: 1fr 1fr auto; gap: 12px; align-items: end; }
 
 html[data-access="operator"] [data-page="meters"] .page-intro p,
-html[data-access="operator"] [data-page="inverters"] .page-intro p {
-    max-width: 760px;
-}
-
-html[data-access="operator"] [data-page="meters"] .em500-table { min-width: 520px; }
-html[data-access="operator"] [data-page="meters"] .em500-table th,
-html[data-access="operator"] [data-page="meters"] .em500-table td { padding: 12px 14px; }
-html[data-access="operator"] [data-page="meters"] .em500-tabs button:nth-child(4) { display: none; }
-html[data-access="operator"] [data-page="inverters"] .device-runtime-card { min-height: 0; }
-html[data-access="operator"] [data-page="inverters"] .device-reading { grid-template-columns: minmax(150px, .8fr) minmax(0, 1.2fr); }
+html[data-access="operator"] [data-page="inverters"] .page-intro p { max-width: 760px; }
+html[data-access="operator"] [data-page="meters"] .dashboard-grid > .form-panel { display: none; }
+html[data-access="operator"] [data-page="meters"] .dashboard-grid { grid-template-columns: 1fr; }
+html[data-access="operator"] [data-page="meters"] .device-list,
+html[data-access="operator"] [data-page="inverters"] .device-list { gap: 16px; }
+html[data-access="operator"] [data-page="meters"] .device-runtime-card,
+html[data-access="operator"] [data-page="inverters"] .device-runtime-card { min-height: 0; padding: 20px; }
+html[data-access="operator"] [data-page="meters"] .device-reading,
+html[data-access="operator"] [data-page="inverters"] .device-reading { grid-template-columns: minmax(180px, .7fr) minmax(0, 1.3fr); margin-bottom: 0; }
+html[data-access="operator"] [data-page="inverters"] #inverterList { display: none !important; }
 
 @media (max-width: 800px) {
     .engineering-grid { grid-template-columns: 1fr; }
     .engineering-login form, .password-form { grid-template-columns: 1fr; }
     .engineering-actions { align-items: stretch; flex-direction: column; }
     .engineering-actions .button { width: 100%; }
+    html[data-access="operator"] [data-page="meters"] .device-reading,
+    html[data-access="operator"] [data-page="inverters"] .device-reading { grid-template-columns: 1fr; }
 }
