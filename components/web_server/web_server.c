@@ -63,7 +63,8 @@ static esp_err_t css_handler(httpd_req_t *request)
         web_assets_devices_css,
         web_assets_em500_css,
         web_assets_theme_css,
-        web_assets_product_mode_css
+        web_assets_product_mode_css,
+        web_assets_operator_operations_css
     };
     return send_asset_parts(request, "text/css; charset=utf-8",
                             assets, sizeof(assets) / sizeof(assets[0]));
