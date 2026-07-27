@@ -53,3 +53,7 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/em500-profiles.js"
         "${CMAKE_CURRENT_BINARY_DIR}/em500-plan.js"
 )
+
+target_compile_options(${COMPONENT_LIB} PRIVATE -include engineering_auth.h)
+target_compile_definitions(${COMPONENT_LIB} PRIVATE
+    httpd_register_uri_handler=engineering_register_uri_handler)
