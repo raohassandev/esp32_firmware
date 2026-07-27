@@ -98,6 +98,7 @@ static esp_err_t profile_assignment_post(httpd_req_t *request)
                                    "inverter_index and profile_id are required");
     }
 
+    const uint8_t inverter_index = (uint8_t)index_item->valueint;
     const inverter_profile_t *profile = inverter_profiles_find(profile_item->valuestring);
     if (!profile) {
         cJSON_Delete(json);
@@ -105,8 +106,7 @@ static esp_err_t profile_assignment_post(httpd_req_t *request)
                                    "Unknown inverter profile");
     }
 
-    esp_err_t err = inverter_profile_store_set((uint8_t)index_item->valueint,
-                                                profile->id);
+    esp_err_t err = inverter_profile_store_set(inverter_index, profile->id);
     cJSON_Delete(json);
     if (err != ESP_OK) {
         return httpd_resp_send_err(request, HTTPD_500_INTERNAL_SERVER_ERROR,
@@ -116,7 +116,7 @@ static esp_err_t profile_assignment_post(httpd_req_t *request)
     cJSON *response = cJSON_CreateObject();
     if (!response) return httpd_resp_send_500(request);
     cJSON_AddBoolToObject(response, "saved", true);
-    cJSON_AddNumberToObject(response, "inverter_index", index_item->valueint);
+    cJSON_AddNumberToObject(response, "inverter_index", inverter_index);
     cJSON_AddStringToObject(response, "profile_id", profile->id);
     cJSON_AddBoolToObject(response, "automatic_control_disabled", true);
     cJSON_AddBoolToObject(response, "restart_required", true);
