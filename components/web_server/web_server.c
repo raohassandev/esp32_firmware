@@ -64,7 +64,8 @@ static esp_err_t css_handler(httpd_req_t *request)
         web_assets_em500_css,
         web_assets_theme_css,
         web_assets_product_mode_css,
-        web_assets_operator_operations_css
+        web_assets_operator_operations_css,
+        web_assets_operator_product_suite_css
     };
     return send_asset_parts(request, "text/css; charset=utf-8",
                             assets, sizeof(assets) / sizeof(assets[0]));
@@ -91,6 +92,7 @@ static esp_err_t js_handler(httpd_req_t *request)
         web_assets_em500_plan_js,
         web_assets_operator_view_js,
         web_assets_operator_operations_js,
+        web_assets_operator_product_suite_js,
         web_assets_engineering_errors_js,
         web_assets_ui_enhancements_js
     };
