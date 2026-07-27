@@ -5,6 +5,7 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/product-mode.css" "${CMAKE_C
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-operations.css" "${CMAKE_CURRENT_BINARY_DIR}/operator-operations.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-product-suite.css" "${CMAKE_CURRENT_BINARY_DIR}/operator-product-suite.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/prelab-readiness.css" "${CMAKE_CURRENT_BINARY_DIR}/prelab-readiness.css" COPYONLY)
+configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/mobile-prelab-fixes.css" "${CMAKE_CURRENT_BINARY_DIR}/mobile-prelab-fixes.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/wifi.css" "${CMAKE_CURRENT_BINARY_DIR}/wifi.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/devices.css" "${CMAKE_CURRENT_BINARY_DIR}/devices.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500.css" "${CMAKE_CURRENT_BINARY_DIR}/em500.css" COPYONLY)
@@ -21,6 +22,7 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/ui-enhancements.js" "${CMAKE
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/wifi-utils.js" "${CMAKE_CURRENT_BINARY_DIR}/wifi-utils.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/wifi-guard.js" "${CMAKE_CURRENT_BINARY_DIR}/wifi-guard.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/wifi.js" "${CMAKE_CURRENT_BINARY_DIR}/wifi.js" COPYONLY)
+configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/network-commissioning-fix.js" "${CMAKE_CURRENT_BINARY_DIR}/network-commissioning-fix.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/devices-utils.js" "${CMAKE_CURRENT_BINARY_DIR}/devices-utils.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/devices.js" "${CMAKE_CURRENT_BINARY_DIR}/devices.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/devices-refresh.js" "${CMAKE_CURRENT_BINARY_DIR}/devices-refresh.js" COPYONLY)
@@ -61,6 +63,7 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/operator-operations.css"
         "${CMAKE_CURRENT_BINARY_DIR}/operator-product-suite.css"
         "${CMAKE_CURRENT_BINARY_DIR}/prelab-readiness.css"
+        "${CMAKE_CURRENT_BINARY_DIR}/mobile-prelab-fixes.css"
         "${CMAKE_CURRENT_BINARY_DIR}/wifi.css"
         "${CMAKE_CURRENT_BINARY_DIR}/devices.css"
         "${CMAKE_CURRENT_BINARY_DIR}/em500.css"
@@ -77,6 +80,7 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/wifi-utils.js"
         "${CMAKE_CURRENT_BINARY_DIR}/wifi-guard.js"
         "${CMAKE_CURRENT_BINARY_DIR}/wifi.js"
+        "${CMAKE_CURRENT_BINARY_DIR}/network-commissioning-fix.js"
         "${CMAKE_CURRENT_BINARY_DIR}/devices-utils.js"
         "${CMAKE_CURRENT_BINARY_DIR}/devices.js"
         "${CMAKE_CURRENT_BINARY_DIR}/devices-refresh.js"
