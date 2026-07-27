@@ -19,6 +19,7 @@
 #define AUTH_LOCKOUT_MS (5U * 60U * 1000U)
 #define AUTH_MAX_FAILURES 5U
 #define AUTH_BODY_MAX 512
+#define AUTH_COOKIE_NAME "AMXENG"
 
 static uint8_t s_salt[16];
 static uint8_t s_hash[32];
@@ -66,6 +67,12 @@ static bool constant_time_equal(const uint8_t *left, const uint8_t *right, size_
     return diff == 0;
 }
 
+static bool constant_time_token_equal(const char *left, const char *right)
+{
+    if (!left || !right || strlen(left) != 64 || strlen(right) != 64) return false;
+    return constant_time_equal((const uint8_t *)left, (const uint8_t *)right, 64);
+}
+
 static esp_err_t persist_credentials(const char *password)
 {
     esp_fill_random(s_salt, sizeof(s_salt));
@@ -97,6 +104,19 @@ static void new_session(void)
     s_session_expires_ms = now_ms() + AUTH_SESSION_MS;
 }
 
+static void set_session_cookie(httpd_req_t *request, bool enabled)
+{
+    if (enabled) {
+        char cookie[160];
+        snprintf(cookie, sizeof(cookie), AUTH_COOKIE_NAME "=%s; Path=/; Max-Age=%u; HttpOnly; SameSite=Strict",
+                 s_session_token, (unsigned)(AUTH_SESSION_MS / 1000U));
+        httpd_resp_set_hdr(request, "Set-Cookie", cookie);
+    } else {
+        httpd_resp_set_hdr(request, "Set-Cookie",
+                           AUTH_COOKIE_NAME "=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict");
+    }
+}
+
 static esp_err_t send_json(httpd_req_t *request, const char *status, cJSON *root)
 {
     char *text = cJSON_PrintUnformatted(root);
@@ -119,7 +139,10 @@ static esp_err_t receive_json(httpd_req_t *request, cJSON **out)
     size_t offset = 0;
     while (offset < (size_t)request->content_len) {
         int received = httpd_req_recv(request, body + offset, request->content_len - offset);
-        if (received <= 0) { free(body); return ESP_FAIL; }
+        if (received <= 0) {
+            free(body);
+            return ESP_FAIL;
+        }
         offset += (size_t)received;
     }
     body[offset] = '\0';
@@ -128,14 +151,50 @@ static esp_err_t receive_json(httpd_req_t *request, cJSON **out)
     return *out ? ESP_OK : ESP_ERR_INVALID_ARG;
 }
 
+static bool token_from_cookie(httpd_req_t *request, char token[65])
+{
+    size_t length = httpd_req_get_hdr_value_len(request, "Cookie");
+    if (length == 0 || length > 512) return false;
+    char *cookies = malloc(length + 1U);
+    if (!cookies) return false;
+    bool found = false;
+    if (httpd_req_get_hdr_value_str(request, "Cookie", cookies, length + 1U) == ESP_OK) {
+        const char *cursor = cookies;
+        const size_t name_length = strlen(AUTH_COOKIE_NAME);
+        while (*cursor) {
+            while (*cursor == ' ' || *cursor == ';') cursor++;
+            if (strncmp(cursor, AUTH_COOKIE_NAME "=", name_length + 1U) == 0) {
+                cursor += name_length + 1U;
+                size_t value_length = strcspn(cursor, "; ");
+                if (value_length == 64) {
+                    memcpy(token, cursor, 64);
+                    token[64] = '\0';
+                    found = true;
+                }
+                break;
+            }
+            cursor += strcspn(cursor, ";");
+        }
+    }
+    free(cookies);
+    return found;
+}
+
+static bool request_has_valid_token(httpd_req_t *request)
+{
+    char token[65] = {0};
+    if (token_from_cookie(request, token) && constant_time_token_equal(token, s_session_token)) return true;
+
+    size_t length = httpd_req_get_hdr_value_len(request, "X-Engineering-Token");
+    if (length != 64) return false;
+    if (httpd_req_get_hdr_value_str(request, "X-Engineering-Token", token, sizeof(token)) != ESP_OK) return false;
+    return constant_time_token_equal(token, s_session_token);
+}
+
 bool engineering_auth_is_authorized(httpd_req_t *request)
 {
     if (!request || !s_session_token[0] || (int32_t)(now_ms() - s_session_expires_ms) >= 0) return false;
-    size_t length = httpd_req_get_hdr_value_len(request, "X-Engineering-Token");
-    if (length != 64) return false;
-    char token[65];
-    if (httpd_req_get_hdr_value_str(request, "X-Engineering-Token", token, sizeof(token)) != ESP_OK) return false;
-    bool ok = strcmp(token, s_session_token) == 0;
+    bool ok = request_has_valid_token(request);
     if (ok) s_session_expires_ms = now_ms() + AUTH_SESSION_MS;
     return ok;
 }
@@ -155,6 +214,7 @@ static esp_err_t session_get(httpd_req_t *request)
     cJSON *root = cJSON_CreateObject();
     cJSON_AddBoolToObject(root, "authenticated", authorized);
     cJSON_AddBoolToObject(root, "setup_required", s_setup_required);
+    cJSON_AddBoolToObject(root, "cookie_session", true);
     cJSON_AddNumberToObject(root, "session_timeout_minutes", AUTH_SESSION_MS / 60000U);
     cJSON_AddStringToObject(root, "temporary_password_format", "AMX-XXXXXX (device label / serial log)");
     if (authorized) cJSON_AddNumberToObject(root, "expires_in_ms", s_session_expires_ms - now_ms());
@@ -188,9 +248,10 @@ static esp_err_t login_post(httpd_req_t *request)
     s_failed_attempts = 0;
     s_lockout_until_ms = 0;
     new_session();
+    set_session_cookie(request, true);
     cJSON *root = cJSON_CreateObject();
     cJSON_AddBoolToObject(root, "authenticated", true);
-    cJSON_AddStringToObject(root, "token", s_session_token);
+    cJSON_AddBoolToObject(root, "cookie_session", true);
     cJSON_AddBoolToObject(root, "password_change_recommended", s_setup_required);
     cJSON_AddNumberToObject(root, "expires_in_ms", AUTH_SESSION_MS);
     return send_json(request, NULL, root);
@@ -198,9 +259,9 @@ static esp_err_t login_post(httpd_req_t *request)
 
 static esp_err_t logout_post(httpd_req_t *request)
 {
-    (void)request;
     memset(s_session_token, 0, sizeof(s_session_token));
     s_session_expires_ms = 0;
+    set_session_cookie(request, false);
     cJSON *root = cJSON_CreateObject();
     cJSON_AddBoolToObject(root, "authenticated", false);
     return send_json(request, NULL, root);
@@ -219,9 +280,10 @@ static esp_err_t password_post(httpd_req_t *request)
     cJSON_Delete(json);
     if (save_err != ESP_OK) return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST, "Current password is wrong or new password is too weak");
     new_session();
+    set_session_cookie(request, true);
     cJSON *root = cJSON_CreateObject();
     cJSON_AddBoolToObject(root, "changed", true);
-    cJSON_AddStringToObject(root, "token", s_session_token);
+    cJSON_AddBoolToObject(root, "cookie_session", true);
     return send_json(request, NULL, root);
 }
 
