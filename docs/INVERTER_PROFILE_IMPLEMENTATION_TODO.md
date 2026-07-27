@@ -1,6 +1,6 @@
 # Multi-brand inverter profile implementation TODO
 
-Status: software framework implemented on `feature/multibrand-inverter-profiles`; manual-specific profiles and physical qualification remain gated.
+Status: software framework and commissioning UI implemented on `feature/multibrand-inverter-profiles`; exact manual-specific profiles and physical qualification remain gated.
 
 ## 1. Manual inventory and evidence
 
@@ -35,7 +35,11 @@ Status: software framework implemented on `feature/multibrand-inverter-profiles`
 - [x] Restart-required response.
 - [x] Qualification and write-lock state displayed.
 - [x] Raw registers hidden from the normal picker.
-- [ ] Full inverter endpoint/rated-power editor and complete inverter-array JSON import/export.
+- [x] Full 12-channel inverter endpoint/rated-power editor.
+- [x] Complete inverter-array persistence through a dedicated API.
+- [x] Duplicate enabled endpoint rejection.
+- [x] Removed inverter slots cleared on save.
+- [x] Command-register fields excluded from the normal commissioning editor.
 
 ## 4. Inverter manager
 
@@ -56,9 +60,10 @@ Status: software framework implemented on `feature/multibrand-inverter-profiles`
 - [x] `GET /api/inverter-profiles`.
 - [x] `POST /api/inverter-profile-assignment`.
 - [x] `POST /api/inverter-probe` with explicit `writes_issued: false`.
+- [x] `POST /api/inverters/config` for full endpoint/rating persistence.
 - [x] Manufacturer/model picker and read-only test action.
-- [ ] Full inverter configuration endpoint.
-- [ ] Profile import/export bundled with inverter configuration.
+- [x] Full inverter configuration editor.
+- [ ] Profile import/export bundled with exact manual-backed profile metadata.
 - [ ] Decoded telemetry and command-readback fields after exact maps exist.
 
 ## 6. Tests and release gates
@@ -66,6 +71,7 @@ Status: software framework implemented on `feature/multibrand-inverter-profiles`
 - [x] Profile catalogue safety contract.
 - [x] Profile API and persistence contract.
 - [x] Browser picker contract.
+- [x] Full inverter configuration safety contract.
 - [x] Runtime write-gate contract.
 - [x] Read-only probe contract.
 - [x] Generic decoder/readback contract.
@@ -77,4 +83,4 @@ Status: software framework implemented on `feature/multibrand-inverter-profiles`
 
 ## Release truth
 
-The reusable multi-brand software architecture, picker, persistence, safe read probe and fail-closed command gate are implemented. Exact inverter support cannot be truthfully completed until the actual manual files are enumerated and their model-specific register maps are extracted. No pending manufacturer profile is permitted to write, and no production-readiness claim is allowed without physical command/readback evidence.
+The reusable multi-brand architecture, complete endpoint/rating editor, profile picker, persistence, safe read probe and fail-closed command gate are implemented. The branch is suitable for field commissioning and read-only communication qualification after CI passes. Exact manufacturer control remains intentionally locked until the actual manuals are enumerated and each model-specific read/write map is physically qualified. No pending manufacturer profile can issue a write, and no production automatic-control claim is allowed without command/readback evidence.
