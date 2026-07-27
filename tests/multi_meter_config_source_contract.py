@@ -41,7 +41,7 @@ require("meter_config_api_register(s_server)" in SERVER,
 capacity = re.search(r"config\.max_uri_handlers\s*=\s*(\d+)", SERVER)
 require(capacity is not None and int(capacity.group(1)) >= 21,
         "HTTP handler capacity must retain room for meter/settings endpoints")
-require('"meter_config_api.c"' in CMAKE,
+require(re.search(r"(?:^|\s)meter_config_api\.c(?:\s|$)", CMAKE) is not None,
         "meter configuration source is not part of the ESP-IDF component")
 
 # The generic importer remains for compatibility, but the dedicated endpoint must
