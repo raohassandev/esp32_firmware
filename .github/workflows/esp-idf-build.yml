@@ -24,6 +24,7 @@ jobs:
           node --check web/theme.js
           node --check web/product-mode.js
           node --check web/operator-view.js
+          node --check web/operator-operations.js
           node --check web/engineering-errors.js
           node --check web/app.js
           node --check web/ui-enhancements.js
@@ -92,6 +93,8 @@ jobs:
         run: python3 tests/product_engineering_access_source_contract.py
       - name: Check operator meter access boundary
         run: python3 tests/operator_meter_access_source_contract.py
+      - name: Check operator history and event center
+        run: python3 tests/operator_history_events_source_contract.py
 
   build:
     needs: web
