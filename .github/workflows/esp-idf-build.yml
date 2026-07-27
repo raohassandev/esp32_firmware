@@ -27,6 +27,7 @@ jobs:
           node --check web/operator-operations.js
           node --check web/operator-product-suite.js
           node --check web/prelab-readiness.js
+          node --check web/product-shell-v2.js
           node --check web/commissioning-route.js
           node --check web/engineering-errors.js
           node --check web/app.js
@@ -107,6 +108,8 @@ jobs:
         run: python3 tests/network_commissioning_flow_source_contract.py
       - name: Check mobile pre-lab layout
         run: python3 tests/mobile_prelab_source_contract.py
+      - name: Check product shell V2
+        run: python3 tests/product_shell_v2_source_contract.py
 
   build:
     needs: web
