@@ -1,7 +1,12 @@
 #include "web_server.h"
 #include "device_api.h"
+#include "em500_api.h"
+#include "em500_history_api.h"
+#include "em500_settings_api.h"
+#include "em500_settings_plan_api.h"
 #include "esp_check.h"
 #include "esp_http_server.h"
+#include "meter_config_api.h"
 #include "web_api.h"
 #include "web_assets.h"
 
@@ -17,14 +22,14 @@ static void set_asset_headers(httpd_req_t *request, const char *content_type)
 }
 
 static esp_err_t send_asset(httpd_req_t *request, const char *content_type,
-                             const char *content, size_t length)
+                            const char *content, size_t length)
 {
     set_asset_headers(request, content_type);
     return httpd_resp_send(request, content, length);
 }
 
 static esp_err_t send_asset_parts(httpd_req_t *request, const char *content_type,
-                                   const asset_getter_t *getters, size_t count)
+                                  const asset_getter_t *getters, size_t count)
 {
     set_asset_headers(request, content_type);
     for (size_t index = 0; index < count; ++index) {
@@ -51,7 +56,8 @@ static esp_err_t css_handler(httpd_req_t *request)
     static const asset_getter_t assets[] = {
         web_assets_css,
         web_assets_wifi_css,
-        web_assets_devices_css
+        web_assets_devices_css,
+        web_assets_em500_css
     };
     return send_asset_parts(request, "text/css; charset=utf-8",
                             assets, sizeof(assets) / sizeof(assets[0]));
@@ -66,7 +72,11 @@ static esp_err_t js_handler(httpd_req_t *request)
         web_assets_wifi_js,
         web_assets_devices_utils_js,
         web_assets_devices_js,
-        web_assets_devices_refresh_js
+        web_assets_devices_refresh_js,
+        web_assets_em500_utils_js,
+        web_assets_em500_core_js,
+        web_assets_em500_profiles_js,
+        web_assets_em500_plan_js
     };
     return send_asset_parts(request, "application/javascript; charset=utf-8",
                             assets, sizeof(assets) / sizeof(assets[0]));
@@ -77,8 +87,9 @@ esp_err_t web_server_start(void)
     if (s_server) return ESP_OK;
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    /* 3 asset handlers + 8 core API handlers + 3 read-only device handlers. */
-    config.max_uri_handlers = 16;
+    /* 3 asset handlers + 8 core API handlers + 3 read-only device handlers +
+     * meter config + snapshot + history + settings catalogue + change planner. */
+    config.max_uri_handlers = 21;
     config.stack_size = 7168;
     ESP_RETURN_ON_ERROR(httpd_start(&s_server, &config), "web", "HTTP server start failed");
 
@@ -94,7 +105,12 @@ esp_err_t web_server_start(void)
     }
 
     ESP_RETURN_ON_ERROR(web_api_register(s_server), "web", "core API registration failed");
-    return device_api_register(s_server);
+    ESP_RETURN_ON_ERROR(device_api_register(s_server), "web", "device API registration failed");
+    ESP_RETURN_ON_ERROR(meter_config_api_register(s_server), "web", "meter configuration API registration failed");
+    ESP_RETURN_ON_ERROR(em500_api_register(s_server), "web", "EM500 snapshot API registration failed");
+    ESP_RETURN_ON_ERROR(em500_history_api_register(s_server), "web", "EM500 history API registration failed");
+    ESP_RETURN_ON_ERROR(em500_settings_api_register(s_server), "web", "EM500 settings API registration failed");
+    return em500_settings_plan_api_register(s_server);
 }
 
 void web_server_stop(void)

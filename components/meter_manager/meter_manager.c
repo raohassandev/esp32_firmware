@@ -59,14 +59,14 @@ static void log_meter_failure(const meter_runtime_t *meter, esp_err_t err, uint3
                            ip4addr_aton(net.netmask, &mask) && mask.addr != 0;
     if (routable_check && (dest.addr & mask.addr) != (own.addr & mask.addr)) {
         ESP_LOGW(TAG, "%s: %s (%s); %s:%u is on another subnet than local %s/%s, relying on gateway %s"
-                 " [failure %u]",
-                 meter->config.name, failure_reason(err), esp_err_to_name(err),
-                 meter->config.endpoint.host, meter->config.endpoint.port,
-                 net.ip, net.netmask, net.gateway, (unsigned)consecutive);
+                  " [failure %u]",
+                  meter->config.name, failure_reason(err), esp_err_to_name(err),
+                  meter->config.endpoint.host, meter->config.endpoint.port,
+                  net.ip, net.netmask, net.gateway, (unsigned)consecutive);
     } else {
         ESP_LOGW(TAG, "%s: %s (%s) reading %s:%u [failure %u]",
-                 meter->config.name, failure_reason(err), esp_err_to_name(err),
-                 meter->config.endpoint.host, meter->config.endpoint.port, (unsigned)consecutive);
+                  meter->config.name, failure_reason(err), esp_err_to_name(err),
+                  meter->config.endpoint.host, meter->config.endpoint.port, (unsigned)consecutive);
     }
 }
 
@@ -111,7 +111,7 @@ static void meter_task(void *argument)
         }
 
         esp_err_t err = modbus_tcp_read_registers(&meter->connection, meter->config.function_code,
-                                                  meter->config.active_power_address, count, registers);
+                                                   meter->config.active_power_address, count, registers);
         meter_data_t next = data_snapshot(meter);
         uint32_t previous_failures = next.consecutive_failures;
         next.last_attempt_ms = now_ms();
@@ -127,7 +127,7 @@ static void meter_task(void *argument)
             next.last_error = ESP_OK;
             if (previous_failures) {
                 ESP_LOGI(TAG, "%s back online after %u failed polls", meter->config.name,
-                         (unsigned)previous_failures);
+                          (unsigned)previous_failures);
             }
         } else {
             if (err == ESP_OK) err = ESP_ERR_INVALID_RESPONSE;
@@ -202,4 +202,30 @@ bool meter_manager_get_data(uint8_t index, meter_data_t *out_data)
     *out_data = meter->data;
     portEXIT_CRITICAL(&meter->lock);
     return true;
+}
+
+esp_err_t meter_manager_read_registers(uint8_t meter_index,
+                                       uint8_t function_code,
+                                       uint16_t address,
+                                       uint16_t count,
+                                       uint16_t *registers)
+{
+    if (!registers || count == 0 || count > 125 ||
+        (function_code != 3 && function_code != 4)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (meter_index >= s_meter_count) return ESP_ERR_NOT_FOUND;
+
+    meter_runtime_t *meter = &s_meters[meter_index];
+    meter_data_t status = data_snapshot(meter);
+    if (!meter->config.enabled || !status.connection_initialized) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!network_manager_wait_ready(0)) return ESP_ERR_INVALID_STATE;
+
+    /* modbus_tcp_read_registers owns the per-connection mutex, so this
+     * commissioning/telemetry read is serialized with the fast poll task and
+     * cannot create a second TCP session to the same meter endpoint. */
+    return modbus_tcp_read_registers(&meter->connection, function_code,
+                                     address, count, registers);
 }

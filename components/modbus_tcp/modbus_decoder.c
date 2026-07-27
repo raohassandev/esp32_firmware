@@ -1,4 +1,5 @@
 #include "modbus_decoder.h"
+#include <math.h>
 #include <string.h>
 
 size_t modbus_data_register_count(modbus_data_type_t type)
@@ -37,5 +38,24 @@ esp_err_t modbus_decode_scaled(const uint16_t *registers, size_t register_count,
         else return ESP_ERR_NOT_SUPPORTED;
     }
     *out_value = value * scale + offset;
+    return ESP_OK;
+}
+
+esp_err_t modbus_decode_u64_be_scaled(const uint16_t *registers,
+                                      size_t register_count,
+                                      double scale,
+                                      double offset,
+                                      double *out_value)
+{
+    if (!registers || !out_value || register_count < 4U ||
+        !isfinite(scale) || !isfinite(offset)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    uint64_t raw = ((uint64_t)registers[0] << 48) |
+                   ((uint64_t)registers[1] << 32) |
+                   ((uint64_t)registers[2] << 16) |
+                   (uint64_t)registers[3];
+    *out_value = (double)raw * scale + offset;
     return ESP_OK;
 }
