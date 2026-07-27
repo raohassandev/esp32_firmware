@@ -7,6 +7,8 @@ extern const uint8_t app_css_start[] asm("_binary_app_css_start");
 extern const uint8_t app_css_end[] asm("_binary_app_css_end");
 extern const uint8_t theme_css_start[] asm("_binary_theme_css_start");
 extern const uint8_t theme_css_end[] asm("_binary_theme_css_end");
+extern const uint8_t product_mode_css_start[] asm("_binary_product_mode_css_start");
+extern const uint8_t product_mode_css_end[] asm("_binary_product_mode_css_end");
 extern const uint8_t wifi_css_start[] asm("_binary_wifi_css_start");
 extern const uint8_t wifi_css_end[] asm("_binary_wifi_css_end");
 extern const uint8_t devices_css_start[] asm("_binary_devices_css_start");
@@ -17,6 +19,8 @@ extern const uint8_t app_js_start[] asm("_binary_app_js_start");
 extern const uint8_t app_js_end[] asm("_binary_app_js_end");
 extern const uint8_t theme_js_start[] asm("_binary_theme_js_start");
 extern const uint8_t theme_js_end[] asm("_binary_theme_js_end");
+extern const uint8_t product_mode_js_start[] asm("_binary_product_mode_js_start");
+extern const uint8_t product_mode_js_end[] asm("_binary_product_mode_js_end");
 extern const uint8_t ui_enhancements_js_start[] asm("_binary_ui_enhancements_js_start");
 extern const uint8_t ui_enhancements_js_end[] asm("_binary_ui_enhancements_js_end");
 extern const uint8_t wifi_utils_js_start[] asm("_binary_wifi_utils_js_start");
@@ -57,11 +61,13 @@ static const char *asset(const uint8_t *start, const uint8_t *end, size_t *lengt
 const char *web_assets_index(size_t *length) { return asset(index_html_start, index_html_end, length); }
 const char *web_assets_css(size_t *length) { return asset(app_css_start, app_css_end, length); }
 const char *web_assets_theme_css(size_t *length) { return asset(theme_css_start, theme_css_end, length); }
+const char *web_assets_product_mode_css(size_t *length) { return asset(product_mode_css_start, product_mode_css_end, length); }
 const char *web_assets_wifi_css(size_t *length) { return asset(wifi_css_start, wifi_css_end, length); }
 const char *web_assets_devices_css(size_t *length) { return asset(devices_css_start, devices_css_end, length); }
 const char *web_assets_em500_css(size_t *length) { return asset(em500_css_start, em500_css_end, length); }
 const char *web_assets_js(size_t *length) { return asset(app_js_start, app_js_end, length); }
 const char *web_assets_theme_js(size_t *length) { return asset(theme_js_start, theme_js_end, length); }
+const char *web_assets_product_mode_js(size_t *length) { return asset(product_mode_js_start, product_mode_js_end, length); }
 const char *web_assets_ui_enhancements_js(size_t *length) { return asset(ui_enhancements_js_start, ui_enhancements_js_end, length); }
 const char *web_assets_wifi_utils_js(size_t *length) { return asset(wifi_utils_js_start, wifi_utils_js_end, length); }
 const char *web_assets_wifi_guard_js(size_t *length) { return asset(wifi_guard_js_start, wifi_guard_js_end, length); }
