@@ -6,6 +6,7 @@ on:
     branches:
       - fix/pvdg-reconnect-admission-gate
       - feature/pvdg-batch3-consolidated
+      - feature/pvdg-multi-meter-commissioning
 
 permissions:
   contents: read
@@ -30,6 +31,8 @@ jobs:
           node web/tests/devices-utils.test.js
       - name: Check telemetry source contract
         run: python3 tests/telemetry_source_contract.py
+      - name: Check multi-meter configuration contract
+        run: python3 tests/multi_meter_config_source_contract.py
 
   build:
     needs: web
