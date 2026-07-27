@@ -1,7 +1,17 @@
 (() => {
     'use strict';
 
+    document.documentElement.dataset.access = 'pending';
+
     const PROTECTED_ROUTES = new Set(['wifi', 'control', 'system']);
+    const ENGINEERING_ONLY_SELECTORS = [
+        '#em500Workspace',
+        '#inverterProfilePicker',
+        '#inverterConfigurationEditor',
+        '#meterConfigurationEditor',
+        '[data-page="system"] .dashboard-grid > article:nth-child(2)',
+        '[data-page="system"] .panel-actions'
+    ];
     const state = { authenticated: false };
     const originalFetch = window.fetch.bind(window);
 
@@ -27,6 +37,15 @@
         return element;
     }
 
+    function enforceEngineeringDom() {
+        ENGINEERING_ONLY_SELECTORS.forEach((selector) => {
+            document.querySelectorAll(selector).forEach((item) => {
+                item.hidden = !state.authenticated;
+                item.setAttribute('aria-hidden', state.authenticated ? 'false' : 'true');
+            });
+        });
+    }
+
     function setEngineering(authenticated) {
         state.authenticated = Boolean(authenticated);
         document.documentElement.dataset.access = state.authenticated ? 'engineering' : 'operator';
@@ -38,6 +57,10 @@
         if (lock) lock.textContent = state.authenticated ? '🔓' : '🔒';
         const logout = document.getElementById('engineeringLogout');
         if (logout) logout.hidden = !state.authenticated;
+        enforceEngineeringDom();
+        window.dispatchEvent(new CustomEvent('amx-access-change', {
+            detail: { authenticated: state.authenticated }
+        }));
     }
 
     function addNavigation() {
@@ -192,6 +215,10 @@
         injectEngineeringPage();
         bindForms();
         setEngineering(false);
+        const main = document.getElementById('mainContent');
+        if (main) {
+            new MutationObserver(enforceEngineeringDom).observe(main, { childList: true, subtree: true });
+        }
         await refreshSession();
         enforceRoute();
     });
