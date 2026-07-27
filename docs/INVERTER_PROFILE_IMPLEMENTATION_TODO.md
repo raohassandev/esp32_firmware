@@ -1,70 +1,80 @@
 # Multi-brand inverter profile implementation TODO
 
-Status: active implementation roadmap for the ESP32 PV-DG controller.
+Status: software framework implemented on `feature/multibrand-inverter-profiles`; manual-specific profiles and physical qualification remain gated.
 
 ## 1. Manual inventory and evidence
 
-- [ ] Inventory solar inverter manuals from `raohassandev/SolTrix/Manuals`.
-- [ ] Record manufacturer, family, protocol, supported connection path and document source.
-- [ ] Extract only documented read/write registers; do not infer unsupported commands.
-- [ ] Record register address convention, function code, data type, word order, scale and units.
-- [ ] Record required enable/unlock sequence, timing limits and readback requirements.
-- [x] Define qualification states: documented, simulator verified, bench verified, read-only qualified, write qualified, production approved.
+- [ ] Inventory exact solar inverter manuals from `raohassandev/SolTrix/Manuals`.
+- [ ] Record manufacturer, exact model family, protocol, connection path and document revision.
+- [ ] Extract only documented read/write registers; never infer unsupported commands.
+- [ ] Record PDU addressing, function code, data type, word order, scale and units.
+- [ ] Record enable/unlock sequence, timing limits and command readback requirements.
+- [x] Define qualification states from documented through production approved.
 
 ## 2. Firmware profile catalogue
 
-- [x] Add compact static inverter profile definitions.
-- [x] Add manufacturer and model-family identifiers.
-- [x] Add protocol and connection-mode metadata.
-- [x] Add telemetry, command and readback descriptor structure.
-- [x] Add per-profile minimum/maximum command and ramp-limit fields.
-- [x] Add profile lookup and validation APIs.
-- [x] Keep unsupported or unqualified write paths locked.
-- [ ] Replace placeholder family entries with exact manual-backed model profiles.
+- [x] Compact static profile catalogue.
+- [x] Manufacturer/model identifiers.
+- [x] Protocol and connection metadata.
+- [x] Identity, telemetry, command and readback descriptors.
+- [x] Minimum/maximum command limits.
+- [x] Profile lookup and validation.
+- [x] Central production-approval write gate.
+- [x] Generic U16/S16/U32/S32 and AB/BA decoder.
+- [x] Generic command/readback tolerance comparator.
+- [ ] Replace pending family entries with exact manual-backed profiles.
 
-## 3. Configuration model
+## 3. Configuration and user interface
 
-- [ ] Add `profile_id` to inverter configuration.
-- [ ] Preserve advanced custom-register mode for unsupported devices.
-- [ ] Validate endpoint, slave ID, rated power, profile compatibility and duplicate endpoints.
-- [ ] Preserve import/export compatibility.
-- [ ] Force automatic control disabled after any inverter configuration change.
+- [x] Persistent profile assignment per inverter channel.
+- [x] Safe custom/pending default for existing configurations.
+- [x] Manufacturer and model-family picker.
+- [x] Inverter channel picker.
+- [x] Profile assignment validation.
+- [x] Automatic control disabled after profile changes.
+- [x] Restart-required response.
+- [x] Qualification and write-lock state displayed.
+- [x] Raw registers hidden from the normal picker.
+- [ ] Full inverter endpoint/rated-power editor and complete inverter-array JSON import/export.
 
 ## 4. Inverter manager
 
-- [ ] Resolve selected profile at initialization.
-- [ ] Add safe identity/read-only probe where documented.
-- [ ] Use common profile-driven read/write helpers.
-- [ ] Add command readback and mismatch detection.
-- [ ] Remove failed channels from available controllable capacity.
-- [ ] Add per-inverter and aggregate ramp limits.
-- [x] Define centralized write eligibility requiring production approval and command readback.
-- [ ] Apply the centralized write gate in the runtime command path.
+- [x] Resolve saved profile during initialization.
+- [x] Exclude non-production-approved profiles from commandable capacity.
+- [x] Reject all command attempts when no production-approved channel exists.
+- [x] Use profile command metadata instead of legacy raw-register fields.
+- [x] Read-only profile probe with zero Modbus writes.
+- [x] Runtime state fields for telemetry, readback and mismatch reporting.
+- [ ] Periodic telemetry task after exact read maps exist.
+- [ ] Identity-value matching after exact expected identifiers exist.
+- [ ] Command readback execution after exact write/readback maps are bench qualified.
+- [ ] Remove stale/offline channels dynamically after profile telemetry is enabled.
+- [ ] Per-profile command interval and ramp enforcement after manuals define limits.
 
-## 5. Web API and UI
+## 5. Web API
 
-- [ ] Add read-only profile catalogue endpoint.
-- [ ] Add manufacturer then model-family picker.
-- [ ] Show connection requirements and qualification status.
-- [ ] Hide raw registers in normal mode.
-- [ ] Add advanced custom profile mode.
-- [ ] Add safe connection test with no writes.
-- [ ] Add import/export support for inverter profiles.
-- [ ] Display write eligibility, command readback and mismatch state.
+- [x] `GET /api/inverter-profiles`.
+- [x] `POST /api/inverter-profile-assignment`.
+- [x] `POST /api/inverter-probe` with explicit `writes_issued: false`.
+- [x] Manufacturer/model picker and read-only test action.
+- [ ] Full inverter configuration endpoint.
+- [ ] Profile import/export bundled with inverter configuration.
+- [ ] Decoded telemetry and command-readback fields after exact maps exist.
 
 ## 6. Tests and release gates
 
-- [x] Profile catalogue source contract.
-- [ ] Configuration round-trip tests.
-- [ ] Duplicate endpoint and invalid-profile rejection tests.
-- [ ] Browser picker tests.
-- [x] Safety contract proving catalogue entries cannot become writable without production approval and readback.
-- [ ] Runtime safety contract proving the inverter manager cannot bypass the profile write gate.
-- [ ] Simulator tests for command encoding and readback.
-- [x] ESP-IDF v6.0.1 CI build with zero project warnings for the foundation slice.
-- [ ] Bench qualification for each supported writable profile.
-- [ ] Explicit approval before enabling production automatic control.
+- [x] Profile catalogue safety contract.
+- [x] Profile API and persistence contract.
+- [x] Browser picker contract.
+- [x] Runtime write-gate contract.
+- [x] Read-only probe contract.
+- [x] Generic decoder/readback contract.
+- [x] ESP-IDF v6.0.1 build gate with zero project warnings.
+- [ ] Simulator tests for each exact profile.
+- [ ] Bench read qualification for each exact model family.
+- [ ] Bench command/readback qualification for each writable profile.
+- [ ] Explicit production approval before automatic PV-DG control.
 
-## Current delivery status
+## Release truth
 
-Foundation slice is complete and validated in PR #10. Exact manual extraction, configuration integration, picker UI, read-only probe, profile-driven runtime control and physical qualification remain incomplete.
+The reusable multi-brand software architecture, picker, persistence, safe read probe and fail-closed command gate are implemented. Exact inverter support cannot be truthfully completed until the actual manual files are enumerated and their model-specific register maps are extracted. No pending manufacturer profile is permitted to write, and no production-readiness claim is allowed without physical command/readback evidence.
