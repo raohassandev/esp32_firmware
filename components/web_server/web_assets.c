@@ -14,6 +14,7 @@ DECLARE_ASSET(operator_product_suite_css);
 DECLARE_ASSET(prelab_readiness_css);
 DECLARE_ASSET(mobile_prelab_fixes_css);
 DECLARE_ASSET(product_shell_v2_css);
+DECLARE_ASSET(product_experience_v2_css);
 DECLARE_ASSET(wifi_css);
 DECLARE_ASSET(devices_css);
 DECLARE_ASSET(em500_css);
@@ -25,6 +26,7 @@ DECLARE_ASSET(operator_operations_js);
 DECLARE_ASSET(operator_product_suite_js);
 DECLARE_ASSET(prelab_readiness_js);
 DECLARE_ASSET(product_shell_v2_js);
+DECLARE_ASSET(product_experience_v2_js);
 DECLARE_ASSET(commissioning_route_js);
 DECLARE_ASSET(engineering_errors_js);
 DECLARE_ASSET(ui_enhancements_js);
@@ -63,6 +65,7 @@ ASSET_GETTER(web_assets_operator_product_suite_css, operator_product_suite_css)
 ASSET_GETTER(web_assets_prelab_readiness_css, prelab_readiness_css)
 ASSET_GETTER(web_assets_mobile_prelab_fixes_css, mobile_prelab_fixes_css)
 ASSET_GETTER(web_assets_product_shell_v2_css, product_shell_v2_css)
+ASSET_GETTER(web_assets_product_experience_v2_css, product_experience_v2_css)
 ASSET_GETTER(web_assets_wifi_css, wifi_css)
 ASSET_GETTER(web_assets_devices_css, devices_css)
 ASSET_GETTER(web_assets_em500_css, em500_css)
@@ -74,6 +77,7 @@ ASSET_GETTER(web_assets_operator_operations_js, operator_operations_js)
 ASSET_GETTER(web_assets_operator_product_suite_js, operator_product_suite_js)
 ASSET_GETTER(web_assets_prelab_readiness_js, prelab_readiness_js)
 ASSET_GETTER(web_assets_product_shell_v2_js, product_shell_v2_js)
+ASSET_GETTER(web_assets_product_experience_v2_js, product_experience_v2_js)
 ASSET_GETTER(web_assets_commissioning_route_js, commissioning_route_js)
 ASSET_GETTER(web_assets_engineering_errors_js, engineering_errors_js)
 ASSET_GETTER(web_assets_ui_enhancements_js, ui_enhancements_js)
