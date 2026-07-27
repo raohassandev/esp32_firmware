@@ -3,7 +3,10 @@
 #include <stdlib.h>
 #include "cJSON.h"
 #include "esp_check.h"
+#include "inverter_profile_store.h"
 #include "inverter_profiles.h"
+
+#define MAX_ASSIGNMENT_BODY 256
 
 static esp_err_t send_json(httpd_req_t *request, cJSON *root)
 {
@@ -56,12 +59,90 @@ static esp_err_t profiles_get(httpd_req_t *request)
     return send_json(request, root);
 }
 
+static esp_err_t receive_body(httpd_req_t *request, char *buffer, size_t size)
+{
+    if (request->content_len <= 0 || request->content_len >= size) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    size_t received = 0;
+    while (received < (size_t)request->content_len) {
+        int result = httpd_req_recv(request, buffer + received,
+                                    request->content_len - received);
+        if (result <= 0) return ESP_FAIL;
+        received += (size_t)result;
+    }
+    buffer[received] = '\0';
+    return ESP_OK;
+}
+
+static esp_err_t profile_assignment_post(httpd_req_t *request)
+{
+    char body[MAX_ASSIGNMENT_BODY];
+    if (receive_body(request, body, sizeof(body)) != ESP_OK) {
+        return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST,
+                                   "Invalid profile assignment body");
+    }
+
+    cJSON *json = cJSON_Parse(body);
+    if (!json) {
+        return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST,
+                                   "Profile assignment must be valid JSON");
+    }
+
+    cJSON *index_item = cJSON_GetObjectItemCaseSensitive(json, "inverter_index");
+    cJSON *profile_item = cJSON_GetObjectItemCaseSensitive(json, "profile_id");
+    if (!cJSON_IsNumber(index_item) || !cJSON_IsString(profile_item) ||
+        index_item->valueint < 0 || index_item->valueint >= APP_MAX_INVERTERS) {
+        cJSON_Delete(json);
+        return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST,
+                                   "inverter_index and profile_id are required");
+    }
+
+    const inverter_profile_t *profile = inverter_profiles_find(profile_item->valuestring);
+    if (!profile) {
+        cJSON_Delete(json);
+        return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST,
+                                   "Unknown inverter profile");
+    }
+
+    esp_err_t err = inverter_profile_store_set((uint8_t)index_item->valueint,
+                                                profile->id);
+    cJSON_Delete(json);
+    if (err != ESP_OK) {
+        return httpd_resp_send_err(request, HTTPD_500_INTERNAL_SERVER_ERROR,
+                                   "Failed to save inverter profile assignment");
+    }
+
+    cJSON *response = cJSON_CreateObject();
+    if (!response) return httpd_resp_send_500(request);
+    cJSON_AddBoolToObject(response, "saved", true);
+    cJSON_AddNumberToObject(response, "inverter_index", index_item->valueint);
+    cJSON_AddStringToObject(response, "profile_id", profile->id);
+    cJSON_AddBoolToObject(response, "automatic_control_disabled", true);
+    cJSON_AddBoolToObject(response, "restart_required", true);
+    cJSON_AddBoolToObject(response, "write_allowed_after_restart",
+                          inverter_profile_allows_write(profile));
+    return send_json(request, response);
+}
+
 esp_err_t inverter_profile_api_register(httpd_handle_t server)
 {
-    const httpd_uri_t handler = {
-        .uri = "/api/inverter-profiles",
-        .method = HTTP_GET,
-        .handler = profiles_get
+    const httpd_uri_t handlers[] = {
+        {
+            .uri = "/api/inverter-profiles",
+            .method = HTTP_GET,
+            .handler = profiles_get
+        },
+        {
+            .uri = "/api/inverter-profile-assignment",
+            .method = HTTP_POST,
+            .handler = profile_assignment_post
+        }
     };
-    return httpd_register_uri_handler(server, &handler);
+
+    for (size_t i = 0; i < sizeof(handlers) / sizeof(handlers[0]); ++i) {
+        ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &handlers[i]),
+                            "inverter_profile_api", "handler registration failed");
+    }
+    return ESP_OK;
 }
