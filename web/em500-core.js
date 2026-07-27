@@ -349,8 +349,8 @@
         root.id = 'em500Workspace';
         const notice = node('div', 'notice safe');
         notice.append(
-            node('strong', '', 'Complete meter commissioning workspace'),
-            node('span', '', 'Measurement and setup reads are live. Meter profile saves are available. CT/PT/wiring/tariff changes remain preview-only until physical write and rollback qualification passes.')
+            node('strong', '', 'Complete meter parameters'),
+            node('span', '', 'Live voltage, current, active/reactive/apparent power, power factor, frequency, THD, energy, history and setup parameters are available below. Meter-side setting writes remain locked.')
         );
 
         const controls = node('div', 'panel em500-controls');
@@ -384,7 +384,10 @@
         const content = node('div', 'em500-content');
         content.id = 'em500Content';
         root.append(notice, controls, tabBar, message, content);
-        page.append(root);
+
+        const intro = page.querySelector('.page-intro');
+        if (intro) intro.after(root);
+        else page.prepend(root);
         state.initialized = true;
     }
 
