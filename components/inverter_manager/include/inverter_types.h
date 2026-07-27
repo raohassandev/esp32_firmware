@@ -10,8 +10,11 @@ typedef struct {
     float readback_percent;
     bool online;
     bool connection_initialized;
+    bool identity_supported;
+    bool identity_verified;
     bool telemetry_supported;
     bool telemetry_valid;
+    bool telemetry_stale;
     bool has_command;
     bool has_readback;
     bool command_mismatch;
@@ -20,6 +23,7 @@ typedef struct {
     uint32_t last_readback_ms;
     uint32_t read_successes;
     uint32_t read_errors;
+    uint32_t consecutive_read_failures;
     uint32_t write_successes;
     uint32_t write_errors;
     uint32_t mismatch_count;
