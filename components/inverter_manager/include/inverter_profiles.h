@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "inverter_profile_decode.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -31,15 +33,23 @@ typedef struct {
     inverter_profile_connection_t connection;
     inverter_profile_qualification_t qualification;
     const char *manual_reference;
+    bool simulator_only;
+
     bool has_identity_probe;
     uint8_t identity_function;
     uint16_t identity_address;
     uint8_t identity_words;
+    uint32_t identity_expected;
+    uint32_t identity_mask;
+
     bool has_active_power;
     uint8_t active_power_function;
     uint16_t active_power_address;
     uint8_t active_power_words;
+    inverter_value_type_t active_power_type;
+    inverter_word_order_t active_power_word_order;
     float active_power_scale;
+
     bool has_power_limit;
     uint8_t power_limit_function;
     uint16_t power_limit_address;
@@ -47,11 +57,18 @@ typedef struct {
     float raw_units_per_percent;
     float minimum_percent;
     float maximum_percent;
+
     bool has_power_limit_readback;
     uint8_t power_limit_readback_function;
     uint16_t power_limit_readback_address;
     uint8_t power_limit_readback_words;
+    inverter_value_type_t power_limit_readback_type;
+    inverter_word_order_t power_limit_readback_word_order;
     float power_limit_readback_scale;
+    float readback_tolerance_percent;
+
+    uint32_t telemetry_poll_ms;
+    uint32_t telemetry_stale_timeout_ms;
 } inverter_profile_t;
 
 size_t inverter_profiles_count(void);
