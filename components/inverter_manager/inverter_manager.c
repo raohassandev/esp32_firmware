@@ -152,6 +152,66 @@ esp_err_t inverter_manager_set_total_power_kw(float target_kw)
     return final_result;
 }
 
+esp_err_t inverter_manager_probe_read_only(uint8_t inverter_index,
+                                           inverter_probe_result_t *result)
+{
+    if (!result || inverter_index >= s_inverter_count) return ESP_ERR_INVALID_ARG;
+    memset(result, 0, sizeof(*result));
+
+    inverter_runtime_t *runtime = &s_inverters[inverter_index];
+    result->connection_initialized = runtime->data.connection_initialized;
+    result->profile_read_allowed = inverter_profile_allows_read(runtime->profile);
+
+    if (!runtime->config.enabled || !runtime->data.connection_initialized) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!result->profile_read_allowed || !runtime->profile) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    bool attempted = false;
+    esp_err_t final_error = ESP_OK;
+
+    if (runtime->profile->has_identity_probe) {
+        attempted = true;
+        result->identity_attempted = true;
+        result->identity_count = runtime->profile->identity_words;
+        if (result->identity_count > INVERTER_PROBE_MAX_REGISTERS) {
+            result->identity_count = INVERTER_PROBE_MAX_REGISTERS;
+        }
+        result->identity_error = modbus_tcp_read_registers(
+            &runtime->connection,
+            runtime->profile->identity_function,
+            runtime->profile->identity_address,
+            result->identity_count,
+            result->identity_registers);
+        result->identity_ok = result->identity_error == ESP_OK;
+        if (!result->identity_ok) final_error = result->identity_error;
+    }
+
+    if (runtime->profile->has_active_power) {
+        attempted = true;
+        result->active_power_attempted = true;
+        result->active_power_count = runtime->profile->active_power_words;
+        if (result->active_power_count > INVERTER_PROBE_MAX_REGISTERS) {
+            result->active_power_count = INVERTER_PROBE_MAX_REGISTERS;
+        }
+        result->active_power_error = modbus_tcp_read_registers(
+            &runtime->connection,
+            runtime->profile->active_power_function,
+            runtime->profile->active_power_address,
+            result->active_power_count,
+            result->active_power_registers);
+        result->active_power_ok = result->active_power_error == ESP_OK;
+        if (!result->active_power_ok && final_error == ESP_OK) {
+            final_error = result->active_power_error;
+        }
+    }
+
+    if (!attempted) return ESP_ERR_NOT_SUPPORTED;
+    return final_error;
+}
+
 bool inverter_manager_get_data(uint8_t index, inverter_data_t *out_data)
 {
     if (!out_data || index >= s_inverter_count) return false;
