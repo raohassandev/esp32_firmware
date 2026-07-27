@@ -111,7 +111,10 @@ jobs:
             exit 1
           }
           idf.py build > /tmp/idf-build.log 2>&1 || {
-            tail -n 250 /tmp/idf-build.log
+            echo "ESP-IDF compiler diagnostics:"
+            grep -nE "FAILED:|fatal error:|error:|undefined reference|collect2:" /tmp/idf-build.log | tail -n 100 || true
+            echo "Final build context:"
+            tail -n 60 /tmp/idf-build.log
             exit 1
           }
           test -f build/automatrix_pvdg.bin
