@@ -23,6 +23,8 @@ extern const uint8_t product_mode_js_start[] asm("_binary_product_mode_js_start"
 extern const uint8_t product_mode_js_end[] asm("_binary_product_mode_js_end");
 extern const uint8_t operator_view_js_start[] asm("_binary_operator_view_js_start");
 extern const uint8_t operator_view_js_end[] asm("_binary_operator_view_js_end");
+extern const uint8_t operator_operations_js_start[] asm("_binary_operator_operations_js_start");
+extern const uint8_t operator_operations_js_end[] asm("_binary_operator_operations_js_end");
 extern const uint8_t engineering_errors_js_start[] asm("_binary_engineering_errors_js_start");
 extern const uint8_t engineering_errors_js_end[] asm("_binary_engineering_errors_js_end");
 extern const uint8_t ui_enhancements_js_start[] asm("_binary_ui_enhancements_js_start");
@@ -73,6 +75,7 @@ const char *web_assets_js(size_t *length) { return asset(app_js_start, app_js_en
 const char *web_assets_theme_js(size_t *length) { return asset(theme_js_start, theme_js_end, length); }
 const char *web_assets_product_mode_js(size_t *length) { return asset(product_mode_js_start, product_mode_js_end, length); }
 const char *web_assets_operator_view_js(size_t *length) { return asset(operator_view_js_start, operator_view_js_end, length); }
+const char *web_assets_operator_operations_js(size_t *length) { return asset(operator_operations_js_start, operator_operations_js_end, length); }
 const char *web_assets_engineering_errors_js(size_t *length) { return asset(engineering_errors_js_start, engineering_errors_js_end, length); }
 const char *web_assets_ui_enhancements_js(size_t *length) { return asset(ui_enhancements_js_start, ui_enhancements_js_end, length); }
 const char *web_assets_wifi_utils_js(size_t *length) { return asset(wifi_utils_js_start, wifi_utils_js_end, length); }
