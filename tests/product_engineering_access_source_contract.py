@@ -6,6 +6,7 @@ GUARD = (ROOT / "components/web_server/engineering_guard.c").read_text(encoding=
 SERVER = (ROOT / "components/web_server/web_server.c").read_text(encoding="utf-8")
 CMAKE = (ROOT / "components/web_server/CMakeLists.txt").read_text(encoding="utf-8")
 JS = (ROOT / "web/product-mode.js").read_text(encoding="utf-8")
+OPERATOR = (ROOT / "web/operator-view.js").read_text(encoding="utf-8")
 CSS = (ROOT / "web/product-mode.css").read_text(encoding="utf-8")
 
 
@@ -37,6 +38,8 @@ require("engineering_auth_register" in SERVER and "engineering_auth_init" in SER
         "engineering auth is not initialized and registered")
 require("web_assets_product_mode_js" in SERVER and "web_assets_product_mode_css" in SERVER,
         "product-mode assets are not served")
+require("web_assets_operator_view_js" in SERVER and "operator-view.js" in CMAKE,
+        "dedicated operator product view is not embedded and served")
 
 for token in [
     "credentials: 'same-origin'", "Engineering and commissioning",
@@ -49,11 +52,23 @@ require("X-Engineering-Token" not in JS,
         "operator browser code must rely on the HTTP-only session cookie")
 
 for token in [
+    "Electrical supply status", "Inverter fleet status", "Installed capacity",
+    "Solar production", "Grid Power", "Solar Inverters", "/api/meters",
+    "/api/inverters", "/api/inverter-telemetry",
+]:
+    require(token in OPERATOR, f"operator product view missing {token}")
+for forbidden in ["PDU", "register", "scale", "function code", "raw words"]:
+    require(forbidden.lower() not in OPERATOR.lower(),
+            f"operator product view exposes engineering terminology: {forbidden}")
+
+for token in [
     'html[data-access="operator"] #em500Workspace',
     'html[data-access="operator"] .device-meta-grid',
     'html[data-access="operator"] #inverterProfilePicker',
     'html[data-access="operator"] #inverterConfigurationEditor',
     'html[data-access="operator"] [data-page="system"] .panel-actions',
+    'html[data-access="operator"] #meterRuntimeList',
+    'html[data-access="operator"] #inverterRuntimeList',
 ]:
     require(token in CSS, f"operator UI does not hide engineering detail: {token}")
 
