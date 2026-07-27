@@ -12,23 +12,26 @@ def require(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
-require('"/api/inverters/config"' in API, "full inverter configuration endpoint is missing")
-require("APP_MAX_INVERTERS" in API, "inverter count must be bounded")
-require("duplicate_enabled_endpoint" in API, "duplicate endpoints must be rejected")
+for token, message in [
+    ('"/api/inverters/config"', "full inverter configuration endpoint is missing"),
+    ("APP_MAX_INVERTERS", "inverter count must be bounded"),
+    ("duplicate_enabled_endpoint", "duplicate endpoints must be rejected"),
+    ("config->control.enabled = false", "inverter changes must disable automatic control"),
+    ("config_manager_save(config)", "configuration must use verified NVS persistence"),
+    ("inverter_config_api_register(s_server)", "web server must register inverter configuration"),
+]:
+    require(token in (API + SERVER), message)
+
 require('"409 Conflict"' in API, "duplicate endpoint conflict response is missing")
 require("memset(config->inverters, 0, sizeof(config->inverters))" in API,
         "removed inverter slots must be cleared")
 require("config->inverter_count = (uint8_t)requested_count" in API,
         "saved inverter count must match the request")
-require("config->control.enabled = false" in API,
-        "inverter changes must disable automatic control")
-require("command_registers_changed" in API and "false}" in API,
-        "endpoint must disclose that command mappings are untouched")
+require("command_registers_changed" in API,
+        "response must disclose that command mappings are untouched")
 require("modbus_tcp_write" not in API and "modbus_write" not in API,
         "configuration endpoint must never write an inverter")
-require("inverter_config_api_register(s_server)" in SERVER,
-        "web server must register inverter configuration")
-require('"inverter_config_api.c"' in CMAKE and '"inverter-config.js"' in CMAKE,
+require("inverter_config_api.c" in CMAKE and "inverter-config.js" in CMAKE,
         "firmware must compile and embed inverter configuration modules")
 require("/api/inverters/config" in UI, "browser editor must use dedicated endpoint")
 require("Automatic control will be disabled" in UI,
