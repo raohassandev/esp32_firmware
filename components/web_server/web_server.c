@@ -2,6 +2,7 @@
 #include "device_api.h"
 #include "esp_check.h"
 #include "esp_http_server.h"
+#include "meter_config_api.h"
 #include "web_api.h"
 #include "web_assets.h"
 
@@ -17,14 +18,14 @@ static void set_asset_headers(httpd_req_t *request, const char *content_type)
 }
 
 static esp_err_t send_asset(httpd_req_t *request, const char *content_type,
-                             const char *content, size_t length)
+                              const char *content, size_t length)
 {
     set_asset_headers(request, content_type);
     return httpd_resp_send(request, content, length);
 }
 
 static esp_err_t send_asset_parts(httpd_req_t *request, const char *content_type,
-                                   const asset_getter_t *getters, size_t count)
+                                    const asset_getter_t *getters, size_t count)
 {
     set_asset_headers(request, content_type);
     for (size_t index = 0; index < count; ++index) {
@@ -77,8 +78,9 @@ esp_err_t web_server_start(void)
     if (s_server) return ESP_OK;
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    /* 3 asset handlers + 8 core API handlers + 3 read-only device handlers. */
-    config.max_uri_handlers = 16;
+    /* 3 asset handlers + 8 core API handlers + 3 read-only device handlers +
+     * 1 dedicated multi-meter configuration handler. */
+    config.max_uri_handlers = 17;
     config.stack_size = 7168;
     ESP_RETURN_ON_ERROR(httpd_start(&s_server, &config), "web", "HTTP server start failed");
 
@@ -94,7 +96,8 @@ esp_err_t web_server_start(void)
     }
 
     ESP_RETURN_ON_ERROR(web_api_register(s_server), "web", "core API registration failed");
-    return device_api_register(s_server);
+    ESP_RETURN_ON_ERROR(device_api_register(s_server), "web", "device API registration failed");
+    return meter_config_api_register(s_server);
 }
 
 void web_server_stop(void)
