@@ -10,6 +10,7 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/wifi.js" "${CMAKE_CURRENT_BI
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/devices-utils.js" "${CMAKE_CURRENT_BINARY_DIR}/devices-utils.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/devices.js" "${CMAKE_CURRENT_BINARY_DIR}/devices.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/devices-refresh.js" "${CMAKE_CURRENT_BINARY_DIR}/devices-refresh.js" COPYONLY)
+configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/inverter-profiles.js" "${CMAKE_CURRENT_BINARY_DIR}/inverter-profiles.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500-utils.js" "${CMAKE_CURRENT_BINARY_DIR}/em500-utils.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500-core.js" "${CMAKE_CURRENT_BINARY_DIR}/em500-core.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500-profiles.js" "${CMAKE_CURRENT_BINARY_DIR}/em500-profiles.js" COPYONLY)
@@ -32,6 +33,7 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/devices-utils.js"
         "${CMAKE_CURRENT_BINARY_DIR}/devices.js"
         "${CMAKE_CURRENT_BINARY_DIR}/devices-refresh.js"
+        "${CMAKE_CURRENT_BINARY_DIR}/inverter-profiles.js"
         "${CMAKE_CURRENT_BINARY_DIR}/em500-utils.js"
         "${CMAKE_CURRENT_BINARY_DIR}/em500-core.js"
         "${CMAKE_CURRENT_BINARY_DIR}/em500-profiles.js"
