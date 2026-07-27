@@ -1,9 +1,11 @@
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/index.html" "${CMAKE_CURRENT_BINARY_DIR}/index.html" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/app.css" "${CMAKE_CURRENT_BINARY_DIR}/app.css" COPYONLY)
+configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/theme.css" "${CMAKE_CURRENT_BINARY_DIR}/theme.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/wifi.css" "${CMAKE_CURRENT_BINARY_DIR}/wifi.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/devices.css" "${CMAKE_CURRENT_BINARY_DIR}/devices.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500.css" "${CMAKE_CURRENT_BINARY_DIR}/em500.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/app.js" "${CMAKE_CURRENT_BINARY_DIR}/app.js" COPYONLY)
+configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/theme.js" "${CMAKE_CURRENT_BINARY_DIR}/theme.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/wifi-utils.js" "${CMAKE_CURRENT_BINARY_DIR}/wifi-utils.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/wifi-guard.js" "${CMAKE_CURRENT_BINARY_DIR}/wifi-guard.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/wifi.js" "${CMAKE_CURRENT_BINARY_DIR}/wifi.js" COPYONLY)
@@ -25,10 +27,12 @@ idf_component_register(
     EMBED_TXTFILES
         "${CMAKE_CURRENT_BINARY_DIR}/index.html"
         "${CMAKE_CURRENT_BINARY_DIR}/app.css"
+        "${CMAKE_CURRENT_BINARY_DIR}/theme.css"
         "${CMAKE_CURRENT_BINARY_DIR}/wifi.css"
         "${CMAKE_CURRENT_BINARY_DIR}/devices.css"
         "${CMAKE_CURRENT_BINARY_DIR}/em500.css"
         "${CMAKE_CURRENT_BINARY_DIR}/app.js"
+        "${CMAKE_CURRENT_BINARY_DIR}/theme.js"
         "${CMAKE_CURRENT_BINARY_DIR}/wifi-utils.js"
         "${CMAKE_CURRENT_BINARY_DIR}/wifi-guard.js"
         "${CMAKE_CURRENT_BINARY_DIR}/wifi.js"
