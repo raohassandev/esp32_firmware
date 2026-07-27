@@ -2,17 +2,29 @@
 
 Release candidate branch: `feature/multibrand-inverter-profiles`
 
-Validated head: `027dac1189aa6820d592bae42879fbd601e513c3`
+Validated head: use the latest branch commit only after both **web** and **build** jobs pass in `Firmware and web checks`.
 
 ## Release status
 
-- Browser/product suite: PASS
-- SolTrix simulator suite: PASS
-- Operator/Engineering access boundary: PASS
-- ESP-IDF v6.0.1 build: PASS
-- Compiler warnings: 0
+- Browser/product suite: automated CI gate
+- Pre-Lab Readiness suite: automated CI gate
+- SolTrix simulator suite: automated CI gate
+- Operator/Engineering access boundary: automated CI gate
+- ESP-IDF v6.0.1 build: automated CI gate
+- Compiler warnings: zero-warning gate
 - Physical automatic inverter control: LOCKED
-- Field classification: OPERATOR PRODUCT + READ-ONLY COMMISSIONING RELEASE CANDIDATE
+- Field classification: DEVELOPMENT FIELD-TEST CANDIDATE
+
+## Current development conveniences
+
+The current development branch intentionally contains:
+
+- Primary Wi-Fi: `Rao`
+- Development Wi-Fi provisioning generation: `1`
+- Engineering development auto-unlock: enabled
+- Recovery SSID: `Automatrix-PVDG-Setup`
+
+These settings reduce lab setup time. They are not production security and must be removed before resale.
 
 ## Safe pull and flash
 
@@ -34,24 +46,36 @@ idf.py -B build-idf601 -p COM5 flash
 idf.py -B build-idf601 -p COM5 monitor
 ```
 
-Expected SHA:
-
-```text
-027dac1189aa6820d592bae42879fbd601e513c3
-```
+Confirm the displayed SHA has a successful web and build workflow before flashing.
 
 Do not run `erase-flash`, `erase_flash`, or any command that clears NVS.
 
 ## Acceptance sequence
 
-### 1. Boot health
+### 1. Boot and network health
 
 - [ ] Capture the complete boot log.
 - [ ] Confirm no panic, Guru Meditation, watchdog, abort, stack overflow, or reboot loop.
-- [ ] Confirm the controller obtains its expected network address.
-- [ ] Record the temporary Engineering password from the serial log.
+- [ ] Confirm the controller applies or retains the intended development Wi-Fi profile.
+- [ ] Confirm connection to `Rao`, or confirm the recovery AP activates when the primary network is unavailable.
+- [ ] Record controller IP, RSSI, reconnect count and boot reason.
 
-### 2. Operator product UI
+### 2. Pre-Lab Readiness
+
+Open **Readiness** before connecting or enabling any physical command path.
+
+- [ ] Controller API check passes.
+- [ ] Network check matches the actual primary/recovery state.
+- [ ] Meter check reports the expected uncommissioned, warning or online state.
+- [ ] Solar-fleet check matches enabled equipment.
+- [ ] History begins collecting samples.
+- [ ] Active alarm count is explainable.
+- [ ] Automatic control reports locked/monitoring-only.
+- [ ] No unexpected commandable physical inverter capacity is exposed.
+- [ ] Development auto-unlock and provisioning warnings are visible.
+- [ ] Export and retain the pre-lab readiness snapshot.
+
+### 3. Operator product UI
 
 - [ ] Overview shows grid exchange, solar status, control state, and plant attention.
 - [ ] Grid Power shows a realistic current kW value and correct import/export direction.
@@ -61,7 +85,7 @@ Do not run `erase-flash`, `erase_flash`, or any command that clears NVS.
 - [ ] Controller shows product, connection, and service state.
 - [ ] No register, scale, endpoint, function-code, raw-word, or profile detail is visible to operators.
 
-### 3. Responsive product checks
+### 4. Responsive product checks
 
 - [ ] Desktop layout at 1366×768 or larger.
 - [ ] Industrial tablet layout around 1024×600 or 1280×800.
@@ -72,7 +96,7 @@ Do not run `erase-flash`, `erase_flash`, or any command that clears NVS.
 - [ ] Light and dark themes remain readable.
 - [ ] Kiosk/full-screen mode enters and exits correctly.
 
-### 4. History and event checks
+### 5. History and event checks
 
 - [ ] Five-second history samples accumulate.
 - [ ] 15-minute view renders grid and solar trends.
@@ -82,16 +106,19 @@ Do not run `erase-flash`, `erase_flash`, or any command that clears NVS.
 - [ ] Alarm badge updates correctly.
 - [ ] Active and cleared states remain distinguishable.
 
-### 5. Engineering access
+### 6. Engineering development access
 
-- [ ] Operator cannot access Engineering or Commissioning pages without authentication.
-- [ ] Temporary password login succeeds.
-- [ ] Permanent password is set.
-- [ ] Logout removes Engineering access.
-- [ ] Session timeout returns to operator mode.
-- [ ] Technical meter and inverter configuration is visible only after login.
+Development auto-unlock is intentionally enabled on this branch.
 
-### 6. Guided commissioning
+- [ ] Engineering becomes available automatically.
+- [ ] Technical pages remain visually distinct from operator pages.
+- [ ] Logout/session behavior does not expose stale technical content in operator mode.
+- [ ] Technical meter and inverter configuration is shown only in Engineering context.
+- [ ] Verify the session API reports `development_auto_unlock: true`.
+
+The production candidate must repeat these tests with auto-unlock disabled and unique-password authentication enabled.
+
+### 7. Guided commissioning
 
 - [ ] Network step reflects the actual connection.
 - [ ] Grid meter step reports a fresh online measurement.
@@ -100,12 +127,12 @@ Do not run `erase-flash`, `erase_flash`, or any command that clears NVS.
 - [ ] Safety readiness keeps automatic control locked unless every physical qualification gate passes.
 - [ ] Export the sanitized commissioning report and retain it with site records.
 
-### 7. Stability soak
+### 8. Stability soak
 
 - [ ] Run continuously for at least 30 minutes.
 - [ ] No spontaneous restart.
 - [ ] Web pages remain responsive.
-- [ ] Meter values remain consistent across Overview and Grid Power.
+- [ ] Meter values remain consistent across Overview, Grid Power and Readiness.
 - [ ] History continues accumulating.
 - [ ] Alarm/event count does not grow continuously without a real state change.
 - [ ] Free heap, socket use, and Modbus errors do not show uncontrolled degradation in the serial log.
@@ -122,6 +149,8 @@ Do not approve automatic control if any of these remain unresolved:
 - Unverified ramp or command interval
 - Repeated controller reset
 - Incorrect grid-power sign or scale
+- Development auto-unlock still enabled in a production candidate
+- Development Wi-Fi credentials still compiled into a production candidate
 
 ## Production-write gate
 
