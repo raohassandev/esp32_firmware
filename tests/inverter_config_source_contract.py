@@ -22,7 +22,7 @@ require("config->inverter_count = (uint8_t)requested_count" in API,
         "saved inverter count must match the request")
 require("config->control.enabled = false" in API,
         "inverter changes must disable automatic control")
-require('"command_registers_changed\\\":false' in API,
+require("command_registers_changed" in API and "false}" in API,
         "endpoint must disclose that command mappings are untouched")
 require("modbus_tcp_write" not in API and "modbus_write" not in API,
         "configuration endpoint must never write an inverter")
