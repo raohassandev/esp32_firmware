@@ -89,6 +89,7 @@ static esp_err_t js_handler(httpd_req_t *request)
         web_assets_em500_profiles_js,
         web_assets_em500_plan_js,
         web_assets_operator_view_js,
+        web_assets_operator_operations_js,
         web_assets_engineering_errors_js,
         web_assets_ui_enhancements_js
     };
