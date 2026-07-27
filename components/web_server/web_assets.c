@@ -15,6 +15,8 @@ extern const uint8_t operator_product_suite_css_start[] asm("_binary_operator_pr
 extern const uint8_t operator_product_suite_css_end[] asm("_binary_operator_product_suite_css_end");
 extern const uint8_t prelab_readiness_css_start[] asm("_binary_prelab_readiness_css_start");
 extern const uint8_t prelab_readiness_css_end[] asm("_binary_prelab_readiness_css_end");
+extern const uint8_t mobile_prelab_fixes_css_start[] asm("_binary_mobile_prelab_fixes_css_start");
+extern const uint8_t mobile_prelab_fixes_css_end[] asm("_binary_mobile_prelab_fixes_css_end");
 extern const uint8_t wifi_css_start[] asm("_binary_wifi_css_start");
 extern const uint8_t wifi_css_end[] asm("_binary_wifi_css_end");
 extern const uint8_t devices_css_start[] asm("_binary_devices_css_start");
@@ -47,6 +49,8 @@ extern const uint8_t wifi_guard_js_start[] asm("_binary_wifi_guard_js_start");
 extern const uint8_t wifi_guard_js_end[] asm("_binary_wifi_guard_js_end");
 extern const uint8_t wifi_js_start[] asm("_binary_wifi_js_start");
 extern const uint8_t wifi_js_end[] asm("_binary_wifi_js_end");
+extern const uint8_t network_commissioning_fix_js_start[] asm("_binary_network_commissioning_fix_js_start");
+extern const uint8_t network_commissioning_fix_js_end[] asm("_binary_network_commissioning_fix_js_end");
 extern const uint8_t devices_utils_js_start[] asm("_binary_devices_utils_js_start");
 extern const uint8_t devices_utils_js_end[] asm("_binary_devices_utils_js_end");
 extern const uint8_t devices_js_start[] asm("_binary_devices_js_start");
@@ -83,6 +87,7 @@ const char *web_assets_product_mode_css(size_t *length) { return asset(product_m
 const char *web_assets_operator_operations_css(size_t *length) { return asset(operator_operations_css_start, operator_operations_css_end, length); }
 const char *web_assets_operator_product_suite_css(size_t *length) { return asset(operator_product_suite_css_start, operator_product_suite_css_end, length); }
 const char *web_assets_prelab_readiness_css(size_t *length) { return asset(prelab_readiness_css_start, prelab_readiness_css_end, length); }
+const char *web_assets_mobile_prelab_fixes_css(size_t *length) { return asset(mobile_prelab_fixes_css_start, mobile_prelab_fixes_css_end, length); }
 const char *web_assets_wifi_css(size_t *length) { return asset(wifi_css_start, wifi_css_end, length); }
 const char *web_assets_devices_css(size_t *length) { return asset(devices_css_start, devices_css_end, length); }
 const char *web_assets_em500_css(size_t *length) { return asset(em500_css_start, em500_css_end, length); }
@@ -99,6 +104,7 @@ const char *web_assets_ui_enhancements_js(size_t *length) { return asset(ui_enha
 const char *web_assets_wifi_utils_js(size_t *length) { return asset(wifi_utils_js_start, wifi_utils_js_end, length); }
 const char *web_assets_wifi_guard_js(size_t *length) { return asset(wifi_guard_js_start, wifi_guard_js_end, length); }
 const char *web_assets_wifi_js(size_t *length) { return asset(wifi_js_start, wifi_js_end, length); }
+const char *web_assets_network_commissioning_fix_js(size_t *length) { return asset(network_commissioning_fix_js_start, network_commissioning_fix_js_end, length); }
 const char *web_assets_devices_utils_js(size_t *length) { return asset(devices_utils_js_start, devices_utils_js_end, length); }
 const char *web_assets_devices_js(size_t *length) { return asset(devices_js_start, devices_js_end, length); }
 const char *web_assets_devices_refresh_js(size_t *length) { return asset(devices_refresh_js_start, devices_refresh_js_end, length); }
