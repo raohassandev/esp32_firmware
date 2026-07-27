@@ -15,7 +15,6 @@
 #include "web_assets.h"
 
 static httpd_handle_t s_server;
-
 typedef const char *(*asset_getter_t)(size_t *length);
 
 static void set_asset_headers(httpd_req_t *request, const char *content_type)
@@ -25,15 +24,13 @@ static void set_asset_headers(httpd_req_t *request, const char *content_type)
     httpd_resp_set_hdr(request, "X-Content-Type-Options", "nosniff");
 }
 
-static esp_err_t send_asset(httpd_req_t *request, const char *content_type,
-                            const char *content, size_t length)
+static esp_err_t send_asset(httpd_req_t *request, const char *content_type, const char *content, size_t length)
 {
     set_asset_headers(request, content_type);
     return httpd_resp_send(request, content, length);
 }
 
-static esp_err_t send_asset_parts(httpd_req_t *request, const char *content_type,
-                                  const asset_getter_t *getters, size_t count)
+static esp_err_t send_asset_parts(httpd_req_t *request, const char *content_type, const asset_getter_t *getters, size_t count)
 {
     set_asset_headers(request, content_type);
     for (size_t index = 0; index < count; ++index) {
@@ -68,10 +65,10 @@ static esp_err_t css_handler(httpd_req_t *request)
         web_assets_operator_product_suite_css,
         web_assets_prelab_readiness_css,
         web_assets_mobile_prelab_fixes_css,
-        web_assets_product_shell_v2_css
+        web_assets_product_shell_v2_css,
+        web_assets_product_experience_v2_css
     };
-    return send_asset_parts(request, "text/css; charset=utf-8",
-                            assets, sizeof(assets) / sizeof(assets[0]));
+    return send_asset_parts(request, "text/css; charset=utf-8", assets, sizeof(assets) / sizeof(assets[0]));
 }
 
 static esp_err_t js_handler(httpd_req_t *request)
@@ -101,34 +98,28 @@ static esp_err_t js_handler(httpd_req_t *request)
         web_assets_commissioning_route_js,
         web_assets_engineering_errors_js,
         web_assets_ui_enhancements_js,
-        web_assets_product_shell_v2_js
+        web_assets_product_shell_v2_js,
+        web_assets_product_experience_v2_js
     };
-    return send_asset_parts(request, "application/javascript; charset=utf-8",
-                            assets, sizeof(assets) / sizeof(assets[0]));
+    return send_asset_parts(request, "application/javascript; charset=utf-8", assets, sizeof(assets) / sizeof(assets[0]));
 }
 
 esp_err_t web_server_start(void)
 {
     if (s_server) return ESP_OK;
-
     ESP_RETURN_ON_ERROR(engineering_auth_init(), "web", "engineering authentication init failed");
-
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.max_uri_handlers = 32;
     config.stack_size = 8192;
     ESP_RETURN_ON_ERROR(httpd_start(&s_server, &config), "web", "HTTP server start failed");
-
     const httpd_uri_t assets[] = {
         {.uri = "/", .method = HTTP_GET, .handler = index_handler},
         {.uri = "/app.css", .method = HTTP_GET, .handler = css_handler},
         {.uri = "/app.js", .method = HTTP_GET, .handler = js_handler}
     };
-
     for (size_t index = 0; index < sizeof(assets) / sizeof(assets[0]); ++index) {
-        ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &assets[index]),
-                            "web", "asset registration failed");
+        ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &assets[index]), "web", "asset registration failed");
     }
-
     ESP_RETURN_ON_ERROR(engineering_auth_register(s_server), "web", "engineering auth API registration failed");
     ESP_RETURN_ON_ERROR(web_api_register(s_server), "web", "core API registration failed");
     ESP_RETURN_ON_ERROR(operational_api_register(s_server), "web", "operator history/event API registration failed");
