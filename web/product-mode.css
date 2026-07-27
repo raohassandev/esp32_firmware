@@ -12,11 +12,20 @@ html[data-access="operator"] #meterConfigurationEditor,
 html[data-access="operator"] #em500Workspace,
 html[data-access="operator"] .device-toolbar,
 html[data-access="operator"] .device-meta-grid,
-html[data-access="operator"] .engineering-only {
+html[data-access="operator"] .engineering-only,
+html[data-access="operator"] [data-page="meters"] > .dashboard-grid,
+html[data-access="operator"] #meterTelemetrySummary,
+html[data-access="operator"] #meterRuntimeList,
+html[data-access="operator"] #inverterTelemetrySummary,
+html[data-access="operator"] #inverterRuntimeList,
+html[data-access="operator"] #inverterLiveTelemetry,
+html[data-access="operator"] #inverterList {
     display: none !important;
 }
 
-html[data-access="engineering"] #engineeringLoginPanel { display: none; }
+html[data-access="engineering"] #operatorMeterView,
+html[data-access="engineering"] #operatorInverterView,
+html[data-access="engineering"] #engineeringLoginPanel { display: none !important; }
 html[data-access="operator"] #engineeringLoginPanel { display: grid; }
 html[data-access="engineering"] #engineeringConsole { display: grid; }
 
@@ -36,23 +45,48 @@ html[data-access="engineering"] #engineeringConsole { display: grid; }
 .password-panel { display: grid; gap: 16px; }
 .password-form { display: grid; grid-template-columns: 1fr 1fr auto; gap: 12px; align-items: end; }
 
-html[data-access="operator"] [data-page="meters"] .page-intro p,
-html[data-access="operator"] [data-page="inverters"] .page-intro p { max-width: 760px; }
-html[data-access="operator"] [data-page="meters"] .dashboard-grid > .form-panel { display: none; }
-html[data-access="operator"] [data-page="meters"] .dashboard-grid { grid-template-columns: 1fr; }
-html[data-access="operator"] [data-page="meters"] .device-list,
-html[data-access="operator"] [data-page="inverters"] .device-list { gap: 16px; }
-html[data-access="operator"] [data-page="meters"] .device-runtime-card,
-html[data-access="operator"] [data-page="inverters"] .device-runtime-card { min-height: 0; padding: 20px; }
-html[data-access="operator"] [data-page="meters"] .device-reading,
-html[data-access="operator"] [data-page="inverters"] .device-reading { grid-template-columns: minmax(180px, .7fr) minmax(0, 1.3fr); margin-bottom: 0; }
-html[data-access="operator"] [data-page="inverters"] #inverterList { display: none !important; }
+.operator-product-view { display: grid; gap: 16px; margin-top: 18px; }
+.operator-section-head { display: flex; justify-content: space-between; align-items: end; gap: 18px; padding: 20px; border: 1px solid var(--line-soft); border-radius: var(--radius); background: var(--panel); box-shadow: var(--shadow); }
+.operator-section-head h3 { margin: 3px 0 6px; font-size: 21px; }
+.operator-section-head p:last-child { margin: 0; color: var(--muted); }
+.operator-metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.operator-metric { min-width: 0; display: grid; align-content: center; min-height: 132px; padding: 18px; border: 1px solid var(--line-soft); border-radius: 15px; background: var(--panel); box-shadow: var(--shadow); }
+.operator-metric.good { border-color: rgba(65, 211, 155, .42); }
+.operator-metric.warning { border-color: rgba(255, 184, 77, .48); }
+.operator-metric.bad { border-color: rgba(255, 107, 116, .45); }
+.operator-metric-label { color: var(--muted-2); font-size: 10px; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; }
+.operator-metric-value { margin-top: 10px; font-size: clamp(22px, 2.4vw, 31px); line-height: 1.05; }
+.operator-metric-detail { margin-top: 8px; color: var(--muted); line-height: 1.45; }
+.operator-equipment-list { display: grid; gap: 10px; }
+.operator-equipment-card { display: grid; grid-template-columns: minmax(180px, .9fr) minmax(260px, 1.4fr) auto; align-items: center; gap: 20px; padding: 17px 19px; border: 1px solid var(--line-soft); border-radius: 14px; background: var(--panel); box-shadow: var(--shadow); }
+.operator-equipment-title { display: grid; gap: 5px; }
+.operator-equipment-title span { color: var(--muted-2); font-size: 10px; font-weight: 850; text-transform: uppercase; letter-spacing: .08em; }
+.operator-equipment-title strong { font-size: 16px; }
+.operator-equipment-values { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; color: var(--muted); font-size: 12px; }
+.operator-equipment-values div { padding: 10px 12px; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--panel-strong); }
+.operator-message { min-height: 20px; color: var(--muted); font-size: 11px; }
+
+html[data-theme="light"] .operator-section-head,
+html[data-theme="light"] .operator-metric,
+html[data-theme="light"] .operator-equipment-card { background: #fff; }
+html[data-theme="light"] .operator-equipment-values div { background: #f5f8fb; }
+
+@media (max-width: 1100px) {
+    .operator-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 
 @media (max-width: 800px) {
     .engineering-grid { grid-template-columns: 1fr; }
     .engineering-login form, .password-form { grid-template-columns: 1fr; }
-    .engineering-actions { align-items: stretch; flex-direction: column; }
-    .engineering-actions .button { width: 100%; }
-    html[data-access="operator"] [data-page="meters"] .device-reading,
-    html[data-access="operator"] [data-page="inverters"] .device-reading { grid-template-columns: 1fr; }
+    .engineering-actions, .operator-section-head { align-items: stretch; flex-direction: column; }
+    .engineering-actions .button, .operator-section-head .button { width: 100%; }
+    .operator-equipment-card { grid-template-columns: 1fr auto; }
+    .operator-equipment-values { grid-column: 1 / -1; }
+}
+
+@media (max-width: 560px) {
+    .operator-metric-grid { grid-template-columns: 1fr; }
+    .operator-equipment-card { grid-template-columns: 1fr; }
+    .operator-equipment-values { grid-template-columns: 1fr; }
+    .operator-equipment-card .subtle-badge { justify-self: start; }
 }
