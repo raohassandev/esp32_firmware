@@ -1,9 +1,8 @@
 (() => {
     'use strict';
 
-    const TOKEN_KEY = 'amxEngineeringToken';
     const PROTECTED_ROUTES = new Set(['wifi', 'control', 'system']);
-    const state = { token: sessionStorage.getItem(TOKEN_KEY) || '', authenticated: false };
+    const state = { authenticated: false };
     const originalFetch = window.fetch.bind(window);
 
     function currentRoute() {
@@ -12,13 +11,9 @@
 
     window.fetch = async (input, init = {}) => {
         const url = typeof input === 'string' ? input : input?.url || '';
-        const headers = new Headers(init.headers || (typeof input !== 'string' ? input.headers : undefined));
-        if (state.token && url.startsWith('/api/')) headers.set('X-Engineering-Token', state.token);
-        const response = await originalFetch(input, { ...init, headers });
+        const response = await originalFetch(input, { credentials: 'same-origin', ...init });
         if (response.status === 401 && url.startsWith('/api/') && !url.includes('/engineering/') &&
             (currentRoute() === 'engineering' || PROTECTED_ROUTES.has(currentRoute()) || state.authenticated)) {
-            state.token = '';
-            sessionStorage.removeItem(TOKEN_KEY);
             setEngineering(false);
             openLogin('Engineering session expired. Sign in again.');
         }
@@ -50,7 +45,10 @@
         if (!nav || document.getElementById('engineeringNav')) return;
         ['wifi', 'control', 'system'].forEach((route) => {
             const link = nav.querySelector(`[data-route="${route}"]`);
-            if (link) { link.dataset.engineeringNav = 'true'; link.hidden = !state.authenticated; }
+            if (link) {
+                link.dataset.engineeringNav = 'true';
+                link.hidden = !state.authenticated;
+            }
         });
         const engineering = document.createElement('a');
         engineering.id = 'engineeringNav';
@@ -112,25 +110,24 @@
     async function refreshSession() {
         try {
             const response = await originalFetch('/api/engineering/session', {
-                cache: 'no-store', headers: state.token ? { 'X-Engineering-Token': state.token } : {}
+                cache: 'no-store', credentials: 'same-origin'
             });
             const payload = await response.json();
-            if (!payload.authenticated) {
-                state.token = '';
-                sessionStorage.removeItem(TOKEN_KEY);
-            }
             setEngineering(payload.authenticated);
-        } catch { setEngineering(false); }
+        } catch {
+            setEngineering(false);
+        }
     }
 
     async function login(password) {
         const response = await originalFetch('/api/engineering/login', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password })
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password })
         });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(payload.error || 'Engineering login failed');
-        state.token = payload.token;
-        sessionStorage.setItem(TOKEN_KEY, state.token);
         setEngineering(true);
         return payload;
     }
@@ -144,13 +141,17 @@
                 message.textContent = 'Authenticating…';
                 const result = await login(password.value);
                 password.value = '';
-                message.textContent = result.password_change_recommended ? 'Unlocked. Change the temporary password below.' : 'Engineering access unlocked.';
-            } catch (error) { message.textContent = error.message; }
+                message.textContent = result.password_change_recommended
+                    ? 'Unlocked. Change the temporary password below.'
+                    : 'Engineering access unlocked.';
+            } catch (error) {
+                message.textContent = error.message;
+            }
         });
         document.getElementById('engineeringLogout')?.addEventListener('click', async () => {
-            try { await window.fetch('/api/engineering/logout', { method: 'POST' }); } catch {}
-            state.token = '';
-            sessionStorage.removeItem(TOKEN_KEY);
+            try {
+                await originalFetch('/api/engineering/logout', { method: 'POST', credentials: 'same-origin' });
+            } catch {}
             setEngineering(false);
             location.hash = '#/dashboard';
         });
@@ -160,17 +161,20 @@
             const current = document.getElementById('engineeringCurrentPassword');
             const next = document.getElementById('engineeringNewPassword');
             try {
-                const response = await window.fetch('/api/engineering/password', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                const response = await originalFetch('/api/engineering/password', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ current_password: current.value, new_password: next.value })
                 });
                 const payload = await response.json().catch(() => ({}));
                 if (!response.ok) throw new Error(payload.error || 'Password change failed');
-                state.token = payload.token;
-                sessionStorage.setItem(TOKEN_KEY, state.token);
-                current.value = ''; next.value = '';
+                current.value = '';
+                next.value = '';
                 message.textContent = 'Engineering password changed successfully.';
-            } catch (error) { message.textContent = error.message; }
+            } catch (error) {
+                message.textContent = error.message;
+            }
         });
     }
 
