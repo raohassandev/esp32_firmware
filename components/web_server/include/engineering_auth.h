@@ -19,3 +19,10 @@ esp_err_t engineering_register_uri_handler(httpd_handle_t server,
 #ifdef __cplusplus
 }
 #endif
+
+/* All normal web-server translation units route URI registration through the
+ * authorization gateway. The gateway implementation itself defines
+ * ENGINEERING_GUARD_IMPLEMENTATION so it can call ESP-IDF's real function. */
+#ifndef ENGINEERING_GUARD_IMPLEMENTATION
+#define httpd_register_uri_handler engineering_register_uri_handler
+#endif
