@@ -1,7 +1,7 @@
 (() => {
     'use strict';
 
-    const state = { profiles: [], loading: false, loaded: false };
+    const state = { profiles: [], loading: false, loaded: false, saving: false };
     const byId = (id) => document.getElementById(id);
 
     function manufacturers(profiles) {
@@ -33,6 +33,7 @@
                 <span class="subtle-badge" id="inverterProfileQualification">Loading</span>
             </div>
             <div class="field-grid">
+                <label class="field"><span>Inverter channel</span><select id="inverterProfileChannel"></select></label>
                 <label class="field"><span>Manufacturer</span><select id="inverterManufacturer"></select></label>
                 <label class="field wide"><span>Model family</span><select id="inverterModelFamily"></select></label>
                 <label class="field"><span>Connection</span><input id="inverterProfileConnection" readonly></label>
@@ -41,16 +42,25 @@
             <div class="device-readiness-note" id="inverterProfileNotice" role="status">Loading inverter profiles…</div>
             <div class="panel-actions">
                 <button class="button secondary" id="inverterProfilesReload" type="button">Reload catalogue</button>
-                <button class="button primary" id="inverterProfileApply" type="button" disabled title="Profile persistence is not enabled in this milestone">Apply profile</button>
+                <button class="button primary" id="inverterProfileApply" type="button">Apply profile</button>
             </div>`;
 
         const notice = page.querySelector('.notice');
         if (notice) notice.after(panel);
         else page.prepend(panel);
 
+        const channel = byId('inverterProfileChannel');
+        for (let index = 0; index < 12; index += 1) {
+            const option = document.createElement('option');
+            option.value = String(index);
+            option.textContent = `Inverter ${index + 1}`;
+            channel.append(option);
+        }
+
         byId('inverterManufacturer').addEventListener('change', refreshModels);
         byId('inverterModelFamily').addEventListener('change', renderSelection);
         byId('inverterProfilesReload').addEventListener('click', () => loadProfiles(true));
+        byId('inverterProfileApply').addEventListener('click', applyProfile);
     }
 
     function setBadge(label, tone) {
@@ -84,16 +94,19 @@
         const connection = byId('inverterProfileConnection');
         const protocol = byId('inverterProfileProtocol');
         const notice = byId('inverterProfileNotice');
+        const apply = byId('inverterProfileApply');
         if (!profile) {
             if (connection) connection.value = '';
             if (protocol) protocol.value = '';
             if (notice) notice.textContent = 'No profile is available for this manufacturer.';
+            if (apply) apply.disabled = true;
             setBadge('Unavailable', 'bad');
             return;
         }
 
         if (connection) connection.value = profile.connection || '';
         if (protocol) protocol.value = profile.protocol || '';
+        if (apply) apply.disabled = state.saving;
         const status = writeStatus(profile);
         setBadge(profile.qualification || status.label, status.tone);
 
@@ -124,6 +137,37 @@
             manufacturerSelect.value = previous;
         }
         refreshModels();
+    }
+
+    async function applyProfile() {
+        const profile = selectedProfile();
+        const channel = Number(byId('inverterProfileChannel')?.value);
+        const notice = byId('inverterProfileNotice');
+        const button = byId('inverterProfileApply');
+        if (!profile || !Number.isInteger(channel) || channel < 0 || channel > 11 || state.saving) return;
+
+        state.saving = true;
+        if (button) button.disabled = true;
+        if (notice) notice.textContent = 'Saving profile assignment and disabling automatic control…';
+        try {
+            const response = await fetch('/api/inverter-profile-assignment', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ inverter_index: channel, profile_id: profile.id })
+            });
+            if (!response.ok) throw new Error(await response.text() || `HTTP ${response.status}`);
+            const payload = await response.json();
+            if (notice) {
+                notice.textContent = `Profile saved for Inverter ${channel + 1}. Automatic control is disabled. Restart the controller to apply this profile; live writes remain ${payload.write_allowed_after_restart ? 'eligible after qualification' : 'locked'}.`;
+            }
+            setBadge('Saved · restart required', 'warning');
+        } catch (error) {
+            if (notice) notice.textContent = `Profile assignment failed: ${error.message}`;
+            setBadge('Save failed', 'bad');
+        } finally {
+            state.saving = false;
+            if (button) button.disabled = !selectedProfile();
+        }
     }
 
     async function loadProfiles(force = false) {
