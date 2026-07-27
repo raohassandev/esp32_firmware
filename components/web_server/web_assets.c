@@ -29,6 +29,8 @@ extern const uint8_t inverter_profiles_js_start[] asm("_binary_inverter_profiles
 extern const uint8_t inverter_profiles_js_end[] asm("_binary_inverter_profiles_js_end");
 extern const uint8_t inverter_config_js_start[] asm("_binary_inverter_config_js_start");
 extern const uint8_t inverter_config_js_end[] asm("_binary_inverter_config_js_end");
+extern const uint8_t inverter_telemetry_js_start[] asm("_binary_inverter_telemetry_js_start");
+extern const uint8_t inverter_telemetry_js_end[] asm("_binary_inverter_telemetry_js_end");
 extern const uint8_t em500_utils_js_start[] asm("_binary_em500_utils_js_start");
 extern const uint8_t em500_utils_js_end[] asm("_binary_em500_utils_js_end");
 extern const uint8_t em500_core_js_start[] asm("_binary_em500_core_js_start");
@@ -60,6 +62,7 @@ const char *web_assets_devices_js(size_t *length) { return asset(devices_js_star
 const char *web_assets_devices_refresh_js(size_t *length) { return asset(devices_refresh_js_start, devices_refresh_js_end, length); }
 const char *web_assets_inverter_profiles_js(size_t *length) { return asset(inverter_profiles_js_start, inverter_profiles_js_end, length); }
 const char *web_assets_inverter_config_js(size_t *length) { return asset(inverter_config_js_start, inverter_config_js_end, length); }
+const char *web_assets_inverter_telemetry_js(size_t *length) { return asset(inverter_telemetry_js_start, inverter_telemetry_js_end, length); }
 const char *web_assets_em500_utils_js(size_t *length) { return asset(em500_utils_js_start, em500_utils_js_end, length); }
 const char *web_assets_em500_core_js(size_t *length) { return asset(em500_core_js_start, em500_core_js_end, length); }
 const char *web_assets_em500_profiles_js(size_t *length) { return asset(em500_profiles_js_start, em500_profiles_js_end, length); }
