@@ -1,4 +1,5 @@
 #include "inverter_manager.h"
+#include "inverter_profile_store.h"
 #include "inverter_profiles.h"
 #include "esp_check.h"
 #include <math.h>
@@ -27,6 +28,9 @@ static float s_total_rated_kw;
 
 esp_err_t inverter_manager_init(void)
 {
+    ESP_RETURN_ON_ERROR(inverter_profile_store_init(), TAG,
+                        "inverter profile assignment store unavailable");
+
     app_config_t *cfg = malloc(sizeof(*cfg));
     if (!cfg) return ESP_ERR_NO_MEM;
     esp_err_t err = config_manager_get_snapshot(cfg);
@@ -42,7 +46,13 @@ esp_err_t inverter_manager_init(void)
         inverter_runtime_t *runtime = &s_inverters[i];
         memset(runtime, 0, sizeof(*runtime));
         runtime->config = cfg->inverters[i];
-        runtime->profile = inverter_profiles_find(DEFAULT_PROFILE_ID);
+
+        char profile_id[INVERTER_PROFILE_ID_MAX] = {0};
+        if (inverter_profile_store_get(i, profile_id, sizeof(profile_id)) != ESP_OK) {
+            strlcpy(profile_id, DEFAULT_PROFILE_ID, sizeof(profile_id));
+        }
+        runtime->profile = inverter_profiles_find(profile_id);
+        if (!runtime->profile) runtime->profile = inverter_profiles_find(DEFAULT_PROFILE_ID);
         runtime->write_allowed = inverter_profile_allows_write(runtime->profile);
         runtime->lock = (portMUX_TYPE)portMUX_INITIALIZER_UNLOCKED;
         runtime->data.rated_power_kw = runtime->config.rated_power_kw;
