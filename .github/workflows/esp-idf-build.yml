@@ -27,8 +27,13 @@ jobs:
           node --check web/devices-utils.js
           node --check web/devices.js
           node --check web/devices-refresh.js
+          node --check web/em500-utils.js
+          node --check web/em500-core.js
+          node --check web/em500-profiles.js
+          node --check web/em500-plan.js
           node web/tests/wifi-utils.test.js
           node web/tests/devices-utils.test.js
+          node web/tests/em500-utils.test.js
       - name: Check telemetry source contract
         run: python3 tests/telemetry_source_contract.py
       - name: Check multi-meter configuration contract
@@ -43,6 +48,8 @@ jobs:
         run: python3 tests/em500_settings_source_contract.py
       - name: Check EM500 settings change-plan contract
         run: python3 tests/em500_settings_plan_source_contract.py
+      - name: Check EM500 web asset delivery contract
+        run: python3 tests/em500_web_assets_source_contract.py
 
   build:
     needs: web
