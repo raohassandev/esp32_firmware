@@ -8,6 +8,8 @@
 extern "C" {
 #endif
 
+typedef esp_err_t (*engineering_httpd_uri_func_t)(httpd_req_t *request);
+
 esp_err_t engineering_auth_init(void);
 esp_err_t engineering_auth_register(httpd_handle_t server);
 bool engineering_auth_is_authorized(httpd_req_t *request);
@@ -19,6 +21,11 @@ esp_err_t engineering_register_uri_handler(httpd_handle_t server,
 #ifdef __cplusplus
 }
 #endif
+
+/* engineering_guard.c historically used an ESP-IDF-internal callback alias.
+ * Keep a local, explicitly defined alias so the gateway remains portable across
+ * ESP-IDF releases without depending on private typedef names. */
+typedef engineering_httpd_uri_func_t httpd_uri_func;
 
 /* All normal web-server translation units route URI registration through the
  * authorization gateway. The gateway implementation itself defines
