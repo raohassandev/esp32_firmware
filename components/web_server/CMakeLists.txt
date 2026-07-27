@@ -25,8 +25,24 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500-core.js" "${CMAKE_CURR
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500-profiles.js" "${CMAKE_CURRENT_BINARY_DIR}/em500-profiles.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500-plan.js" "${CMAKE_CURRENT_BINARY_DIR}/em500-plan.js" COPYONLY)
 
+set(WEB_SERVER_C_SOURCES
+    web_server.c
+    web_api.c
+    device_api.c
+    engineering_auth.c
+    engineering_guard.c
+    inverter_profile_api.c
+    inverter_config_api.c
+    meter_config_api.c
+    em500_api.c
+    em500_history_api.c
+    em500_settings_api.c
+    em500_settings_plan_api.c
+    web_assets.c
+)
+
 idf_component_register(
-    SRCS "web_server.c" "web_api.c" "device_api.c" "engineering_auth.c" "engineering_guard.c" "inverter_profile_api.c" "inverter_config_api.c" "meter_config_api.c" "em500_api.c" "em500_history_api.c" "em500_settings_api.c" "em500_settings_plan_api.c" "web_assets.c"
+    SRCS ${WEB_SERVER_C_SOURCES}
     INCLUDE_DIRS "include"
     REQUIRES esp_http_server esp_system esp_timer esp_hw_support cjson nvs_flash mbedtls config_manager network_manager meter_manager modbus_tcp inverter_manager control_engine safety_manager
     EMBED_TXTFILES
@@ -58,9 +74,13 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/em500-plan.js"
 )
 
-# The forced header installs the authorization gateway macro for every normal
-# web-server source. The gateway implementation opts out explicitly so it can
-# call ESP-IDF's real registration function without macro-order dependence.
-target_compile_options(${COMPONENT_LIB} PRIVATE -include engineering_auth.h)
+# Apply the registration gateway only to C translation units. Embedded web
+# assets are compiled through generated assembler files and must never receive
+# C/FreeRTOS headers through a component-wide forced include.
+foreach(source IN LISTS WEB_SERVER_C_SOURCES)
+    if(NOT source STREQUAL "engineering_guard.c")
+        set_source_files_properties(${source} PROPERTIES COMPILE_OPTIONS "-include;engineering_auth.h")
+    endif()
+endforeach()
 set_source_files_properties(engineering_guard.c PROPERTIES
     COMPILE_DEFINITIONS ENGINEERING_GUARD_IMPLEMENTATION=1)
