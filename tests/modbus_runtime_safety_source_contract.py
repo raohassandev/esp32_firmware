@@ -34,8 +34,8 @@ require("memset(c, 0, sizeof(*c));" in MODBUS and "c->socket_fd = -1;" in MODBUS
 
 require("isfinite(scale)" in DECODER and "isfinite(offset)" in DECODER,
         "scaled decoder must reject non-finite configuration")
-require("isfinite(result)" in DECODER,
-        "scaled decoder must reject NaN and infinity results")
+require("isfinite(value)" in DECODER and "isfinite(scaled)" in DECODER,
+        "scaled decoder must reject NaN, infinity, and non-finite scaled results")
 require("isfinite(decoded)" in METER,
         "meter boundary must reject non-finite decoded data")
 require("s_meter_count = cfg->meter_count <= APP_MAX_METERS" in METER,
