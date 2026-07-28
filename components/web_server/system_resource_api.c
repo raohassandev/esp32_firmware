@@ -7,7 +7,6 @@
 #include "esp_chip_info.h"
 #include "esp_flash.h"
 #include "esp_heap_caps.h"
-#include "esp_psram.h"
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -53,18 +52,17 @@ static esp_err_t resources_get(httpd_req_t *request)
     uint32_t flash_size = 0;
     const bool flash_size_available = esp_flash_get_size(NULL, &flash_size) == ESP_OK;
 
-    const bool psram_initialized = esp_psram_is_initialized();
-    const size_t psram_total = psram_initialized ? esp_psram_get_size() : 0U;
-    const size_t psram_free = psram_initialized
-                                  ? heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
-                                  : 0U;
-    const size_t psram_largest = psram_initialized
-                                     ? heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
-                                     : 0U;
+    /* Heap capabilities are the portable ESP-IDF source of truth for external
+     * RAM. They avoid linking board-specific PSRAM helper symbols while still
+     * reporting actual allocator-visible capacity and margin. */
+    const size_t psram_total = heap_caps_get_total_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    const size_t psram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    const size_t psram_largest = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    const bool psram_available = psram_total > 0U;
 
     const double internal_fragmentation = free_internal > 0U
-                                              ? 1.0 - ((double)largest_internal / (double)free_internal)
-                                              : 1.0;
+                                               ? 1.0 - ((double)largest_internal / (double)free_internal)
+                                               : 1.0;
     const esp_reset_reason_t reset_reason = esp_reset_reason();
 
     cJSON *root = cJSON_CreateObject();
@@ -92,7 +90,7 @@ static esp_err_t resources_get(httpd_req_t *request)
     cJSON_AddNumberToObject(root, "largest_internal_block_bytes", (double)largest_internal);
     cJSON_AddNumberToObject(root, "internal_fragmentation_ratio", internal_fragmentation);
 
-    cJSON_AddBoolToObject(root, "psram_available", psram_initialized);
+    cJSON_AddBoolToObject(root, "psram_available", psram_available);
     cJSON_AddNumberToObject(root, "psram_total_bytes", (double)psram_total);
     cJSON_AddNumberToObject(root, "psram_free_bytes", (double)psram_free);
     cJSON_AddNumberToObject(root, "psram_largest_block_bytes", (double)psram_largest);
