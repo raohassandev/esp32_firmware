@@ -12,10 +12,15 @@ REQUIRED = [
     'runtime->data.online',
     'runtime->data.telemetry_valid',
     '!runtime->data.telemetry_stale',
-    'runtime->data.identity_verified',
+    'identity_is_current(runtime, timestamp)',
     'recompute_commandable_capacity',
-    'runtime->profile->power_limit_address',
-    'runtime->profile->raw_units_per_percent',
+    'command_target_t targets[APP_MAX_INVERTERS]',
+    'const inverter_profile_t *profile = targets[i].profile',
+    'profile->power_limit_address',
+    'profile->raw_units_per_percent',
+    'commanded_total_kw + commanded_kw > target_kw + 0.01f',
+    'runtime->data.commanded_power_kw = commanded_kw;',
+    'invalidate_identity(runtime)',
 ]
 
 missing = [token for token in REQUIRED if token not in SOURCE]
