@@ -11,6 +11,7 @@
 #include "inverter_profile_api.h"
 #include "meter_config_api.h"
 #include "operational_api.h"
+#include "system_resource_api.h"
 #include "web_api.h"
 #include "web_assets.h"
 
@@ -129,6 +130,7 @@ esp_err_t web_server_start(void)
     ESP_RETURN_ON_ERROR(inverter_profile_api_register(s_server), "web", "inverter profile API registration failed");
     ESP_RETURN_ON_ERROR(inverter_config_api_register(s_server), "web", "inverter configuration API registration failed");
     ESP_RETURN_ON_ERROR(meter_config_api_register(s_server), "web", "meter configuration API registration failed");
+    ESP_RETURN_ON_ERROR(system_resource_api_register(s_server), "web", "system resource API registration failed");
     ESP_RETURN_ON_ERROR(em500_api_register(s_server), "web", "EM500 snapshot API registration failed");
     ESP_RETURN_ON_ERROR(em500_history_api_register(s_server), "web", "EM500 history API registration failed");
     ESP_RETURN_ON_ERROR(em500_settings_api_register(s_server), "web", "EM500 settings API registration failed");
