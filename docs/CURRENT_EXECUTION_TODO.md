@@ -1,8 +1,8 @@
 # Current Execution TODO
 
 **Branch:** `feature/multibrand-inverter-profiles`  
-**Verified software head:** `b6f51f910769000a10754a23305b8d88ef545506`  
-**CI:** complete web suite passed; ESP-IDF 6.0.1 build passed with zero project warnings.
+**Current software head:** `edb72ba43a45fb3acc2d3f7df5af5c2f79aa5ae1`  
+**CI:** web/source-contract suite passed for current head; ESP-IDF 6.0.1 build is still running.
 
 This file is the concise current execution register. `MASTER_EXECUTION_TODO.md` remains the complete product scope.
 
@@ -35,15 +35,23 @@ This file is the concise current execution register. `MASTER_EXECUTION_TODO.md` 
 - [x] Return a complete HTTP 401 denial response.
 - [x] Add and pass Modbus/numeric runtime safety contract.
 - [x] Align and pass inverter runtime write-gate contract.
-- [x] Complete web CI and ESP-IDF 6.0.1 build for the verified head.
+- [x] Preserve schema-2 commissioned Wi-Fi credentials against the current build-provision generation.
+- [x] Preserve schema-1 migrated credentials against the current build-provision generation.
+- [x] Add bounded configuration JSON nesting validation before cJSON parsing.
+- [x] Prevent generic `/api/config` import from enabling automatic control.
+- [x] Validate imported meter, inverter, endpoint and control numeric values for finiteness and structural range.
+- [x] Add and pass configuration migration/import safety contract.
+- [x] Complete current web/source-contract CI suite.
+
+## Validation in progress
+
+- [ ] ESP-IDF 6.0.1 build for `edb72ba43a45fb3acc2d3f7df5af5c2f79aa5ae1`.
+- [ ] Zero compiler-warning confirmation for the current head.
 
 ## P0 remaining software blockers
 
-- [ ] Preserve schema-2 commissioned Wi-Fi credentials against later build-provision generations.
-- [ ] Add schema migration regression tests.
-- [ ] Add bounded JSON nesting validation before every cJSON parse.
-- [ ] Prevent generic `/api/config` import from enabling automatic control.
-- [ ] Validate every imported numeric control/configuration value for range and finiteness.
+- [ ] Apply bounded JSON nesting validation to every remaining independent JSON parser.
+- [ ] Add request-body receive deadlines consistently across all write endpoints.
 - [ ] Return JSON null—not `0.00`—for unavailable status power values.
 - [ ] Restore production salted-password/session authentication.
 - [ ] Add production build failure when authentication bypass is enabled.
@@ -123,4 +131,4 @@ This file is the concise current execution register. `MASTER_EXECUTION_TODO.md` 
 
 - [ ] Production release approved.
 
-Current result: software head builds and all current source/simulator contracts pass, but production release remains blocked by authentication, acquisition architecture, Solar-Generator implementation and physical FAT/SAT evidence.
+Current result: configuration migration/import safety is now implemented and source-tested. Production release remains blocked by authentication, acquisition architecture, Solar-Generator implementation and physical FAT/SAT evidence.
