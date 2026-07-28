@@ -7,6 +7,7 @@ SOURCE = (ROOT / "components/config_manager/config_manager.c").read_text(encodin
 HTTP_JSON = (ROOT / "components/web_server/http_json.c").read_text(encoding="utf-8")
 HTTP_JSON_HEADER = (ROOT / "components/web_server/include/http_json.h").read_text(encoding="utf-8")
 CMAKE = (ROOT / "components/web_server/CMakeLists.txt").read_text(encoding="utf-8")
+CONTROL_ENGINE = (ROOT / "components/control_engine/control_engine.c").read_text(encoding="utf-8")
 
 required = [
     "CONFIG_JSON_MAX_DEPTH 16U",
@@ -41,6 +42,8 @@ for token in [
     assert token in HTTP_JSON or token in HTTP_JSON_HEADER, \
         f"shared HTTP JSON safety helper missing: {token}"
 assert '"http_json.c"' in CMAKE
+assert '"auth_hmac_compat.c"' not in CMAKE, \
+    "the ESP-IDF HMAC symbol must not be multiply defined by a compatibility object"
 
 write_api_paths = [
     "components/web_server/web_api.c",
@@ -61,6 +64,22 @@ assert 'cJSON_AddNullToObject(root, "grid_power_kw")' in web_api
 assert 'cJSON_AddNullToObject(root, "meter_age_ms")' in web_api
 assert "meter.last_update_ms != 0 && isfinite(meter.active_power_kw)" in web_api
 
+for token in [
+    '#include "power_control_policy.h"',
+    "power_control_step(&input)",
+    ".policy = GRID_POLICY_MINIMUM_IMPORT",
+    ".source_mode = SOURCE_MODE_GRID_ONLY",
+    "meter_sample_fresh",
+    "grid-import target only",
+    "Generator and transfer modes remain blocked",
+    "safety_manager_limit_target_kw",
+    "inverter_manager_set_total_power_kw",
+    ".grid_power_kw = measurement_fresh ? grid.active_power_kw : NAN",
+]:
+    assert token in CONTROL_ENGINE, f"live grid control policy wiring missing: {token}"
+assert "SOURCE_MODE_GENERATOR_ONLY" not in CONTROL_ENGINE, \
+    "live generator operation must not be inferred before real run/breaker/ATS evidence exists"
+
 with tempfile.TemporaryDirectory() as directory:
     binary = Path(directory) / "power_control_policy_test"
     subprocess.run([
@@ -72,4 +91,4 @@ with tempfile.TemporaryDirectory() as directory:
     ], check=True)
     subprocess.run([str(binary)], check=True)
 
-print("configuration migration, bounded HTTP JSON, truthful status, and power-control policy tests passed")
+print("configuration migration, bounded HTTP JSON, truthful status, and live grid-control policy tests passed")
