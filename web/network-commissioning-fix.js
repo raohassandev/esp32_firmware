@@ -16,6 +16,18 @@
         return payload;
     }
 
+    async function ensureEngineeringSession() {
+        const response = await fetch('/api/engineering/session', {
+            cache: 'no-store',
+            credentials: 'same-origin'
+        });
+        const session = await response.json().catch(() => ({}));
+        if (!response.ok || session.authenticated !== true) {
+            throw new Error('Engineering access is not active. Open Engineering and unlock access before changing the network.');
+        }
+        return session;
+    }
+
     function message(text, tone = '') {
         const target = byId('wifiMessage');
         if (!target) return;
@@ -85,7 +97,10 @@
             await new Promise((resolve) => setTimeout(resolve, 1800));
             try {
                 const status = await api('/api/status');
-                if (status) return status;
+                if (status) {
+                    await ensureEngineeringSession();
+                    return status;
+                }
             } catch {}
         }
         throw new Error(`The settings were saved, but this browser could not rediscover the controller. Reconnect to the configured Wi-Fi or recovery AP and open ${oldIp || 'the controller address'} again.`);
@@ -98,6 +113,8 @@
         let saved = false;
         try {
             setBusy(true);
+            message('Checking Engineering access…');
+            await ensureEngineeringSession();
             message('Validating and saving Wi-Fi settings…');
             const next = payload();
             const oldIp = location.host;
@@ -116,7 +133,7 @@
             message('Controller is restarting and changing network. Keep this page open while it reconnects…', 'good');
             const status = await waitForController(oldIp);
             const detail = status?.ip ? ` New address: ${status.ip}.` : '';
-            message(`Wi-Fi connection restored.${detail}`, 'good');
+            message(`Wi-Fi connection restored and Engineering access renewed.${detail}`, 'good');
             state.baseline = next;
         } catch (error) {
             message(saved ? error.message : `Wi-Fi settings were not saved: ${error.message}`, saved ? 'warning' : 'bad');
@@ -127,6 +144,7 @@
 
     async function loadBaseline() {
         try {
+            await ensureEngineeringSession();
             const config = await api('/api/config');
             state.baseline = config?.wifi || null;
         } catch {}
