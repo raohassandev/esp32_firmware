@@ -8,6 +8,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "lwip/inet.h"
 #include "modbus_decoder.h"
@@ -22,6 +23,7 @@ typedef struct {
     modbus_connection_t connection;
     meter_data_t data;
     portMUX_TYPE lock;
+    SemaphoreHandle_t io_mutex;
 } meter_runtime_t;
 
 static meter_runtime_t s_meters[APP_MAX_METERS];
@@ -29,6 +31,7 @@ static uint8_t s_meter_count;
 
 #define METER_LOG_EVERY_N 30
 #define METER_FRESH_GRACE_MS 5000U
+#define METER_IO_LOCK_TIMEOUT_MS 5000U
 
 static uint32_t now_ms(void)
 {
@@ -46,11 +49,6 @@ static bool legacy_em500_scale_fingerprint(const meter_config_t *config)
 
 static float effective_active_power_scale(const meter_config_t *config)
 {
-    /* Earlier commissioned builds stored 0.01 for the EM500 total-power INT32
-     * register even though the raw value requires 0.00001 to produce kW. Keep
-     * this exact, narrow compatibility fingerprint in the runtime path so the
-     * dashboard, control engine and diagnostics agree with the complete EM500
-     * decoder without applying a dangerous global divide to unrelated meters. */
     return legacy_em500_scale_fingerprint(config) ? 0.00001f
                                                    : config->active_power_scale;
 }
@@ -113,13 +111,31 @@ static bool sample_is_fresh(const meter_data_t *data, uint32_t timestamp)
            timestamp - data->last_update_ms <= METER_FRESH_GRACE_MS;
 }
 
+static esp_err_t serialized_read(meter_runtime_t *meter,
+                                 uint8_t function_code,
+                                 uint16_t address,
+                                 uint16_t count,
+                                 uint16_t *registers)
+{
+    if (!meter || !meter->io_mutex) return ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(meter->io_mutex, pdMS_TO_TICKS(METER_IO_LOCK_TIMEOUT_MS)) != pdTRUE) {
+        ESP_LOGW(TAG, "%s: Modbus transaction queue timeout", meter->config.name);
+        return ESP_ERR_TIMEOUT;
+    }
+
+    esp_err_t err = modbus_tcp_read_registers(&meter->connection,
+                                              function_code,
+                                              address,
+                                              count,
+                                              registers);
+    xSemaphoreGive(meter->io_mutex);
+    return err;
+}
+
 static void record_failure(meter_runtime_t *meter, esp_err_t err)
 {
     meter_data_t next = data_snapshot(meter);
     next.last_attempt_ms = now_ms();
-    /* A single failed poll must not contradict a fresh successful sample. The
-     * channel becomes offline only after the last valid value exceeds the same
-     * freshness window used by the web status path. */
     next.online = sample_is_fresh(&next, next.last_attempt_ms);
     next.response_errors++;
     next.consecutive_failures++;
@@ -147,8 +163,11 @@ static void meter_task(void *argument)
             continue;
         }
 
-        esp_err_t err = modbus_tcp_read_registers(&meter->connection, meter->config.function_code,
-                                                   meter->config.active_power_address, count, registers);
+        esp_err_t err = serialized_read(meter,
+                                        meter->config.function_code,
+                                        meter->config.active_power_address,
+                                        count,
+                                        registers);
         meter_data_t next = data_snapshot(meter);
         uint32_t previous_failures = next.consecutive_failures;
         next.last_attempt_ms = now_ms();
@@ -198,12 +217,21 @@ esp_err_t meter_manager_init(void)
         runtime->index = i;
         runtime->config = cfg->meters[i];
         runtime->lock = (portMUX_TYPE)portMUX_INITIALIZER_UNLOCKED;
+        runtime->io_mutex = xSemaphoreCreateMutex();
+        if (!runtime->io_mutex) {
+            runtime->data.last_error = ESP_ERR_NO_MEM;
+        }
     }
 
     esp_err_t first_error = ESP_OK;
     for (uint8_t i = 0; i < s_meter_count; ++i) {
         meter_runtime_t *runtime = &s_meters[i];
         if (!runtime->config.enabled) continue;
+        if (!runtime->io_mutex) {
+            if (first_error == ESP_OK) first_error = ESP_ERR_NO_MEM;
+            ESP_LOGE(TAG, "meter %u transaction mutex allocation failed", i);
+            continue;
+        }
 
         esp_err_t init_err = modbus_tcp_connection_init(&runtime->connection, &runtime->config.endpoint);
         if (init_err != ESP_OK) {
@@ -255,11 +283,10 @@ esp_err_t meter_manager_read_registers(uint8_t meter_index,
 
     meter_runtime_t *meter = &s_meters[meter_index];
     meter_data_t status = data_snapshot(meter);
-    if (!meter->config.enabled || !status.connection_initialized) {
+    if (!meter->config.enabled || !status.connection_initialized || !meter->io_mutex) {
         return ESP_ERR_INVALID_STATE;
     }
     if (!network_manager_wait_ready(0)) return ESP_ERR_INVALID_STATE;
 
-    return modbus_tcp_read_registers(&meter->connection, function_code,
-                                     address, count, registers);
+    return serialized_read(meter, function_code, address, count, registers);
 }
