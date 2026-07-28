@@ -23,11 +23,10 @@
 #define AUTH_SHA256_BYTES 32U
 #define AUTH_HASH_INPUT_MAX 96U
 
-/* Development convenience only. Set to 0 before any resale/production build.
- * When enabled, opening the web interface creates an authenticated engineering
- * session automatically. The normal unique AMX-XXXXXX and stored-password
- * mechanisms remain intact for production mode. */
-#define AUTH_DEVELOPMENT_AUTO_UNLOCK 1
+/* Production-safe default. Development auto-unlock must never be enabled in a
+ * release branch. Local developers may override this only in an uncommitted
+ * lab build and must not distribute that image. */
+#define AUTH_DEVELOPMENT_AUTO_UNLOCK 0
 
 static uint8_t s_salt[16];
 static uint8_t s_hash[AUTH_SHA256_BYTES];
@@ -329,7 +328,6 @@ static esp_err_t login_post(httpd_req_t *request)
     cJSON_AddBoolToObject(root, "authenticated", true);
     cJSON_AddBoolToObject(root, "cookie_session", true);
     cJSON_AddBoolToObject(root, "password_change_recommended", s_setup_required);
-    cJSON_AddNumberToObject(root, "expires_in_ms", AUTH_SESSION_MS);
     return send_json(request, NULL, root);
 }
 
@@ -345,9 +343,7 @@ static esp_err_t logout_post(httpd_req_t *request)
 
 static esp_err_t password_post(httpd_req_t *request)
 {
-    if (!engineering_auth_is_authorized(request)) {
-        return engineering_auth_require(request);
-    }
+    if (engineering_auth_require(request) != ESP_OK) return ESP_OK;
     cJSON *json = NULL;
     if (receive_json(request, &json) != ESP_OK) {
         return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST,
@@ -355,76 +351,61 @@ static esp_err_t password_post(httpd_req_t *request)
     }
     cJSON *current = cJSON_GetObjectItemCaseSensitive(json, "current_password");
     cJSON *next = cJSON_GetObjectItemCaseSensitive(json, "new_password");
-    bool valid = cJSON_IsString(current) && cJSON_IsString(next) &&
-                 current->valuestring && next->valuestring &&
-                 verify_password(current->valuestring) &&
-                 strlen(next->valuestring) >= 10 &&
-                 strlen(next->valuestring) <= 64;
-    esp_err_t save_err = valid ? persist_credentials(next->valuestring)
-                               : ESP_ERR_INVALID_ARG;
+    bool valid = cJSON_IsString(current) && current->valuestring && verify_password(current->valuestring) &&
+                 cJSON_IsString(next) && next->valuestring && strlen(next->valuestring) >= 10U &&
+                 strlen(next->valuestring) <= 64U;
+    esp_err_t err = valid ? persist_credentials(next->valuestring) : ESP_ERR_INVALID_ARG;
     cJSON_Delete(json);
-    if (save_err != ESP_OK) {
-        return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST,
-                                   "Current password is wrong or new password is too weak");
+    if (err != ESP_OK) {
+        cJSON *root = cJSON_CreateObject();
+        cJSON_AddStringToObject(root, "error", "Current password or new password policy is invalid");
+        return send_json(request, "400 Bad Request", root);
     }
     new_session();
     set_session_cookie(request, true);
     cJSON *root = cJSON_CreateObject();
     cJSON_AddBoolToObject(root, "changed", true);
-    cJSON_AddBoolToObject(root, "cookie_session", true);
+    cJSON_AddBoolToObject(root, "authenticated", true);
     return send_json(request, NULL, root);
 }
 
 esp_err_t engineering_auth_init(void)
 {
-    if (psa_crypto_init() != PSA_SUCCESS) return ESP_FAIL;
-
+    ESP_ERROR_CHECK_WITHOUT_ABORT(psa_crypto_init());
     nvs_handle_t handle;
     esp_err_t err = nvs_open(AUTH_NS, NVS_READONLY, &handle);
     if (err == ESP_OK) {
         size_t salt_size = sizeof(s_salt);
         size_t hash_size = sizeof(s_hash);
-        err = nvs_get_blob(handle, AUTH_SALT_KEY, s_salt, &salt_size);
-        if (err == ESP_OK) {
-            err = nvs_get_blob(handle, AUTH_HASH_KEY, s_hash, &hash_size);
-        }
+        esp_err_t salt_err = nvs_get_blob(handle, AUTH_SALT_KEY, s_salt, &salt_size);
+        esp_err_t hash_err = nvs_get_blob(handle, AUTH_HASH_KEY, s_hash, &hash_size);
         nvs_close(handle);
-        if (err == ESP_OK && salt_size == sizeof(s_salt) &&
-            hash_size == sizeof(s_hash)) {
+        if (salt_err == ESP_OK && hash_err == ESP_OK &&
+            salt_size == sizeof(s_salt) && hash_size == sizeof(s_hash)) {
             s_setup_required = false;
-#if AUTH_DEVELOPMENT_AUTO_UNLOCK
-            printf("Engineering development auto-unlock enabled\n");
-#endif
             return ESP_OK;
         }
     }
 
     char password[16];
     temporary_password(password);
-    esp_fill_random(s_salt, sizeof(s_salt));
-    if (!hash_password(password, s_salt, s_hash)) {
-        memset(password, 0, sizeof(password));
-        return ESP_FAIL;
-    }
-    s_setup_required = true;
-#if AUTH_DEVELOPMENT_AUTO_UNLOCK
-    printf("Engineering development auto-unlock enabled\n");
-#endif
+    err = persist_credentials(password);
     printf("Engineering temporary password: %s\n", password);
     memset(password, 0, sizeof(password));
-    return ESP_OK;
+    return err;
 }
 
 esp_err_t engineering_auth_register(httpd_handle_t server)
 {
+    if (!server) return ESP_ERR_INVALID_ARG;
     const httpd_uri_t handlers[] = {
         {.uri = "/api/engineering/session", .method = HTTP_GET, .handler = session_get},
         {.uri = "/api/engineering/login", .method = HTTP_POST, .handler = login_post},
         {.uri = "/api/engineering/logout", .method = HTTP_POST, .handler = logout_post},
         {.uri = "/api/engineering/password", .method = HTTP_POST, .handler = password_post},
     };
-    for (size_t i = 0; i < sizeof(handlers) / sizeof(handlers[0]); ++i) {
-        esp_err_t err = httpd_register_uri_handler(server, &handlers[i]);
+    for (size_t index = 0; index < sizeof(handlers) / sizeof(handlers[0]); ++index) {
+        esp_err_t err = httpd_register_uri_handler(server, &handlers[index]);
         if (err != ESP_OK) return err;
     }
     return ESP_OK;
