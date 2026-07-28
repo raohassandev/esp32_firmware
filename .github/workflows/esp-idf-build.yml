@@ -98,6 +98,8 @@ jobs:
         run: python3 tests/theme_toggle_source_contract.py
       - name: Check UI and runtime consistency contract
         run: python3 tests/ui_runtime_consistency_source_contract.py
+      - name: Check UI runtime performance
+        run: python3 tests/ui_runtime_performance_source_contract.py
       - name: Check product and engineering separation contract
         run: python3 tests/product_engineering_access_source_contract.py
       - name: Check operator meter access boundary
