@@ -31,6 +31,7 @@ jobs:
           node --check web/product-experience-v2.js
           node --check web/commissioning-route.js
           node --check web/commissioning-wizard-v2.js
+          node --check web/commissioning-release-v3.js
           node --check web/engineering-errors.js
           node --check web/app.js
           node --check web/ui-enhancements.js
@@ -118,6 +119,8 @@ jobs:
         run: python3 tests/commissioning_wizard_v2_source_contract.py
       - name: Check controller resource telemetry
         run: python3 tests/system_resource_api_source_contract.py
+      - name: Check commissioning release V3
+        run: python3 tests/commissioning_release_v3_source_contract.py
 
   build:
     needs: web
