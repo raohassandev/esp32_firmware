@@ -55,6 +55,7 @@ set(WEB_SERVER_C_SOURCES
     "inverter_config_api.c"
     "meter_config_api.c"
     "em500_cache.c"
+    "em500_cache_adapter.c"
     "em500_api.c"
     "em500_history_api.c"
     "em500_settings_api.c"
@@ -121,3 +122,5 @@ foreach(source IN LISTS WEB_SERVER_C_SOURCES)
 endforeach()
 set_source_files_properties("engineering_guard.c" "operational_api.c" PROPERTIES
     COMPILE_DEFINITIONS ENGINEERING_GUARD_IMPLEMENTATION=1)
+set_property(SOURCE "em500_api.c" APPEND PROPERTY
+    COMPILE_DEFINITIONS meter_manager_read_registers=em500_cache_read_pdu_registers)
