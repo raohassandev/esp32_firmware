@@ -7,8 +7,11 @@
 
 #include "cJSON.h"
 #include "config_manager.h"
+#include "http_json.h"
 
-#define INVERTER_CONFIG_MAX_BODY 12288
+#define INVERTER_CONFIG_MAX_BODY 12288U
+#define INVERTER_CONFIG_BODY_DEADLINE_MS 5000U
+#define INVERTER_CONFIG_JSON_MAX_DEPTH 8U
 #define INVERTER_TIMEOUT_MIN_MS 100U
 #define INVERTER_TIMEOUT_MAX_MS 60000U
 #define INVERTER_RATED_MAX_KW 100000.0
@@ -35,31 +38,6 @@ static esp_err_t send_json_error(httpd_req_t *request, const char *status,
     esp_err_t err = send_json_text(request, status, json);
     free(json);
     return err;
-}
-
-static esp_err_t read_request_body(httpd_req_t *request, char **out_body)
-{
-    if (!request || !out_body || request->content_len <= 0 ||
-        request->content_len > INVERTER_CONFIG_MAX_BODY) {
-        return ESP_ERR_INVALID_SIZE;
-    }
-
-    char *body = malloc((size_t)request->content_len + 1U);
-    if (!body) return ESP_ERR_NO_MEM;
-
-    size_t offset = 0;
-    while (offset < (size_t)request->content_len) {
-        int received = httpd_req_recv(request, body + offset,
-                                      (size_t)request->content_len - offset);
-        if (received <= 0) {
-            free(body);
-            return ESP_FAIL;
-        }
-        offset += (size_t)received;
-    }
-    body[offset] = '\0';
-    *out_body = body;
-    return ESP_OK;
 }
 
 static bool read_bool(cJSON *object, const char *key, bool *out)
@@ -191,20 +169,24 @@ static bool duplicate_enabled_endpoint(const inverter_config_t *inverters,
 
 static esp_err_t inverters_config_post(httpd_req_t *request)
 {
-    char *body = NULL;
-    esp_err_t read_err = read_request_body(request, &body);
+    cJSON *root = NULL;
+    esp_err_t read_err = http_json_parse_bounded(request,
+                                                  INVERTER_CONFIG_MAX_BODY,
+                                                  INVERTER_CONFIG_BODY_DEADLINE_MS,
+                                                  INVERTER_CONFIG_JSON_MAX_DEPTH,
+                                                  &root);
     if (read_err == ESP_ERR_INVALID_SIZE) {
         return send_json_error(request, "413 Payload Too Large",
                                "Inverter configuration body is missing or too large");
     }
+    if (read_err == ESP_ERR_TIMEOUT) {
+        return send_json_error(request, "408 Request Timeout",
+                               "Inverter configuration body timed out");
+    }
     if (read_err != ESP_OK) {
         return send_json_error(request, "400 Bad Request",
-                               "Unable to read inverter configuration body");
+                               "Inverter configuration must be valid bounded JSON");
     }
-
-    cJSON *root = cJSON_Parse(body);
-    free(body);
-    if (!root) return send_json_error(request, "400 Bad Request", "Invalid JSON body");
 
     cJSON *array = cJSON_GetObjectItemCaseSensitive(root, "inverters");
     if (!cJSON_IsArray(array)) {
