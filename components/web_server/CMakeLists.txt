@@ -49,6 +49,7 @@ set(WEB_SERVER_C_SOURCES
     "device_api.c"
     "engineering_auth.c"
     "engineering_guard.c"
+    "auth_hmac_compat.c"
     "http_json.c"
     "operational_api.c"
     "inverter_profile_api.c"
