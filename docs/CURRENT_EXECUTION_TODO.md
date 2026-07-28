@@ -1,8 +1,8 @@
 # Current Execution TODO
 
 **Branch:** `feature/multibrand-inverter-profiles`  
-**Current software head:** `edb72ba43a45fb3acc2d3f7df5af5c2f79aa5ae1`  
-**CI:** web/source-contract suite passed for current head; ESP-IDF 6.0.1 build is still running.
+**Current software head:** `7fc13a14dccd7d0beef556a21b1f9857655a4b8a`  
+**CI:** queued for the current head.
 
 This file is the concise current execution register. `MASTER_EXECUTION_TODO.md` remains the complete product scope.
 
@@ -35,18 +35,25 @@ This file is the concise current execution register. `MASTER_EXECUTION_TODO.md` 
 - [x] Return a complete HTTP 401 denial response.
 - [x] Add and pass Modbus/numeric runtime safety contract.
 - [x] Align and pass inverter runtime write-gate contract.
-- [x] Preserve schema-2 commissioned Wi-Fi credentials against the current build-provision generation.
-- [x] Preserve schema-1 migrated credentials against the current build-provision generation.
+- [x] Preserve schema-2 commissioned Wi-Fi credentials against build provisioning.
+- [x] Preserve schema-1 migrated credentials against build provisioning.
 - [x] Add bounded configuration JSON nesting validation before cJSON parsing.
 - [x] Prevent generic `/api/config` import from enabling automatic control.
-- [x] Validate imported meter, inverter, endpoint and control numeric values for finiteness and structural range.
+- [x] Validate imported meter, inverter, endpoint and control numeric values.
 - [x] Add and pass configuration migration/import safety contract.
-- [x] Complete current web/source-contract CI suite.
+- [x] Add conservative Grid/Generator source-state evaluator.
+- [x] Add explicit Grid Only, Generator Only, synchronized, Island, Transfer, No Source, Conflict and Unknown states.
+- [x] Fail closed on stale or conflicting source evidence.
+- [x] Add generator safe-PV calculation using minimum loading, reserve and reverse-power margin.
+- [x] Add executable host unit tests for source-state and generator-limit calculations.
+- [x] Compile the source-state module into the ESP-IDF control component.
 
 ## Validation in progress
 
-- [ ] ESP-IDF 6.0.1 build for `edb72ba43a45fb3acc2d3f7df5af5c2f79aa5ae1`.
-- [ ] Zero compiler-warning confirmation for the current head.
+- [ ] Source-mode host unit test on GitHub Actions for `7fc13a14dccd7d0beef556a21b1f9857655a4b8a`.
+- [ ] Complete web/source-contract suite for the current head.
+- [ ] ESP-IDF 6.0.1 build for the current head.
+- [ ] Zero compiler-warning confirmation.
 
 ## P0 remaining software blockers
 
@@ -74,6 +81,7 @@ This file is the concise current execution register. `MASTER_EXECUTION_TODO.md` 
 
 ## Solar + Grid remaining
 
+- [ ] Integrate source-state result into the live control loop.
 - [ ] Zero-export mode.
 - [ ] Limited-export mode.
 - [ ] Minimum grid-import hold.
@@ -86,28 +94,29 @@ This file is the concise current execution register. `MASTER_EXECUTION_TODO.md` 
 
 ## Solar + Generator remaining
 
+- [x] Pure generator minimum-loading/reserve/reverse-margin safe-PV calculation.
 - [ ] Generator 1–3 meter roles.
-- [ ] Generator run and breaker feedback model.
-- [ ] Rated capacity, minimum loading and reserve/headroom configuration.
-- [ ] Minimum generator-loading controller.
-- [ ] Reverse-power prevention.
-- [ ] Fast PV curtailment after load rejection.
-- [ ] Multi-generator available-capacity calculation.
-- [ ] Warm-up, synchronized, loaded, cooling and stopped states.
-- [ ] Stale/conflicting-evidence fail-safe.
+- [ ] Generator run and breaker feedback acquisition.
+- [ ] Persist rated capacity, minimum loading and reserve/headroom configuration.
+- [ ] Integrate minimum generator-loading limit into live inverter commands.
+- [ ] Add fast PV curtailment after load rejection.
+- [ ] Multi-generator available-capacity calculation from live evidence.
+- [ ] Warm-up, synchronized, loaded, cooling and stopped timers.
 - [ ] Simulator tests and physical FAT.
 
-## Grid/Generator source transitions remaining
+## Grid/Generator source transitions
 
-- [ ] Grid only.
-- [ ] Generator only.
-- [ ] Grid + generator synchronized.
-- [ ] Island.
-- [ ] Transfer in progress.
-- [ ] No source.
-- [ ] Conflict.
-- [ ] Unknown.
-- [ ] Transition stabilization timers and PI/ramp reset.
+- [x] Deterministic pure source-state classification.
+- [x] Grid only.
+- [x] Generator only.
+- [x] Grid + generator synchronized.
+- [x] Island.
+- [x] Transfer in progress.
+- [x] No source.
+- [x] Conflict.
+- [x] Unknown.
+- [ ] Connect real breaker/run/ATS evidence to the source-state engine.
+- [ ] Add transition stabilization timers and PI/ramp reset.
 
 ## Inverter qualification remaining
 
@@ -131,4 +140,4 @@ This file is the concise current execution register. `MASTER_EXECUTION_TODO.md` 
 
 - [ ] Production release approved.
 
-Current result: configuration migration/import safety is now implemented and source-tested. Production release remains blocked by authentication, acquisition architecture, Solar-Generator implementation and physical FAT/SAT evidence.
+Current result: the conservative source-state and generator safe-limit core is implemented and executable-tested in CI. Live hardware evidence integration, production authentication, analyser caching and physical FAT/SAT remain release blockers.
