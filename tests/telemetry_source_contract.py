@@ -32,14 +32,19 @@ assert "config_manager_import_json" not in API, "telemetry API must not import c
 
 assert "command_target_t targets[APP_MAX_INVERTERS]" in INVERTER_MANAGER, \
     "fleet command must use one immutable eligible-target snapshot"
-assert "float commanded_kw = targets[i].rated_kw * percent / 100.0f;" in INVERTER_MANAGER, \
+assert "float commanded_kw = target->rated_kw * percent / 100.0f;" in INVERTER_MANAGER, \
     "commanded kW must be derived from the validated percentage and snapshot rating"
-assert "runtime->data.commanded_power_kw = commanded_kw;" in INVERTER_MANAGER, \
-    "runtime diagnostics must store the command actually sent"
+assert "target->runtime->data.commanded_power_kw = target->commanded_kw;" in INVERTER_MANAGER, \
+    "runtime diagnostics must store only the readback-confirmed command"
+assert "target->runtime->data.commanded_power_kw = 0.0f;" in INVERTER_MANAGER, \
+    "confirmed rollback must be represented explicitly as zero applied command"
 assert "runtime->data.commanded_power_kw = share_kw;" not in INVERTER_MANAGER, \
     "pre-validation requested share must not be reported as the sent command"
-assert "if (command_err == ESP_OK)" in INVERTER_MANAGER, \
-    "command diagnostics must only be committed after a successful write"
+assert "inverter_command_decide(&evidence)" in INVERTER_MANAGER
+assert "decision.action == INVERTER_COMMAND_CONFIRMED && decision.confirmed" in INVERTER_MANAGER
+assert INVERTER_MANAGER.index("inverter_command_decide(&evidence)") < INVERTER_MANAGER.index(
+    "target->runtime->data.commanded_power_kw = target->commanded_kw;"
+), "command telemetry must be committed only after readback confirmation"
 
 required_ui_fragments = [
     "Measured production",
@@ -52,4 +57,4 @@ for fragment in required_ui_fragments:
 assert "method: 'POST'" not in UI and 'method: "POST"' not in UI, \
     "device diagnostics UI must not issue POST requests"
 
-print("telemetry source contract passed")
+print("truthful meter telemetry and confirmed inverter-command telemetry contract passed")
