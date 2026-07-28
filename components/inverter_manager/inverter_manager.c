@@ -22,18 +22,26 @@ static const char *DEFAULT_PROFILE_ID = "custom.modbus-percent-v1";
 #define INVERTER_TELEMETRY_TASK_STACK 5120
 #define INVERTER_TELEMETRY_TASK_PRIORITY 5
 #define INVERTER_TELEMETRY_IDLE_MS 100
+#define INVERTER_IDENTITY_RECHECK_MS 60000U
 
 typedef struct {
     inverter_config_t config;
     const inverter_profile_t *profile;
     bool write_allowed;
     bool identity_checked;
+    uint32_t last_identity_ms;
     uint32_t next_poll_ms;
     modbus_connection_t connection;
     SemaphoreHandle_t io_mutex;
     inverter_data_t data;
     portMUX_TYPE lock;
 } inverter_runtime_t;
+
+typedef struct {
+    inverter_runtime_t *runtime;
+    const inverter_profile_t *profile;
+    float rated_kw;
+} command_target_t;
 
 static inverter_runtime_t s_inverters[APP_MAX_INVERTERS];
 static uint8_t s_inverter_count;
@@ -76,16 +84,35 @@ static bool identity_matches(const inverter_profile_t *profile,
     return (identity_raw(words, count) & mask) == (profile->identity_expected & mask);
 }
 
+static bool identity_is_current(const inverter_runtime_t *runtime, uint32_t timestamp)
+{
+    if (!runtime->data.identity_supported) return true;
+    return runtime->identity_checked && runtime->data.identity_verified &&
+           runtime->last_identity_ms != 0U &&
+           timestamp - runtime->last_identity_ms <= INVERTER_IDENTITY_RECHECK_MS;
+}
+
+static void invalidate_identity(inverter_runtime_t *runtime)
+{
+    portENTER_CRITICAL(&runtime->lock);
+    runtime->identity_checked = false;
+    runtime->last_identity_ms = 0U;
+    if (runtime->data.identity_supported) runtime->data.identity_verified = false;
+    portEXIT_CRITICAL(&runtime->lock);
+}
+
 static void recompute_commandable_capacity(void)
 {
     float total = 0.0f;
+    uint32_t timestamp = now_ms();
     for (uint8_t i = 0; i < s_inverter_count; ++i) {
         inverter_runtime_t *runtime = &s_inverters[i];
         portENTER_CRITICAL(&runtime->lock);
         bool eligible = runtime->config.enabled && runtime->write_allowed &&
                         runtime->data.connection_initialized && runtime->data.online &&
                         runtime->data.telemetry_valid && !runtime->data.telemetry_stale &&
-                        (!runtime->data.identity_supported || runtime->data.identity_verified) &&
+                        identity_is_current(runtime, timestamp) &&
+                        isfinite(runtime->config.rated_power_kw) &&
                         runtime->config.rated_power_kw > 0.0f;
         float rated = runtime->config.rated_power_kw;
         portEXIT_CRITICAL(&runtime->lock);
@@ -103,7 +130,8 @@ static esp_err_t read_profile_block(inverter_runtime_t *runtime,
                                     uint16_t *words)
 {
     if (!runtime || !runtime->io_mutex || !words || count == 0) return ESP_ERR_INVALID_ARG;
-    if (xSemaphoreTake(runtime->io_mutex, pdMS_TO_TICKS(runtime->config.endpoint.timeout_ms + 100U)) != pdTRUE) {
+    if (xSemaphoreTake(runtime->io_mutex,
+                       pdMS_TO_TICKS(runtime->config.endpoint.timeout_ms + 100U)) != pdTRUE) {
         return ESP_ERR_TIMEOUT;
     }
     esp_err_t err = modbus_tcp_read_registers(&runtime->connection, function_code,
@@ -115,9 +143,11 @@ static esp_err_t read_profile_block(inverter_runtime_t *runtime,
 static esp_err_t verify_identity(inverter_runtime_t *runtime)
 {
     const inverter_profile_t *profile = runtime->profile;
+    uint32_t timestamp = now_ms();
     if (!profile || !profile->has_identity_probe) {
         portENTER_CRITICAL(&runtime->lock);
         runtime->identity_checked = true;
+        runtime->last_identity_ms = timestamp;
         runtime->data.identity_supported = false;
         runtime->data.identity_verified = true;
         portEXIT_CRITICAL(&runtime->lock);
@@ -132,7 +162,8 @@ static esp_err_t verify_identity(inverter_runtime_t *runtime)
     bool matched = err == ESP_OK && identity_matches(profile, words, count);
 
     portENTER_CRITICAL(&runtime->lock);
-    runtime->identity_checked = true;
+    runtime->identity_checked = matched;
+    runtime->last_identity_ms = matched ? timestamp : 0U;
     runtime->data.identity_supported = true;
     runtime->data.identity_verified = matched;
     runtime->data.last_error = err == ESP_OK && !matched ? ESP_ERR_INVALID_RESPONSE : err;
@@ -159,11 +190,12 @@ static esp_err_t poll_active_power(inverter_runtime_t *runtime, uint32_t timesta
                                             profile->active_power_word_order,
                                             profile->active_power_scale,
                                             &power_kw);
+        if (err == ESP_OK && !isfinite(power_kw)) err = ESP_ERR_INVALID_RESPONSE;
     }
 
     portENTER_CRITICAL(&runtime->lock);
     runtime->data.telemetry_supported = true;
-    if (err == ESP_OK && isfinite(power_kw)) {
+    if (err == ESP_OK) {
         runtime->data.measured_power_kw = power_kw;
         runtime->data.telemetry_valid = true;
         runtime->data.telemetry_stale = false;
@@ -176,6 +208,12 @@ static esp_err_t poll_active_power(inverter_runtime_t *runtime, uint32_t timesta
         runtime->data.read_errors++;
         runtime->data.consecutive_read_failures++;
         runtime->data.last_error = err;
+        runtime->data.online = false;
+        runtime->data.telemetry_valid = false;
+        runtime->data.telemetry_stale = true;
+        runtime->identity_checked = false;
+        runtime->last_identity_ms = 0U;
+        if (runtime->data.identity_supported) runtime->data.identity_verified = false;
     }
     portEXIT_CRITICAL(&runtime->lock);
     return err;
@@ -199,10 +237,11 @@ static esp_err_t poll_readback(inverter_runtime_t *runtime, uint32_t timestamp)
                                             profile->power_limit_readback_word_order,
                                             profile->power_limit_readback_scale,
                                             &readback_percent);
+        if (err == ESP_OK && !isfinite(readback_percent)) err = ESP_ERR_INVALID_RESPONSE;
     }
 
     portENTER_CRITICAL(&runtime->lock);
-    if (err == ESP_OK && isfinite(readback_percent)) {
+    if (err == ESP_OK) {
         runtime->data.readback_percent = readback_percent;
         runtime->data.has_readback = true;
         runtime->data.last_readback_ms = timestamp;
@@ -226,6 +265,9 @@ static void update_stale_state(inverter_runtime_t *runtime, uint32_t timestamp)
             runtime->data.telemetry_stale = true;
             runtime->data.telemetry_valid = false;
             runtime->data.online = false;
+            runtime->identity_checked = false;
+            runtime->last_identity_ms = 0U;
+            if (runtime->data.identity_supported) runtime->data.identity_verified = false;
         }
     }
     portEXIT_CRITICAL(&runtime->lock);
@@ -246,20 +288,19 @@ static void inverter_telemetry_task(void *argument)
             if ((int32_t)(timestamp - runtime->next_poll_ms) < 0) continue;
             runtime->next_poll_ms = timestamp + profile_poll_ms(runtime->profile);
 
-            if (!runtime->identity_checked && verify_identity(runtime) != ESP_OK) {
+            if (!identity_is_current(runtime, timestamp) && verify_identity(runtime) != ESP_OK) {
                 portENTER_CRITICAL(&runtime->lock);
                 runtime->data.online = false;
                 runtime->data.telemetry_valid = false;
+                runtime->data.telemetry_stale = true;
                 portEXIT_CRITICAL(&runtime->lock);
                 continue;
             }
-            if (runtime->data.identity_supported && !runtime->data.identity_verified) continue;
 
             esp_err_t telemetry_err = poll_active_power(runtime, timestamp);
-            if (runtime->profile->has_power_limit_readback) {
+            if (telemetry_err == ESP_OK && runtime->profile->has_power_limit_readback) {
                 (void)poll_readback(runtime, timestamp);
             }
-            if (telemetry_err != ESP_OK) update_stale_state(runtime, timestamp);
         }
         recompute_commandable_capacity();
         vTaskDelay(pdMS_TO_TICKS(INVERTER_TELEMETRY_IDLE_MS));
@@ -280,7 +321,9 @@ esp_err_t inverter_manager_init(void)
         return err;
     }
 
-    s_inverter_count = cfg->inverter_count;
+    s_inverter_count = cfg->inverter_count <= APP_MAX_INVERTERS
+                           ? cfg->inverter_count
+                           : APP_MAX_INVERTERS;
     portENTER_CRITICAL(&s_capacity_lock);
     s_total_rated_kw = 0.0f;
     portEXIT_CRITICAL(&s_capacity_lock);
@@ -305,6 +348,11 @@ esp_err_t inverter_manager_init(void)
         runtime->next_poll_ms = now_ms();
 
         if (!runtime->config.enabled) continue;
+        if (!isfinite(runtime->config.rated_power_kw) || runtime->config.rated_power_kw <= 0.0f) {
+            runtime->data.last_error = ESP_ERR_INVALID_ARG;
+            if (first_error == ESP_OK) first_error = ESP_ERR_INVALID_ARG;
+            continue;
+        }
         runtime->io_mutex = xSemaphoreCreateMutex();
         if (!runtime->io_mutex) {
             runtime->data.last_error = ESP_ERR_NO_MEM;
@@ -352,16 +400,42 @@ float inverter_manager_get_total_rated_kw(void)
     return total;
 }
 
+static esp_err_t encode_command(const inverter_profile_t *profile, float percent,
+                                uint16_t *words, uint8_t *word_count)
+{
+    if (!profile || !words || !word_count || !isfinite(percent) || percent < 0.0f ||
+        !isfinite(profile->raw_units_per_percent) || profile->raw_units_per_percent <= 0.0f ||
+        !isfinite(profile->minimum_percent) || !isfinite(profile->maximum_percent) ||
+        profile->minimum_percent < 0.0f || profile->maximum_percent < profile->minimum_percent ||
+        (profile->power_limit_words != 1U && profile->power_limit_words != 2U)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    double raw_value = (double)percent * (double)profile->raw_units_per_percent;
+    double maximum_raw = profile->power_limit_words == 1U ? UINT16_MAX : UINT32_MAX;
+    if (!isfinite(raw_value) || raw_value < 0.0 || raw_value > maximum_raw) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    uint32_t raw = (uint32_t)llround(raw_value);
+    if (profile->power_limit_words == 2U) {
+        words[0] = (uint16_t)(raw >> 16);
+        words[1] = (uint16_t)raw;
+        *word_count = 2U;
+    } else {
+        words[0] = (uint16_t)raw;
+        *word_count = 1U;
+    }
+    return ESP_OK;
+}
+
 esp_err_t inverter_manager_set_total_power_kw(float target_kw)
 {
-    if (target_kw < 0.0f) target_kw = 0.0f;
-    float total_rated_kw = inverter_manager_get_total_rated_kw();
-    if (total_rated_kw <= 0.0f) {
-        ESP_LOGW(TAG, "power command rejected: no online production-approved inverter profile is commandable");
-        return ESP_ERR_INVALID_STATE;
-    }
-    if (target_kw > total_rated_kw) target_kw = total_rated_kw;
-    esp_err_t final_result = ESP_OK;
+    if (!isfinite(target_kw) || target_kw < 0.0f) return ESP_ERR_INVALID_ARG;
+
+    command_target_t targets[APP_MAX_INVERTERS] = {0};
+    uint8_t target_count = 0;
+    float total_rated_kw = 0.0f;
+    uint32_t timestamp = now_ms();
 
     for (uint8_t i = 0; i < s_inverter_count; ++i) {
         inverter_runtime_t *runtime = &s_inverters[i];
@@ -369,18 +443,53 @@ esp_err_t inverter_manager_set_total_power_kw(float target_kw)
         bool eligible = runtime->config.enabled && runtime->data.connection_initialized &&
                         runtime->write_allowed && runtime->data.online &&
                         runtime->data.telemetry_valid && !runtime->data.telemetry_stale &&
-                        (!runtime->data.identity_supported || runtime->data.identity_verified) &&
+                        identity_is_current(runtime, timestamp) &&
+                        isfinite(runtime->config.rated_power_kw) &&
                         runtime->config.rated_power_kw > 0.0f;
+        float rated = runtime->config.rated_power_kw;
+        const inverter_profile_t *profile = runtime->profile;
         portEXIT_CRITICAL(&runtime->lock);
-        if (!eligible) continue;
+        if (!eligible || !profile || target_count >= APP_MAX_INVERTERS) continue;
+        targets[target_count++] = (command_target_t){
+            .runtime = runtime,
+            .profile = profile,
+            .rated_kw = rated
+        };
+        total_rated_kw += rated;
+    }
 
-        float share_kw = target_kw * runtime->config.rated_power_kw / total_rated_kw;
-        float percent = 100.0f * share_kw / runtime->config.rated_power_kw;
-        percent = fmaxf(runtime->profile->minimum_percent,
-                        fminf(runtime->profile->maximum_percent, percent));
-        float commanded_kw = runtime->config.rated_power_kw * percent / 100.0f;
-        uint32_t raw = (uint32_t)lroundf(percent * runtime->profile->raw_units_per_percent);
-        if (raw > UINT16_MAX) raw = UINT16_MAX;
+    if (target_count == 0 || !isfinite(total_rated_kw) || total_rated_kw <= 0.0f) {
+        ESP_LOGW(TAG, "power command rejected: no online production-approved inverter profile is commandable");
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (target_kw > total_rated_kw) target_kw = total_rated_kw;
+
+    esp_err_t final_result = ESP_OK;
+    float commanded_total_kw = 0.0f;
+    for (uint8_t i = 0; i < target_count; ++i) {
+        inverter_runtime_t *runtime = targets[i].runtime;
+        const inverter_profile_t *profile = targets[i].profile;
+        float share_kw = target_kw * targets[i].rated_kw / total_rated_kw;
+        float percent = target_kw <= 0.0f ? 0.0f : 100.0f * share_kw / targets[i].rated_kw;
+        if (!isfinite(percent)) {
+            final_result = ESP_ERR_INVALID_ARG;
+            continue;
+        }
+        if (percent > 0.0f && percent < profile->minimum_percent) percent = 0.0f;
+        if (percent > profile->maximum_percent) percent = profile->maximum_percent;
+        float commanded_kw = targets[i].rated_kw * percent / 100.0f;
+        if (!isfinite(commanded_kw) || commanded_total_kw + commanded_kw > target_kw + 0.01f) {
+            final_result = ESP_ERR_INVALID_ARG;
+            continue;
+        }
+
+        uint16_t words[2] = {0};
+        uint8_t word_count = 0;
+        esp_err_t encode_err = encode_command(profile, percent, words, &word_count);
+        if (encode_err != ESP_OK) {
+            final_result = encode_err;
+            continue;
+        }
 
         if (xSemaphoreTake(runtime->io_mutex,
                            pdMS_TO_TICKS(runtime->config.endpoint.timeout_ms + 100U)) != pdTRUE) {
@@ -388,32 +497,37 @@ esp_err_t inverter_manager_set_total_power_kw(float target_kw)
             continue;
         }
         esp_err_t command_err;
-        if (runtime->profile->power_limit_function == 16) {
-            uint16_t value = (uint16_t)raw;
+        if (profile->power_limit_function == 16) {
             command_err = modbus_tcp_write_multiple(&runtime->connection,
-                                                     runtime->profile->power_limit_address,
-                                                     &value, 1);
-        } else if (runtime->profile->power_limit_function == 6) {
+                                                     profile->power_limit_address,
+                                                     words, word_count);
+        } else if (profile->power_limit_function == 6 && word_count == 1U) {
             command_err = modbus_tcp_write_single(&runtime->connection,
-                                                   runtime->profile->power_limit_address,
-                                                   (uint16_t)raw);
+                                                   profile->power_limit_address,
+                                                   words[0]);
         } else {
             command_err = ESP_ERR_NOT_SUPPORTED;
         }
         xSemaphoreGive(runtime->io_mutex);
 
         portENTER_CRITICAL(&runtime->lock);
-        runtime->data.commanded_percent = percent;
-        runtime->data.commanded_power_kw = commanded_kw;
-        runtime->data.has_command = true;
-        runtime->data.last_command_ms = now_ms();
         runtime->data.last_error = command_err;
-        if (command_err == ESP_OK) runtime->data.write_successes++;
-        else runtime->data.write_errors++;
+        if (command_err == ESP_OK) {
+            runtime->data.commanded_percent = percent;
+            runtime->data.commanded_power_kw = commanded_kw;
+            runtime->data.has_command = true;
+            runtime->data.last_command_ms = now_ms();
+            runtime->data.write_successes++;
+        } else {
+            runtime->data.write_errors++;
+        }
         portEXIT_CRITICAL(&runtime->lock);
 
-        if (command_err != ESP_OK) {
+        if (command_err == ESP_OK) {
+            commanded_total_kw += commanded_kw;
+        } else {
             final_result = command_err;
+            invalidate_identity(runtime);
             ESP_LOGW(TAG, "%s command failed: %s", runtime->config.name,
                      esp_err_to_name(command_err));
         }
