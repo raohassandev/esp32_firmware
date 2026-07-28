@@ -26,7 +26,12 @@ esp_err_t modbus_decode_scaled(const uint16_t *registers, size_t register_count,
                                modbus_data_type_t type, modbus_word_order_t order,
                                float scale, float offset, float *out_value)
 {
-    if (!registers || !out_value || register_count < modbus_data_register_count(type)) return ESP_ERR_INVALID_ARG;
+    if (!registers || !out_value ||
+        register_count < modbus_data_register_count(type) ||
+        !isfinite(scale) || !isfinite(offset)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     float value = 0.0f;
     if (type == MODBUS_DATA_UINT16) value = registers[0];
     else if (type == MODBUS_DATA_INT16) value = (int16_t)registers[0];
@@ -37,7 +42,12 @@ esp_err_t modbus_decode_scaled(const uint16_t *registers, size_t register_count,
         else if (type == MODBUS_DATA_FLOAT32) memcpy(&value, &raw, sizeof(value));
         else return ESP_ERR_NOT_SUPPORTED;
     }
-    *out_value = value * scale + offset;
+
+    if (!isfinite(value)) return ESP_ERR_INVALID_RESPONSE;
+    float scaled = value * scale + offset;
+    if (!isfinite(scaled)) return ESP_ERR_INVALID_RESPONSE;
+
+    *out_value = scaled;
     return ESP_OK;
 }
 
@@ -56,6 +66,8 @@ esp_err_t modbus_decode_u64_be_scaled(const uint16_t *registers,
                    ((uint64_t)registers[1] << 32) |
                    ((uint64_t)registers[2] << 16) |
                    (uint64_t)registers[3];
-    *out_value = (double)raw * scale + offset;
+    double scaled = (double)raw * scale + offset;
+    if (!isfinite(scaled)) return ESP_ERR_INVALID_RESPONSE;
+    *out_value = scaled;
     return ESP_OK;
 }
