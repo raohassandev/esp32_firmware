@@ -1,0 +1,200 @@
+/* Field screenshot polish: compact, legible industrial commissioning UI. */
+:root {
+    --amx-content-max: 1380px;
+    --amx-panel-radius: 16px;
+}
+
+.main-content > .page,
+.page.active {
+    max-width: var(--amx-content-max);
+    margin-inline: auto;
+}
+
+.page-intro + .page-intro,
+[data-page="readiness"] > .page-intro:first-child {
+    display: none !important;
+}
+
+.panel,
+.ops-card,
+.history-card,
+.readiness-card,
+.cw-stage {
+    border-radius: var(--amx-panel-radius);
+}
+
+.history-grid,
+.trend-grid {
+    align-items: stretch;
+}
+
+.history-card,
+.trend-card {
+    min-height: 0;
+}
+
+.history-chart,
+.trend-chart {
+    min-height: 132px;
+    max-height: 190px;
+}
+
+.empty-state,
+.current-attention .empty-state,
+.solar-empty-state {
+    min-height: 112px;
+    padding: 24px;
+}
+
+[data-page="inverters"] .gauge-card {
+    min-height: 220px;
+}
+
+[data-page="inverters"] .panel,
+[data-page="dashboard"] .panel {
+    overflow: hidden;
+}
+
+/* Readiness cards must remain readable in dark mode. */
+[data-theme="dark"] .readiness-card,
+html:not([data-theme="light"]) .readiness-card {
+    background: #10243a !important;
+    border-color: #29445f !important;
+    color: #f4f8fc !important;
+}
+
+[data-theme="dark"] .readiness-card strong,
+[data-theme="dark"] .readiness-card p,
+[data-theme="dark"] .readiness-card small,
+html:not([data-theme="light"]) .readiness-card strong,
+html:not([data-theme="light"]) .readiness-card p,
+html:not([data-theme="light"]) .readiness-card small {
+    color: inherit !important;
+    opacity: 1 !important;
+}
+
+.readiness-grid {
+    gap: 14px !important;
+}
+
+.readiness-card {
+    min-height: 112px !important;
+    padding: 18px 20px !important;
+}
+
+.readiness-card .status-badge {
+    align-self: flex-start;
+}
+
+/* Engineering should present a workflow, not a detached login island. */
+.engineering-page .page-intro {
+    margin-bottom: 18px;
+}
+
+.engineering-login {
+    max-width: 760px;
+    padding: 26px;
+}
+
+.engineering-login form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: end;
+}
+
+.engineering-console {
+    display: grid;
+    gap: 18px;
+}
+
+.engineering-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.engineering-tile {
+    min-height: 154px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    justify-content: flex-start;
+    text-decoration: none;
+}
+
+.engineering-tile.primary-workflow {
+    grid-column: span 2;
+    border-color: rgba(255, 143, 32, .7);
+    background: linear-gradient(135deg, rgba(255, 143, 32, .13), rgba(16, 36, 58, .96));
+}
+
+.engineering-actions {
+    border-radius: 12px;
+}
+
+/* Reduce visual noise and preserve hierarchy. */
+.page .eyebrow {
+    letter-spacing: .09em;
+}
+
+.page h1,
+.page h2,
+.page h3 {
+    text-wrap: balance;
+}
+
+.nav-link {
+    min-height: 46px;
+}
+
+.sidebar-footer {
+    line-height: 1.35;
+}
+
+@media (max-width: 900px) {
+    .engineering-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .engineering-tile.primary-workflow {
+        grid-column: 1 / -1;
+    }
+}
+
+@media (max-width: 640px) {
+    .main-content {
+        padding-inline: 14px !important;
+    }
+
+    .engineering-login {
+        padding: 20px;
+    }
+
+    .engineering-login form,
+    .engineering-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .engineering-login .button,
+    .engineering-actions .button {
+        width: 100%;
+    }
+
+    .engineering-actions {
+        align-items: stretch;
+    }
+
+    .readiness-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    .readiness-card {
+        min-height: 0 !important;
+    }
+
+    .history-chart,
+    .trend-chart {
+        min-height: 110px;
+    }
+}
