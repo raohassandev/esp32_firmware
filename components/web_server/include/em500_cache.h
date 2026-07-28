@@ -64,6 +64,15 @@ esp_err_t em500_cache_read_registers(uint8_t meter_index,
                                      uint16_t count,
                                      uint16_t *registers);
 
+/* Drop-in adapter used only by em500_api.c. It recognizes the documented block
+ * address/count, requests the appropriate asynchronous scan, and returns the
+ * last-good cached block immediately. */
+esp_err_t em500_cache_read_pdu_registers(uint8_t meter_index,
+                                         uint8_t function_code,
+                                         uint16_t pdu_address,
+                                         uint16_t count,
+                                         uint16_t *registers);
+
 #ifdef __cplusplus
 }
 #endif
