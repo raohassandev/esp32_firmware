@@ -1,4 +1,5 @@
 #include "inverter_manager.h"
+#include "inverter_command_policy.h"
 #include "inverter_profile_store.h"
 #include "inverter_profiles.h"
 #include "inverter_profile_decode.h"
@@ -23,6 +24,9 @@ static const char *DEFAULT_PROFILE_ID = "custom.modbus-percent-v1";
 #define INVERTER_TELEMETRY_TASK_PRIORITY 5
 #define INVERTER_TELEMETRY_IDLE_MS 100
 #define INVERTER_IDENTITY_RECHECK_MS 60000U
+#define INVERTER_COMMAND_MAX_ATTEMPTS 2U
+#define INVERTER_COMMAND_READBACK_DELAY_MS 100U
+#define INVERTER_SAFE_FALLBACK_PERCENT 0.0f
 
 typedef struct {
     inverter_config_t config;
@@ -41,6 +45,10 @@ typedef struct {
     inverter_runtime_t *runtime;
     const inverter_profile_t *profile;
     float rated_kw;
+    float percent;
+    float commanded_kw;
+    uint16_t words[2];
+    uint8_t word_count;
 } command_target_t;
 
 static inverter_runtime_t s_inverters[APP_MAX_INVERTERS];
@@ -428,6 +436,120 @@ static esp_err_t encode_command(const inverter_profile_t *profile, float percent
     return ESP_OK;
 }
 
+static esp_err_t write_profile_command(inverter_runtime_t *runtime,
+                                       const inverter_profile_t *profile,
+                                       const uint16_t *words,
+                                       uint8_t word_count)
+{
+    if (!runtime || !profile || !words || !runtime->io_mutex) return ESP_ERR_INVALID_ARG;
+    if (xSemaphoreTake(runtime->io_mutex,
+                       pdMS_TO_TICKS(runtime->config.endpoint.timeout_ms + 100U)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    esp_err_t err;
+    if (profile->power_limit_function == 16U) {
+        err = modbus_tcp_write_multiple(&runtime->connection,
+                                        profile->power_limit_address,
+                                        words, word_count);
+    } else if (profile->power_limit_function == 6U && word_count == 1U) {
+        err = modbus_tcp_write_single(&runtime->connection,
+                                      profile->power_limit_address,
+                                      words[0]);
+    } else {
+        err = ESP_ERR_NOT_SUPPORTED;
+    }
+    xSemaphoreGive(runtime->io_mutex);
+    return err;
+}
+
+static esp_err_t read_limit_percent(inverter_runtime_t *runtime,
+                                    const inverter_profile_t *profile,
+                                    float *percent)
+{
+    if (!runtime || !profile || !percent || !profile->has_power_limit_readback ||
+        profile->power_limit_readback_words == 0U ||
+        profile->power_limit_readback_words > INVERTER_PROBE_MAX_REGISTERS) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    uint16_t words[INVERTER_PROBE_MAX_REGISTERS] = {0};
+    esp_err_t err = read_profile_block(runtime,
+                                       profile->power_limit_readback_function,
+                                       profile->power_limit_readback_address,
+                                       profile->power_limit_readback_words,
+                                       words);
+    if (err != ESP_OK) return err;
+    err = inverter_profile_decode_value(words, profile->power_limit_readback_words,
+                                        profile->power_limit_readback_type,
+                                        profile->power_limit_readback_word_order,
+                                        profile->power_limit_readback_scale,
+                                        percent);
+    return err == ESP_OK && isfinite(*percent) ? ESP_OK : ESP_ERR_INVALID_RESPONSE;
+}
+
+static void store_attempt_observation(inverter_runtime_t *runtime,
+                                      esp_err_t write_error,
+                                      esp_err_t readback_error,
+                                      float readback_percent,
+                                      bool mismatch)
+{
+    portENTER_CRITICAL(&runtime->lock);
+    runtime->data.last_error = write_error != ESP_OK ? write_error : readback_error;
+    if (write_error == ESP_OK) runtime->data.write_successes++;
+    else runtime->data.write_errors++;
+    if (readback_error == ESP_OK) {
+        runtime->data.readback_percent = readback_percent;
+        runtime->data.has_readback = true;
+        runtime->data.last_readback_ms = now_ms();
+        runtime->data.command_mismatch = mismatch;
+        if (mismatch) runtime->data.mismatch_count++;
+    }
+    portEXIT_CRITICAL(&runtime->lock);
+}
+
+static bool rollback_targets(command_target_t *targets, uint8_t count)
+{
+    bool all_safe = true;
+    for (uint8_t index = 0; index < count; ++index) {
+        command_target_t *target = &targets[index];
+        uint16_t fallback_words[2] = {0};
+        uint8_t fallback_count = 0;
+        esp_err_t encode_error = encode_command(target->profile,
+                                                INVERTER_SAFE_FALLBACK_PERCENT,
+                                                fallback_words, &fallback_count);
+        esp_err_t write_error = encode_error == ESP_OK
+                                    ? write_profile_command(target->runtime, target->profile,
+                                                            fallback_words, fallback_count)
+                                    : encode_error;
+        float readback = NAN;
+        esp_err_t readback_error = ESP_ERR_INVALID_STATE;
+        if (write_error == ESP_OK) {
+            vTaskDelay(pdMS_TO_TICKS(INVERTER_COMMAND_READBACK_DELAY_MS));
+            readback_error = read_limit_percent(target->runtime, target->profile, &readback);
+        }
+        bool confirmed = write_error == ESP_OK && readback_error == ESP_OK &&
+                         inverter_profile_readback_matches(INVERTER_SAFE_FALLBACK_PERCENT,
+                                                          readback,
+                                                          target->profile->readback_tolerance_percent);
+        store_attempt_observation(target->runtime, write_error, readback_error,
+                                  readback, !confirmed);
+        portENTER_CRITICAL(&target->runtime->lock);
+        if (confirmed) {
+            target->runtime->data.commanded_percent = INVERTER_SAFE_FALLBACK_PERCENT;
+            target->runtime->data.commanded_power_kw = 0.0f;
+            target->runtime->data.has_command = true;
+            target->runtime->data.last_command_ms = now_ms();
+            target->runtime->data.command_mismatch = false;
+            target->runtime->data.last_error = ESP_OK;
+        }
+        portEXIT_CRITICAL(&target->runtime->lock);
+        if (!confirmed) all_safe = false;
+        invalidate_identity(target->runtime);
+    }
+    return all_safe;
+}
+
 esp_err_t inverter_manager_set_total_power_kw(float target_kw)
 {
     if (!isfinite(target_kw) || target_kw < 0.0f) return ESP_ERR_INVALID_ARG;
@@ -453,7 +575,7 @@ esp_err_t inverter_manager_set_total_power_kw(float target_kw)
         targets[target_count++] = (command_target_t){
             .runtime = runtime,
             .profile = profile,
-            .rated_kw = rated
+            .rated_kw = rated,
         };
         total_rated_kw += rated;
     }
@@ -464,75 +586,95 @@ esp_err_t inverter_manager_set_total_power_kw(float target_kw)
     }
     if (target_kw > total_rated_kw) target_kw = total_rated_kw;
 
-    esp_err_t final_result = ESP_OK;
-    float commanded_total_kw = 0.0f;
+    /* Build and validate the complete immutable fleet plan before issuing the
+     * first physical write. This prevents partial commands caused by a later
+     * scaling, range, width, or aggregate-cap failure. */
+    float planned_total_kw = 0.0f;
     for (uint8_t i = 0; i < target_count; ++i) {
-        inverter_runtime_t *runtime = targets[i].runtime;
-        const inverter_profile_t *profile = targets[i].profile;
-        float share_kw = target_kw * targets[i].rated_kw / total_rated_kw;
-        float percent = target_kw <= 0.0f ? 0.0f : 100.0f * share_kw / targets[i].rated_kw;
-        if (!isfinite(percent)) {
-            final_result = ESP_ERR_INVALID_ARG;
-            continue;
+        command_target_t *target = &targets[i];
+        float share_kw = target_kw * target->rated_kw / total_rated_kw;
+        float percent = target_kw <= 0.0f ? 0.0f : 100.0f * share_kw / target->rated_kw;
+        if (!isfinite(percent)) return ESP_ERR_INVALID_ARG;
+        if (percent > 0.0f && percent < target->profile->minimum_percent) percent = 0.0f;
+        if (percent > target->profile->maximum_percent) percent = target->profile->maximum_percent;
+        float commanded_kw = target->rated_kw * percent / 100.0f;
+        if (!isfinite(commanded_kw) || planned_total_kw + commanded_kw > target_kw + 0.01f) {
+            return ESP_ERR_INVALID_ARG;
         }
-        if (percent > 0.0f && percent < profile->minimum_percent) percent = 0.0f;
-        if (percent > profile->maximum_percent) percent = profile->maximum_percent;
-        float commanded_kw = targets[i].rated_kw * percent / 100.0f;
-        if (!isfinite(commanded_kw) || commanded_total_kw + commanded_kw > target_kw + 0.01f) {
-            final_result = ESP_ERR_INVALID_ARG;
-            continue;
+        esp_err_t encode_error = encode_command(target->profile, percent,
+                                                target->words, &target->word_count);
+        if (encode_error != ESP_OK) return encode_error;
+        target->percent = percent;
+        target->commanded_kw = commanded_kw;
+        planned_total_kw += commanded_kw;
+    }
+
+    for (uint8_t i = 0; i < target_count; ++i) {
+        command_target_t *target = &targets[i];
+        bool confirmed = false;
+        esp_err_t final_error = ESP_ERR_INVALID_RESPONSE;
+
+        for (uint8_t attempt = 1; attempt <= INVERTER_COMMAND_MAX_ATTEMPTS; ++attempt) {
+            esp_err_t write_error = write_profile_command(target->runtime,
+                                                          target->profile,
+                                                          target->words,
+                                                          target->word_count);
+            float readback = NAN;
+            esp_err_t readback_error = ESP_ERR_INVALID_STATE;
+            if (write_error == ESP_OK) {
+                vTaskDelay(pdMS_TO_TICKS(INVERTER_COMMAND_READBACK_DELAY_MS));
+                readback_error = read_limit_percent(target->runtime,
+                                                    target->profile,
+                                                    &readback);
+            }
+            bool mismatch = write_error == ESP_OK && readback_error == ESP_OK &&
+                !inverter_profile_readback_matches(target->percent, readback,
+                                                   target->profile->readback_tolerance_percent);
+            store_attempt_observation(target->runtime, write_error, readback_error,
+                                      readback, mismatch);
+
+            inverter_command_evidence_t evidence = {
+                .write_succeeded = write_error == ESP_OK,
+                .readback_supported = target->profile->has_power_limit_readback,
+                .readback_succeeded = readback_error == ESP_OK,
+                .requested_percent = target->percent,
+                .readback_percent = readback,
+                .tolerance_percent = target->profile->readback_tolerance_percent,
+                .attempts_completed = attempt,
+                .maximum_attempts = INVERTER_COMMAND_MAX_ATTEMPTS,
+                .safe_fallback_percent = INVERTER_SAFE_FALLBACK_PERCENT,
+            };
+            inverter_command_decision_t decision = inverter_command_decide(&evidence);
+            if (decision.action == INVERTER_COMMAND_CONFIRMED && decision.confirmed) {
+                portENTER_CRITICAL(&target->runtime->lock);
+                target->runtime->data.commanded_percent = target->percent;
+                target->runtime->data.commanded_power_kw = target->commanded_kw;
+                target->runtime->data.has_command = true;
+                target->runtime->data.last_command_ms = now_ms();
+                target->runtime->data.command_mismatch = false;
+                target->runtime->data.last_error = ESP_OK;
+                portEXIT_CRITICAL(&target->runtime->lock);
+                confirmed = true;
+                break;
+            }
+
+            final_error = write_error != ESP_OK
+                              ? write_error
+                              : readback_error != ESP_OK
+                                    ? readback_error
+                                    : ESP_ERR_INVALID_RESPONSE;
+            if (decision.action != INVERTER_COMMAND_RETRY) break;
         }
 
-        uint16_t words[2] = {0};
-        uint8_t word_count = 0;
-        esp_err_t encode_err = encode_command(profile, percent, words, &word_count);
-        if (encode_err != ESP_OK) {
-            final_result = encode_err;
-            continue;
-        }
-
-        if (xSemaphoreTake(runtime->io_mutex,
-                           pdMS_TO_TICKS(runtime->config.endpoint.timeout_ms + 100U)) != pdTRUE) {
-            final_result = ESP_ERR_TIMEOUT;
-            continue;
-        }
-        esp_err_t command_err;
-        if (profile->power_limit_function == 16) {
-            command_err = modbus_tcp_write_multiple(&runtime->connection,
-                                                     profile->power_limit_address,
-                                                     words, word_count);
-        } else if (profile->power_limit_function == 6 && word_count == 1U) {
-            command_err = modbus_tcp_write_single(&runtime->connection,
-                                                   profile->power_limit_address,
-                                                   words[0]);
-        } else {
-            command_err = ESP_ERR_NOT_SUPPORTED;
-        }
-        xSemaphoreGive(runtime->io_mutex);
-
-        portENTER_CRITICAL(&runtime->lock);
-        runtime->data.last_error = command_err;
-        if (command_err == ESP_OK) {
-            runtime->data.commanded_percent = percent;
-            runtime->data.commanded_power_kw = commanded_kw;
-            runtime->data.has_command = true;
-            runtime->data.last_command_ms = now_ms();
-            runtime->data.write_successes++;
-        } else {
-            runtime->data.write_errors++;
-        }
-        portEXIT_CRITICAL(&runtime->lock);
-
-        if (command_err == ESP_OK) {
-            commanded_total_kw += commanded_kw;
-        } else {
-            final_result = command_err;
-            invalidate_identity(runtime);
-            ESP_LOGW(TAG, "%s command failed: %s", runtime->config.name,
-                     esp_err_to_name(command_err));
+        if (!confirmed) {
+            bool rollback_confirmed = rollback_targets(targets, (uint8_t)(i + 1U));
+            ESP_LOGE(TAG, "%s command was not confirmed; rollback %s",
+                     target->runtime->config.name,
+                     rollback_confirmed ? "confirmed" : "failed");
+            return rollback_confirmed ? final_error : ESP_FAIL;
         }
     }
-    return final_result;
+    return ESP_OK;
 }
 
 esp_err_t inverter_manager_probe_read_only(uint8_t inverter_index,
