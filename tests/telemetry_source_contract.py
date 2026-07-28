@@ -25,12 +25,16 @@ assert "inverter_manager_set_total_power_kw" not in API, "telemetry API must not
 assert "config_manager_save" not in API, "telemetry API must not persist configuration"
 assert "config_manager_import_json" not in API, "telemetry API must not import configuration"
 
-assert "float commanded_kw = runtime->config.rated_power_kw * percent / 100.0f;" in INVERTER_MANAGER, \
-    "commanded kW must be derived from the clamped percentage"
+assert "command_target_t targets[APP_MAX_INVERTERS]" in INVERTER_MANAGER, \
+    "fleet command must use one immutable eligible-target snapshot"
+assert "float commanded_kw = targets[i].rated_kw * percent / 100.0f;" in INVERTER_MANAGER, \
+    "commanded kW must be derived from the validated percentage and snapshot rating"
 assert "runtime->data.commanded_power_kw = commanded_kw;" in INVERTER_MANAGER, \
     "runtime diagnostics must store the command actually sent"
 assert "runtime->data.commanded_power_kw = share_kw;" not in INVERTER_MANAGER, \
-    "pre-clamp requested share must not be reported as the sent command"
+    "pre-validation requested share must not be reported as the sent command"
+assert "if (command_err == ESP_OK)" in INVERTER_MANAGER, \
+    "command diagnostics must only be committed after a successful write"
 
 required_ui_fragments = [
     "Measured production",
