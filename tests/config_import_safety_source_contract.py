@@ -70,7 +70,7 @@ for token in [
     ".policy = GRID_POLICY_MINIMUM_IMPORT",
     ".source_mode = SOURCE_MODE_GRID_ONLY",
     "meter_sample_fresh",
-    "grid-import target only",
+    "defines a grid-import target",
     "Generator and transfer modes remain blocked",
     "safety_manager_limit_target_kw",
     "inverter_manager_set_total_power_kw",
