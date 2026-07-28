@@ -24,6 +24,8 @@ typedef struct {
     meter_data_t data;
     portMUX_TYPE lock;
     SemaphoreHandle_t io_mutex;
+    uint32_t recent_results;
+    uint8_t recent_count;
 } meter_runtime_t;
 
 static meter_runtime_t s_meters[APP_MAX_METERS];
@@ -32,6 +34,10 @@ static uint8_t s_meter_count;
 #define METER_LOG_EVERY_N 30
 #define METER_FRESH_GRACE_MS 5000U
 #define METER_IO_LOCK_TIMEOUT_MS 5000U
+#define METER_QUALITY_WINDOW 20U
+#define METER_MIN_QUALITY_SAMPLES 5U
+#define METER_MIN_SUCCESS_PERCENT 80U
+#define METER_MAX_BACKOFF_MS 10000U
 
 static uint32_t now_ms(void)
 {
@@ -111,6 +117,36 @@ static bool sample_is_fresh(const meter_data_t *data, uint32_t timestamp)
            timestamp - data->last_update_ms <= METER_FRESH_GRACE_MS;
 }
 
+static uint32_t bounded_poll_delay(const meter_runtime_t *meter,
+                                   const meter_data_t *data)
+{
+    uint32_t base = meter->config.poll_interval_ms;
+    if (base < 100U) base = 100U;
+    if (!data->degraded && data->consecutive_failures == 0U) return base;
+
+    uint32_t multiplier = data->degraded ? 2U : 1U;
+    uint32_t failure_steps = data->consecutive_failures > 3U ? 3U : data->consecutive_failures;
+    multiplier <<= failure_steps;
+    uint64_t delay = (uint64_t)base * multiplier;
+    return delay > METER_MAX_BACKOFF_MS ? METER_MAX_BACKOFF_MS : (uint32_t)delay;
+}
+
+static void update_quality(meter_runtime_t *meter, meter_data_t *data, bool success)
+{
+    const uint32_t mask = (1U << METER_QUALITY_WINDOW) - 1U;
+    meter->recent_results = ((meter->recent_results << 1U) | (success ? 1U : 0U)) & mask;
+    if (meter->recent_count < METER_QUALITY_WINDOW) meter->recent_count++;
+
+    uint32_t successes = (uint32_t)__builtin_popcount(meter->recent_results);
+    data->recent_sample_count = meter->recent_count;
+    data->recent_success_percent = meter->recent_count
+                                       ? (uint8_t)((successes * 100U) / meter->recent_count)
+                                       : 0U;
+    data->degraded = meter->recent_count >= METER_MIN_QUALITY_SAMPLES &&
+                     data->recent_success_percent < METER_MIN_SUCCESS_PERCENT;
+    data->current_poll_delay_ms = bounded_poll_delay(meter, data);
+}
+
 static esp_err_t serialized_read(meter_runtime_t *meter,
                                  uint8_t function_code,
                                  uint16_t address,
@@ -136,10 +172,11 @@ static void record_failure(meter_runtime_t *meter, esp_err_t err)
 {
     meter_data_t next = data_snapshot(meter);
     next.last_attempt_ms = now_ms();
-    next.online = sample_is_fresh(&next, next.last_attempt_ms);
     next.response_errors++;
     next.consecutive_failures++;
     next.last_error = err;
+    update_quality(meter, &next, false);
+    next.online = sample_is_fresh(&next, next.last_attempt_ms) && !next.degraded;
     store_data(meter, &next);
     log_meter_failure(meter, err, next.consecutive_failures);
 }
@@ -160,42 +197,64 @@ static void meter_task(void *argument)
     while (true) {
         if (!network_manager_wait_ready(5000)) {
             record_failure(meter, ESP_ERR_INVALID_STATE);
+            meter_data_t delayed = data_snapshot(meter);
+            vTaskDelay(pdMS_TO_TICKS(delayed.current_poll_delay_ms));
             continue;
         }
 
+        uint32_t started_ms = now_ms();
         esp_err_t err = serialized_read(meter,
                                         meter->config.function_code,
                                         meter->config.active_power_address,
                                         count,
                                         registers);
+        uint32_t completed_ms = now_ms();
         meter_data_t next = data_snapshot(meter);
         uint32_t previous_failures = next.consecutive_failures;
-        next.last_attempt_ms = now_ms();
+        bool was_degraded = next.degraded;
+        next.last_attempt_ms = completed_ms;
+        next.last_response_time_ms = completed_ms - started_ms;
 
-        if (err == ESP_OK && modbus_decode_scaled(registers, count, meter->config.active_power_type,
-                                                   meter->config.active_power_order,
-                                                   scale, 0.0f,
-                                                   &next.active_power_kw) == ESP_OK) {
-            next.online = true;
+        float decoded = 0.0f;
+        bool success = err == ESP_OK &&
+                       modbus_decode_scaled(registers, count,
+                                            meter->config.active_power_type,
+                                            meter->config.active_power_order,
+                                            scale, 0.0f, &decoded) == ESP_OK;
+        if (success) {
+            next.active_power_kw = decoded;
             next.last_update_ms = next.last_attempt_ms;
             next.success_count++;
             next.consecutive_failures = 0;
             next.last_error = ESP_OK;
-            if (previous_failures) {
-                ESP_LOGI(TAG, "%s back online after %u failed polls", meter->config.name,
-                          (unsigned)previous_failures);
+            update_quality(meter, &next, true);
+            next.online = !next.degraded;
+            if (previous_failures && !next.degraded) {
+                ESP_LOGI(TAG, "%s communication recovered after %u failed polls; quality %u%%",
+                         meter->config.name, (unsigned)previous_failures,
+                         (unsigned)next.recent_success_percent);
+            } else if (was_degraded && !next.degraded) {
+                ESP_LOGI(TAG, "%s communication quality recovered to %u%%",
+                         meter->config.name, (unsigned)next.recent_success_percent);
             }
         } else {
             if (err == ESP_OK) err = ESP_ERR_INVALID_RESPONSE;
-            next.online = sample_is_fresh(&next, next.last_attempt_ms);
             next.response_errors++;
             next.consecutive_failures++;
             next.last_error = err;
+            update_quality(meter, &next, false);
+            next.online = sample_is_fresh(&next, next.last_attempt_ms) && !next.degraded;
             log_meter_failure(meter, err, next.consecutive_failures);
         }
 
+        if (!was_degraded && next.degraded) {
+            ESP_LOGW(TAG, "%s communication degraded: %u%% success over %u requests; control input blocked",
+                     meter->config.name, (unsigned)next.recent_success_percent,
+                     (unsigned)next.recent_sample_count);
+        }
+
         store_data(meter, &next);
-        vTaskDelay(pdMS_TO_TICKS(meter->config.poll_interval_ms));
+        vTaskDelay(pdMS_TO_TICKS(next.current_poll_delay_ms));
     }
 }
 
@@ -218,9 +277,8 @@ esp_err_t meter_manager_init(void)
         runtime->config = cfg->meters[i];
         runtime->lock = (portMUX_TYPE)portMUX_INITIALIZER_UNLOCKED;
         runtime->io_mutex = xSemaphoreCreateMutex();
-        if (!runtime->io_mutex) {
-            runtime->data.last_error = ESP_ERR_NO_MEM;
-        }
+        runtime->data.current_poll_delay_ms = runtime->config.poll_interval_ms;
+        if (!runtime->io_mutex) runtime->data.last_error = ESP_ERR_NO_MEM;
     }
 
     esp_err_t first_error = ESP_OK;
