@@ -32,10 +32,11 @@ assert "commandable_rated_kw" in js, "write eligibility must be surfaced"
 assert "Automatic control and physical inverter writes" not in js, "readiness UI must not claim approval"
 assert "Export snapshot" in js and "JSON.stringify(report" in js, "diagnostic export is required"
 assert "setInterval(refreshAll, 15000)" in js, "readiness must refresh periodically"
-assert "temporary_field_bypass" in js, "temporary field bypass must be visible in readiness"
-assert "AUTH_TEMPORARY_FIELD_BYPASS 1" in auth, "development bypass must remain explicit in this field build"
-assert "temporary_field_bypass" in auth, "session API must expose temporary bypass state"
-assert "Restore production authentication before any client or resale image." in js
+assert "temporary_field_bypass" in js, "unexpected bypass state must remain visible in readiness"
+assert "AUTH_TEMPORARY_FIELD_BYPASS" not in auth, "production authentication must not contain a bypass switch"
+assert '"temporary_field_bypass", false' in auth, "session API must report that bypass is disabled"
+assert "One-time Engineering setup code" in auth, "secure first-password setup must use a serial-only code"
+assert "AUTH_SESSION_TIMEOUT_MS" in auth and "AUTH_LOCKOUT_MS" in auth
 
 assert "prelab-readiness.js" in cmake and "prelab-readiness.css" in cmake
 assert "web_assets_prelab_readiness_js" in assets_h
