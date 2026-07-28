@@ -9,6 +9,8 @@
         ['ESP_FAIL', 'The measurement request failed. Check meter communication and profile selection.']
     ]);
 
+    const ERROR_SELECTOR = '.device-error, .em500-message.bad, .action-message';
+
     function translate(text) {
         const source = String(text || '').trim();
         for (const [code, message] of FRIENDLY) {
@@ -18,21 +20,44 @@
     }
 
     function improveError(node) {
-        if (!(node instanceof HTMLElement) || node.dataset.errorFriendly === 'true') return;
+        if (!(node instanceof HTMLElement)) return;
+        if (!node.matches(ERROR_SELECTOR)) return;
+        if (node.dataset.errorFriendly === 'true') return;
+        if (node.closest('.engineering-friendly-error') && !node.classList.contains('engineering-friendly-error')) return;
+
         const translated = translate(node.textContent);
         if (!translated) return;
+
         node.dataset.errorFriendly = 'true';
+        node.dataset.diagnosticCode = translated.code;
         node.classList.add('engineering-friendly-error');
-        node.replaceChildren();
+
+        const friendly = document.createElement('div');
+        friendly.className = 'engineering-friendly-copy';
+        friendly.dataset.errorFriendly = 'true';
+
         const title = document.createElement('strong');
+        title.dataset.errorFriendly = 'true';
         title.textContent = translated.code === 'ESP_ERR_NOT_SUPPORTED' || translated.code === 'ESP_ERR_INVALID_RESPONSE'
             ? 'Measurement group unavailable'
             : 'Communication issue';
+
         const message = document.createElement('span');
+        message.dataset.errorFriendly = 'true';
         message.textContent = translated.message;
+
         const detail = document.createElement('small');
-        detail.textContent = `Diagnostic code: ${translated.code}`;
-        node.append(title, message, detail);
+        detail.dataset.errorFriendly = 'true';
+        detail.textContent = 'Technical diagnostic recorded.';
+
+        friendly.append(title, message, detail);
+
+        const hasInteractiveContent = node.querySelector('button, a, input, select, textarea');
+        if (hasInteractiveContent) {
+            node.prepend(friendly);
+        } else {
+            node.replaceChildren(friendly);
+        }
 
         const panel = node.closest('.em500-panel');
         const toggle = panel?.querySelector('.collapse-toggle');
@@ -43,7 +68,8 @@
     }
 
     function scan(root = document) {
-        root.querySelectorAll?.('.device-error, .em500-message.bad, .action-message').forEach(improveError);
+        if (root instanceof HTMLElement && root.matches(ERROR_SELECTOR)) improveError(root);
+        root.querySelectorAll?.(ERROR_SELECTOR).forEach(improveError);
     }
 
     function start() {
@@ -52,16 +78,10 @@
         new MutationObserver((mutations) => {
             for (const mutation of mutations) {
                 mutation.addedNodes.forEach((item) => {
-                    if (item instanceof HTMLElement) {
-                        improveError(item);
-                        scan(item);
-                    }
+                    if (item instanceof HTMLElement && !item.closest('.engineering-friendly-error')) scan(item);
                 });
-                if (mutation.type === 'characterData' && mutation.target.parentElement) {
-                    improveError(mutation.target.parentElement);
-                }
             }
-        }).observe(target, { childList: true, subtree: true, characterData: true });
+        }).observe(target, { childList: true, subtree: true });
     }
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
