@@ -28,7 +28,7 @@ for token in [
 
 for token in [
     "ESP_ERR_INVALID_RESPONSE", "Measurement group unavailable",
-    "Not supported by the selected meter profile", "friendlyErrorCode"
+    "Not supported by the selected meter profile", "diagnosticCode"
 ]:
     require(token in ERRORS, f"friendly engineering error handling missing {token}")
 
