@@ -54,6 +54,7 @@ set(WEB_SERVER_C_SOURCES
     "inverter_profile_api.c"
     "inverter_config_api.c"
     "meter_config_api.c"
+    "em500_cache.c"
     "em500_api.c"
     "em500_history_api.c"
     "em500_settings_api.c"
