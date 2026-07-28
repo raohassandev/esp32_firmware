@@ -136,6 +136,55 @@ html[data-theme="dark"] .engineering-page .engineering-console .panel {
 
 body.product-shell-v2 .product-mobile-nav { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 
+/* Screenshot-driven dashboard corrections. */
+body.product-shell-v2 [data-page="dashboard"] .experience-masthead { margin-bottom: 14px; }
+body.product-shell-v2 [data-page="dashboard"] .experience-section { min-width: 0; }
+body.product-shell-v2 [data-page="dashboard"] .power-flow {
+    width: 100%;
+    grid-template-columns: minmax(150px, 1fr) 42px minmax(180px, 1.15fr) 42px minmax(150px, 1fr) !important;
+    align-items: center;
+    gap: 10px !important;
+}
+body.product-shell-v2 [data-page="dashboard"] .panel,
+body.product-shell-v2 [data-page="dashboard"] .op-card,
+body.product-shell-v2 [data-page="dashboard"] .metric-card { min-height: 0 !important; }
+body.product-shell-v2 [data-page="dashboard"] .status-badge,
+body.product-shell-v2 [data-page="dashboard"] .subtle-badge {
+    position: static !important;
+    align-self: flex-start;
+    justify-self: end;
+}
+body.product-shell-v2 [data-page="dashboard"] .system-readiness,
+body.product-shell-v2 [data-page="dashboard"] .readiness-panel,
+body.product-shell-v2 [data-page="dashboard"] .op-readiness-card { padding: 18px 22px !important; }
+body.product-shell-v2 [data-page="dashboard"] .readiness-row,
+body.product-shell-v2 [data-page="dashboard"] .system-readiness-row {
+    min-height: 52px !important;
+    padding-block: 9px !important;
+}
+body.product-shell-v2 #refreshButton,
+body.product-shell-v2 .page-intro .button,
+body.product-shell-v2 .experience-masthead .button {
+    color: #fff !important;
+    background: #153a5f !important;
+    border-color: #244f78 !important;
+}
+body.product-shell-v2 #refreshButton:hover,
+body.product-shell-v2 .page-intro .button:hover,
+body.product-shell-v2 .experience-masthead .button:hover { background: #1b4a76 !important; }
+
+html[data-access="engineering"] body.product-shell-v2 .engineering-link::after {
+    content: 'DEV';
+    margin-left: auto;
+    padding: 2px 6px;
+    border-radius: 999px;
+    color: #8a4b00;
+    background: #ffe1b8;
+    font-size: 9px;
+    font-weight: 900;
+    letter-spacing: .06em;
+}
+
 @media (max-width: 900px) {
     body.product-shell-v2 .workspace { margin-left: 0; }
     body.product-shell-v2 .topbar { padding-inline: 14px; }
@@ -155,4 +204,5 @@ body.product-shell-v2 .product-mobile-nav { grid-template-columns: repeat(5, min
     body.product-shell-v2 .content { padding-top: 14px; }
     .shell-popover-backdrop { place-items: end stretch; padding: 0; background: rgba(0,0,0,.48); }
     .shell-popover { width: 100%; max-height: 82vh; border-radius: 18px 18px 0 0; padding-bottom: env(safe-area-inset-bottom); }
+    body.product-shell-v2 [data-page="dashboard"] .power-flow { grid-template-columns: 1fr !important; }
 }
