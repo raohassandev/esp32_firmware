@@ -1,23 +1,20 @@
-menu "PV-DG controller"
+menu "Automatrix PV-DG Controller"
 
 config PVDG_DEVICE_NAME
-    string "Device name"
-    default "automatrix-pvdg"
+    string "Controller device name"
+    default "Automatrix PV-DG Controller"
 
 config PVDG_PRIMARY_WIFI_SSID
-    string "Default primary Wi-Fi SSID"
-    default "Rao"
+    string "Primary Wi-Fi SSID"
+    default ""
 
 config PVDG_PRIMARY_WIFI_PASSWORD
-    string "Default primary Wi-Fi password"
-    default "password123"
-    help
-      Development credential requested for the current controller build. Replace
-      this with a local sdkconfig value or an empty default before production.
+    string "Primary Wi-Fi password"
+    default ""
 
 config PVDG_DEFAULT_WIFI_SSID
     string "Default fallback Wi-Fi SSID"
-    default "Rao1"
+    default ""
 
 config PVDG_DEFAULT_WIFI_PASSWORD
     string "Default fallback Wi-Fi password"
@@ -25,26 +22,27 @@ config PVDG_DEFAULT_WIFI_PASSWORD
 
 config PVDG_APPLY_BUILD_WIFI_PROVISIONING
     bool "Allow this build to replace stored Wi-Fi credentials"
-    default y
+    default n
     help
-      Development provisioning is enabled for the current controller build so
-      the requested primary Wi-Fi credentials are applied once. Disable this
-      before production or field deployment.
+      Factory/development-only provisioning gate. Leave disabled for normal,
+      field, customer, resale and unattended builds. When disabled, compiled
+      credentials can never replace a commissioned device's stored Wi-Fi or
+      static-IP configuration.
 
 config PVDG_WIFI_PROVISION_ID
     int "Wi-Fi provisioning id"
-    default 1
+    default 0
     help
-      Identifies the provisioning generation compiled into this build. The
-      primary Wi-Fi credentials are applied only when this value is greater than
-      the id already stored on the device.
+      Factory provisioning generation. It is considered only when
+      PVDG_APPLY_BUILD_WIFI_PROVISIONING is explicitly enabled. Each approved
+      factory credential set must use a strictly increasing positive value.
 
 config PVDG_DEFAULT_ZLAN_HOST
     string "Default ZLAN5143D IP address"
     default "192.168.0.200"
 
 config PVDG_DEFAULT_ZLAN_PORT
-    int "Default ZLAN5143D TCP port"
+    int "Default ZLAN5143D Modbus TCP port"
     range 1 65535
     default 502
 
