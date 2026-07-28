@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 from pathlib import Path
+import subprocess
+import tempfile
 
-SOURCE = Path("components/inverter_manager/inverter_manager.c").read_text(encoding="utf-8")
-PROFILES = Path("components/inverter_manager/inverter_profiles.c").read_text(encoding="utf-8")
+ROOT = Path(__file__).resolve().parents[1]
+SOURCE = (ROOT / "components/inverter_manager/inverter_manager.c").read_text(encoding="utf-8")
+PROFILES = (ROOT / "components/inverter_manager/inverter_profiles.c").read_text(encoding="utf-8")
 
 REQUIRED = [
     '#include "inverter_profiles.h"',
@@ -32,7 +35,6 @@ if '!profile->simulator_only' not in PROFILES:
 if 'INVERTER_PROFILE_QUALIFICATION_PRODUCTION_APPROVED' not in PROFILES:
     raise SystemExit("production approval gate is missing")
 
-# The legacy raw configuration fields must not be used by the command write path.
 FORBIDDEN_COMMAND_TOKENS = [
     'runtime->config.power_limit_address',
     'runtime->config.power_limit_function',
@@ -43,4 +45,15 @@ found = [token for token in FORBIDDEN_COMMAND_TOKENS if token in SOURCE]
 if found:
     raise SystemExit(f"legacy raw-register command bypass remains: {found}")
 
-print("inverter runtime write-gate source contract passed")
+with tempfile.TemporaryDirectory() as directory:
+    binary = Path(directory) / "inverter_command_policy_test"
+    subprocess.run([
+        "gcc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+        "-I", str(ROOT / "components/inverter_manager/include"),
+        str(ROOT / "tests/inverter_command_policy_test.c"),
+        str(ROOT / "components/inverter_manager/inverter_command_policy.c"),
+        "-lm", "-o", str(binary),
+    ], check=True)
+    subprocess.run([str(binary)], check=True)
+
+print("inverter runtime write-gate and command confirmation tests passed")
