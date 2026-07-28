@@ -7,9 +7,12 @@
 
 #include "cJSON.h"
 #include "config_manager.h"
+#include "http_json.h"
 #include "meter_manager.h"
 
-#define PLAN_MAX_BODY 4096
+#define PLAN_MAX_BODY 4096U
+#define PLAN_BODY_DEADLINE_MS 4000U
+#define PLAN_JSON_MAX_DEPTH 8U
 
 typedef struct {
     uint8_t meter_index;
@@ -64,28 +67,6 @@ static esp_err_t send_error(httpd_req_t *request, const char *status,
     return send_json(request, root);
 }
 
-static esp_err_t read_body(httpd_req_t *request, char **out_body)
-{
-    if (!request || !out_body || request->content_len <= 0 ||
-        request->content_len > PLAN_MAX_BODY) return ESP_ERR_INVALID_SIZE;
-
-    char *body = malloc((size_t)request->content_len + 1U);
-    if (!body) return ESP_ERR_NO_MEM;
-    size_t offset = 0;
-    while (offset < (size_t)request->content_len) {
-        int received = httpd_req_recv(request, body + offset,
-                                      (size_t)request->content_len - offset);
-        if (received <= 0) {
-            free(body);
-            return ESP_FAIL;
-        }
-        offset += (size_t)received;
-    }
-    body[offset] = '\0';
-    *out_body = body;
-    return ESP_OK;
-}
-
 static bool json_integer(cJSON *object, const char *key, uint32_t minimum,
                          uint32_t maximum, uint32_t *out, bool *present,
                          char *error, size_t error_size)
@@ -133,7 +114,7 @@ static bool known_m01_key(const char *key)
     for (size_t index = 0;
          index < sizeof(s_m01_integer_settings) / sizeof(s_m01_integer_settings[0]);
          ++index) {
-        if (strcmp(s_m01_integer_settings[index].key, key) == 0) return true;
+        if (strcmp(key, s_m01_integer_settings[index].key) == 0) return true;
     }
     return false;
 }
@@ -386,19 +367,22 @@ static esp_err_t plan_tariff(httpd_req_t *request,
 
 static esp_err_t settings_plan_post(httpd_req_t *request)
 {
-    char *body = NULL;
-    esp_err_t body_error = read_body(request, &body);
+    cJSON *root = NULL;
+    esp_err_t body_error = http_json_parse_bounded(request, PLAN_MAX_BODY,
+                                                    PLAN_BODY_DEADLINE_MS,
+                                                    PLAN_JSON_MAX_DEPTH,
+                                                    &root);
     if (body_error == ESP_ERR_INVALID_SIZE) {
         return send_error(request, "413 Payload Too Large",
                           "Plan body is missing or too large");
     }
-    if (body_error != ESP_OK) {
-        return send_error(request, "400 Bad Request", "Unable to read plan body");
+    if (body_error == ESP_ERR_TIMEOUT) {
+        return send_error(request, "408 Request Timeout", "Plan body timed out");
     }
-
-    cJSON *root = cJSON_Parse(body);
-    free(body);
-    if (!root) return send_error(request, "400 Bad Request", "Invalid JSON body");
+    if (body_error != ESP_OK) {
+        return send_error(request, "400 Bad Request",
+                          "Plan body must be valid bounded JSON");
+    }
 
     plan_request_t options;
     cJSON *changes = NULL;
