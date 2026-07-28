@@ -116,6 +116,8 @@ jobs:
         run: python3 tests/product_experience_v2_source_contract.py
       - name: Check guided commissioning workflow V2
         run: python3 tests/commissioning_wizard_v2_source_contract.py
+      - name: Check controller resource telemetry
+        run: python3 tests/system_resource_api_source_contract.py
 
   build:
     needs: web
