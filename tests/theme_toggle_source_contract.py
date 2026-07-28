@@ -3,6 +3,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 THEME_JS = (ROOT / "web/theme.js").read_text(encoding="utf-8")
 THEME_CSS = (ROOT / "web/theme.css").read_text(encoding="utf-8")
+SHELL_CSS = (ROOT / "web/product-shell-v2.css").read_text(encoding="utf-8")
 CMAKE = (ROOT / "components/web_server/CMakeLists.txt").read_text(encoding="utf-8")
 ASSETS_H = (ROOT / "components/web_server/include/web_assets.h").read_text(encoding="utf-8")
 ASSETS_C = (ROOT / "components/web_server/web_assets.c").read_text(encoding="utf-8")
@@ -23,12 +24,28 @@ require("themeToggleButton" in THEME_JS and "topbar-actions" in THEME_JS,
         "theme toggle button must be installed in the top bar")
 require("aria-label" in THEME_JS and "aria-pressed" in THEME_JS,
         "theme toggle must expose accessible state")
-require("meta[name=\"theme-color\"]" in THEME_JS,
+require('meta[name="theme-color"]' in THEME_JS,
         "browser theme color must follow the selected theme")
 require('html[data-theme="light"]' in THEME_CSS,
         "light palette is missing")
 require("color-scheme: light" in THEME_CSS,
         "light palette must set the browser color scheme")
+
+# The product shell is served after the base theme, so it must provide complete
+# light and dark overrides instead of hard-coding a dark header.
+require('html[data-theme="light"] body.product-shell-v2 .topbar' in SHELL_CSS,
+        "light product-shell topbar override is missing")
+require('html[data-theme="dark"] body.product-shell-v2 .topbar' in SHELL_CSS,
+        "dark product-shell topbar override is missing")
+require('html[data-theme="light"] .shell-health-button' in SHELL_CSS,
+        "light shell controls are missing")
+require('html[data-theme="dark"] .shell-health-button' in SHELL_CSS,
+        "dark shell controls are missing")
+require('html[data-theme="light"] .engineering-page .engineering-login' in SHELL_CSS,
+        "light Engineering card contrast is missing")
+require('html[data-theme="dark"] .engineering-page .engineering-login' in SHELL_CSS,
+        "dark Engineering card contrast is missing")
+
 require("theme.css" in CMAKE and "theme.js" in CMAKE,
         "theme assets must be embedded")
 require("web_assets_theme_css" in ASSETS_H and "web_assets_theme_js" in ASSETS_H,
