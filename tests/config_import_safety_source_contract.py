@@ -1,4 +1,6 @@
 from pathlib import Path
+import subprocess
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = (ROOT / "components/config_manager/config_manager.c").read_text(encoding="utf-8")
@@ -28,4 +30,15 @@ assert "if (!text || !json_depth_valid(text))" in SOURCE, \
 assert "if (err == ESP_OK && !valid(c))" in SOURCE, \
     "imported configuration must pass full structural/numeric validation before persistence"
 
-print("configuration migration and generic-import safety source contract passed")
+with tempfile.TemporaryDirectory() as directory:
+    binary = Path(directory) / "power_control_policy_test"
+    subprocess.run([
+        "gcc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+        "-I", str(ROOT / "components/control_engine/include"),
+        str(ROOT / "tests/power_control_policy_test.c"),
+        str(ROOT / "components/control_engine/power_control_policy.c"),
+        "-lm", "-o", str(binary),
+    ], check=True)
+    subprocess.run([str(binary)], check=True)
+
+print("configuration migration, import safety, and power-control policy tests passed")
