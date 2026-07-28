@@ -6,8 +6,14 @@ guard = (ROOT / "components/web_server/engineering_guard.c").read_text(encoding=
 product = (ROOT / "web/product-mode.js").read_text(encoding="utf-8")
 operational = (ROOT / "components/web_server/operational_api.c").read_text(encoding="utf-8")
 
-assert "#define AUTH_DEVELOPMENT_AUTO_UNLOCK 0" in auth, "production build must not auto-unlock engineering"
-assert "#define AUTH_DEVELOPMENT_AUTO_UNLOCK 1" not in auth
+# Temporary field-development state is explicit and cannot be mistaken for the
+# former production authentication implementation. This gate must be reverted
+# before a customer/resale release.
+assert "AUTH_TEMPORARY_FIELD_BYPASS 1" in auth
+assert "TEMPORARY FIELD-DEVELOPMENT BYPASS" in auth
+assert '"temporary_field_bypass", true' in auth
+assert "Engineering authentication disabled for field development" in auth
+assert "Password management is disabled" in auth
 
 assert "state.authenticated))" not in product, "stale auth state must not redirect unrelated operator requests"
 assert "|| state.authenticated" not in product
@@ -36,9 +42,10 @@ for path in operator_files:
     assert "/api/meters/em500/history" not in source, f"{path.name} must use controller-resident operator history"
     assert "/api/meters/em500/settings" not in source, f"{path.name} must not read engineering setup data"
 
-# Detailed meter and inverter workspaces remain hidden from operator sessions.
+# Detailed meter and inverter workspaces remain separated from operator pages,
+# even though the current development build bypasses the password gate.
 assert "#em500Workspace" in product
 assert "#meterConfigurationEditor" in product
 assert "#inverterConfigurationEditor" in product
 
-print("release access policy source contract passed")
+print("temporary field-bypass access policy source contract passed")
