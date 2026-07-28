@@ -1,7 +1,7 @@
 (() => {
     'use strict';
 
-    const state = { history: null, events: null, range: '15m', busy: false, timer: null };
+    const state = { history: null, events: null, range: '15m', busy: false, timer: null, enhanceQueued: false };
     const byId = (id) => document.getElementById(id);
     const isOperator = () => document.documentElement.dataset.access !== 'engineering';
     const route = () => location.hash.replace(/^#\/?/, '') || 'dashboard';
@@ -14,10 +14,28 @@
     }
 
     async function api(path) {
-        const response = await fetch(path, { cache: 'no-store', credentials: 'same-origin' });
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
-        return payload;
+        const controller = new AbortController();
+        const timer = window.setTimeout(() => controller.abort(), 6000);
+        try {
+            const response = await fetch(path, {
+                cache: 'no-store',
+                credentials: 'same-origin',
+                signal: controller.signal
+            });
+            const text = await response.text();
+            let payload = {};
+            if (text) {
+                try { payload = JSON.parse(text); }
+                catch { throw new Error('Controller returned an incomplete response'); }
+            }
+            if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+            return payload;
+        } catch (error) {
+            if (error?.name === 'AbortError') throw new Error('Controller request timed out');
+            throw error;
+        } finally {
+            window.clearTimeout(timer);
+        }
     }
 
     function formatPower(value) {
@@ -158,7 +176,7 @@
             button.addEventListener('click', async () => {
                 state.range = value;
                 await refreshHistory();
-                enhanceCurrentPage();
+                scheduleEnhance();
             });
             group.append(button);
         });
@@ -218,6 +236,15 @@
         }
     }
 
+    function scheduleEnhance() {
+        if (state.enhanceQueued) return;
+        state.enhanceQueued = true;
+        window.requestAnimationFrame(() => {
+            state.enhanceQueued = false;
+            enhanceCurrentPage();
+        });
+    }
+
     async function refreshHistory() {
         state.history = await api(`/api/operator/history?range=${encodeURIComponent(state.range)}`);
     }
@@ -239,7 +266,7 @@
                 badge.hidden = count === 0;
             }
             renderAlarmPage();
-            enhanceCurrentPage();
+            scheduleEnhance();
         } catch (error) {
             console.warn('Operator history/events unavailable:', error);
         } finally {
@@ -254,15 +281,20 @@
         window.addEventListener('hashchange', () => {
             ensureAlarmPage();
             setRouteActive();
-            setTimeout(enhanceCurrentPage, 50);
+            scheduleEnhance();
             renderAlarmPage();
         });
         new MutationObserver(() => {
             ensureAlarmPage();
             setRouteActive();
-            setTimeout(enhanceCurrentPage, 25);
+            scheduleEnhance();
         }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-access'] });
-        new MutationObserver(() => setTimeout(enhanceCurrentPage, 10)).observe(byId('mainContent'), { childList: true, subtree: true });
+        const main = byId('mainContent');
+        if (main) {
+            new MutationObserver((records) => {
+                if (records.some((record) => record.target === main)) scheduleEnhance();
+            }).observe(main, { childList: true });
+        }
         state.timer = window.setInterval(refreshAll, 10000);
     }
 
