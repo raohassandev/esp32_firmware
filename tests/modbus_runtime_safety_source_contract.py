@@ -5,6 +5,7 @@ MODBUS = (ROOT / "components/modbus_tcp/modbus_tcp.c").read_text(encoding="utf-8
 DECODER = (ROOT / "components/modbus_tcp/modbus_decoder.c").read_text(encoding="utf-8")
 METER = (ROOT / "components/meter_manager/meter_manager.c").read_text(encoding="utf-8")
 CONTROL = (ROOT / "components/control_engine/control_engine.c").read_text(encoding="utf-8")
+POLICY = (ROOT / "components/control_engine/power_control_policy.c").read_text(encoding="utf-8")
 
 
 def require(condition: bool, message: str) -> None:
@@ -45,9 +46,14 @@ require("uint32_t ceiling = base > METER_MAX_BACKOFF_MS ? base : METER_MAX_BACKO
 require("return delay < base ? base" in METER,
         "degraded backoff must never be shorter than the normal interval")
 
-require("if (!isfinite(value)" in CONTROL,
-        "control clamp must fail closed for non-finite input")
-require("measurement_valid" in CONTROL and "requested_kw = 0.0f" in CONTROL,
-        "control loop must block calculations on invalid source data")
+require("if (!isfinite(value) || !isfinite(maximum)" in POLICY,
+        "power policy clamp must fail closed for non-finite input")
+require("!input->measurement_fresh" in POLICY and "output.transition_blocked = true" in POLICY,
+        "power policy must block calculations on invalid source data")
+require("measurement_fresh && fleet_valid" in CONTROL and
+        "policy.requested_pv_kw = 0.0f" in CONTROL,
+        "live control loop must request zero on invalid source data")
+require("if (!isfinite(applied_kw) || applied_kw < 0.0f) applied_kw = 0.0f;" in CONTROL,
+        "live applied target must fail closed for invalid safety output")
 
 print("Modbus and numeric runtime safety source contract passed")
