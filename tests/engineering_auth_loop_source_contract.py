@@ -10,8 +10,17 @@ auth = (root / 'components/web_server/engineering_auth.c').read_text(encoding='u
 assert 'web_assets_engineering_session_resilience_js' not in server
 assert server.count('web_assets_product_mode_js') == 1
 
-# Production releases cannot silently authenticate Engineering access.
-assert '#define AUTH_DEVELOPMENT_AUTO_UNLOCK 0' in auth
+field_bypass = 'AUTH_TEMPORARY_FIELD_BYPASS 1' in auth
+if field_bypass:
+    # Requested development mode must be explicit and must never masquerade as a
+    # production-authenticated release.
+    assert 'TEMPORARY FIELD-DEVELOPMENT BYPASS' in auth
+    assert '"temporary_field_bypass", true' in auth
+    assert 'Engineering authentication disabled for field development' in auth
+    assert 'Password management is disabled' in auth
+else:
+    # Production releases cannot silently authenticate Engineering access.
+    assert '#define AUTH_DEVELOPMENT_AUTO_UNLOCK 0' in auth
 
 # Background API responses may update auth state, but they must never route the app.
 fetch_start = mode.index('window.fetch = async')
@@ -22,7 +31,8 @@ assert "location.hash = '#/engineering'" not in fetch_block
 assert 'markSessionExpired' in fetch_block
 assert 'retryProtectedRequest' in fetch_block
 
-# Only route enforcement may open the sign-in route.
+# Only route enforcement may open the sign-in route. In explicit field-bypass
+# mode the session API always restores access, so this fallback is unreachable.
 enforce_start = mode.index('async function enforceRoute()')
 enforce_end = mode.index("document.addEventListener('DOMContentLoaded'", enforce_start)
 enforce_block = mode[enforce_start:enforce_end]
