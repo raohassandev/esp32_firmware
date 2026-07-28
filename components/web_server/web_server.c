@@ -53,6 +53,13 @@ static esp_err_t index_handler(httpd_req_t *request)
     return send_asset(request, "text/html; charset=utf-8", content, length);
 }
 
+static esp_err_t favicon_handler(httpd_req_t *request)
+{
+    httpd_resp_set_status(request, "204 No Content");
+    httpd_resp_set_hdr(request, "Cache-Control", "public, max-age=86400");
+    return httpd_resp_send(request, NULL, 0);
+}
+
 static esp_err_t css_handler(httpd_req_t *request)
 {
     static const asset_getter_t assets[] = {
@@ -119,6 +126,7 @@ esp_err_t web_server_start(void)
     ESP_RETURN_ON_ERROR(httpd_start(&s_server, &config), "web", "HTTP server start failed");
     const httpd_uri_t assets[] = {
         {.uri = "/", .method = HTTP_GET, .handler = index_handler},
+        {.uri = "/favicon.ico", .method = HTTP_GET, .handler = favicon_handler},
         {.uri = "/app.css", .method = HTTP_GET, .handler = css_handler},
         {.uri = "/app.js", .method = HTTP_GET, .handler = js_handler}
     };
