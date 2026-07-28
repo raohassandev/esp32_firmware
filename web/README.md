@@ -1,139 +1,111 @@
-# Embedded PV-DG Web Application
+# Embedded Automatrix PV-DG Web Application
 
-This directory contains the controller's framework-free browser application.
-It is embedded directly into the ESP-IDF firmware and served by the
-`web_server` component.
+This directory contains the framework-free browser application embedded directly into the ESP32-S3 firmware and served by `components/web_server` as `/`, `/app.css`, and `/app.js`.
 
-## Files
+## Product areas
 
-- `index.html` — semantic application shell and page markup.
-- `app.css` — responsive industrial UI system.
-- `app.js` — API client, hash router, application state and common pages.
-- `wifi-utils.js` — pure IPv4, netmask, security and signal helpers shared by
-  the browser and Node tests.
-- `wifi-guard.js` — capture-phase protection against changing an enabled SSID
-  without a suitable new credential.
-- `wifi.js` — Wi-Fi scan, commissioning, validation and restart workflow.
-- `wifi.css` — responsive Wi-Fi scan and commissioning styles.
-- `devices-utils.js` — pure formatting and state-classification helpers for
-  meters, inverter command channels and operational readiness.
-- `devices.js` — read-only Dashboard, meter and inverter runtime diagnostics.
-- `devices-refresh.js` — connects the common top-bar refresh action to the
-  active read-only diagnostics route.
-- `devices.css` — responsive diagnostics cards, summaries and tables.
-- `tests/wifi-utils.test.js` — dependency-free Wi-Fi validation tests.
-- `tests/devices-utils.test.js` — dependency-free null, stale and command-state
-  rendering tests.
+### Operator workspace
 
-No package manager, build tool, external CDN or runtime dependency is used.
-This keeps the firmware build deterministic and the browser payload suitable
-for an embedded controller.
+Operator pages remain usable without Engineering authentication:
 
-The server streams the common, Wi-Fi and device CSS modules as one `/app.css`
-response. The common application, Wi-Fi utilities, credential guard,
-commissioning module, device utilities, device diagnostics and refresh bridge
-are streamed as one `/app.js` response. ESP-IDF's trailing text-asset NUL byte
-is excluded from every streamed part.
+- `#/dashboard` — plant overview
+- `#/grid` / `#/meters` — grid measurement and operational meter view
+- `#/inverters` — solar fleet operational view
+- `#/alarms` — active alarms and event history
+- `#/readiness` — controlled-test readiness
 
-## Routes
+Operator pages use sanitized, read-only APIs only. They must never expose Wi-Fi credentials, Modbus endpoint details, raw register maps, setup registers, or command actions.
 
-Navigation uses URL hashes and does not require server-side route handling:
+### Engineering workspace
 
-- `#/dashboard`
+Engineering authentication is required for:
+
+- `#/engineering`
+- `#/commissioning`
 - `#/wifi`
-- `#/meters`
-- `#/inverters`
 - `#/control`
 - `#/system`
+- detailed meter/inverter configuration and diagnostics
 
-## Current API dependencies
+Development auto-unlock is disabled in production candidates. A `401` may redirect to Engineering sign-in only when the current route is protected; a background operator poll must never redirect the application.
+
+## API access policy
+
+### Public operational reads
 
 - `GET /api/status`
-- `GET /api/config`
-- `POST /api/config`
-- `GET /api/wifi/scan` — cached asynchronous scan snapshot.
-- `POST /api/wifi/scan` — starts a non-blocking radio survey.
-- `POST /api/wifi/config` — dedicated validated Wi-Fi configuration write.
-- `POST /api/wifi/rescan` — returns its accepted/conflict response before the
-  synchronized admission gate allows radio teardown.
-- `GET /api/meters` — detailed read-only meter configuration and runtime health.
-- `GET /api/inverters` — detailed read-only inverter command-channel health.
-- `GET /api/telemetry` — read-only operational summary for the Dashboard.
-- `POST /api/system/restart`
+- `GET /api/telemetry`
+- sanitized `GET /api/config`
+- sanitized `GET /api/meters`
+- sanitized `GET /api/inverters`
+- `GET /api/inverter-telemetry`
+- `GET /api/operator/history`
+- `GET /api/operator/events`
 
-The three device telemetry endpoints do not save configuration, write Modbus
-registers or enable automatic control.
+### Engineering-authenticated reads and writes
 
-## Wi-Fi commissioning rules
+- Wi-Fi scan/configuration and static addressing
+- meter endpoint configuration
+- inverter profile/endpoint configuration
+- EM500 raw snapshot, historical register blocks, settings and setup diagnostics
+- commissioning wizard operations
+- control configuration
+- system restart, import/export and service operations
+- Engineering password management
 
-1. Radio scans execute in a dedicated low-priority task. HTTP handlers only
-   request a scan or read its cached snapshot.
-2. Scan results expose SSID, RSSI, channel and security mode. BSSIDs and saved
-   credentials are never returned.
-3. Duplicate SSIDs are collapsed to the strongest visible access point.
-4. Unsupported security modes are visible but cannot be selected.
-5. Primary and fallback profiles cannot use the same enabled SSID.
-6. Static IPv4 settings require a contiguous netmask, a usable host address and
-   a gateway in the same subnet.
-7. A blank or masked password preserves the credential only while the SSID is
-   unchanged. Changing an SSID without a new password clears the old
-   credential, preventing cross-network credential carry-over.
-8. The browser blocks an enabled SSID change without a new password unless the
-   latest scan identifies that SSID as Open or OWE.
-9. Changing the recovery-AP SSID requires a new recovery password.
-10. Selecting an open network explicitly clears the station password.
-11. Wi-Fi changes use the dedicated `/api/wifi/config` endpoint and require an
-    operator confirmation before the controller restarts.
-12. The reconnect action is separate from a non-disruptive network scan and
-    requires its own confirmation.
+### Safety boundary
 
-## Safety and data rules
+- Operator polling must never write Modbus registers or enable control.
+- Detailed EM500 register APIs are Engineering-only because they expose PDU addresses, raw words, setup registers and communication metadata.
+- Operator charts use controller-resident operational history rather than raw EM500 register endpoints.
+- Unverified inverter profiles remain read-only and cannot contribute to commandable capacity.
+- Automatic control remains disabled until physical qualification is complete.
 
-1. Never display missing or failed meter data as a current `0.00 kW` value.
-   A real measured zero remains valid, while missing values are JSON `null` and
-   render as `Unavailable`.
-2. Clearly distinguish fresh, stale, unavailable and initialization-failed
-   meter states.
-3. A successful inverter command write is not measured inverter production and
-   is not proof of continuous inverter availability.
-4. The reported commanded kW must be derived from the final clamped percentage
-   actually written, not from the unconstrained requested share.
-5. Measured inverter power, generator power and facility load remain `null`
-   until dedicated register mappings and runtime acquisition exist.
-6. Keep exported password values masked. Password inputs are always blank when
-   configuration is loaded.
-7. Do not add an automatic-control enable action without a separately reviewed
-   commissioning workflow and safety confirmation.
-8. Label Modbus addresses as **PDU addresses**; do not silently apply FUXA's
-   one-based display convention.
-9. The generic configuration importer accepts only a subset of exported fields.
-   Controls that are not yet writable remain read-only.
+## Active browser ownership
 
-## Development and validation standard
+The embedded bundle is modular, but responsibilities must remain singular:
 
-- Keep browser code dependency-free and modular by responsibility.
-- Prefer DOM `textContent` and element creation for API-derived values.
-- Validate operator inputs in both the browser and firmware endpoint.
-- Preserve all unrelated configuration when updating one subsystem.
-- Keep control disabled by default and never issue commands from page rendering,
-  status polling or Wi-Fi commissioning.
-- Run before hardware validation:
+- `app.js` — base router and shared application state
+- `product-mode.js` — single owner of Engineering authentication state and protected-route enforcement
+- `product-shell-v2.js` / `product-experience-v2.js` — product shell, navigation and page composition
+- `operator-operations.js` / `operator-product-suite.js` — operator dashboards, history and alarms
+- `commissioning-release-v3.js` — active seven-step commissioning workflow
+- `network-commissioning-fix.js` — resilient Wi-Fi save/restart/reconnect flow
+- `em500-core.js` and related EM500 modules — Engineering-only detailed meter diagnostics
+- inverter modules — Engineering configuration plus read-only operational telemetry
 
-```text
-node --check web/app.js
-node --check web/wifi-utils.js
-node --check web/wifi-guard.js
-node --check web/wifi.js
-node --check web/devices-utils.js
-node --check web/devices.js
-node --check web/devices-refresh.js
-node web/tests/wifi-utils.test.js
-node web/tests/devices-utils.test.js
-python3 tests/telemetry_source_contract.py
-```
+Older compatibility modules may remain embedded only while required by active routes or source contracts. New behavior must not be added to multiple generations of the same responsibility.
 
-- Hardware qualification must verify reconnect admission timing, scan
-  concurrency, repeated scans, complete HTTP 202/409 responses, password
-  masking, recovery-AP behavior, DHCP and static-profile validation, no NVS
-  erase, read-only telemetry polling and no inverter command generation from
-  diagnostics pages.
+## Commissioning sequence
+
+1. Site details
+2. Devices
+3. Communication channel
+4. Modbus tuning
+5. Connection qualification
+6. Controller health
+7. Review, report and finish
+
+RTU devices cannot receive a Ready verdict until the real RS-485/Modbus RTU runtime is implemented and physically qualified.
+
+## Validation gates
+
+Every release candidate must pass:
+
+- browser syntax checks
+- production access-policy contract
+- Engineering auth-loop prevention contract
+- operator telemetry boundary tests
+- Wi-Fi commissioning and mobile-layout contracts
+- inverter write-gate and read-only probe contracts
+- complete ESP-IDF v6.0.1 build with zero compiler warnings
+
+Physical acceptance must additionally prove:
+
+- logout never traps Overview, Grid, Solar, Alarms or Readiness on `#/engineering`;
+- operator pages remain stable for at least five minutes after logout;
+- protected routes request Engineering authentication;
+- browser refresh preserves a valid session, while controller restart invalidates only the session and not the stored password;
+- recovery AP remains usable;
+- no NVS erase is performed;
+- automatic control and physical inverter writes remain locked until qualification.
