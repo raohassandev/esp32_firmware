@@ -1,0 +1,98 @@
+/* Guided commissioning workflow: mobile first, field readable, one decision per stage. */
+.commissioning-wizard-v2 { display: grid; gap: 18px; max-width: 1180px; margin: 0 auto; }
+.cw-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; }
+.cw-steps li { min-width: 0; display: flex; align-items: center; gap: 9px; padding: 11px 12px; border: 1px solid var(--line-soft); border-radius: 12px; background: var(--panel); color: var(--muted); }
+.cw-steps li > span { width: 28px; height: 28px; display: grid; place-items: center; flex: 0 0 28px; border-radius: 50%; border: 1px solid var(--line); font-size: 12px; font-weight: 800; }
+.cw-steps li strong { min-width: 0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cw-steps li.active { color: var(--text); border-color: var(--accent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent); }
+.cw-steps li.complete > span { background: var(--green); border-color: var(--green); color: #04120b; }
+
+.cw-stage { display: grid; gap: 18px; padding: clamp(16px, 2.3vw, 26px); border: 1px solid var(--line); border-radius: 16px; background: var(--panel); }
+.cw-stage-head { display: grid; gap: 5px; max-width: 760px; }
+.cw-stage-head h2, .cw-stage-head p { margin: 0; }
+.cw-stage-head h2 { font-size: clamp(22px, 2.4vw, 31px); }
+.cw-stage-head > p:last-child { color: var(--muted); line-height: 1.6; }
+.cw-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.cw-field { min-width: 0; display: grid; gap: 7px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.cw-field.wide { grid-column: span 2; }
+.cw-field input, .cw-field select { width: 100%; min-height: 48px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; color: var(--text); background: var(--input, rgba(5, 17, 29, .7)); font: inherit; font-size: 15px; }
+.cw-field input:focus, .cw-field select:focus { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 1px; }
+
+.cw-device-chooser { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.cw-catalog-card { min-width: 0; padding: 16px; border: 1px solid var(--line-soft); border-radius: 13px; background: rgba(7, 22, 37, .42); }
+.cw-catalog-card h3, .cw-catalog-card p { margin: 0; }
+.cw-catalog-card p { margin-top: 5px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.cw-catalog-list { display: grid; gap: 8px; margin-top: 14px; }
+.cw-catalog-option { width: 100%; min-height: 58px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--line-soft); border-radius: 10px; color: var(--text); background: var(--panel); cursor: pointer; text-align: left; }
+.cw-catalog-option span { min-width: 0; display: grid; gap: 3px; }
+.cw-catalog-option strong, .cw-catalog-option small { overflow-wrap: anywhere; }
+.cw-catalog-option small { color: var(--muted); }
+.cw-catalog-option b { color: var(--accent); }
+.cw-selected-devices { display: grid; gap: 10px; }
+.cw-selected-devices > h3 { margin: 0; font-size: 15px; }
+.cw-device-row, .cw-test-card { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px; border: 1px solid var(--line-soft); border-radius: 12px; background: rgba(7, 22, 37, .38); }
+.cw-device-row > div, .cw-test-card > div { min-width: 0; display: grid; gap: 4px; }
+.cw-device-row strong, .cw-test-card strong, .cw-device-row small, .cw-test-card small { overflow-wrap: anywhere; }
+.cw-device-row small, .cw-test-card small { color: var(--muted); }
+.cw-device-type { width: fit-content; padding: 3px 7px; border-radius: 999px; background: rgba(255,255,255,.06); color: var(--muted); font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .07em; }
+.cw-empty { padding: 20px; border: 1px dashed var(--line); border-radius: 12px; color: var(--muted); text-align: center; }
+
+.cw-communication-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 16px; align-items: start; }
+.cw-device-tabs { display: grid; gap: 8px; }
+.cw-device-tab { width: 100%; min-width: 0; display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 9px; align-items: center; padding: 10px; border: 1px solid var(--line-soft); border-radius: 11px; color: var(--text); background: var(--panel); cursor: pointer; text-align: left; }
+.cw-device-tab > span { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; background: rgba(255,255,255,.05); font-weight: 800; }
+.cw-device-tab div { min-width: 0; display: grid; gap: 3px; }
+.cw-device-tab strong, .cw-device-tab small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cw-device-tab small { color: var(--muted); text-transform: capitalize; }
+.cw-device-tab.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--panel)); }
+.cw-channel-editor { min-width: 0; display: grid; gap: 16px; padding: 18px; border: 1px solid var(--line-soft); border-radius: 13px; background: rgba(7, 22, 37, .38); }
+.cw-editor-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.cw-editor-head h3, .cw-editor-head p { margin: 0; }
+.cw-channel-fields { display: grid; gap: 14px; }
+
+.cw-test-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.cw-test-summary > div { padding: 13px; border: 1px solid var(--line-soft); border-radius: 11px; background: rgba(7, 22, 37, .38); text-align: center; font-weight: 800; }
+.cw-test-list { display: grid; gap: 10px; }
+.cw-test-card.ready { border-color: color-mix(in srgb, var(--green) 55%, var(--line)); }
+.cw-test-card.failed { border-color: color-mix(in srgb, var(--red) 55%, var(--line)); }
+.cw-test-card.testing { opacity: .75; }
+.cw-test-result { margin: 4px 0 0; color: var(--muted); line-height: 1.45; }
+.cw-test-card.ready .cw-test-result { color: var(--green); }
+.cw-test-card.failed .cw-test-result { color: var(--red); }
+
+.cw-actions { position: sticky; bottom: 0; z-index: 8; display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 13px; background: color-mix(in srgb, var(--panel) 94%, transparent); backdrop-filter: blur(14px); }
+.cw-action-message { min-width: 0; margin-right: auto; color: var(--muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+
+@media (max-width: 860px) {
+    .cw-steps { grid-template-columns: repeat(4, minmax(74px, 1fr)); overflow-x: auto; padding-bottom: 3px; }
+    .cw-steps li { min-width: 112px; }
+    .cw-device-chooser { grid-template-columns: 1fr; }
+    .cw-communication-layout { grid-template-columns: 1fr; }
+    .cw-device-tabs { display: flex; overflow-x: auto; padding-bottom: 4px; }
+    .cw-device-tab { min-width: 210px; }
+}
+
+@media (max-width: 650px) {
+    .commissioning-wizard-v2 { gap: 12px; }
+    .cw-steps { margin-inline: -2px; }
+    .cw-steps li { min-width: 92px; display: grid; justify-items: center; gap: 6px; padding: 9px 7px; text-align: center; }
+    .cw-steps li strong { max-width: 82px; font-size: 10px; white-space: normal; line-height: 1.2; }
+    .cw-stage { gap: 15px; padding: 14px; border-radius: 13px; }
+    .cw-form-grid { grid-template-columns: 1fr; }
+    .cw-field.wide { grid-column: auto; }
+    .cw-field input, .cw-field select { min-height: 50px; font-size: 16px; }
+    .cw-device-row, .cw-test-card { align-items: stretch; display: grid; }
+    .cw-device-row .button, .cw-test-card .button { width: 100%; min-height: 48px; }
+    .cw-test-summary { grid-template-columns: 1fr; }
+    .cw-actions { display: grid; grid-template-columns: 1fr 1fr; bottom: calc(68px + env(safe-area-inset-bottom)); padding: 10px; }
+    .cw-action-message { grid-column: 1 / -1; margin: 0; }
+    .cw-actions .button { width: 100%; min-height: 50px; }
+    .cw-actions .button:only-of-type { grid-column: 1 / -1; }
+}
+
+@media (max-width: 360px) {
+    .cw-stage { padding: 12px; }
+    .cw-channel-editor, .cw-catalog-card { padding: 12px; }
+    .cw-actions { grid-template-columns: 1fr; }
+    .cw-action-message, .cw-actions .button { grid-column: 1; }
+}
