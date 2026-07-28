@@ -128,7 +128,9 @@ static uint32_t bounded_poll_delay(const meter_runtime_t *meter,
     uint32_t failure_steps = data->consecutive_failures > 3U ? 3U : data->consecutive_failures;
     multiplier <<= failure_steps;
     uint64_t delay = (uint64_t)base * multiplier;
-    return delay > METER_MAX_BACKOFF_MS ? METER_MAX_BACKOFF_MS : (uint32_t)delay;
+    uint32_t ceiling = base > METER_MAX_BACKOFF_MS ? base : METER_MAX_BACKOFF_MS;
+    if (delay > ceiling) return ceiling;
+    return delay < base ? base : (uint32_t)delay;
 }
 
 static void update_quality(meter_runtime_t *meter, meter_data_t *data, bool success)
@@ -220,7 +222,8 @@ static void meter_task(void *argument)
                        modbus_decode_scaled(registers, count,
                                             meter->config.active_power_type,
                                             meter->config.active_power_order,
-                                            scale, 0.0f, &decoded) == ESP_OK;
+                                            scale, 0.0f, &decoded) == ESP_OK &&
+                       isfinite(decoded);
         if (success) {
             next.active_power_kw = decoded;
             next.last_update_ms = next.last_attempt_ms;
@@ -269,7 +272,7 @@ esp_err_t meter_manager_init(void)
         return err;
     }
 
-    s_meter_count = cfg->meter_count;
+    s_meter_count = cfg->meter_count <= APP_MAX_METERS ? cfg->meter_count : APP_MAX_METERS;
     for (uint8_t i = 0; i < s_meter_count; ++i) {
         meter_runtime_t *runtime = &s_meters[i];
         memset(runtime, 0, sizeof(*runtime));
@@ -277,7 +280,9 @@ esp_err_t meter_manager_init(void)
         runtime->config = cfg->meters[i];
         runtime->lock = (portMUX_TYPE)portMUX_INITIALIZER_UNLOCKED;
         runtime->io_mutex = xSemaphoreCreateMutex();
-        runtime->data.current_poll_delay_ms = runtime->config.poll_interval_ms;
+        runtime->data.current_poll_delay_ms = runtime->config.poll_interval_ms < 100U
+                                                  ? 100U
+                                                  : runtime->config.poll_interval_ms;
         if (!runtime->io_mutex) runtime->data.last_error = ESP_ERR_NO_MEM;
     }
 
@@ -288,6 +293,12 @@ esp_err_t meter_manager_init(void)
         if (!runtime->io_mutex) {
             if (first_error == ESP_OK) first_error = ESP_ERR_NO_MEM;
             ESP_LOGE(TAG, "meter %u transaction mutex allocation failed", i);
+            continue;
+        }
+        if (!isfinite(runtime->config.active_power_scale)) {
+            runtime->data.last_error = ESP_ERR_INVALID_ARG;
+            if (first_error == ESP_OK) first_error = ESP_ERR_INVALID_ARG;
+            ESP_LOGE(TAG, "meter %u active-power scale is not finite", i);
             continue;
         }
 
