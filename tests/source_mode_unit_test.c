@@ -45,6 +45,39 @@ static void test_modes(void)
     assert(r.mode == SOURCE_MODE_TRANSFER && r.transition_active && !r.control_allowed);
 }
 
+static void test_generator_fleet(void)
+{
+    generator_channel_evidence_t channels[SOURCE_MAX_GENERATORS] = {
+        {
+            .configured = true, .evidence_fresh = true, .running = true,
+            .breaker_closed = true, .rated_kw = 100.0f, .measured_kw = 45.0f,
+            .minimum_loading_percent = 30.0f, .reserve_kw = 5.0f,
+            .reverse_power_margin_kw = 2.0f,
+        },
+        {
+            .configured = true, .evidence_fresh = true, .running = true,
+            .breaker_closed = true, .rated_kw = 200.0f, .measured_kw = 90.0f,
+            .minimum_loading_percent = 25.0f, .reserve_kw = 10.0f,
+            .reverse_power_margin_kw = 3.0f,
+        },
+    };
+    generator_fleet_result_t r = source_mode_aggregate_generators(channels);
+    assert(r.valid && !r.conflict && r.running_count == 2U);
+    assert(fabsf(r.running_rated_kw - 300.0f) < 0.001f);
+    assert(fabsf(r.measured_total_kw - 135.0f) < 0.001f);
+    assert(fabsf(r.required_minimum_kw - 100.0f) < 0.001f);
+
+    channels[1].breaker_closed = true;
+    channels[1].running = false;
+    r = source_mode_aggregate_generators(channels);
+    assert(!r.valid && r.conflict);
+
+    channels[1].running = true;
+    channels[1].measured_kw = NAN;
+    r = source_mode_aggregate_generators(channels);
+    assert(!r.valid && r.conflict);
+}
+
 static void test_generator_limit(void)
 {
     generator_limit_input_t in = {
@@ -71,6 +104,7 @@ static void test_generator_limit(void)
 int main(void)
 {
     test_modes();
+    test_generator_fleet();
     test_generator_limit();
     puts("source mode unit tests passed");
     return 0;
