@@ -54,13 +54,14 @@ set(WEB_SERVER_C_SOURCES
     "em500_history_api.c"
     "em500_settings_api.c"
     "em500_settings_plan_api.c"
+    "system_resource_api.c"
     "web_assets.c"
 )
 
 idf_component_register(
     SRCS ${WEB_SERVER_C_SOURCES}
     INCLUDE_DIRS "include"
-    REQUIRES esp_http_server esp_system esp_timer esp_hw_support cjson nvs_flash mbedtls config_manager network_manager meter_manager modbus_tcp inverter_manager control_engine safety_manager
+    REQUIRES esp_http_server esp_system esp_timer esp_hw_support esp_psram spi_flash cjson nvs_flash mbedtls config_manager network_manager meter_manager modbus_tcp inverter_manager control_engine safety_manager
     EMBED_TXTFILES
         "${CMAKE_CURRENT_BINARY_DIR}/index.html"
         "${CMAKE_CURRENT_BINARY_DIR}/app.css"
