@@ -8,6 +8,13 @@ on:
       - feature/pvdg-batch3-consolidated
       - feature/pvdg-multi-meter-commissioning
       - feature/multibrand-inverter-profiles
+  workflow_dispatch:
+    inputs:
+      production_release:
+        description: Enforce production release compile-time gates
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -140,6 +147,10 @@ jobs:
         run: python3 tests/engineering_auth_loop_source_contract.py
       - name: Check production access policy
         run: python3 tests/release_access_policy_source_contract.py
+      - name: Enforce production release gate
+        env:
+          PVDG_PRODUCTION_RELEASE: ${{ inputs.production_release && '1' || '0' }}
+        run: python3 tests/production_release_gate.py
 
   build:
     needs: web
