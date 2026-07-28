@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include "auth_hmac_compat.h"
 #include "esp_err.h"
 #include "esp_http_server.h"
 
