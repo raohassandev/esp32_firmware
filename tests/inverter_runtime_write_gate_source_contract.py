@@ -31,7 +31,7 @@ REQUIRED = [
     'target->runtime->data.commanded_power_kw = target->commanded_kw;',
     'target->runtime->data.command_mismatch = false;',
     'inverter_profile_readback_matches',
-    'invalidate_identity(runtime)',
+    'invalidate_identity(target->runtime)',
 ]
 
 missing = [token for token in REQUIRED if token not in SOURCE]
