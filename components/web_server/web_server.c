@@ -2,6 +2,7 @@
 #include "device_api.h"
 #include "em500_api.h"
 #include "em500_cache.h"
+#include "em500_cache_api.h"
 #include "em500_history_api.h"
 #include "em500_settings_api.h"
 #include "em500_settings_plan_api.h"
@@ -123,7 +124,7 @@ esp_err_t web_server_start(void)
     ESP_RETURN_ON_ERROR(engineering_auth_init(), "web", "engineering authentication init failed");
     ESP_RETURN_ON_ERROR(em500_cache_init(), "web", "EM500 acquisition cache init failed");
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 32;
+    config.max_uri_handlers = 36;
     config.stack_size = 8192;
     ESP_RETURN_ON_ERROR(httpd_start(&s_server, &config), "web", "HTTP server start failed");
     const httpd_uri_t assets[] = {
@@ -143,6 +144,7 @@ esp_err_t web_server_start(void)
     ESP_RETURN_ON_ERROR(inverter_config_api_register(s_server), "web", "inverter configuration API registration failed");
     ESP_RETURN_ON_ERROR(meter_config_api_register(s_server), "web", "meter configuration API registration failed");
     ESP_RETURN_ON_ERROR(system_resource_api_register(s_server), "web", "system resource API registration failed");
+    ESP_RETURN_ON_ERROR(em500_cache_api_register(s_server), "web", "EM500 cache API registration failed");
     ESP_RETURN_ON_ERROR(em500_api_register(s_server), "web", "EM500 snapshot API registration failed");
     ESP_RETURN_ON_ERROR(em500_history_api_register(s_server), "web", "EM500 history API registration failed");
     ESP_RETURN_ON_ERROR(em500_settings_api_register(s_server), "web", "EM500 settings API registration failed");
