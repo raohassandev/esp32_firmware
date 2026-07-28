@@ -28,9 +28,14 @@ for token in [
 
 for token in [
     "ESP_ERR_INVALID_RESPONSE", "Measurement group unavailable",
-    "Not supported by the selected meter profile", "Diagnostic code:"
+    "Not supported by the selected meter profile", "friendlyErrorCode"
 ]:
     require(token in ERRORS, f"friendly engineering error handling missing {token}")
+
+require("Diagnostic code: ${translated.code}" not in ERRORS,
+        "visible ESP_ERR token can recursively retrigger the error observer")
+require("characterData: true" not in ERRORS,
+        "error observer must not watch its own text mutations")
 
 require("engineering-errors.js" in CMAKE,
         "engineering error module is not embedded")
