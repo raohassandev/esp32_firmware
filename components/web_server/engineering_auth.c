@@ -38,8 +38,14 @@ bool engineering_auth_is_authorized(httpd_req_t *request)
 
 esp_err_t engineering_auth_require(httpd_req_t *request)
 {
-    (void)request;
-    return ESP_OK;
+    if (!request) return ESP_ERR_INVALID_ARG;
+    cJSON *root = cJSON_CreateObject();
+    if (!root) return httpd_resp_send_500(request);
+    cJSON_AddStringToObject(root, "error", "engineering_authentication_required");
+    cJSON_AddStringToObject(root, "message", "Engineering authentication is required for this operation");
+    cJSON_AddBoolToObject(root, "authenticated", false);
+    httpd_resp_set_hdr(request, "WWW-Authenticate", "Session");
+    return send_json(request, "401 Unauthorized", root);
 }
 
 static esp_err_t session_get(httpd_req_t *request)
