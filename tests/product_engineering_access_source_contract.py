@@ -16,14 +16,25 @@ def require(value: bool, message: str) -> None:
         raise AssertionError(message)
 
 
-for token in [
-    "AUTH_SESSION_MS", "AUTH_LOCKOUT_MS", "AUTH_MAX_FAILURES",
-    "hash_password", "constant_time_equal", "constant_time_token_equal", "new_session",
-    "Engineering temporary password", "/api/engineering/login",
-    "/api/engineering/logout", "/api/engineering/password",
-    "Set-Cookie", "HttpOnly", "SameSite=Strict", "AMXENG",
-]:
-    require(token in AUTH, f"engineering authentication missing {token}")
+field_bypass = "AUTH_TEMPORARY_FIELD_BYPASS 1" in AUTH
+if field_bypass:
+    for token in [
+        "TEMPORARY FIELD-DEVELOPMENT BYPASS",
+        '"temporary_field_bypass", true',
+        "Engineering authentication disabled for field development",
+        "Password management is disabled",
+        "return AUTH_TEMPORARY_FIELD_BYPASS != 0",
+    ]:
+        require(token in AUTH, f"temporary field bypass is not explicit: {token}")
+else:
+    for token in [
+        "AUTH_SESSION_MS", "AUTH_LOCKOUT_MS", "AUTH_MAX_FAILURES",
+        "hash_password", "constant_time_equal", "constant_time_token_equal", "new_session",
+        "Engineering temporary password", "/api/engineering/login",
+        "/api/engineering/logout", "/api/engineering/password",
+        "Set-Cookie", "HttpOnly", "SameSite=Strict", "AMXENG",
+    ]:
+        require(token in AUTH, f"engineering authentication missing {token}")
 
 for token in [
     "engineering_register_uri_handler", "engineering_auth_guarded_handler",
@@ -66,9 +77,6 @@ for token in [
 ]:
     require(token in OPERATOR, f"operator product view missing {token}")
 
-# Technical terms may appear only in the explicit sentence explaining that they
-# belong to the protected Engineering area. They must never be used as operator
-# labels, values, tables, or API fields.
 for forbidden in ["PDU", "function code", "raw words", "meterScale", "meterAddress", "limit register"]:
     require(forbidden.lower() not in OPERATOR.lower(),
             f"operator product view exposes engineering data or controls: {forbidden}")
@@ -84,4 +92,4 @@ for token in [
 ]:
     require(token in CSS, f"operator UI does not hide engineering detail: {token}")
 
-print("product/operator and protected engineering access contract passed")
+print("product/operator separation contract passed (field bypass=%s)" % field_bypass)
