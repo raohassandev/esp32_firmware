@@ -23,10 +23,6 @@
         return item;
     };
 
-    function titleForCurrentPage() {
-        return byId('pageTitle')?.textContent?.trim() || 'Controller';
-    }
-
     function installPageContext() {
         const heading = document.querySelector('.page-heading');
         if (!heading || heading.querySelector('.shell-page-context')) return;
@@ -51,13 +47,7 @@
         return {
             tone: offline || critical ? 'bad' : attention ? 'warning' : 'good',
             label: offline || critical ? 'Attention' : attention ? 'Review' : 'Normal',
-            rows: [
-                ['Controller', controller],
-                ['Network', network],
-                ['Grid meter', meter],
-                ['Control', control],
-                ['Alarms', alarms]
-            ]
+            rows: [['Controller', controller], ['Network', network], ['Grid meter', meter], ['Control', control], ['Alarms', alarms]]
         };
     }
 
@@ -146,7 +136,7 @@
             action('Kiosk display', document.documentElement.classList.contains('kiosk-mode') ? 'On' : 'Off', () => clickExisting('productKioskButton'));
             action('Theme', document.documentElement.dataset.theme || 'System', () => clickExisting('themeToggle'));
             action('Controller information', 'Identity and service state', () => { location.hash = '#/system'; });
-            action(document.documentElement.dataset.access === 'engineering' ? 'Engineering workspace' : 'Engineering sign-in', document.documentElement.dataset.access === 'engineering' ? 'Unlocked' : 'Restricted', () => {
+            action('Engineering workspace', document.documentElement.dataset.access === 'engineering' ? 'Development access' : 'Restricted', () => {
                 const engineering = byId('engineeringNav') || byId('productEngineeringEntry');
                 if (engineering) engineering.click(); else location.hash = '#/engineering';
             });
@@ -160,12 +150,7 @@
         const nav = document.querySelector('.nav-list');
         if (!nav || nav.dataset.shellGrouped === 'true') return;
         nav.dataset.shellGrouped = 'true';
-        const operatorOrder = ['dashboard', 'meters', 'inverters', 'control', 'alarms'];
-        operatorOrder.forEach((name) => {
-            const item = nav.querySelector(`[data-route="${name}"]`);
-            if (item) nav.append(item);
-        });
-        ['readiness', 'engineering', 'commissioning', 'wifi', 'system'].forEach((name) => {
+        ['dashboard', 'meters', 'inverters', 'control', 'alarms', 'readiness', 'engineering', 'commissioning', 'wifi', 'system'].forEach((name) => {
             const item = nav.querySelector(`[data-route="${name}"]`);
             if (item) nav.append(item);
         });
@@ -191,7 +176,11 @@
             removeDuplicateIntros();
         });
         const main = byId('mainContent');
-        if (main) new MutationObserver(() => { groupNavigation(); removeDuplicateIntros(); }).observe(main, { childList: true, subtree: true });
+        if (main) {
+            new MutationObserver((records) => {
+                if (records.some((record) => record.target === main && record.addedNodes.length)) removeDuplicateIntros();
+            }).observe(main, { childList: true });
+        }
     }
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
