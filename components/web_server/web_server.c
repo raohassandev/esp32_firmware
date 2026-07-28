@@ -78,7 +78,6 @@ static esp_err_t js_handler(httpd_req_t *request)
 {
     static const asset_getter_t assets[] = {
         web_assets_theme_js,
-        web_assets_engineering_session_resilience_js,
         web_assets_product_mode_js,
         web_assets_js,
         web_assets_wifi_utils_js,
