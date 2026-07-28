@@ -55,6 +55,14 @@ jobs:
           node web/tests/wifi-utils.test.js
           node web/tests/devices-utils.test.js
           node web/tests/em500-utils.test.js
+      - name: Run source mode safety unit tests
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -Wall -Wextra -Werror \
+            -Icomponents/control_engine/include \
+            tests/source_mode_unit_test.c components/control_engine/source_mode.c \
+            -lm -o /tmp/source_mode_unit_test
+          /tmp/source_mode_unit_test
       - name: Run SolTrix Modbus inverter simulator self-test
         run: |
           set -euo pipefail
