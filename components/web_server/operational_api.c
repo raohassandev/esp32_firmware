@@ -122,7 +122,8 @@ static void collect_sample(operational_sample_t *sample, observed_state_t *state
     bool meter_has_data = meter.last_update_ms != 0;
     uint32_t meter_age = meter_has_data ? sample->timestamp_ms - meter.last_update_ms : UINT32_MAX;
     state->network_online = network.network_ready;
-    state->meter_online = meter.online && meter_has_data && meter_age <= METER_FRESH_MS;
+    state->meter_online = meter.online && meter_has_data && meter_age <= METER_FRESH_MS &&
+                          isfinite(meter.active_power_kw);
     state->control_enabled = control.enabled;
     state->alarm_flags = safety_manager_get_alarm_flags();
 
@@ -219,6 +220,7 @@ static esp_err_t send_json(httpd_req_t *request, cJSON *root)
 static void add_sample_json(cJSON *array, const operational_sample_t *sample, uint32_t current)
 {
     cJSON *item = cJSON_CreateObject();
+    if (!item) return;
     cJSON_AddNumberToObject(item, "age_ms", current - sample->timestamp_ms);
     if (isfinite(sample->grid_kw)) cJSON_AddNumberToObject(item, "grid_kw", sample->grid_kw);
     else cJSON_AddNullToObject(item, "grid_kw");
@@ -232,14 +234,13 @@ static void add_sample_json(cJSON *array, const operational_sample_t *sample, ui
     cJSON_AddItemToArray(array, item);
 }
 
-static void add_summary(cJSON *root, const operational_sample_t *samples, uint16_t capacity, uint16_t head, uint16_t count)
+static void add_summary(cJSON *root, const operational_sample_t *samples, uint16_t count)
 {
     float grid_min = INFINITY, grid_max = -INFINITY, grid_sum = 0.0f;
     float solar_min = INFINITY, solar_max = -INFINITY, solar_sum = 0.0f;
     uint16_t grid_count = 0, solar_count = 0;
     for (uint16_t i = 0; i < count; ++i) {
-        uint16_t index = (uint16_t)((head + capacity - count + i) % capacity);
-        const operational_sample_t *sample = &samples[index];
+        const operational_sample_t *sample = &samples[i];
         if (isfinite(sample->grid_kw)) {
             grid_min = fminf(grid_min, sample->grid_kw);
             grid_max = fmaxf(grid_max, sample->grid_kw);
@@ -283,27 +284,36 @@ static esp_err_t history_get(httpd_req_t *request)
     }
     bool use_minute = strcmp(range, "1h") == 0 || strcmp(range, "24h") == 0;
     uint16_t limit = strcmp(range, "1h") == 0 ? 60U : strcmp(range, "24h") == 0 ? MINUTE_SAMPLE_COUNT : FAST_SAMPLE_COUNT;
+    operational_sample_t *snapshot = calloc(limit ? limit : 1U, sizeof(*snapshot));
+    if (!snapshot) return httpd_resp_send_500(request);
+
+    uint16_t count;
+    portENTER_CRITICAL(&s_lock);
+    const operational_sample_t *ring = use_minute ? s_minute : s_fast;
+    uint16_t capacity = use_minute ? MINUTE_SAMPLE_COUNT : FAST_SAMPLE_COUNT;
+    uint16_t head = use_minute ? s_minute_head : s_fast_head;
+    count = use_minute ? s_minute_count : s_fast_count;
+    if (count > limit) count = limit;
+    for (uint16_t i = 0; i < count; ++i) {
+        uint16_t index = (uint16_t)((head + capacity - count + i) % capacity);
+        snapshot[i] = ring[index];
+    }
+    portEXIT_CRITICAL(&s_lock);
+
     uint32_t current = now_ms();
     cJSON *root = cJSON_CreateObject();
-    if (!root) return httpd_resp_send_500(request);
+    if (!root) {
+        free(snapshot);
+        return httpd_resp_send_500(request);
+    }
     cJSON_AddStringToObject(root, "range", use_minute ? (limit == 60U ? "1h" : "24h") : "15m");
     cJSON_AddNumberToObject(root, "generated_ms", current);
     cJSON_AddBoolToObject(root, "controller_resident", true);
     cJSON_AddNumberToObject(root, "sample_interval_ms", use_minute ? MINUTE_INTERVAL_MS : SAMPLE_INTERVAL_MS);
     cJSON *items = cJSON_AddArrayToObject(root, "samples");
-
-    portENTER_CRITICAL(&s_lock);
-    const operational_sample_t *ring = use_minute ? s_minute : s_fast;
-    uint16_t capacity = use_minute ? MINUTE_SAMPLE_COUNT : FAST_SAMPLE_COUNT;
-    uint16_t head = use_minute ? s_minute_head : s_fast_head;
-    uint16_t count = use_minute ? s_minute_count : s_fast_count;
-    if (count > limit) count = limit;
-    for (uint16_t i = 0; i < count; ++i) {
-        uint16_t index = (uint16_t)((head + capacity - count + i) % capacity);
-        add_sample_json(items, &ring[index], current);
-    }
-    add_summary(root, ring, capacity, head, count);
-    portEXIT_CRITICAL(&s_lock);
+    for (uint16_t i = 0; i < count; ++i) add_sample_json(items, &snapshot[i], current);
+    add_summary(root, snapshot, count);
+    free(snapshot);
     return send_json(request, root);
 }
 
@@ -352,22 +362,36 @@ static void event_text(const operational_event_t *event, const char **title, con
 
 static esp_err_t events_get(httpd_req_t *request)
 {
+    operational_event_t *snapshot = calloc(EVENT_COUNT, sizeof(*snapshot));
+    if (!snapshot) return httpd_resp_send_500(request);
+
+    uint16_t count;
+    portENTER_CRITICAL(&s_lock);
+    count = s_event_count;
+    for (uint16_t i = 0; i < count; ++i) {
+        uint16_t index = (uint16_t)((s_event_head + EVENT_COUNT - 1U - i) % EVENT_COUNT);
+        snapshot[i] = s_events[index];
+    }
+    portEXIT_CRITICAL(&s_lock);
+
     uint32_t current = now_ms();
     cJSON *root = cJSON_CreateObject();
-    if (!root) return httpd_resp_send_500(request);
+    if (!root) {
+        free(snapshot);
+        return httpd_resp_send_500(request);
+    }
     cJSON_AddBoolToObject(root, "operator_view", true);
     cJSON_AddBoolToObject(root, "engineering_details_hidden", true);
     cJSON_AddNumberToObject(root, "generated_ms", current);
     cJSON *items = cJSON_AddArrayToObject(root, "events");
 
     uint16_t active_critical = 0, active_warning = 0;
-    portENTER_CRITICAL(&s_lock);
-    for (uint16_t i = 0; i < s_event_count; ++i) {
-        uint16_t index = (uint16_t)((s_event_head + EVENT_COUNT - 1U - i) % EVENT_COUNT);
-        const operational_event_t *event = &s_events[index];
+    for (uint16_t i = 0; i < count; ++i) {
+        const operational_event_t *event = &snapshot[i];
         const char *title, *detail, *action;
         event_text(event, &title, &detail, &action);
         cJSON *item = cJSON_CreateObject();
+        if (!item) continue;
         cJSON_AddNumberToObject(item, "sequence", event->sequence);
         cJSON_AddNumberToObject(item, "age_ms", current - event->timestamp_ms);
         cJSON_AddStringToObject(item, "severity", severity_label(event->severity));
@@ -379,11 +403,11 @@ static esp_err_t events_get(httpd_req_t *request)
         if (event->active && event->severity >= 2) active_critical++;
         else if (event->active && event->severity == 1) active_warning++;
     }
-    portEXIT_CRITICAL(&s_lock);
+    free(snapshot);
     cJSON *summary = cJSON_AddObjectToObject(root, "summary");
     cJSON_AddNumberToObject(summary, "active_critical", active_critical);
     cJSON_AddNumberToObject(summary, "active_warning", active_warning);
-    cJSON_AddNumberToObject(summary, "stored_events", s_event_count);
+    cJSON_AddNumberToObject(summary, "stored_events", count);
     return send_json(request, root);
 }
 
