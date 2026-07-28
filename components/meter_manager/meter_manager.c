@@ -280,6 +280,10 @@ esp_err_t meter_manager_init(void)
         runtime->config = cfg->meters[i];
         runtime->lock = (portMUX_TYPE)portMUX_INITIALIZER_UNLOCKED;
         runtime->io_mutex = xSemaphoreCreateMutex();
+        /* No sample has been acquired yet. NaN is intentional: cJSON emits it as
+         * null and the control layer rejects it, so unavailable power can never
+         * masquerade as a real 0.00 kW measurement. */
+        runtime->data.active_power_kw = NAN;
         runtime->data.current_poll_delay_ms = runtime->config.poll_interval_ms < 100U
                                                   ? 100U
                                                   : runtime->config.poll_interval_ms;
