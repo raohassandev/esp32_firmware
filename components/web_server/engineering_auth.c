@@ -165,11 +165,11 @@ static esp_err_t store_password(const char *password, auth_record_t *out_record)
         return ESP_ERR_INVALID_ARG;
     }
 
-    nvs_handle_t handle;
+    nvs_handle_t handle = 0;
     esp_err_t err = nvs_open(AUTH_NAMESPACE, NVS_READWRITE, &handle);
     if (err == ESP_OK) err = nvs_set_blob(handle, AUTH_RECORD_KEY, &record, sizeof(record));
     if (err == ESP_OK) err = nvs_commit(handle);
-    if (handle) nvs_close(handle);
+    if (handle != 0) nvs_close(handle);
     if (err != ESP_OK) {
         memset(&record, 0, sizeof(record));
         return err;
@@ -278,12 +278,13 @@ static bool session_cookie_valid(httpd_req_t *request, bool extend)
 static void create_session(char cookie_value[AUTH_SESSION_HEX_BYTES + 1u])
 {
     uint8_t token[AUTH_SESSION_BYTES];
+    uint64_t expiry = now_ms() + AUTH_SESSION_TIMEOUT_MS;
     esp_fill_random(token, sizeof(token));
     bytes_to_hex(token, sizeof(token), cookie_value);
     portENTER_CRITICAL(&s_lock);
     memcpy(s_session_token, token, sizeof(token));
     s_session_active = true;
-    s_session_expires_ms = now_ms() + AUTH_SESSION_TIMEOUT_MS;
+    s_session_expires_ms = expiry;
     portEXIT_CRITICAL(&s_lock);
     memset(token, 0, sizeof(token));
 }
@@ -414,9 +415,10 @@ static bool login_locked(uint64_t *remaining_ms)
 
 static void record_login_failure(void)
 {
+    uint64_t lockout_until = now_ms() + AUTH_LOCKOUT_MS;
     portENTER_CRITICAL(&s_lock);
     if (++s_failed_attempts >= AUTH_MAX_FAILURES) {
-        s_lockout_until_ms = now_ms() + AUTH_LOCKOUT_MS;
+        s_lockout_until_ms = lockout_until;
         s_failed_attempts = 0;
     }
     portEXIT_CRITICAL(&s_lock);
