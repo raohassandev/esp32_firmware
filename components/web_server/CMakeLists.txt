@@ -57,6 +57,7 @@ set(WEB_SERVER_C_SOURCES
     "em500_cache.c"
     "em500_cache_adapter.c"
     "em500_cache_api.c"
+    "meter_read_jobs.c"
     "em500_api.c"
     "em500_history_api.c"
     "em500_settings_api.c"
@@ -125,3 +126,5 @@ set_source_files_properties("engineering_guard.c" "operational_api.c" PROPERTIES
     COMPILE_DEFINITIONS ENGINEERING_GUARD_IMPLEMENTATION=1)
 set_property(SOURCE "em500_api.c" APPEND PROPERTY
     COMPILE_DEFINITIONS meter_manager_read_registers=em500_cache_read_pdu_registers)
+set_property(SOURCE "em500_history_api.c" "em500_settings_api.c" "em500_settings_plan_api.c"
+    APPEND PROPERTY COMPILE_DEFINITIONS meter_manager_read_registers=meter_read_jobs_cached_read)
