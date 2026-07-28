@@ -3,7 +3,7 @@
 
     document.documentElement.dataset.access = 'pending';
 
-    const PROTECTED_ROUTES = new Set(['wifi', 'control', 'system']);
+    const PROTECTED_ROUTES = new Set(['wifi', 'control', 'system', 'meters', 'inverters', 'commissioning']);
     const ENGINEERING_ONLY_SELECTORS = [
         '#em500Workspace',
         '#inverterProfilePicker',
@@ -14,18 +14,50 @@
     ];
     const state = { authenticated: false };
     const originalFetch = window.fetch.bind(window);
+    let renewalPromise = null;
 
     function currentRoute() {
         return location.hash.replace(/^#\/?/, '') || 'dashboard';
     }
 
+    async function renewEngineeringSession() {
+        if (renewalPromise) return renewalPromise;
+        renewalPromise = (async () => {
+            try {
+                const response = await originalFetch('/api/engineering/session', {
+                    cache: 'no-store', credentials: 'same-origin'
+                });
+                const payload = await response.json().catch(() => ({}));
+                if (response.ok && payload.authenticated === true) {
+                    setEngineering(true);
+                    return true;
+                }
+            } catch {
+                /* Controller restart or network transition; do not force a false logout. */
+            }
+            return false;
+        })().finally(() => { renewalPromise = null; });
+        return renewalPromise;
+    }
+
+    async function retryProtectedRequest(input, init) {
+        const renewed = await renewEngineeringSession();
+        if (!renewed) return null;
+        return originalFetch(input, { credentials: 'same-origin', ...init });
+    }
+
     window.fetch = async (input, init = {}) => {
         const url = typeof input === 'string' ? input : input?.url || '';
-        const response = await originalFetch(input, { credentials: 'same-origin', ...init });
-        if (response.status === 401 && url.startsWith('/api/') && !url.includes('/engineering/') &&
+        let response = await originalFetch(input, { credentials: 'same-origin', ...init });
+        const protectedApi = url.startsWith('/api/') && !url.includes('/engineering/');
+        if (response.status === 401 && protectedApi &&
             (currentRoute() === 'engineering' || PROTECTED_ROUTES.has(currentRoute()) || state.authenticated)) {
-            setEngineering(false);
-            openLogin('Engineering session expired. Sign in again.');
+            const retried = await retryProtectedRequest(input, init);
+            if (retried) response = retried;
+            if (response.status === 401) {
+                setEngineering(false);
+                openLogin('Engineering session expired. Sign in again.');
+            }
         }
         return response;
     };
@@ -66,7 +98,7 @@
     function addNavigation() {
         const nav = document.querySelector('.nav-list');
         if (!nav || document.getElementById('engineeringNav')) return;
-        ['wifi', 'control', 'system'].forEach((route) => {
+        ['wifi', 'control', 'system', 'meters', 'inverters', 'commissioning'].forEach((route) => {
             const link = nav.querySelector(`[data-route="${route}"]`);
             if (link) {
                 link.dataset.engineeringNav = 'true';
@@ -90,18 +122,19 @@
         page.innerHTML = `
             <div class="page-intro"><div><p class="eyebrow">Restricted access</p><h2>Engineering and commissioning</h2><p>Protected tools for authorized commissioning and service personnel.</p></div><span class="subtle-badge" id="engineeringAccessBadge">Engineering locked</span></div>
             <div class="engineering-login panel" id="engineeringLoginPanel">
-                <div><p class="eyebrow">Authentication</p><h3>Engineering sign in</h3><p>Use the temporary password printed on the device label or serial boot log. Change it after first access.</p></div>
+                <div><p class="eyebrow">Authentication</p><h3>Engineering sign in</h3><p>Use the device engineering password. The session remains active while commissioning work continues.</p></div>
                 <form id="engineeringLoginForm"><label class="field"><span>Engineering password</span><input id="engineeringPassword" type="password" autocomplete="current-password" minlength="8" maxlength="64" required></label><button class="button primary" type="submit">Unlock engineering</button></form>
                 <div class="action-message" id="engineeringLoginMessage" role="status"></div>
             </div>
             <div class="engineering-console" id="engineeringConsole">
-                <div class="engineering-actions"><span>Authenticated engineering session. Session closes automatically after 30 minutes of inactivity.</span><button class="button secondary" id="engineeringLogout" type="button">Lock engineering</button></div>
+                <div class="engineering-actions"><span>Engineering access is active. Automatic control remains locked during commissioning.</span><button class="button secondary" id="engineeringLogout" type="button">Lock engineering</button></div>
                 <div class="engineering-grid">
-                    <a class="panel engineering-tile" href="#/wifi"><span>Network commissioning</span><strong>Wi-Fi and addressing</strong><small>Primary/fallback networks, recovery AP and static IP settings.</small></a>
-                    <a class="panel engineering-tile" href="#/meters"><span>Meter commissioning</span><strong>Meter profiles and diagnostics</strong><small>Endpoints, scaling, register maps, raw data and advanced diagnostics.</small></a>
-                    <a class="panel engineering-tile" href="#/inverters"><span>Inverter commissioning</span><strong>Profiles and communication</strong><small>Model assignment, endpoints, read-only probes and telemetry qualification.</small></a>
-                    <a class="panel engineering-tile" href="#/control"><span>Control engineering</span><strong>PV-DG parameters</strong><small>Targets, deadband, timing and safety interlocks.</small></a>
-                    <a class="panel engineering-tile" href="#/system"><span>Service and maintenance</span><strong>Backup and controller service</strong><small>Configuration export, advanced JSON, password management and restart.</small></a>
+                    <a class="panel engineering-tile primary-workflow" href="#/commissioning"><span>Guided commissioning</span><strong>Commission a site and its devices</strong><small>Site details, devices, channels, Modbus tuning, connection qualification, controller health and report.</small></a>
+                    <a class="panel engineering-tile" href="#/wifi"><span>Network</span><strong>Wi-Fi and addressing</strong><small>Primary/fallback networks, recovery AP and static IP settings.</small></a>
+                    <a class="panel engineering-tile" href="#/meters"><span>Meters</span><strong>Meter profiles and diagnostics</strong><small>Endpoints, scaling, register maps, raw data and advanced diagnostics.</small></a>
+                    <a class="panel engineering-tile" href="#/inverters"><span>Inverters</span><strong>Profiles and communication</strong><small>Model assignment, endpoints, read-only probes and telemetry qualification.</small></a>
+                    <a class="panel engineering-tile" href="#/control"><span>Control</span><strong>PV-DG parameters</strong><small>Targets, deadband, timing and safety interlocks.</small></a>
+                    <a class="panel engineering-tile" href="#/system"><span>Service</span><strong>Backup and controller service</strong><small>Configuration export, advanced JSON, password management and restart.</small></a>
                 </div>
                 <article class="panel password-panel"><div><p class="eyebrow">Security</p><h3>Change engineering password</h3></div><form id="engineeringPasswordForm" class="password-form"><label class="field"><span>Current password</span><input id="engineeringCurrentPassword" type="password" required></label><label class="field"><span>New password</span><input id="engineeringNewPassword" type="password" minlength="10" maxlength="64" required></label><button class="button primary" type="submit">Change password</button></form><div id="engineeringPasswordMessage" class="action-message"></div></article>
             </div>`;
@@ -115,7 +148,7 @@
         const title = document.getElementById('pageTitle');
         const breadcrumb = document.getElementById('breadcrumbCurrent');
         if (title) title.textContent = 'Engineering';
-        if (breadcrumb) breadcrumb.textContent = 'Engineering access';
+        if (breadcrumb) breadcrumb.textContent = 'Restricted commissioning and service tools';
         document.title = 'Engineering · Automatrix PV-DG';
     }
 
@@ -131,15 +164,8 @@
     }
 
     async function refreshSession() {
-        try {
-            const response = await originalFetch('/api/engineering/session', {
-                cache: 'no-store', credentials: 'same-origin'
-            });
-            const payload = await response.json();
-            setEngineering(payload.authenticated);
-        } catch {
-            setEngineering(false);
-        }
+        const authenticated = await renewEngineeringSession();
+        if (!authenticated) setEngineering(false);
     }
 
     async function login(password) {
@@ -185,8 +211,7 @@
             const next = document.getElementById('engineeringNewPassword');
             try {
                 const response = await originalFetch('/api/engineering/password', {
-                    method: 'POST',
-                    credentials: 'same-origin',
+                    method: 'POST', credentials: 'same-origin',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ current_password: current.value, new_password: next.value })
                 });
@@ -201,10 +226,11 @@
         });
     }
 
-    function enforceRoute() {
+    async function enforceRoute() {
         const route = currentRoute();
         if (PROTECTED_ROUTES.has(route) && !state.authenticated) {
-            openLogin('Sign in to open this engineering page.');
+            const restored = await renewEngineeringSession();
+            if (!restored) openLogin('Sign in to open this engineering page.');
             return;
         }
         if (route === 'engineering') setTimeout(activateEngineeringRoute, 0);
@@ -216,11 +242,10 @@
         bindForms();
         setEngineering(false);
         const main = document.getElementById('mainContent');
-        if (main) {
-            new MutationObserver(enforceEngineeringDom).observe(main, { childList: true, subtree: true });
-        }
+        if (main) new MutationObserver(enforceEngineeringDom).observe(main, { childList: true, subtree: true });
         await refreshSession();
-        enforceRoute();
+        await enforceRoute();
     });
     window.addEventListener('hashchange', enforceRoute);
+    window.addEventListener('amx-engineering-session-ready', () => setEngineering(true));
 })();
