@@ -1,6 +1,7 @@
 #include "web_api.h"
 #include "esp_check.h"
 #include "esp_system.h"
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,13 +11,17 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "http_json.h"
 #include "meter_manager.h"
 #include "network_manager.h"
 #include "safety_manager.h"
 
-#define METER_STALE_AFTER_MS 5000
+#define METER_STALE_AFTER_MS 5000U
 #define MASKED_PASSWORD "********"
-#define WIFI_CONFIG_MAX_BODY 4096
+#define WIFI_CONFIG_MAX_BODY 4096U
+#define CONFIG_MAX_BODY 16384U
+#define WEB_API_BODY_DEADLINE_MS 5000U
+#define WEB_API_JSON_MAX_DEPTH 8U
 
 static esp_err_t send_json_text(httpd_req_t *request, const char *status, const char *text)
 {
@@ -37,29 +42,6 @@ static esp_err_t send_json_error(httpd_req_t *request, const char *status, const
     esp_err_t err = send_json_text(request, status, json);
     free(json);
     return err;
-}
-
-static esp_err_t read_request_body(httpd_req_t *request, size_t maximum, char **out_body)
-{
-    if (!request || !out_body || request->content_len <= 0 || request->content_len > maximum) {
-        return ESP_ERR_INVALID_SIZE;
-    }
-
-    char *body = malloc(request->content_len + 1);
-    if (!body) return ESP_ERR_NO_MEM;
-
-    size_t offset = 0;
-    while (offset < request->content_len) {
-        int received = httpd_req_recv(request, body + offset, request->content_len - offset);
-        if (received <= 0) {
-            free(body);
-            return ESP_FAIL;
-        }
-        offset += (size_t)received;
-    }
-    body[offset] = '\0';
-    *out_body = body;
-    return ESP_OK;
 }
 
 static esp_err_t status_get(httpd_req_t *request)
@@ -87,14 +69,19 @@ static esp_err_t status_get(httpd_req_t *request)
     cJSON_AddNumberToObject(root, "reconnect_count", network.reconnect_count);
 
     uint32_t current_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
-    bool meter_has_data = meter.last_update_ms != 0;
+    bool meter_has_data = meter.last_update_ms != 0 && isfinite(meter.active_power_kw);
     uint32_t meter_age_ms = meter_has_data ? current_ms - meter.last_update_ms : 0;
     cJSON_AddBoolToObject(root, "meter_online", meter.online);
     cJSON_AddBoolToObject(root, "meter_has_data", meter_has_data);
     cJSON_AddBoolToObject(root, "meter_stale", !meter_has_data || meter_age_ms > METER_STALE_AFTER_MS);
-    cJSON_AddNumberToObject(root, "meter_age_ms", meter_has_data ? (double)meter_age_ms : -1);
+    if (meter_has_data) {
+        cJSON_AddNumberToObject(root, "meter_age_ms", (double)meter_age_ms);
+        cJSON_AddNumberToObject(root, "grid_power_kw", meter.active_power_kw);
+    } else {
+        cJSON_AddNullToObject(root, "meter_age_ms");
+        cJSON_AddNullToObject(root, "grid_power_kw");
+    }
     cJSON_AddNumberToObject(root, "meter_errors", meter.response_errors);
-    cJSON_AddNumberToObject(root, "grid_power_kw", meter.active_power_kw);
     cJSON_AddBoolToObject(root, "control_enabled", control.enabled);
     cJSON_AddNumberToObject(root, "mode", control.mode);
     cJSON_AddNumberToObject(root, "requested_pv_kw", control.requested_pv_kw);
@@ -126,8 +113,19 @@ static esp_err_t config_get(httpd_req_t *request)
 static esp_err_t config_post(httpd_req_t *request)
 {
     char *body = NULL;
-    esp_err_t read_err = read_request_body(request, 16384, &body);
-    if (read_err != ESP_OK) return send_json_error(request, "400 Bad Request", "Invalid configuration body");
+    esp_err_t read_err = http_body_read_bounded(request, CONFIG_MAX_BODY,
+                                                 WEB_API_BODY_DEADLINE_MS, &body);
+    if (read_err == ESP_ERR_INVALID_SIZE) {
+        return send_json_error(request, "413 Payload Too Large",
+                               "Configuration body is missing or too large");
+    }
+    if (read_err == ESP_ERR_TIMEOUT) {
+        return send_json_error(request, "408 Request Timeout",
+                               "Configuration body timed out");
+    }
+    if (read_err != ESP_OK) {
+        return send_json_error(request, "400 Bad Request", "Invalid configuration body");
+    }
 
     esp_err_t err = config_manager_import_json(body);
     free(body);
@@ -235,7 +233,9 @@ static bool parse_wifi_profile(cJSON *object, const app_wifi_sta_profile_t *curr
     }
 
     item = cJSON_GetObjectItemCaseSensitive(object, "ip_mode");
-    if (item && (!cJSON_IsNumber(item) || item->valueint < APP_WIFI_IP_DHCP || item->valueint > APP_WIFI_IP_STATIC)) {
+    if (item && (!cJSON_IsNumber(item) || !isfinite(item->valuedouble) ||
+                 floor(item->valuedouble) != item->valuedouble ||
+                 item->valueint < APP_WIFI_IP_DHCP || item->valueint > APP_WIFI_IP_STATIC)) {
         strlcpy(error, "Invalid IP mode", error_size);
         return false;
     }
@@ -314,14 +314,18 @@ static bool parse_wifi_config(cJSON *root, const app_wifi_config_t *current,
     }
 
     item = cJSON_GetObjectItemCaseSensitive(root, "max_retries_per_profile");
-    if (item && (!cJSON_IsNumber(item) || item->valueint < 1 || item->valueint > 20)) {
+    if (item && (!cJSON_IsNumber(item) || !isfinite(item->valuedouble) ||
+                 floor(item->valuedouble) != item->valuedouble ||
+                 item->valueint < 1 || item->valueint > 20)) {
         strlcpy(error, "Retries must be between 1 and 20", error_size);
         return false;
     }
     if (cJSON_IsNumber(item)) next->max_retries_per_profile = (uint8_t)item->valueint;
 
     item = cJSON_GetObjectItemCaseSensitive(root, "reconnect_backoff_ms");
-    if (item && (!cJSON_IsNumber(item) || item->valuedouble < 500 || item->valuedouble > 60000)) {
+    if (item && (!cJSON_IsNumber(item) || !isfinite(item->valuedouble) ||
+                 floor(item->valuedouble) != item->valuedouble ||
+                 item->valuedouble < 500 || item->valuedouble > 60000)) {
         strlcpy(error, "Reconnect delay must be 500-60000 ms", error_size);
         return false;
     }
@@ -349,13 +353,23 @@ static bool parse_wifi_config(cJSON *root, const app_wifi_config_t *current,
 
 static esp_err_t wifi_config_post(httpd_req_t *request)
 {
-    char *body = NULL;
-    esp_err_t read_err = read_request_body(request, WIFI_CONFIG_MAX_BODY, &body);
-    if (read_err != ESP_OK) return send_json_error(request, "400 Bad Request", "Invalid Wi-Fi configuration body");
-
-    cJSON *root = cJSON_Parse(body);
-    free(body);
-    if (!root) return send_json_error(request, "400 Bad Request", "Invalid Wi-Fi configuration JSON");
+    cJSON *root = NULL;
+    esp_err_t read_err = http_json_parse_bounded(request, WIFI_CONFIG_MAX_BODY,
+                                                  WEB_API_BODY_DEADLINE_MS,
+                                                  WEB_API_JSON_MAX_DEPTH,
+                                                  &root);
+    if (read_err == ESP_ERR_INVALID_SIZE) {
+        return send_json_error(request, "413 Payload Too Large",
+                               "Wi-Fi configuration body is missing or too large");
+    }
+    if (read_err == ESP_ERR_TIMEOUT) {
+        return send_json_error(request, "408 Request Timeout",
+                               "Wi-Fi configuration body timed out");
+    }
+    if (read_err != ESP_OK) {
+        return send_json_error(request, "400 Bad Request",
+                               "Wi-Fi configuration must be valid bounded JSON");
+    }
 
     app_config_t *config = malloc(sizeof(*config));
     if (!config) {
@@ -470,9 +484,6 @@ static esp_err_t wifi_rescan_post(httpd_req_t *request)
         : send_json_error(request, "409 Conflict",
                           "An operator reconnect is already in progress");
 
-    /* The manager cannot close admission or touch the radio until this send
-     * attempt has returned and the response handler is removed from in-flight
-     * tracking. */
     network_manager_operator_reconnect_response_complete(accepted, send_err);
     return send_err;
 }
