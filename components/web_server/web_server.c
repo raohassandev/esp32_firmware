@@ -1,6 +1,7 @@
 #include "web_server.h"
 #include "device_api.h"
 #include "em500_api.h"
+#include "em500_cache.h"
 #include "em500_history_api.h"
 #include "em500_settings_api.h"
 #include "em500_settings_plan_api.h"
@@ -120,6 +121,7 @@ esp_err_t web_server_start(void)
 {
     if (s_server) return ESP_OK;
     ESP_RETURN_ON_ERROR(engineering_auth_init(), "web", "engineering authentication init failed");
+    ESP_RETURN_ON_ERROR(em500_cache_init(), "web", "EM500 acquisition cache init failed");
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.max_uri_handlers = 32;
     config.stack_size = 8192;
