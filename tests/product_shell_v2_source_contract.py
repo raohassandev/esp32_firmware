@@ -11,7 +11,7 @@ server = (ROOT / "components/web_server/web_server.c").read_text(encoding="utf-8
 
 for token in (
     "shell-health-button", "shell-overflow-button", "shell-page-context",
-    "System health", "Controller menu", "Refresh data", "Engineering sign-in",
+    "System health", "Controller menu", "Refresh data", "Engineering workspace",
 ):
     assert token in js or token in css, f"missing product shell behavior: {token}"
 
@@ -19,8 +19,10 @@ assert ".status-strip { display: none; }" in css, "legacy global status strip mu
 assert "#controllerPill { display: none; }" in css, "legacy controller pill must not compete with health control"
 assert ".product-tool-button" in css and "display: none" in css, "secondary display tools must leave the permanent header"
 assert "max-width: 650px" in css and "place-items: end stretch" in css, "mobile overflow sheet is required"
-assert "groupNavigation" in js and "operatorOrder" in js, "navigation hierarchy must be deterministic"
+assert "groupNavigation" in js and "dataset.shellGrouped" in js, "navigation hierarchy must be deterministic and idempotent"
 assert "removeDuplicateIntros" in js, "duplicate page introductions must be suppressed"
+assert ".observe(main, { childList: true })" in js, "shell may observe only direct page additions"
+assert "subtree: true" not in js[js.find("function start()"):], "shell must not rescan the full live telemetry subtree"
 
 for name in ("product-shell-v2.css", "product-shell-v2.js"):
     assert name in cmake, f"{name} must be embedded"
