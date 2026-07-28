@@ -233,16 +233,23 @@ static void cache_task(void *argument)
             portEXIT_CRITICAL(&slot->lock);
             if (!configured || scopes == 0U) continue;
 
+            bool scan_instantaneous = (scopes & EM500_CACHE_SCOPE_INSTANTANEOUS) &&
+                                      due(timestamp, next_instantaneous);
+            bool scan_energy = (scopes & EM500_CACHE_SCOPE_ENERGY) &&
+                               due(timestamp, next_energy);
+            bool scan_setup = (scopes & EM500_CACHE_SCOPE_SETUP) &&
+                              due(timestamp, next_setup);
+            if (!scan_instantaneous && !scan_energy && !scan_setup) continue;
+
             begin_scan(slot);
-            if ((scopes & EM500_CACHE_SCOPE_INSTANTANEOUS) &&
-                due(timestamp, next_instantaneous)) {
+            if (scan_instantaneous) {
                 acquire_instantaneous(index, slot, function_code,
                                       address_base, timestamp);
             }
-            if ((scopes & EM500_CACHE_SCOPE_ENERGY) && due(timestamp, next_energy)) {
+            if (scan_energy) {
                 acquire_energy(index, slot, function_code, address_base, timestamp);
             }
-            if ((scopes & EM500_CACHE_SCOPE_SETUP) && due(timestamp, next_setup)) {
+            if (scan_setup) {
                 acquire_setup(index, slot, function_code, address_base, timestamp);
             }
             end_scan(slot);
@@ -295,15 +302,22 @@ esp_err_t em500_cache_request(uint8_t meter_index,
         scope_mask == 0U || (scope_mask & ~EM500_CACHE_SCOPE_ALL) != 0U) {
         return ESP_ERR_INVALID_ARG;
     }
+    uint32_t requested_ms = now_ms();
     cache_slot_t *slot = &s_slots[meter_index];
     portENTER_CRITICAL(&slot->lock);
-    if (!slot->configured || slot->function_code != function_code ||
-        slot->address_base != address_base) {
+    bool variant_change = slot->configured &&
+                          (slot->function_code != function_code ||
+                           slot->address_base != address_base);
+    if (variant_change && slot->scan_in_progress) {
+        portEXIT_CRITICAL(&slot->lock);
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!slot->configured || variant_change) {
         invalidate_slot(slot, function_code, address_base);
     }
     slot->configured = true;
     slot->requested_scopes |= scope_mask;
-    slot->requested_ms = now_ms();
+    slot->requested_ms = requested_ms;
     portEXIT_CRITICAL(&slot->lock);
     return ESP_OK;
 }
