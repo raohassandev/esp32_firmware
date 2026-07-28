@@ -16,25 +16,17 @@ def require(value: bool, message: str) -> None:
         raise AssertionError(message)
 
 
-field_bypass = "AUTH_TEMPORARY_FIELD_BYPASS 1" in AUTH
-if field_bypass:
-    for token in [
-        "TEMPORARY FIELD-DEVELOPMENT BYPASS",
-        '"temporary_field_bypass", true',
-        "Engineering authentication disabled for field development",
-        "Password management is disabled",
-        "return AUTH_TEMPORARY_FIELD_BYPASS != 0",
-    ]:
-        require(token in AUTH, f"temporary field bypass is not explicit: {token}")
-else:
-    for token in [
-        "AUTH_SESSION_MS", "AUTH_LOCKOUT_MS", "AUTH_MAX_FAILURES",
-        "hash_password", "constant_time_equal", "constant_time_token_equal", "new_session",
-        "Engineering temporary password", "/api/engineering/login",
-        "/api/engineering/logout", "/api/engineering/password",
-        "Set-Cookie", "HttpOnly", "SameSite=Strict", "AMXENG",
-    ]:
-        require(token in AUTH, f"engineering authentication missing {token}")
+require("AUTH_TEMPORARY_FIELD_BYPASS" not in AUTH,
+        "temporary Engineering authentication bypass must not return")
+for token in [
+    "AUTH_SESSION_TIMEOUT_MS", "AUTH_LOCKOUT_MS", "AUTH_MAX_FAILURES",
+    "derive_password_hash", "constant_time_equal", "session_cookie_valid", "create_session",
+    "One-time Engineering setup code", "/api/engineering/login",
+    "/api/engineering/logout", "/api/engineering/password",
+    "Set-Cookie", "HttpOnly", "SameSite=Strict", "eng_session",
+    "nvs_set_blob", "mbedtls_md_hmac", "AUTH_BODY_DEADLINE_MS", "json_depth_valid",
+]:
+    require(token in AUTH, f"Engineering authentication missing {token}")
 
 for token in [
     "engineering_register_uri_handler", "engineering_auth_guarded_handler",
@@ -53,7 +45,7 @@ require("ENGINEERING_GUARD_IMPLEMENTATION=1" in CMAKE,
 require("httpd_register_uri_handler=engineering_register_uri_handler" not in CMAKE,
         "fragile component-wide command-line URI replacement must not return")
 require("engineering_auth_register" in SERVER and "engineering_auth_init" in SERVER,
-        "engineering auth is not initialized and registered")
+        "Engineering auth is not initialized and registered")
 require("web_assets_product_mode_js" in SERVER and "web_assets_product_mode_css" in SERVER,
         "product-mode assets are not served")
 require("web_assets_operator_view_js" in SERVER and "operator-view.js" in CMAKE,
@@ -65,7 +57,7 @@ for token in [
 ]:
     require(token in JS, f"product UI access flow missing {token}")
 require("sessionStorage" not in JS,
-        "engineering session token must not be stored in browser-accessible sessionStorage")
+        "Engineering session token must not be stored in browser-accessible sessionStorage")
 require("X-Engineering-Token" not in JS,
         "operator browser code must rely on the HTTP-only session cookie")
 
@@ -79,7 +71,7 @@ for token in [
 
 for forbidden in ["PDU", "function code", "raw words", "meterScale", "meterAddress", "limit register"]:
     require(forbidden.lower() not in OPERATOR.lower(),
-            f"operator product view exposes engineering data or controls: {forbidden}")
+            f"operator product view exposes Engineering data or controls: {forbidden}")
 
 for token in [
     'html[data-access="operator"] #em500Workspace',
@@ -90,6 +82,6 @@ for token in [
     'html[data-access="operator"] #meterRuntimeList',
     'html[data-access="operator"] #inverterRuntimeList',
 ]:
-    require(token in CSS, f"operator UI does not hide engineering detail: {token}")
+    require(token in CSS, f"operator UI does not hide Engineering detail: {token}")
 
-print("product/operator separation contract passed (field bypass=%s)" % field_bypass)
+print("product/operator separation contract passed with production Engineering authentication")
