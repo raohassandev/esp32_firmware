@@ -38,6 +38,21 @@ for forbidden_field in [
 ]:
     require(forbidden_field not in API,
             f"operator payload exposes engineering field {forbidden_field}")
+
+history = API[API.index("static esp_err_t history_get"):API.index("static const char *severity_label")]
+events = API[API.index("static esp_err_t events_get"):API.index("esp_err_t operational_api_register")]
+for name, body in [("history", history), ("events", events)]:
+    lock_start = body.find("portENTER_CRITICAL")
+    lock_end = body.find("portEXIT_CRITICAL")
+    require(lock_start >= 0 and lock_end > lock_start, f"{name} snapshot lock missing")
+    locked = body[lock_start:lock_end]
+    require("cJSON_" not in locked and "malloc(" not in locked and "calloc(" not in locked,
+            f"{name} allocates or serializes while interrupts are disabled")
+require("snapshot[i] = ring[index]" in history,
+        "history ring must be copied before JSON serialization")
+require("snapshot[i] = s_events[index]" in events,
+        "event ring must be copied before JSON serialization")
+
 require("operational_api_register(s_server)" in SERVER,
         "operator history/event API is not registered")
 require('"operational_api.c"' in CMAKE,
@@ -51,6 +66,10 @@ require("operator_operations_js_start" in ASSETS and "operator_operations_css_st
         "operator history/event embedded symbols are missing")
 require("Alarm and event center" in UI and "Active conditions" in UI,
         "dedicated operator alarm center is missing")
+require("requestAnimationFrame" in UI and "subtree: true" not in UI,
+        "operator alarm enhancement must be deduplicated and must not observe its own subtree output")
+require("AbortController" in UI and "Controller request timed out" in UI,
+        "operator history/event fetches need bounded request timeouts")
 for label in ["15 min", "1 hour", "24 hours", "Minimum", "Average", "Peak"]:
     require(label in UI, f"operator history UI missing {label}")
 require("op-event-row" in CSS and "op-range-selector" in CSS,
