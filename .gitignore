@@ -1,7 +1,16 @@
-# Build output
+# Build output. build-<variant>/ dirs are per-toolchain/per-site builds
+# (build-idf601, build-tenda, ...) and are fully regenerable — together they
+# were ~308 MB of untracked noise.
 build/
+build-*/
 sdkconfig
 sdkconfig.old
+
+# Local validation artifacts. The JSON/log evidence is small and reviewable,
+# but flashed images are regenerable and must not enter git history.
+evidence/**/*.bin
+evidence/**/*.elf
+evidence/**/*.map
 
 # Transient build/flash transcripts, regenerated on every run.
 # Validation evidence that must persist lives in verified-runtime*.log.
