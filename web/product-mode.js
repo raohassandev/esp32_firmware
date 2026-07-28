@@ -12,7 +12,7 @@
         '[data-page="system"] .dashboard-grid > article:nth-child(2)',
         '[data-page="system"] .panel-actions'
     ];
-    const state = { authenticated: false };
+    const state = { authenticated: false, sessionExpired: false };
     const originalFetch = window.fetch.bind(window);
     let renewalPromise = null;
 
@@ -29,11 +29,12 @@
                 });
                 const payload = await response.json().catch(() => ({}));
                 if (response.ok && payload.authenticated === true) {
+                    state.sessionExpired = false;
                     setEngineering(true);
                     return true;
                 }
             } catch {
-                /* Controller restart or network transition; do not force a false logout. */
+                /* Controller restart or network transition; do not force a route change. */
             }
             return false;
         })().finally(() => { renewalPromise = null; });
@@ -46,18 +47,25 @@
         return originalFetch(input, { credentials: 'same-origin', ...init });
     }
 
+    function markSessionExpired(message = 'Engineering session expired. Sign in again.') {
+        state.sessionExpired = true;
+        setEngineering(false);
+        const target = document.getElementById('engineeringLoginMessage');
+        if (target) target.textContent = message;
+        window.dispatchEvent(new CustomEvent('amx-engineering-auth-required', {
+            detail: { route: currentRoute(), message }
+        }));
+    }
+
     window.fetch = async (input, init = {}) => {
         const url = typeof input === 'string' ? input : input?.url || '';
         let response = await originalFetch(input, { credentials: 'same-origin', ...init });
         const protectedApi = url.startsWith('/api/') && !url.includes('/engineering/');
-        const protectedRoute = currentRoute() === 'engineering' || PROTECTED_ROUTES.has(currentRoute());
+        const protectedRoute = PROTECTED_ROUTES.has(currentRoute());
         if (response.status === 401 && protectedApi && protectedRoute) {
             const retried = await retryProtectedRequest(input, init);
             if (retried) response = retried;
-            if (response.status === 401) {
-                setEngineering(false);
-                openLogin('Engineering session expired. Sign in again.');
-            }
+            if (response.status === 401) markSessionExpired();
         }
         return response;
     };
@@ -98,7 +106,7 @@
     function addNavigation() {
         const nav = document.querySelector('.nav-list');
         if (!nav || document.getElementById('engineeringNav')) return;
-        ['wifi', 'control', 'system', 'commissioning'].forEach((route) => {
+        ['wifi', 'control', 'system', 'meters', 'inverters', 'commissioning'].forEach((route) => {
             const link = nav.querySelector(`[data-route="${route}"]`);
             if (link) {
                 link.dataset.engineeringNav = 'true';
@@ -131,7 +139,7 @@
                 <div class="engineering-grid">
                     <a class="panel engineering-tile primary-workflow" href="#/commissioning"><span>Guided commissioning</span><strong>Commission a site and its devices</strong><small>Site details, devices, channels, Modbus tuning, connection qualification, controller health and report.</small></a>
                     <a class="panel engineering-tile" href="#/wifi"><span>Network</span><strong>Wi-Fi and addressing</strong><small>Primary/fallback networks, recovery AP and static IP settings.</small></a>
-                    <a class="panel engineering-tile" href="#/meters"><span>Meters</span><strong>Meter profiles and diagnostics</strong><small>Operator telemetry remains available without Engineering access; advanced controls remain hidden.</small></a>
+                    <a class="panel engineering-tile" href="#/meters"><span>Meters</span><strong>Meter profiles and diagnostics</strong><small>Endpoints, scaling, register maps, raw data and advanced diagnostics.</small></a>
                     <a class="panel engineering-tile" href="#/inverters"><span>Inverters</span><strong>Profiles and communication</strong><small>Model assignment, endpoints, read-only probes and telemetry qualification.</small></a>
                     <a class="panel engineering-tile" href="#/control"><span>Control</span><strong>PV-DG parameters</strong><small>Targets, deadband, timing and safety interlocks.</small></a>
                     <a class="panel engineering-tile" href="#/system"><span>Service</span><strong>Backup and controller service</strong><small>Configuration export, advanced JSON, password management and restart.</small></a>
@@ -177,6 +185,7 @@
         });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(payload.error || 'Engineering login failed');
+        state.sessionExpired = false;
         setEngineering(true);
         return payload;
     }
@@ -201,6 +210,7 @@
             try {
                 await originalFetch('/api/engineering/logout', { method: 'POST', credentials: 'same-origin' });
             } catch {}
+            state.sessionExpired = false;
             setEngineering(false);
             location.hash = '#/dashboard';
         });
@@ -247,5 +257,10 @@
         await enforceRoute();
     });
     window.addEventListener('hashchange', enforceRoute);
-    window.addEventListener('amx-engineering-session-ready', () => setEngineering(true));
+
+    window.AutomatrixEngineeringAccess = Object.freeze({
+        isAuthenticated: () => state.authenticated,
+        renew: renewEngineeringSession,
+        requireRoute: enforceRoute
+    });
 })();
