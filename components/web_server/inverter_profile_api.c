@@ -4,11 +4,14 @@
 #include "cJSON.h"
 #include "esp_check.h"
 #include "esp_timer.h"
+#include "http_json.h"
 #include "inverter_manager.h"
 #include "inverter_profile_store.h"
 #include "inverter_profiles.h"
 
-#define MAX_ASSIGNMENT_BODY 256
+#define MAX_ASSIGNMENT_BODY 256U
+#define PROFILE_BODY_DEADLINE_MS 3000U
+#define PROFILE_JSON_MAX_DEPTH 4U
 
 static uint32_t now_ms(void)
 {
@@ -149,20 +152,6 @@ static esp_err_t telemetry_get(httpd_req_t *request)
     return send_json(request, root);
 }
 
-static esp_err_t receive_body(httpd_req_t *request, char *buffer, size_t size)
-{
-    if (request->content_len <= 0 || request->content_len >= size) return ESP_ERR_INVALID_SIZE;
-    size_t received = 0;
-    while (received < (size_t)request->content_len) {
-        int result = httpd_req_recv(request, buffer + received,
-                                    request->content_len - received);
-        if (result <= 0) return ESP_FAIL;
-        received += (size_t)result;
-    }
-    buffer[received] = '\0';
-    return ESP_OK;
-}
-
 static bool read_inverter_index(cJSON *json, uint8_t *inverter_index)
 {
     cJSON *index_item = cJSON_GetObjectItemCaseSensitive(json, "inverter_index");
@@ -172,17 +161,23 @@ static bool read_inverter_index(cJSON *json, uint8_t *inverter_index)
     return true;
 }
 
+static cJSON *parse_small_request(httpd_req_t *request)
+{
+    cJSON *root = NULL;
+    if (http_json_parse_bounded(request, MAX_ASSIGNMENT_BODY,
+                                PROFILE_BODY_DEADLINE_MS,
+                                PROFILE_JSON_MAX_DEPTH, &root) != ESP_OK) {
+        return NULL;
+    }
+    return root;
+}
+
 static esp_err_t profile_assignment_post(httpd_req_t *request)
 {
-    char body[MAX_ASSIGNMENT_BODY];
-    if (receive_body(request, body, sizeof(body)) != ESP_OK) {
-        return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST,
-                                   "Invalid profile assignment body");
-    }
-    cJSON *json = cJSON_Parse(body);
+    cJSON *json = parse_small_request(request);
     if (!json) {
         return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST,
-                                   "Profile assignment must be valid JSON");
+                                   "Profile assignment must be valid bounded JSON");
     }
 
     uint8_t inverter_index = 0;
@@ -231,15 +226,10 @@ static void add_register_array(cJSON *parent, const char *name,
 
 static esp_err_t inverter_probe_post(httpd_req_t *request)
 {
-    char body[MAX_ASSIGNMENT_BODY];
-    if (receive_body(request, body, sizeof(body)) != ESP_OK) {
-        return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST,
-                                   "Invalid inverter probe body");
-    }
-    cJSON *json = cJSON_Parse(body);
+    cJSON *json = parse_small_request(request);
     if (!json) {
         return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST,
-                                   "Inverter probe must be valid JSON");
+                                   "Inverter probe must be valid bounded JSON");
     }
 
     uint8_t inverter_index = 0;
