@@ -7,6 +7,8 @@
 extern "C" {
 #endif
 
+#define SOURCE_MAX_GENERATORS 3U
+
 typedef enum {
     SOURCE_MODE_UNKNOWN = 0,
     SOURCE_MODE_NO_SOURCE,
@@ -36,6 +38,27 @@ typedef struct {
 } source_mode_result_t;
 
 typedef struct {
+    bool configured;
+    bool evidence_fresh;
+    bool running;
+    bool breaker_closed;
+    float rated_kw;
+    float measured_kw;
+    float minimum_loading_percent;
+    float reserve_kw;
+    float reverse_power_margin_kw;
+} generator_channel_evidence_t;
+
+typedef struct {
+    bool valid;
+    bool conflict;
+    uint8_t running_count;
+    float running_rated_kw;
+    float measured_total_kw;
+    float required_minimum_kw;
+} generator_fleet_result_t;
+
+typedef struct {
     bool evidence_fresh;
     float facility_load_kw;
     float running_generator_rated_kw;
@@ -45,6 +68,8 @@ typedef struct {
 } generator_limit_input_t;
 
 source_mode_result_t source_mode_evaluate(const source_evidence_t *evidence);
+generator_fleet_result_t source_mode_aggregate_generators(
+    const generator_channel_evidence_t channels[SOURCE_MAX_GENERATORS]);
 
 /* Returns the largest safe aggregate PV command while generators are carrying
  * the plant bus. Invalid, stale, conflicting, or non-finite inputs fail closed
