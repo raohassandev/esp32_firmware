@@ -61,6 +61,58 @@ source_mode_result_t source_mode_evaluate(const source_evidence_t *evidence)
     return result;
 }
 
+generator_fleet_result_t source_mode_aggregate_generators(
+    const generator_channel_evidence_t channels[SOURCE_MAX_GENERATORS])
+{
+    generator_fleet_result_t result = {0};
+    if (!channels) return result;
+
+    bool any_configured = false;
+    for (uint8_t i = 0; i < SOURCE_MAX_GENERATORS; ++i) {
+        const generator_channel_evidence_t *channel = &channels[i];
+        if (!channel->configured) continue;
+        any_configured = true;
+
+        if (!channel->evidence_fresh ||
+            !isfinite(channel->rated_kw) || channel->rated_kw <= 0.0f ||
+            !isfinite(channel->measured_kw) ||
+            !isfinite(channel->minimum_loading_percent) ||
+            channel->minimum_loading_percent < 0.0f ||
+            channel->minimum_loading_percent > 100.0f ||
+            !isfinite(channel->reserve_kw) || channel->reserve_kw < 0.0f ||
+            !isfinite(channel->reverse_power_margin_kw) ||
+            channel->reverse_power_margin_kw < 0.0f) {
+            result.conflict = true;
+            return result;
+        }
+
+        if (channel->breaker_closed && !channel->running) {
+            result.conflict = true;
+            return result;
+        }
+        if (!channel->breaker_closed) continue;
+
+        result.running_count++;
+        result.running_rated_kw += channel->rated_kw;
+        result.measured_total_kw += channel->measured_kw;
+        result.required_minimum_kw +=
+            channel->rated_kw * channel->minimum_loading_percent / 100.0f +
+            channel->reserve_kw + channel->reverse_power_margin_kw;
+    }
+
+    result.valid = any_configured && !result.conflict && result.running_count > 0U &&
+                   isfinite(result.running_rated_kw) &&
+                   isfinite(result.measured_total_kw) &&
+                   isfinite(result.required_minimum_kw);
+    if (!result.valid) {
+        result.running_count = 0U;
+        result.running_rated_kw = 0.0f;
+        result.measured_total_kw = 0.0f;
+        result.required_minimum_kw = 0.0f;
+    }
+    return result;
+}
+
 float source_mode_generator_safe_pv_kw(const generator_limit_input_t *input)
 {
     if (!input || !input->evidence_fresh ||
