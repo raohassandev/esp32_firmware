@@ -15,7 +15,10 @@
         settingsMenu: 'M01',
         settingsChannel: 1,
         loading: false,
-        initialized: false
+        initialized: false,
+        requestController: null,
+        requestSequence: 0,
+        pollTimer: null
     };
 
     const tabs = new Map();
@@ -71,17 +74,37 @@
     }
 
     async function api(path, options = {}) {
-        const response = await fetch(path, { cache: 'no-store', ...options });
-        const text = await response.text();
-        let data = null;
-        if (text) {
-            try { data = JSON.parse(text); }
-            catch { data = null; }
+        const { timeoutMs = 5000, signal: externalSignal, ...fetchOptions } = options;
+        const controller = new AbortController();
+        const abort = () => controller.abort();
+        if (externalSignal) {
+            if (externalSignal.aborted) controller.abort();
+            else externalSignal.addEventListener('abort', abort, { once: true });
         }
-        if (!response.ok) {
-            throw new Error(data?.error || data?.message || text || `${response.status} ${response.statusText}`);
+        const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            const response = await fetch(path, {
+                cache: 'no-store',
+                ...fetchOptions,
+                signal: controller.signal
+            });
+            const text = await response.text();
+            let data = null;
+            if (text) {
+                try { data = JSON.parse(text); }
+                catch { data = null; }
+            }
+            if (!response.ok) {
+                throw new Error(data?.error || data?.message || text || `${response.status} ${response.statusText}`);
+            }
+            return data;
+        } catch (error) {
+            if (error?.name === 'AbortError') throw new Error(`Meter request timed out after ${timeoutMs / 1000}s`);
+            throw error;
+        } finally {
+            window.clearTimeout(timer);
+            externalSignal?.removeEventListener?.('abort', abort);
         }
-        return data;
     }
 
     function currentRoute() {
@@ -90,12 +113,13 @@
 
     function setBusy(busy) {
         state.loading = busy;
-        document.querySelectorAll('#em500Workspace button, #em500Workspace select, #em500Workspace input')
-            .forEach((control) => {
-                control.disabled = busy || control.dataset.locked === 'true';
-            });
         const refresh = byId('em500Refresh');
-        if (refresh) refresh.textContent = busy ? 'Loading…' : 'Refresh active view';
+        if (refresh) {
+            refresh.disabled = busy;
+            refresh.textContent = busy ? 'Loading…' : 'Refresh active view';
+        }
+        const content = byId('em500Content');
+        if (content) content.setAttribute('aria-busy', busy ? 'true' : 'false');
     }
 
     function registerTab(key, label, renderer) {
@@ -117,12 +141,9 @@
 
     function entryRow(entry) {
         const row = node('tr');
-        const label = node('td', 'em500-label', utils.humanize(entry.key));
-        const value = node('td', 'em500-value', utils.formatValue(entry));
         const pdu = entry.pdu_address == null
             ? '--'
             : `${entry.pdu_address} / 0x${Number(entry.pdu_address).toString(16).toUpperCase().padStart(4, '0')}`;
-        const address = node('td', 'em500-address', pdu);
         const raw = node('td', 'em500-raw');
         if (entry.masked) raw.textContent = 'Masked';
         else if (entry.raw_u64) raw.textContent = `${entry.raw_u64}${entry.raw_hex ? ` · ${entry.raw_hex}` : ''}`;
@@ -131,7 +152,12 @@
                 .map((word) => `0x${Number(word).toString(16).toUpperCase().padStart(4, '0')}`)
                 .join(' ');
         } else raw.textContent = '--';
-        row.append(label, value, address, raw);
+        row.append(
+            node('td', 'em500-label', utils.humanize(entry.key)),
+            node('td', 'em500-value', utils.formatValue(entry)),
+            node('td', 'em500-address', pdu),
+            raw
+        );
         return row;
     }
 
@@ -157,19 +183,18 @@
         return section;
     }
 
-    async function renderLive() {
-        const data = await api(`/api/meters/em500/snapshot?${commonQuery()}&scope=instantaneous`);
+    async function renderLive(signal) {
+        const data = await api(`/api/meters/em500/snapshot?${commonQuery()}&scope=instantaneous`, { signal, timeoutMs: 6500 });
         if (!data?.instantaneous?.available) {
-            setContent(node('div', 'device-empty device-error', `Instantaneous measurements unavailable: ${data?.instantaneous?.error || 'No response'}`));
-            return;
+            throw new Error(`Instantaneous measurements unavailable: ${data?.instantaneous?.error || 'No response'}`);
         }
         const values = data.instantaneous.values || {};
         const source = data.instantaneous.source_input || {};
         const summary = node('div', 'em500-summary');
         summary.append(
-            summaryCard('Requested source', source.requested_source || 'Unavailable', source.available ? `Register 0x2160 raw ${source.raw}` : source.error || 'Source register unavailable', source.requested_source === 'generator' ? 'warning' : source.requested_source === 'grid' ? 'good' : 'bad'),
+            summaryCard('Source indication', source.requested_source || 'Unavailable', source.available ? `Register 0x2160 raw ${source.raw}` : source.error || 'Source register unavailable', source.requested_source === 'generator' ? 'warning' : source.requested_source === 'grid' ? 'good' : 'bad'),
             summaryCard('Total active power', utils.formatValue(values.active_power_total), 'Signed source-meter power'),
-            summaryCard('Frequency', utils.formatValue(values.frequency), 'Source electrical confirmation'),
+            summaryCard('Frequency', utils.formatValue(values.frequency), 'Latest successful scan'),
             summaryCard('Total power factor', utils.formatValue(values.power_factor_total), 'Signed ratio')
         );
         setContent(
@@ -186,21 +211,15 @@
 
     function energySection(title, group, values = null) {
         const section = panel(title, 'Four-register U64 counters');
-        if (!group?.available && !values && !group?.values) {
-            section.append(node('div', 'device-empty device-error', group?.error || 'Energy group unavailable'));
-        } else {
-            section.append(valuesTable(values || group.values || group));
-        }
+        if (!group?.available && !values && !group?.values) section.append(node('div', 'device-empty device-error', group?.error || 'Energy group unavailable'));
+        else section.append(valuesTable(values || group.values || group));
         return section;
     }
 
-    async function renderEnergy() {
-        const data = await api(`/api/meters/em500/snapshot?${commonQuery()}&scope=energy`);
+    async function renderEnergy(signal) {
+        const data = await api(`/api/meters/em500/snapshot?${commonQuery()}&scope=energy`, { signal, timeoutMs: 10000 });
         const energy = data?.energy;
-        if (!energy) {
-            setContent(node('div', 'device-empty device-error', 'Energy response is unavailable.'));
-            return;
-        }
+        if (!energy) throw new Error('Energy response is unavailable.');
         setContent(
             energySection('Total, partial and tariff energy', energy, energy.totals_and_tariffs),
             energySection('Hour counters', energy.hour_counters),
@@ -213,12 +232,7 @@
     function historyToolbar() {
         const toolbar = node('div', 'panel em500-inline-controls');
         const select = node('select');
-        select.append(
-            option('maximum', 'Maximum / HI'),
-            option('minimum', 'Minimum / LO'),
-            option('average', 'Average'),
-            option('demand', 'Maximum demand')
-        );
+        select.append(option('maximum', 'Maximum / HI'), option('minimum', 'Minimum / LO'), option('average', 'Average'), option('demand', 'Maximum demand'));
         select.value = state.historyBlock;
         select.addEventListener('change', () => {
             state.historyBlock = select.value;
@@ -228,8 +242,8 @@
         return toolbar;
     }
 
-    async function renderHistory() {
-        const data = await api(`/api/meters/em500/history?${commonQuery()}&block=${encodeURIComponent(state.historyBlock)}`);
+    async function renderHistory(signal) {
+        const data = await api(`/api/meters/em500/history?${commonQuery()}&block=${encodeURIComponent(state.historyBlock)}`, { signal, timeoutMs: 8000 });
         const section = panel(`${utils.humanize(data?.block || state.historyBlock)} measurements`, 'Historical measurement family');
         if (!data?.available) section.append(node('div', 'device-empty device-error', data?.error || 'Historical measurements unavailable'));
         else section.append(valuesTable(data.values));
@@ -245,8 +259,7 @@
     function settingsToolbar() {
         const toolbar = node('div', 'panel em500-inline-controls');
         const menu = node('select');
-        Object.entries(utils.MENU_LABELS)
-            .forEach(([key, label]) => menu.append(option(key, `${key} · ${label}`)));
+        Object.entries(utils.MENU_LABELS).forEach(([key, label]) => menu.append(option(key, `${key} · ${label}`)));
         menu.value = state.settingsMenu;
         const channel = node('input');
         channel.type = 'number';
@@ -267,8 +280,8 @@
         return toolbar;
     }
 
-    async function renderSettings() {
-        const data = await api(settingsUrl());
+    async function renderSettings(signal) {
+        const data = await api(settingsUrl(), { signal, timeoutMs: 8000 });
         const section = panel(`${data?.menu || state.settingsMenu} · ${data?.menu_name || utils.MENU_LABELS[state.settingsMenu]}`, 'Read-only meter setup');
         if (!data?.available) {
             section.append(node('div', 'device-empty device-error', data?.error || 'Settings unavailable'));
@@ -314,9 +327,7 @@
         const select = byId('em500MeterSelect');
         if (!select) return;
         select.replaceChildren();
-        state.profiles.forEach((profile, index) => {
-            select.append(option(index, `${index + 1}. ${profile.name || `Meter ${index + 1}`} · Unit ${profile.unit_id ?? '--'}`));
-        });
+        state.profiles.forEach((profile, index) => select.append(option(index, `${index + 1}. ${profile.name || `Meter ${index + 1}`} · Unit ${profile.unit_id ?? '--'}`)));
         if (!state.profiles.length) select.append(option(0, 'No meter configured'));
         state.selectedIndex = Math.min(state.selectedIndex, Math.max(0, state.profiles.length - 1));
         select.value = String(state.selectedIndex);
@@ -324,12 +335,10 @@
 
     async function loadProfiles() {
         const [config, runtime] = await Promise.all([
-            api('/api/config'),
-            api('/api/meters').catch(() => null)
+            api('/api/config', { timeoutMs: 4000 }),
+            api('/api/meters', { timeoutMs: 4000 }).catch(() => null)
         ]);
-        state.profiles = Array.isArray(config?.meters)
-            ? config.meters.map((profile, index) => utils.cloneMeter(profile, index))
-            : [];
+        state.profiles = Array.isArray(config?.meters) ? config.meters.map((profile, index) => utils.cloneMeter(profile, index)) : [];
         state.runtimeMeters = Array.isArray(runtime?.meters) ? runtime.meters : [];
         refreshMeterSelector();
     }
@@ -338,21 +347,18 @@
         if (state.initialized || byId('em500Workspace')) return;
         const page = document.querySelector('[data-page="meters"]');
         if (!page) return;
-
         const legacy = byId('meterSaveButton')?.closest('.dashboard-grid');
         if (legacy) {
             legacy.hidden = true;
             legacy.setAttribute('aria-hidden', 'true');
         }
-
         const root = node('section', 'em500-workspace');
         root.id = 'em500Workspace';
         const notice = node('div', 'notice safe');
         notice.append(
             node('strong', '', 'Complete meter parameters'),
-            node('span', '', 'Live voltage, current, active/reactive/apparent power, power factor, frequency, THD, energy, history and setup parameters are available below. Meter-side setting writes remain locked.')
+            node('span', '', 'Live voltage, current, power, power quality, energy, history and setup parameters. Reads time out safely and controls remain available.')
         );
-
         const controls = node('div', 'panel em500-controls');
         const meterSelect = node('select');
         meterSelect.id = 'em500MeterSelect';
@@ -364,51 +370,54 @@
         baseSelect.append(option(0, 'Direct PDU address'), option(1, 'Lovato table minus one'));
         const refresh = button('Refresh active view');
         refresh.id = 'em500Refresh';
-        controls.append(
-            field('Meter profile', meterSelect),
-            field('Read function', functionSelect),
-            field('Address convention', baseSelect),
-            refresh
-        );
-
+        controls.append(field('Meter profile', meterSelect), field('Read function', functionSelect), field('Address convention', baseSelect), refresh);
         const tabBar = node('div', 'em500-tabs');
         tabs.forEach((definition, key) => {
             const tab = button(definition.label, 'em500-tab');
             tab.dataset.tab = key;
             tabBar.append(tab);
         });
-
         const message = node('div', 'em500-message', 'Loading meter profiles…');
         message.id = 'em500Message';
         message.setAttribute('role', 'status');
         const content = node('div', 'em500-content');
         content.id = 'em500Content';
         root.append(notice, controls, tabBar, message, content);
-
         const intro = page.querySelector('.page-intro');
         if (intro) intro.after(root);
         else page.prepend(root);
         state.initialized = true;
     }
 
-    async function refreshActive() {
-        if (state.loading || currentRoute() !== 'meters') return;
+    async function refreshActive(automatic = false) {
+        if (currentRoute() !== 'meters') return;
+        if (automatic && state.loading) return;
         const definition = tabs.get(state.activeTab);
         if (!definition) return;
-        if (!state.profiles.length && state.activeTab !== 'profiles') {
+        if (!state.profiles.length) {
             setContent(node('div', 'device-empty', 'Configure at least one meter profile first.'));
             return;
         }
+        state.requestController?.abort();
+        const controller = new AbortController();
+        state.requestController = controller;
+        const sequence = ++state.requestSequence;
         setBusy(true);
         setMessage(`Loading ${definition.label.toLowerCase()}…`);
         try {
-            await definition.renderer();
-            setMessage(`${definition.label} updated ${new Date().toLocaleTimeString()}`, 'good');
+            await definition.renderer(controller.signal);
+            if (sequence === state.requestSequence) setMessage(`${definition.label} updated ${new Date().toLocaleTimeString()}`, 'good');
         } catch (error) {
-            setContent(node('div', 'device-empty device-error', error.message));
+            if (sequence !== state.requestSequence) return;
+            setContent(node('div', 'device-empty device-error', error.message), button('Retry', 'button primary'));
+            const retry = byId('em500Content')?.querySelector('button');
+            retry?.addEventListener('click', () => refreshActive(false), { once: true });
             setMessage(`Meter request failed: ${error.message}`, 'bad');
         } finally {
-            setBusy(false);
+            if (sequence === state.requestSequence) {
+                state.requestController = null;
+                setBusy(false);
+            }
         }
     }
 
@@ -425,53 +434,49 @@
             state.addressBase = Number(event.target.value) || 0;
             refreshActive();
         });
-        byId('em500Refresh')?.addEventListener('click', refreshActive);
+        byId('em500Refresh')?.addEventListener('click', () => refreshActive(false));
         document.querySelectorAll('.em500-tab').forEach((tab) => {
             tab.addEventListener('click', () => {
                 state.activeTab = tab.dataset.tab;
                 updateTabState();
-                refreshActive();
+                refreshActive(false);
             });
         });
         window.addEventListener('hashchange', () => {
-            if (currentRoute() === 'meters') refreshActive();
+            if (currentRoute() === 'meters') refreshActive(false);
+            else state.requestController?.abort();
         });
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) state.requestController?.abort();
+            else if (currentRoute() === 'meters' && state.activeTab === 'live') refreshActive(false);
+        });
+    }
+
+    function startPolling() {
+        if (state.pollTimer) window.clearInterval(state.pollTimer);
+        state.pollTimer = window.setInterval(() => {
+            if (!document.hidden && currentRoute() === 'meters' && state.activeTab === 'live') refreshActive(true);
+        }, 5000);
     }
 
     async function start() {
         ensureScaffold();
         bind();
         updateTabState();
+        startPolling();
         try {
             await loadProfiles();
             setMessage(`Loaded ${state.profiles.length} meter profile${state.profiles.length === 1 ? '' : 's'}.`, 'good');
-            if (currentRoute() === 'meters') await refreshActive();
+            if (currentRoute() === 'meters') await refreshActive(false);
         } catch (error) {
             setMessage(`Meter workspace initialization failed: ${error.message}`, 'bad');
         }
     }
 
     window.PvdgEm500App = Object.freeze({
-        state,
-        utils,
-        api,
-        byId,
-        node,
-        button,
-        option,
-        field,
-        panel,
-        summaryCard,
-        valuesTable,
-        setMessage,
-        setBusy,
-        setContent,
-        commonQuery,
-        settingsUrl,
-        loadProfiles,
-        refreshMeterSelector,
-        refreshActive,
-        registerTab
+        state, utils, api, byId, node, button, option, field, panel, summaryCard,
+        valuesTable, setMessage, setBusy, setContent, commonQuery, settingsUrl,
+        loadProfiles, refreshMeterSelector, refreshActive, registerTab
     });
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
