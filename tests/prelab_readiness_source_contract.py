@@ -32,8 +32,10 @@ assert "commandable_rated_kw" in js, "write eligibility must be surfaced"
 assert "Automatic control and physical inverter writes" not in js, "readiness UI must not claim approval"
 assert "Export snapshot" in js and "JSON.stringify(report" in js, "diagnostic export is required"
 assert "setInterval(refreshAll, 15000)" in js, "readiness must refresh periodically"
-assert "development_auto_unlock" in js and "AUTH_DEVELOPMENT_AUTO_UNLOCK" in auth, "development access must be explicitly visible"
-assert "development_auto_unlock" in auth, "session API must expose development mode"
+assert "temporary_field_bypass" in js, "temporary field bypass must be visible in readiness"
+assert "AUTH_TEMPORARY_FIELD_BYPASS 1" in auth, "development bypass must remain explicit in this field build"
+assert "temporary_field_bypass" in auth, "session API must expose temporary bypass state"
+assert "Restore production authentication before any client or resale image." in js
 
 assert "prelab-readiness.js" in cmake and "prelab-readiness.css" in cmake
 assert "web_assets_prelab_readiness_js" in assets_h
