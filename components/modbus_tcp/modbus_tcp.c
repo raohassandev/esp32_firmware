@@ -31,7 +31,8 @@ static esp_err_t send_all(int fd, const uint8_t *data, size_t length)
 {
     while (length) {
         int sent = send(fd, data, length, 0);
-        if (sent <= 0) return socket_io_error();
+        if (sent < 0) return socket_io_error();
+        if (sent == 0) return ESP_ERR_INVALID_RESPONSE;
         data += sent;
         length -= (size_t)sent;
     }
@@ -42,17 +43,14 @@ static esp_err_t recv_all(int fd, uint8_t *data, size_t length)
 {
     while (length) {
         int received = recv(fd, data, length, 0);
-        if (received <= 0) return socket_io_error();
+        if (received < 0) return socket_io_error();
+        if (received == 0) return ESP_ERR_INVALID_RESPONSE;
         data += received;
         length -= (size_t)received;
     }
     return ESP_OK;
 }
 
-/* A blocking connect() ignores the endpoint timeout and can stall a meter task
- * for the whole TCP SYN retry period when the gateway is unplugged, which both
- * delays the offline status and starves the throttled error reporting. Drive it
- * non-blocking and bound it with select() instead. */
 static esp_err_t connect_with_timeout(int fd, const struct sockaddr *addr, socklen_t len,
                                       const struct timeval *timeout)
 {
@@ -91,7 +89,6 @@ static esp_err_t connect_with_timeout(int fd, const struct sockaddr *addr, sockl
         }
     }
 
-    /* Restore blocking mode; the socket keeps SO_RCVTIMEO/SO_SNDTIMEO. */
     if (result == ESP_OK && fcntl(fd, F_SETFL, flags) < 0) return ESP_FAIL;
     return result;
 }
@@ -127,11 +124,18 @@ static esp_err_t ensure_connected(modbus_connection_t *c)
     return ESP_OK;
 }
 
-static void mark_error(modbus_connection_t *c)
+static void close_socket(modbus_connection_t *c)
 {
-    c->error_count++;
     if (c->socket_fd >= 0) close(c->socket_fd);
     c->socket_fd = -1;
+}
+
+static void finish_transaction(modbus_connection_t *c, esp_err_t result)
+{
+    if (result != ESP_OK) c->error_count++;
+    /* Compatibility-first mode: one complete Modbus request/response per TCP
+     * connection. This avoids stale half-closed sockets on simple gateways. */
+    close_socket(c);
 }
 
 esp_err_t modbus_tcp_connection_init(modbus_connection_t *c, const modbus_endpoint_t *endpoint)
@@ -147,8 +151,7 @@ esp_err_t modbus_tcp_connection_init(modbus_connection_t *c, const modbus_endpoi
 void modbus_tcp_connection_close(modbus_connection_t *c)
 {
     if (!c) return;
-    if (c->socket_fd >= 0) close(c->socket_fd);
-    c->socket_fd = -1;
+    close_socket(c);
 }
 
 static esp_err_t exchange(modbus_connection_t *c, const uint8_t *request, size_t request_len,
@@ -201,7 +204,7 @@ esp_err_t modbus_tcp_read_registers(modbus_connection_t *c, uint8_t function_cod
             for (uint16_t i = 0; i < count; ++i) registers[i] = get_u16(&pdu[2 + i * 2]);
         }
     }
-    if (err != ESP_OK) mark_error(c);
+    finish_transaction(c, err);
     xSemaphoreGive(c->lock);
     return err;
 }
@@ -222,7 +225,7 @@ esp_err_t modbus_tcp_write_single(modbus_connection_t *c, uint16_t address, uint
     size_t pdu_len = 0;
     esp_err_t err = exchange(c, request, sizeof(request), 6, pdu, sizeof(pdu), &pdu_len);
     if (err == ESP_OK && (pdu_len != 5 || get_u16(pdu + 1) != address || get_u16(pdu + 3) != value)) err = ESP_ERR_INVALID_RESPONSE;
-    if (err != ESP_OK) mark_error(c);
+    finish_transaction(c, err);
     xSemaphoreGive(c->lock);
     return err;
 }
@@ -247,7 +250,7 @@ esp_err_t modbus_tcp_write_multiple(modbus_connection_t *c, uint16_t address,
     size_t pdu_len = 0;
     esp_err_t err = exchange(c, request, request_len, 16, pdu, sizeof(pdu), &pdu_len);
     if (err == ESP_OK && (pdu_len != 5 || get_u16(pdu + 1) != address || get_u16(pdu + 3) != count)) err = ESP_ERR_INVALID_RESPONSE;
-    if (err != ESP_OK) mark_error(c);
+    finish_transaction(c, err);
     xSemaphoreGive(c->lock);
     return err;
 }
