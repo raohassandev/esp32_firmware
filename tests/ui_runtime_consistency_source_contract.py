@@ -5,6 +5,7 @@ METER = (ROOT / "components/meter_manager/meter_manager.c").read_text(encoding="
 SERVER = (ROOT / "components/web_server/web_server.c").read_text(encoding="utf-8")
 THEME = (ROOT / "web/theme.css").read_text(encoding="utf-8")
 ENHANCEMENTS = (ROOT / "web/ui-enhancements.js").read_text(encoding="utf-8")
+EM500 = (ROOT / "web/em500-core.js").read_text(encoding="utf-8")
 CMAKE = (ROOT / "components/web_server/CMakeLists.txt").read_text(encoding="utf-8")
 
 
@@ -41,7 +42,9 @@ for token in [
 
 require("MutationObserver" in ENHANCEMENTS and "em500-collapsible-body" in ENHANCEMENTS,
         "long meter parameter groups are not collapsible")
-require("powerConsistencyNotice" in ENHANCEMENTS and "Automatic control must remain disabled" in ENHANCEMENTS,
-        "dashboard/full-decoder consistency alarm is missing")
+require("/api/meters/em500/snapshot" not in ENHANCEMENTS,
+        "UI enhancements must not start a second expensive EM500 snapshot poller")
+require("pollTimer" in EM500 and "refreshActive(true)" in EM500,
+        "EM500 core must remain the single owner of live analyser refresh")
 
 print("UI/runtime consistency source contract passed")
