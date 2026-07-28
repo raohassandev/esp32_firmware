@@ -3,7 +3,7 @@
 
     document.documentElement.dataset.access = 'pending';
 
-    const PROTECTED_ROUTES = new Set(['wifi', 'control', 'system', 'meters', 'inverters', 'commissioning']);
+    const PROTECTED_ROUTES = new Set(['wifi', 'control', 'system', 'commissioning']);
     const ENGINEERING_ONLY_SELECTORS = [
         '#em500Workspace',
         '#inverterProfilePicker',
@@ -50,8 +50,8 @@
         const url = typeof input === 'string' ? input : input?.url || '';
         let response = await originalFetch(input, { credentials: 'same-origin', ...init });
         const protectedApi = url.startsWith('/api/') && !url.includes('/engineering/');
-        if (response.status === 401 && protectedApi &&
-            (currentRoute() === 'engineering' || PROTECTED_ROUTES.has(currentRoute()) || state.authenticated)) {
+        const protectedRoute = currentRoute() === 'engineering' || PROTECTED_ROUTES.has(currentRoute());
+        if (response.status === 401 && protectedApi && protectedRoute) {
             const retried = await retryProtectedRequest(input, init);
             if (retried) response = retried;
             if (response.status === 401) {
@@ -98,7 +98,7 @@
     function addNavigation() {
         const nav = document.querySelector('.nav-list');
         if (!nav || document.getElementById('engineeringNav')) return;
-        ['wifi', 'control', 'system', 'meters', 'inverters', 'commissioning'].forEach((route) => {
+        ['wifi', 'control', 'system', 'commissioning'].forEach((route) => {
             const link = nav.querySelector(`[data-route="${route}"]`);
             if (link) {
                 link.dataset.engineeringNav = 'true';
@@ -131,7 +131,7 @@
                 <div class="engineering-grid">
                     <a class="panel engineering-tile primary-workflow" href="#/commissioning"><span>Guided commissioning</span><strong>Commission a site and its devices</strong><small>Site details, devices, channels, Modbus tuning, connection qualification, controller health and report.</small></a>
                     <a class="panel engineering-tile" href="#/wifi"><span>Network</span><strong>Wi-Fi and addressing</strong><small>Primary/fallback networks, recovery AP and static IP settings.</small></a>
-                    <a class="panel engineering-tile" href="#/meters"><span>Meters</span><strong>Meter profiles and diagnostics</strong><small>Endpoints, scaling, register maps, raw data and advanced diagnostics.</small></a>
+                    <a class="panel engineering-tile" href="#/meters"><span>Meters</span><strong>Meter profiles and diagnostics</strong><small>Operator telemetry remains available without Engineering access; advanced controls remain hidden.</small></a>
                     <a class="panel engineering-tile" href="#/inverters"><span>Inverters</span><strong>Profiles and communication</strong><small>Model assignment, endpoints, read-only probes and telemetry qualification.</small></a>
                     <a class="panel engineering-tile" href="#/control"><span>Control</span><strong>PV-DG parameters</strong><small>Targets, deadband, timing and safety interlocks.</small></a>
                     <a class="panel engineering-tile" href="#/system"><span>Service</span><strong>Backup and controller service</strong><small>Configuration export, advanced JSON, password management and restart.</small></a>
