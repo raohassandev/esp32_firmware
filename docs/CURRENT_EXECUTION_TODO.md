@@ -1,8 +1,9 @@
 # Current Execution TODO
 
 **Branch:** `feature/multibrand-inverter-profiles`  
-**Current software head before this TODO commit:** `ae0f6578f4d544aa8f4de99ac24d9f911cfe6bfc`  
-**Release state:** development only; physical writes remain fail-closed.
+**Current software head before this TODO commit:** `e982d3f952e146b730c9d7cc365560ac27c32f0c`  
+**CI run:** `30393575906` — complete web/source/host-test suite passed; ESP-IDF 6.0.1 build passed; compiler warnings: 0.  
+**Release state:** development/bench candidate only; unqualified physical inverter profiles remain fail-closed.
 
 `MASTER_EXECUTION_TODO.md` remains the full product scope.
 
@@ -15,10 +16,11 @@
 - [x] Disable build-time Wi-Fi provisioning by default.
 - [x] Remove compiled station credentials.
 - [x] Preserve commissioned Wi-Fi through schema migration.
-- [x] Add bounded configuration JSON nesting validation.
 - [x] Prevent generic configuration import from enabling control.
 - [x] Validate imported endpoint, meter, inverter and control numbers.
-- [x] Return JSON null for unavailable status power values.
+- [x] Add shared bounded HTTP body reader with cumulative deadlines.
+- [x] Add JSON-depth protection to protected write APIs.
+- [x] Return JSON null for unavailable power and age values.
 - [x] Reject NaN and infinity in Modbus decoding and manager boundaries.
 - [x] Fail control calculations toward zero on invalid data.
 - [x] Move operational JSON allocation outside spinlocks.
@@ -26,104 +28,108 @@
 - [x] Bypass DNS for literal IPv4 endpoints.
 - [x] Handle interrupted socket operations.
 - [x] Clamp meter count and degraded polling rate.
+- [x] Restore persistent salted Engineering password authentication.
+- [x] Add serial-only one-time Engineering setup code.
+- [x] Add random HttpOnly SameSite session cookies with expiry.
+- [x] Add failed-login lockout, logout invalidation and password rotation.
+- [x] Remove temporary Engineering authentication bypass.
+- [x] Protect write, restart, configuration and Engineering endpoints through the registration gateway.
+- [x] Add production access-policy and auth-loop regression gates.
 - [x] Expire and reverify inverter identity.
 - [x] Build immutable commandable-fleet snapshot.
 - [x] Validate command scale, range, width and finiteness.
 - [x] Support one-word and two-word commands.
-- [x] Record command state only after successful write.
-- [x] Enforce aggregate command cap.
-- [x] Add proper HTTP 401 denial response.
-- [x] Add deterministic source-state classification.
+- [x] Enforce aggregate command cap before physical writes.
+- [x] Execute write/readback confirmation after production commands.
+- [x] Execute bounded command retry.
+- [x] Execute rollback to safe zero after failure or mismatch.
+- [x] Record applied command state only after confirmed readback.
+- [x] Add deterministic Grid/Generator source-state classification.
 - [x] Add Grid Only, Generator Only, synchronized, Island, Transfer, No Source, Conflict and Unknown states.
 - [x] Add generator minimum-load, reserve and reverse-power-margin safe-PV calculation.
-- [x] Add multi-generator aggregation for up to three configured generators.
+- [x] Add multi-generator aggregation for up to three generator evidence records.
 - [x] Reject stale, contradictory and non-finite generator evidence.
 - [x] Add zero-export, limited-export and minimum-import policy calculations.
 - [x] Add PI deadband, anti-windup and independent ramp limits.
 - [x] Apply generator safe limit to the control-policy output.
 - [x] Fail closed during transfer, conflict, unknown and no-source conditions.
-- [x] Add inverter command readback decision policy.
-- [x] Require qualified readback before command confirmation.
-- [x] Add bounded retry, mismatch detection, rollback and safe-fallback decisions.
+- [x] Connect tested minimum-grid-import policy to the live control task.
+- [x] Reset live PI/ramp state on invalid communication and write failure.
+- [x] Keep live generator and transfer operation blocked until real run/breaker/ATS evidence exists.
 - [x] Add executable host tests for source modes, generator aggregation, control policy and inverter command confirmation.
-- [x] Compile new control and inverter policy modules into ESP-IDF components.
 - [x] Add dedicated background EM500 acquisition task.
 - [x] Cache instantaneous, source-input, energy and setup register groups.
-- [x] Route the EM500 snapshot HTTP source through the immediate cache adapter.
-- [x] Preserve last-good cached register groups with freshness, response-time and success/error metadata.
-- [x] Add a source contract proving snapshot handlers do not execute direct Modbus reads.
-- [x] Add an explicit production-release workflow gate.
-- [x] Make production workflow runs fail while authentication bypass is active.
+- [x] Route EM500 snapshot HTTP reads through the immediate cache adapter.
+- [x] Route EM500 history, settings and settings-plan reads through bounded background jobs.
+- [x] Preserve last-good register data with freshness, response-time and success/error metadata.
+- [x] Add `/api/meters/em500/cache` quality/freshness status endpoint.
+- [x] Add source contracts proving EM500 HTTP handlers do not execute direct Modbus I/O.
+- [x] Pass complete current software test suite and ESP-IDF build with zero warnings.
 
-## Validation in progress
+## Remaining software work
 
-- [x] Complete GitHub web/source/host-test suite for `ae0f6578...`.
-- [x] Production release-gate development-mode test for `ae0f6578...`.
-- [ ] ESP-IDF 6.0.1 build for `ae0f6578...`.
-- [ ] Zero compiler-warning confirmation for `ae0f6578...`.
+### Network availability and commissioning
 
-## P0 software blockers remaining
+- [ ] Support legal 32-byte SSIDs without truncation in ESP-IDF station/AP structures.
+- [ ] Support legal 64-byte PSKs without truncation.
+- [ ] Move remaining Wi-Fi radio actions out of event callbacks into the manager task.
+- [ ] Replace long reconnect delays with interruptible manager waits.
+- [ ] Protect or single-own retry, fallback and sweep state.
+- [ ] Verify terminal disconnect always schedules retry or recovery AP.
+- [ ] Stop browser Wi-Fi scan polling after route exit, hidden-tab state or deadline.
+- [ ] Complete reconnect/scan race regression tests.
 
-- [ ] Apply JSON-depth protection to every independent JSON parser.
-- [ ] Add bounded request-body receive deadlines to every write endpoint.
-- [ ] Restore production salted-password/session authentication.
-- [ ] Disable `AUTH_TEMPORARY_FIELD_BYPASS` in the production configuration.
-- [ ] Verify every configuration, restart, profile and control endpoint is protected under real authentication.
+### Meter and browser quality
 
-## Live meter and web architecture remaining
+- [ ] Surface EM500 cache group quality, age, response time and scan state in the Engineering page.
+- [ ] Label stale last-good analyser values explicitly in every tab.
+- [ ] Add bounded automatic retry while a background cache/job is warming.
+- [ ] Preserve and expose Modbus exception function and exception code.
+- [ ] Qualify persistent, reconnect-on-error and per-transaction socket modes.
+- [ ] Perform TCP PCB/TIME_WAIT endurance test on hardware.
+- [ ] Add timeout/finally protection to every remaining browser poller.
 
-- [ ] Route EM500 history reads through bounded asynchronous jobs.
-- [ ] Route EM500 settings reads through the cache/job layer.
-- [ ] Add bounded jobs for raw diagnostics.
-- [ ] Expose cache group freshness, quality, response time and active backoff in the browser.
-- [ ] Label stale last-good analyser values explicitly.
-- [ ] Preserve Modbus exception function and code.
-- [ ] Qualify socket modes and TCP resource endurance.
-- [ ] Stop Wi-Fi polling after route exit/deadline.
-- [ ] Add timeout/finally protection to all remaining pollers.
+### Persisted Solar + Grid product model
 
-## Live Solar + Grid integration remaining
+- [ ] Persist selectable zero-export, limited-export and minimum-import policies.
+- [ ] Persist export limit and minimum-import settings.
+- [ ] Add signed grid-meter orientation commissioning workflow.
+- [ ] Add explicit grid breaker/availability evidence instead of assuming Grid Only from a fresh grid meter.
+- [ ] Add grid-loss shutdown and recovery stabilization timers.
+- [ ] Add simulator load-step and communication-loss integration tests.
 
-- [ ] Connect the tested control policy to the live control task.
-- [ ] Persist selected grid policy and limits.
-- [ ] Add signed grid-meter orientation commissioning.
-- [ ] Add grid-loss shutdown and recovery stabilization.
-- [ ] Reset PI/ramp state after mode or communication changes.
-- [ ] Confirm inverter command readback before reporting applied power.
-- [ ] Simulator load-step and communication-loss tests.
-- [ ] Physical FAT.
+### Live Solar + Generator integration
 
-## Live Solar + Generator integration remaining
-
-- [ ] Add Generator 1-3 meter roles to persisted configuration.
-- [ ] Acquire run, breaker and ATS/synchronization evidence.
+- [ ] Add Generator 1–3 meter roles to persisted configuration.
+- [ ] Acquire generator run feedback.
+- [ ] Acquire generator breaker/contactor feedback.
+- [ ] Acquire ATS/transfer and grid-generator synchronization evidence.
 - [ ] Persist rated capacity, minimum loading, reserve and reverse margin per generator.
-- [ ] Connect generator aggregation to live source evidence.
-- [ ] Connect generator safe-PV cap to live inverter commands.
-- [ ] Add fast curtailment after load rejection.
+- [ ] Connect real generator evidence to the tested source-state engine.
+- [ ] Connect live generator safe-PV cap to inverter commands.
+- [ ] Add fast PV curtailment after generator load rejection.
 - [ ] Add warm-up, synchronized, loaded, cooling and stopped timers.
 - [ ] Add transition stabilization and PI/ramp reset.
-- [ ] Simulator tests and physical FAT.
+- [ ] Add generator simulator integration tests.
 
-## Live inverter integration remaining
+### Inverter qualification
 
-- [ ] Execute readback after every production command.
-- [ ] Apply tolerance confirmation to runtime state.
-- [ ] Execute bounded retries and rollback writes.
-- [ ] Mark applied output only after confirmation.
 - [ ] Complete manufacturer/manual register inventory.
 - [ ] Complete model-specific identity, telemetry, command and readback maps.
-- [ ] Physically qualify each supported inverter profile.
+- [ ] Add model-specific timeout, enable sequence and rollback behavior where required.
+- [ ] Physically qualify every supported inverter profile.
+- [ ] Record signed production approval per profile.
 
 ## Physical release gates
 
 - [ ] Real meter register, sign, scale and scan-rate FAT.
 - [ ] One-hour browser/controller healthy, slow and failure soak.
 - [ ] Meter-loss, inverter-loss, Wi-Fi-loss and restart FAT.
-- [ ] Grid zero/limited-export FAT.
+- [ ] Grid zero-export, limited-export and minimum-import FAT.
 - [ ] Generator minimum-load and reverse-power FAT.
 - [ ] Source-transfer FAT.
+- [ ] Inverter command/readback/rollback FAT for every approved model.
 - [ ] Signed site SAT tied to firmware SHA, sdkconfig hash, ESP-IDF version, board MAC and timestamp.
 - [ ] Production release approved.
 
-Current result: source-state, grid policy, generator safety, multi-generator aggregation, inverter confirmation policy and the first asynchronous EM500 snapshot cache are implemented with automated tests. Production authentication, history/settings job routing, live control-task integration and physical qualification remain blocked.
+Current result: the software safety foundation, production authentication, live grid policy, transactional inverter confirmation, and asynchronous analyser architecture are implemented and green. Remaining software work is concentrated in Wi-Fi ownership/recovery, persisted source evidence and Generator integration. Physical FAT/SAT remains mandatory and cannot be completed without the connected plant equipment.
