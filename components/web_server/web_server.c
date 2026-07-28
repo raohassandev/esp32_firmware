@@ -66,7 +66,8 @@ static esp_err_t css_handler(httpd_req_t *request)
         web_assets_prelab_readiness_css,
         web_assets_mobile_prelab_fixes_css,
         web_assets_product_shell_v2_css,
-        web_assets_product_experience_v2_css
+        web_assets_product_experience_v2_css,
+        web_assets_commissioning_wizard_v2_css
     };
     return send_asset_parts(request, "text/css; charset=utf-8", assets, sizeof(assets) / sizeof(assets[0]));
 }
@@ -96,6 +97,7 @@ static esp_err_t js_handler(httpd_req_t *request)
         web_assets_operator_product_suite_js,
         web_assets_prelab_readiness_js,
         web_assets_commissioning_route_js,
+        web_assets_commissioning_wizard_v2_js,
         web_assets_engineering_errors_js,
         web_assets_ui_enhancements_js,
         web_assets_product_shell_v2_js,
