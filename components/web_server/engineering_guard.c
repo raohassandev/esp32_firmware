@@ -273,7 +273,8 @@ esp_err_t engineering_auth_guarded_handler(httpd_req_t *request)
 
 static bool public_uri(const char *uri)
 {
-    return strcmp(uri, "/") == 0 || strcmp(uri, "/app.css") == 0 || strcmp(uri, "/app.js") == 0 ||
+    return strcmp(uri, "/") == 0 || strcmp(uri, "/favicon.ico") == 0 ||
+           strcmp(uri, "/app.css") == 0 || strcmp(uri, "/app.js") == 0 ||
            strcmp(uri, "/api/status") == 0 || strcmp(uri, "/api/telemetry") == 0 ||
            strncmp(uri, "/api/engineering/", 17) == 0;
 }
