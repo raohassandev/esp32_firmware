@@ -1,6 +1,7 @@
 #include "config_manager.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 #include "cJSON.h"
@@ -11,6 +12,7 @@
 #define NS "pvdg"
 #define KEY "config"
 #define MASKED_PASSWORD "********"
+#define CONFIG_JSON_MAX_DEPTH 16U
 
 static const char *TAG = "config";
 static app_config_t s_cfg;
@@ -33,8 +35,6 @@ typedef struct {
     control_config_t control;
 } legacy_app_config_v1_t;
 
-/* Schema 2 is the current layout without the trailing provisioning id, so it is
- * an exact prefix of app_config_t and migrates with a single copy. */
 typedef struct {
     uint32_t magic;
     uint16_t version;
@@ -111,42 +111,23 @@ static void defaults(app_config_t *c)
     c->control.ramp_down_percent_per_second = 20.0f;
     c->control.interval_ms = 250;
     c->control.meter_stale_timeout_ms = 3000;
-
     c->wifi_provision_id = CONFIG_PVDG_WIFI_PROVISION_ID;
 }
 
-/* Applies the credentials compiled into this build, once per provisioning id.
- * Returns true when the configuration was changed and must be persisted.
- *
- * A disabled Kconfig bool is not defined at all, so the opt-in switch has to be
- * tested with #ifdef rather than a numeric comparison. */
 #ifndef CONFIG_PVDG_APPLY_BUILD_WIFI_PROVISIONING
-
-/* Build provisioning is opt-in and off by default. Changing nothing here is
- * what stops an ordinary build - including one from a fresh worktree whose
- * sdkconfig was regenerated from Kconfig defaults - from replacing the
- * credentials of a commissioned device and persisting them to NVS. */
 static bool apply_build_provisioning(app_config_t *c)
 {
     (void)c;
     return false;
 }
-
 #else
-
 static bool apply_build_provisioning(app_config_t *c)
 {
-    /* Strictly monotonic: only a genuinely newer generation may apply. An equal
-     * or lower id - including the default 0 of a fresh worktree - must never
-     * reapply credentials nor roll a device back to an older set. */
     if (CONFIG_PVDG_WIFI_PROVISION_ID <= 0) return false;
     if ((uint32_t)CONFIG_PVDG_WIFI_PROVISION_ID <= c->wifi_provision_id) return false;
 
     const char *ssid = CONFIG_PVDG_PRIMARY_WIFI_SSID;
     if (!ssid[0]) {
-        /* Nothing to provision. Leaving the stored id untouched keeps this a
-         * no-op, so a build with a blank SSID can neither erase the stored
-         * profile nor consume the provisioning generation. */
         ESP_LOGW(TAG, "Build provisioning %d ignored: no primary SSID compiled in",
                  CONFIG_PVDG_WIFI_PROVISION_ID);
         return false;
@@ -168,8 +149,7 @@ static bool apply_build_provisioning(app_config_t *c)
              c->wifi.fallback.ssid, c->wifi.fallback.enabled ? "" : " (disabled)");
     return true;
 }
-
-#endif /* CONFIG_PVDG_APPLY_BUILD_WIFI_PROVISIONING */
+#endif
 
 static bool profile_valid(const app_wifi_sta_profile_t *p)
 {
@@ -180,36 +160,73 @@ static bool profile_valid(const app_wifi_sta_profile_t *p)
     return true;
 }
 
+static bool endpoint_valid(const modbus_endpoint_t *e)
+{
+    return e && e->host[0] && e->port > 0 && e->unit_id > 0 && e->unit_id <= 247 &&
+           e->timeout_ms >= 100U && e->timeout_ms <= 60000U;
+}
+
+static bool meter_valid(const meter_config_t *m)
+{
+    if (!m->enabled) return true;
+    return endpoint_valid(&m->endpoint) && (m->function_code == 3 || m->function_code == 4) &&
+           m->active_power_type <= MODBUS_DATA_FLOAT32 && m->active_power_order <= MODBUS_ORDER_DCBA &&
+           isfinite(m->active_power_scale) && m->active_power_scale != 0.0f &&
+           m->poll_interval_ms >= 100U;
+}
+
+static bool inverter_valid(const inverter_config_t *i)
+{
+    if (!i->enabled) return true;
+    return endpoint_valid(&i->endpoint) && isfinite(i->rated_power_kw) && i->rated_power_kw > 0.0f &&
+           isfinite(i->raw_units_per_percent) && i->raw_units_per_percent > 0.0f &&
+           isfinite(i->minimum_percent) && isfinite(i->maximum_percent) &&
+           i->minimum_percent >= 0.0f && i->maximum_percent >= i->minimum_percent &&
+           i->maximum_percent <= 100.0f &&
+           (i->power_limit_function == 0 || i->power_limit_function == 6 || i->power_limit_function == 16);
+}
+
+static bool control_valid(const control_config_t *c)
+{
+    return isfinite(c->grid_import_target_kw) && isfinite(c->deadband_kw) &&
+           isfinite(c->kp) && isfinite(c->ki) &&
+           isfinite(c->ramp_up_percent_per_second) && isfinite(c->ramp_down_percent_per_second) &&
+           c->deadband_kw >= 0.0f && c->kp >= 0.0f && c->ki >= 0.0f &&
+           c->ramp_up_percent_per_second >= 0.0f && c->ramp_down_percent_per_second >= 0.0f &&
+           c->interval_ms >= 50U && c->meter_stale_timeout_ms >= 100U;
+}
+
 static bool valid(const app_config_t *c)
 {
-    return c && c->magic == APP_CONFIG_MAGIC && c->version == APP_CONFIG_VERSION &&
-           profile_valid(&c->wifi.primary) && profile_valid(&c->wifi.fallback) &&
-           c->wifi.primary.enabled && c->wifi.max_retries_per_profile > 0 &&
-           c->meter_count <= APP_MAX_METERS && c->inverter_count <= APP_MAX_INVERTERS &&
-           c->control.interval_ms >= 50;
+    if (!c || c->magic != APP_CONFIG_MAGIC || c->version != APP_CONFIG_VERSION ||
+        !profile_valid(&c->wifi.primary) || !profile_valid(&c->wifi.fallback) ||
+        !c->wifi.primary.enabled || c->wifi.max_retries_per_profile == 0 ||
+        c->wifi.max_retries_per_profile > 20 || c->wifi.reconnect_backoff_ms < 500U ||
+        c->wifi.reconnect_backoff_ms > 60000U || c->meter_count > APP_MAX_METERS ||
+        c->inverter_count > APP_MAX_INVERTERS || !control_valid(&c->control)) return false;
+
+    for (uint8_t n = 0; n < c->meter_count; ++n) if (!meter_valid(&c->meters[n])) return false;
+    for (uint8_t n = 0; n < c->inverter_count; ++n) if (!inverter_valid(&c->inverters[n])) return false;
+    return true;
 }
 
 static void migrate_v1(const legacy_app_config_v1_t *old, app_config_t *next)
 {
     defaults(next);
     if (!old || old->magic != APP_CONFIG_MAGIC || old->version != 1) return;
-
     strlcpy(next->device_name, old->device_name, sizeof(next->device_name));
     if (old->wifi.ssid[0]) {
         strlcpy(next->wifi.primary.ssid, old->wifi.ssid, sizeof(next->wifi.primary.ssid));
         strlcpy(next->wifi.primary.password, old->wifi.password, sizeof(next->wifi.primary.password));
     }
-
     next->meter_count = old->meter_count <= APP_MAX_METERS ? old->meter_count : APP_MAX_METERS;
     memcpy(next->meters, old->meters, sizeof(next->meters));
     next->inverter_count = old->inverter_count <= APP_MAX_INVERTERS ? old->inverter_count : APP_MAX_INVERTERS;
     memcpy(next->inverters, old->inverters, sizeof(next->inverters));
     next->control = old->control;
     next->control.enabled = false;
-
-    if (strcmp(next->wifi.fallback.ssid, next->wifi.primary.ssid) == 0) {
-        next->wifi.fallback.enabled = false;
-    }
+    next->wifi_provision_id = CONFIG_PVDG_WIFI_PROVISION_ID;
+    if (strcmp(next->wifi.fallback.ssid, next->wifi.primary.ssid) == 0) next->wifi.fallback.enabled = false;
 }
 
 static void set_active(const app_config_t *c)
@@ -231,10 +248,10 @@ esp_err_t config_manager_init(void)
 
     app_config_t *loaded = calloc(1, sizeof(*loaded));
     if (!loaded) return ESP_ERR_NO_MEM;
-
     bool have_valid_config = false;
     bool stored_matches = false;
     nvs_handle_t h;
+
     err = nvs_open(NS, NVS_READONLY, &h);
     if (err == ESP_OK) {
         size_t stored_size = 0;
@@ -253,7 +270,10 @@ esp_err_t config_manager_init(void)
                     legacy->magic == APP_CONFIG_MAGIC && legacy->version == 2) {
                     memcpy(loaded, legacy, sizeof(*legacy));
                     loaded->version = APP_CONFIG_VERSION;
-                    loaded->wifi_provision_id = 0;
+                    /* Schema 2 already contains commissioned Wi-Fi. Treat the
+                     * current build provisioning generation as consumed so an
+                     * upgrade cannot overwrite those credentials. */
+                    loaded->wifi_provision_id = CONFIG_PVDG_WIFI_PROVISION_ID;
                     loaded->control.enabled = false;
                     have_valid_config = valid(loaded);
                     if (have_valid_config) ESP_LOGI(TAG, "Migrated configuration schema 2 to schema %u", APP_CONFIG_VERSION);
@@ -291,10 +311,7 @@ esp_err_t config_manager_init(void)
     set_active(loaded);
     if (!stored_matches) {
         err = config_manager_save(loaded);
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "Configuration persistence failed (%s); continuing with in-memory configuration",
-                     esp_err_to_name(err));
-        }
+        if (err != ESP_OK) ESP_LOGE(TAG, "Configuration persistence failed (%s); continuing with in-memory configuration", esp_err_to_name(err));
     }
     free(loaded);
     return ESP_OK;
@@ -312,7 +329,6 @@ esp_err_t config_manager_get_snapshot(app_config_t *out)
 esp_err_t config_manager_save(const app_config_t *c)
 {
     if (!valid(c)) return ESP_ERR_INVALID_ARG;
-
     nvs_handle_t h;
     ESP_RETURN_ON_ERROR(nvs_open(NS, NVS_READWRITE, &h), TAG, "NVS open failed");
     esp_err_t err = nvs_set_blob(h, KEY, c, sizeof(*c));
@@ -331,10 +347,7 @@ esp_err_t config_manager_save(const app_config_t *c)
     bool verified = err == ESP_OK && verify_size == sizeof(*verify) && memcmp(verify, c, sizeof(*c)) == 0;
     free(verify);
     if (!verified) return err == ESP_OK ? ESP_ERR_INVALID_CRC : err;
-
-    portENTER_CRITICAL(&s_lock);
-    s_cfg = *c;
-    portEXIT_CRITICAL(&s_lock);
+    set_active(c);
     return ESP_OK;
 }
 
@@ -364,21 +377,13 @@ esp_err_t config_manager_export_json(char **out)
 {
     if (!out) return ESP_ERR_INVALID_ARG;
     *out = NULL;
-
     app_config_t *c = malloc(sizeof(*c));
     if (!c) return ESP_ERR_NO_MEM;
     esp_err_t err = config_manager_get_snapshot(c);
-    if (err != ESP_OK) {
-        free(c);
-        return err;
-    }
+    if (err != ESP_OK) { free(c); return err; }
 
     cJSON *r = cJSON_CreateObject();
-    if (!r) {
-        free(c);
-        return ESP_ERR_NO_MEM;
-    }
-
+    if (!r) { free(c); return ESP_ERR_NO_MEM; }
     cJSON_AddNumberToObject(r, "schema", c->version);
     cJSON_AddStringToObject(r, "device_name", c->device_name);
     cJSON *w = cJSON_AddObjectToObject(r, "wifi");
@@ -440,24 +445,50 @@ esp_err_t config_manager_export_json(char **out)
     return *out ? ESP_OK : ESP_ERR_NO_MEM;
 }
 
+static bool json_depth_valid(const char *text)
+{
+    unsigned depth = 0;
+    bool in_string = false;
+    bool escape = false;
+    for (const unsigned char *p = (const unsigned char *)text; *p; ++p) {
+        if (in_string) {
+            if (escape) escape = false;
+            else if (*p == '\\') escape = true;
+            else if (*p == '"') in_string = false;
+            continue;
+        }
+        if (*p == '"') in_string = true;
+        else if (*p == '{' || *p == '[') {
+            if (++depth > CONFIG_JSON_MAX_DEPTH) return false;
+        } else if (*p == '}' || *p == ']') {
+            if (depth == 0) return false;
+            depth--;
+        }
+    }
+    return !in_string && depth == 0;
+}
+
 static void read_string(cJSON *o, const char *key, char *dst, size_t size)
 {
     cJSON *x = cJSON_GetObjectItemCaseSensitive(o, key);
-    if (cJSON_IsString(x)) strlcpy(dst, x->valuestring, size);
+    if (cJSON_IsString(x) && strlen(x->valuestring) < size) strlcpy(dst, x->valuestring, size);
 }
 
 static void read_password(cJSON *o, const char *key, char *dst, size_t size)
 {
     cJSON *x = cJSON_GetObjectItemCaseSensitive(o, key);
-    if (cJSON_IsString(x) && x->valuestring[0] && strcmp(x->valuestring, MASKED_PASSWORD) != 0) {
+    if (cJSON_IsString(x) && x->valuestring[0] && strcmp(x->valuestring, MASKED_PASSWORD) != 0 && strlen(x->valuestring) < size) {
         strlcpy(dst, x->valuestring, size);
     }
 }
 
-static void read_float(cJSON *o, const char *key, float *value)
+static bool read_float(cJSON *o, const char *key, float *value)
 {
     cJSON *x = cJSON_GetObjectItemCaseSensitive(o, key);
-    if (cJSON_IsNumber(x)) *value = (float)x->valuedouble;
+    if (!x) return true;
+    if (!cJSON_IsNumber(x) || !isfinite(x->valuedouble)) return false;
+    *value = (float)x->valuedouble;
+    return isfinite(*value);
 }
 
 static void parse_wifi_profile(cJSON *o, app_wifi_sta_profile_t *p)
@@ -478,21 +509,14 @@ static void parse_wifi_profile(cJSON *o, app_wifi_sta_profile_t *p)
 
 esp_err_t config_manager_import_json(const char *text)
 {
-    if (!text) return ESP_ERR_INVALID_ARG;
+    if (!text || !json_depth_valid(text)) return ESP_ERR_INVALID_ARG;
     cJSON *r = cJSON_Parse(text);
-    if (!r) return ESP_ERR_INVALID_ARG;
+    if (!r || !cJSON_IsObject(r)) { cJSON_Delete(r); return ESP_ERR_INVALID_ARG; }
 
     app_config_t *c = malloc(sizeof(*c));
-    if (!c) {
-        cJSON_Delete(r);
-        return ESP_ERR_NO_MEM;
-    }
+    if (!c) { cJSON_Delete(r); return ESP_ERR_NO_MEM; }
     esp_err_t err = config_manager_get_snapshot(c);
-    if (err != ESP_OK) {
-        free(c);
-        cJSON_Delete(r);
-        return err;
-    }
+    if (err != ESP_OK) { free(c); cJSON_Delete(r); return err; }
 
     cJSON *w = cJSON_GetObjectItemCaseSensitive(r, "wifi");
     if (cJSON_IsObject(w)) {
@@ -521,23 +545,24 @@ esp_err_t config_manager_import_json(const char *text)
         if (cJSON_IsNumber(x)) m->endpoint.unit_id = (uint8_t)x->valueint;
         x = cJSON_GetObjectItemCaseSensitive(o, "active_power_address");
         if (cJSON_IsNumber(x)) m->active_power_address = (uint16_t)x->valueint;
-        read_float(o, "scale", &m->active_power_scale);
+        if (!read_float(o, "scale", &m->active_power_scale)) err = ESP_ERR_INVALID_ARG;
     }
 
     cJSON *cc = cJSON_GetObjectItemCaseSensitive(r, "control");
     if (cJSON_IsObject(cc)) {
-        cJSON *x = cJSON_GetObjectItemCaseSensitive(cc, "enabled");
-        if (cJSON_IsBool(x)) c->control.enabled = cJSON_IsTrue(x);
-        read_float(cc, "grid_import_target_kw", &c->control.grid_import_target_kw);
-        read_float(cc, "deadband_kw", &c->control.deadband_kw);
-        read_float(cc, "kp", &c->control.kp);
-        read_float(cc, "ki", &c->control.ki);
-        x = cJSON_GetObjectItemCaseSensitive(cc, "interval_ms");
+        /* Generic import may tune values but cannot arm automatic control. */
+        c->control.enabled = false;
+        if (!read_float(cc, "grid_import_target_kw", &c->control.grid_import_target_kw) ||
+            !read_float(cc, "deadband_kw", &c->control.deadband_kw) ||
+            !read_float(cc, "kp", &c->control.kp) ||
+            !read_float(cc, "ki", &c->control.ki)) err = ESP_ERR_INVALID_ARG;
+        cJSON *x = cJSON_GetObjectItemCaseSensitive(cc, "interval_ms");
         if (cJSON_IsNumber(x)) c->control.interval_ms = (uint32_t)x->valuedouble;
     }
 
     cJSON_Delete(r);
-    err = config_manager_save(c);
+    if (err == ESP_OK && !valid(c)) err = ESP_ERR_INVALID_ARG;
+    if (err == ESP_OK) err = config_manager_save(c);
     free(c);
     return err;
 }
