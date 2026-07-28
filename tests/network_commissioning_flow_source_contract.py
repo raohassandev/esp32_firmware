@@ -8,9 +8,12 @@ cmake = (root / 'components' / 'web_server' / 'CMakeLists.txt').read_text(encodi
 
 required = [
     "event.stopImmediatePropagation()",
+    "'/api/engineering/session'",
+    'ensureEngineeringSession',
     "'/api/wifi/config'",
     "'/api/system/restart'",
     'waitForController',
+    'Engineering access renewed',
     'settings were saved',
     'recovery AP',
     "form.dataset.networkFlow = 'resilient'",
@@ -18,6 +21,8 @@ required = [
 for token in required:
     assert token in js, f'missing Wi-Fi flow safeguard: {token}'
 
+assert js.count('await ensureEngineeringSession()') >= 3, 'session must be established before save, baseline load and after restart'
+assert 'credentials: \'same-origin\'' in js, 'session cookie must be included'
 assert 'web_assets_network_commissioning_fix_js' in server
 assert 'network_commissioning_fix_js_start' in assets
 assert 'network-commissioning-fix.js' in cmake
