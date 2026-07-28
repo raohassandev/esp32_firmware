@@ -1,5 +1,7 @@
 #include "em500_cache.h"
 
+#include <stddef.h>
+
 #include "esp_err.h"
 
 static bool resolve_block(uint16_t pdu_address, uint16_t count,
