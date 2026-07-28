@@ -17,6 +17,7 @@
   const route = () => location.hash.replace(/^#\/?/, '') || 'dashboard';
   const isEngineering = () => document.documentElement.dataset.access === 'engineering';
   const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+  let composeQueued = false;
 
   function masthead(page, meta, name) {
     let head = page.querySelector(':scope > .experience-masthead');
@@ -42,7 +43,7 @@
     [...page.children].forEach((child, index) => {
       if (!child.classList.contains('experience-masthead') && !child.classList.contains('page-intro')) {
         child.classList.add('experience-section');
-        child.dataset.experienceOrder = String(index);
+        if (child.dataset.experienceOrder !== String(index)) child.dataset.experienceOrder = String(index);
       }
     });
   }
@@ -50,7 +51,9 @@
   function groupNavigation() {
     const nav = document.querySelector('.nav-list');
     if (!nav) return;
-    nav.querySelectorAll('.experience-nav-label').forEach(n => n.remove());
+    const existing = [...nav.querySelectorAll(':scope > .experience-nav-label')];
+    if (existing.length === 2) return;
+    existing.forEach((node) => node.remove());
     const firstOperator = nav.querySelector('[data-route="dashboard"]');
     if (firstOperator) firstOperator.before(el('div', 'experience-nav-label', 'Operate'));
     const firstEngineering = ['readiness','engineering','commissioning','wifi','system'].map(r => nav.querySelector(`[data-route="${r}"]`)).find(Boolean);
@@ -63,6 +66,7 @@
   }
 
   function compose() {
+    composeQueued = false;
     const name = route();
     const page = document.querySelector(`.page[data-page="${name}"]`);
     const meta = PAGE[name];
@@ -70,19 +74,30 @@
       masthead(page, meta, name);
       classifyPage(page, name);
     }
-    document.body.dataset.experienceRoute = name;
-    document.body.dataset.experienceAccess = isEngineering() ? 'engineering' : 'operator';
+    if (document.body.dataset.experienceRoute !== name) document.body.dataset.experienceRoute = name;
+    const access = isEngineering() ? 'engineering' : 'operator';
+    if (document.body.dataset.experienceAccess !== access) document.body.dataset.experienceAccess = access;
     groupNavigation();
     removeCompetingControls();
+  }
+
+  function scheduleCompose() {
+    if (composeQueued) return;
+    composeQueued = true;
+    requestAnimationFrame(compose);
   }
 
   function start() {
     document.body.classList.add('product-experience-v2');
     compose();
-    window.addEventListener('hashchange', () => requestAnimationFrame(compose));
-    window.addEventListener('amx-access-change', () => requestAnimationFrame(compose));
+    window.addEventListener('hashchange', scheduleCompose);
+    window.addEventListener('amx-access-change', scheduleCompose);
     const main = document.getElementById('mainContent');
-    if (main) new MutationObserver(() => requestAnimationFrame(compose)).observe(main, { childList: true, subtree: true });
+    if (main) {
+      new MutationObserver((records) => {
+        if (records.some((record) => record.target === main && record.addedNodes.length)) scheduleCompose();
+      }).observe(main, { childList: true });
+    }
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
