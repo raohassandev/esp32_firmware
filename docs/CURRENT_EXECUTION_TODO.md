@@ -1,7 +1,7 @@
 # Current Execution TODO
 
 **Branch:** `feature/multibrand-inverter-profiles`  
-**Current software head before this TODO commit:** `020d5edd9f7cec63e2996e33c7ff355b6d1dd4ea`  
+**Current software head before this TODO commit:** `ae0f6578f4d544aa8f4de99ac24d9f911cfe6bfc`  
 **Release state:** development only; physical writes remain fail-closed.
 
 `MASTER_EXECUTION_TODO.md` remains the full product scope.
@@ -18,6 +18,7 @@
 - [x] Add bounded configuration JSON nesting validation.
 - [x] Prevent generic configuration import from enabling control.
 - [x] Validate imported endpoint, meter, inverter and control numbers.
+- [x] Return JSON null for unavailable status power values.
 - [x] Reject NaN and infinity in Modbus decoding and manager boundaries.
 - [x] Fail control calculations toward zero on invalid data.
 - [x] Move operational JSON allocation outside spinlocks.
@@ -46,31 +47,36 @@
 - [x] Add bounded retry, mismatch detection, rollback and safe-fallback decisions.
 - [x] Add executable host tests for source modes, generator aggregation, control policy and inverter command confirmation.
 - [x] Compile new control and inverter policy modules into ESP-IDF components.
+- [x] Add dedicated background EM500 acquisition task.
+- [x] Cache instantaneous, source-input, energy and setup register groups.
+- [x] Route the EM500 snapshot HTTP source through the immediate cache adapter.
+- [x] Preserve last-good cached register groups with freshness, response-time and success/error metadata.
+- [x] Add a source contract proving snapshot handlers do not execute direct Modbus reads.
+- [x] Add an explicit production-release workflow gate.
+- [x] Make production workflow runs fail while authentication bypass is active.
 
 ## Validation in progress
 
-- [ ] Complete GitHub web/source/host-test suite for the current head.
-- [ ] ESP-IDF 6.0.1 build for the current head.
-- [ ] Zero compiler-warning confirmation.
+- [x] Complete GitHub web/source/host-test suite for `ae0f6578...`.
+- [x] Production release-gate development-mode test for `ae0f6578...`.
+- [ ] ESP-IDF 6.0.1 build for `ae0f6578...`.
+- [ ] Zero compiler-warning confirmation for `ae0f6578...`.
 
 ## P0 software blockers remaining
 
 - [ ] Apply JSON-depth protection to every independent JSON parser.
 - [ ] Add bounded request-body receive deadlines to every write endpoint.
-- [ ] Return JSON null for unavailable status power values.
 - [ ] Restore production salted-password/session authentication.
-- [ ] Reject production builds when authentication bypass is enabled.
-- [ ] Verify every configuration, restart, profile and control endpoint is protected.
+- [ ] Disable `AUTH_TEMPORARY_FIELD_BYPASS` in the production configuration.
+- [ ] Verify every configuration, restart, profile and control endpoint is protected under real authentication.
 
 ## Live meter and web architecture remaining
 
-- [ ] Move full EM500 scans out of synchronous HTTP handlers.
-- [ ] Add dedicated meter acquisition scheduler.
-- [ ] Cache fast operational values.
-- [ ] Cache medium/slow analyser and energy groups.
-- [ ] Add bounded jobs for history, setup and raw diagnostics.
-- [ ] Expose group freshness, quality, response time and active backoff.
-- [ ] Preserve and label last-good analyser data.
+- [ ] Route EM500 history reads through bounded asynchronous jobs.
+- [ ] Route EM500 settings reads through the cache/job layer.
+- [ ] Add bounded jobs for raw diagnostics.
+- [ ] Expose cache group freshness, quality, response time and active backoff in the browser.
+- [ ] Label stale last-good analyser values explicitly.
 - [ ] Preserve Modbus exception function and code.
 - [ ] Qualify socket modes and TCP resource endurance.
 - [ ] Stop Wi-Fi polling after route exit/deadline.
@@ -120,4 +126,4 @@
 - [ ] Signed site SAT tied to firmware SHA, sdkconfig hash, ESP-IDF version, board MAC and timestamp.
 - [ ] Production release approved.
 
-Current result: the reusable source-state, grid policy, generator safety, multi-generator aggregation and inverter confirmation cores are implemented with host tests. Live task integration, production authentication, analyser caching and physical qualification remain blocked.
+Current result: source-state, grid policy, generator safety, multi-generator aggregation, inverter confirmation policy and the first asynchronous EM500 snapshot cache are implemented with automated tests. Production authentication, history/settings job routing, live control-task integration and physical qualification remain blocked.
