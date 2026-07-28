@@ -4,6 +4,7 @@ ROOT = Path(__file__).resolve().parents[1]
 API = (ROOT / "components/web_server/device_api.c").read_text(encoding="utf-8")
 UI = (ROOT / "web/devices.js").read_text(encoding="utf-8")
 INVERTER_MANAGER = (ROOT / "components/inverter_manager/inverter_manager.c").read_text(encoding="utf-8")
+METER_MANAGER = (ROOT / "components/meter_manager/meter_manager.c").read_text(encoding="utf-8")
 
 required_api_fragments = [
     '{.uri = "/api/meters", .method = HTTP_GET',
@@ -18,6 +19,10 @@ required_api_fragments = [
 
 for fragment in required_api_fragments:
     assert fragment in API, f"missing telemetry safety contract: {fragment}"
+
+assert "runtime->data.active_power_kw = NAN;" in METER_MANAGER, \
+    "meter power must begin unavailable so generic status JSON emits null instead of 0.00 kW"
+assert "No sample has been acquired yet" in METER_MANAGER
 
 assert "HTTP_POST" not in API, "device telemetry API must remain read-only"
 assert "esp_wifi_" not in API, "device telemetry API must not manipulate the radio"
