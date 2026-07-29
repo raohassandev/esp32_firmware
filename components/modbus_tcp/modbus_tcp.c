@@ -223,10 +223,6 @@ static esp_err_t exchange(modbus_connection_t *c, const uint8_t *request, size_t
                           uint8_t expected_function, uint8_t *pdu, size_t pdu_capacity,
                           size_t *pdu_length)
 {
-    c->last_exception_valid = false;
-    c->last_exception_function = 0;
-    c->last_exception_code = 0;
-
     int64_t deadline_us = now_us() + (int64_t)c->endpoint.timeout_ms * 1000LL;
     esp_err_t err = ensure_connected(c, deadline_us);
     if (err != ESP_OK) return err;
@@ -252,8 +248,9 @@ static esp_err_t exchange(modbus_connection_t *c, const uint8_t *request, size_t
         c->last_exception_valid = true;
         c->last_exception_function = pdu[0];
         c->last_exception_code = pdu[1];
+        c->last_exception_ms = (uint32_t)(now_us() / 1000LL);
         c->exception_count++;
-        c->last_response_ms = (uint32_t)(now_us() / 1000LL);
+        c->last_response_ms = c->last_exception_ms;
         return ESP_ERR_INVALID_RESPONSE;
     }
     if (pdu[0] != expected_function) return ESP_ERR_INVALID_RESPONSE;
@@ -347,6 +344,7 @@ esp_err_t modbus_tcp_write_multiple(modbus_connection_t *c, uint16_t address,
 bool modbus_tcp_get_last_exception(modbus_connection_t *c,
                                    uint8_t *function_code,
                                    uint8_t *exception_code,
+                                   uint32_t *exception_ms,
                                    uint32_t *exception_count)
 {
     if (!c || !c->lock) return false;
@@ -356,6 +354,7 @@ bool modbus_tcp_get_last_exception(modbus_connection_t *c,
     bool valid = c->last_exception_valid;
     if (function_code) *function_code = valid ? c->last_exception_function : 0U;
     if (exception_code) *exception_code = valid ? c->last_exception_code : 0U;
+    if (exception_ms) *exception_ms = valid ? c->last_exception_ms : 0U;
     if (exception_count) *exception_count = c->exception_count;
     xSemaphoreGive(c->lock);
     return valid;
