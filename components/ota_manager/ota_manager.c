@@ -1,11 +1,13 @@
 #include "ota_manager.h"
 
+#include <stdint.h>
 #include <string.h>
 
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
+#include "freertos/task.h"
 #include "sdkconfig.h"
 
 static const char *TAG = "ota_manager";
@@ -308,6 +310,53 @@ esp_err_t ota_manager_mark_running_valid(void)
         ESP_LOGI(TAG, "First-boot diagnostics passed; running image marked valid");
     }
     return error;
+}
+
+static void boot_validation_task(void *argument)
+{
+    uint32_t stabilization_ms = (uint32_t)(uintptr_t)argument;
+    vTaskDelay(pdMS_TO_TICKS(stabilization_ms));
+    esp_err_t error = ota_manager_mark_running_valid();
+    portENTER_CRITICAL(&s_lock);
+    s_status.validation_scheduled = false;
+    if (error != ESP_OK) s_status.last_error = error;
+    portEXIT_CRITICAL(&s_lock);
+    if (error != ESP_OK) {
+        ESP_LOGE(TAG, "Unable to validate the first OTA boot: %s",
+                 esp_err_to_name(error));
+    }
+    vTaskDelete(NULL);
+}
+
+esp_err_t ota_manager_schedule_boot_validation(uint32_t stabilization_ms)
+{
+    if (!ota_manager_running_pending_verify()) return ESP_OK;
+    if (stabilization_ms < 5000U) stabilization_ms = 5000U;
+    if (stabilization_ms > 120000U) stabilization_ms = 120000U;
+
+    portENTER_CRITICAL(&s_lock);
+    if (s_status.validation_scheduled) {
+        portEXIT_CRITICAL(&s_lock);
+        return ESP_OK;
+    }
+    s_status.validation_scheduled = true;
+    portEXIT_CRITICAL(&s_lock);
+
+    BaseType_t created = xTaskCreate(boot_validation_task,
+                                     "ota_validate",
+                                     3072,
+                                     (void *)(uintptr_t)stabilization_ms,
+                                     6,
+                                     NULL);
+    if (created != pdPASS) {
+        portENTER_CRITICAL(&s_lock);
+        s_status.validation_scheduled = false;
+        portEXIT_CRITICAL(&s_lock);
+        return ESP_ERR_NO_MEM;
+    }
+    ESP_LOGI(TAG, "First OTA boot will remain rollback-eligible for %u ms",
+             (unsigned)stabilization_ms);
+    return ESP_OK;
 }
 
 esp_err_t ota_manager_rollback_pending_and_reboot(void)
