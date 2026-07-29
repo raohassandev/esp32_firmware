@@ -317,6 +317,57 @@ static esp_err_t history_get(httpd_req_t *request)
     return send_json(request, root);
 }
 
+/* The stored `active` byte is a transition polarity, not a condition state, and
+ * its sense is not the same for every code: for the network and grid-measurement
+ * records a 1 means "restored", while for the meter alarms a 1 means "the alarm
+ * is present". Reporting that byte directly as "active" therefore told an
+ * operator that "Grid measurement restored" and "Network restored" were active
+ * conditions, which reads as an unresolved fault.
+ *
+ * These two helpers translate the stored polarity into the two things a caller
+ * actually needs: whether this record is an alarm condition or a plain event,
+ * and, for an alarm, whether the condition is present right now. */
+static bool event_is_alarm_condition(uint8_t code)
+{
+    switch ((operational_event_code_t)code) {
+    case EVENT_NETWORK_STATE:
+    case EVENT_METER_STATE:
+    case EVENT_METER_OFFLINE_ALARM:
+    case EVENT_METER_STALE_ALARM:
+        return true;
+    case EVENT_CONTROLLER_STARTED:
+    case EVENT_INVERTER_FLEET_STATE:
+    case EVENT_CONTROL_STATE:
+    default:
+        /* A controller start or a deliberate mode change is something that
+         * happened, not a condition that persists. */
+        return false;
+    }
+}
+
+static bool event_condition_present(uint8_t code, uint8_t raw_active)
+{
+    switch ((operational_event_code_t)code) {
+    /* Here a stored 1 means the good state was reached, so the condition that
+     * would concern an operator is present when the byte is 0. */
+    case EVENT_NETWORK_STATE:
+    case EVENT_METER_STATE:
+        return raw_active == 0U;
+    /* Here a stored 1 means the alarm itself is present. */
+    case EVENT_METER_OFFLINE_ALARM:
+    case EVENT_METER_STALE_ALARM:
+        return raw_active != 0U;
+    default:
+        return false;   /* events do not persist as a condition */
+    }
+}
+
+static const char *event_state_label(uint8_t code, uint8_t raw_active)
+{
+    if (!event_is_alarm_condition(code)) return "recorded";
+    return event_condition_present(code, raw_active) ? "active" : "cleared";
+}
+
 static const char *severity_label(uint8_t severity)
 {
     return severity >= 2 ? "critical" : severity == 1 ? "warning" : "information";
@@ -394,14 +445,21 @@ static esp_err_t events_get(httpd_req_t *request)
         if (!item) continue;
         cJSON_AddNumberToObject(item, "sequence", event->sequence);
         cJSON_AddNumberToObject(item, "age_ms", current - event->timestamp_ms);
+        const bool is_condition = event_is_alarm_condition(event->code);
+        const bool present = event_condition_present(event->code, event->active);
         cJSON_AddStringToObject(item, "severity", severity_label(event->severity));
-        cJSON_AddBoolToObject(item, "active", event->active != 0);
+        cJSON_AddStringToObject(item, "kind", is_condition ? "alarm" : "event");
+        cJSON_AddStringToObject(item, "state", event_state_label(event->code, event->active));
+        /* "active" now means the condition is present right now, which is what a
+         * caller reasonably assumes. A restored or informational record is not
+         * active. */
+        cJSON_AddBoolToObject(item, "active", present);
         cJSON_AddStringToObject(item, "title", title);
         cJSON_AddStringToObject(item, "detail", detail);
         cJSON_AddStringToObject(item, "recommended_action", action);
         cJSON_AddItemToArray(items, item);
-        if (event->active && event->severity >= 2) active_critical++;
-        else if (event->active && event->severity == 1) active_warning++;
+        if (present && event->severity >= 2) active_critical++;
+        else if (present && event->severity == 1) active_warning++;
     }
     free(snapshot);
     cJSON *summary = cJSON_AddObjectToObject(root, "summary");

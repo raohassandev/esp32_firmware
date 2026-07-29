@@ -7,7 +7,16 @@
         meters: { title: 'Meters', breadcrumb: 'Grid meters' },
         inverters: { title: 'Inverters', breadcrumb: 'Inverters' },
         control: { title: 'PV-DG Control', breadcrumb: 'PV-DG control' },
-        system: { title: 'System', breadcrumb: 'System' }
+        system: { title: 'System', breadcrumb: 'System' },
+        /* Routes owned by later modules still need an entry here. Without one,
+         * routeFromHash() fell back to 'dashboard' and stamped that into
+         * document.title, so #/alarms reported itself as "Dashboard" while
+         * correctly rendering the alarms section - the route, the title and the
+         * selected navigation item disagreed. */
+        alarms: { title: 'Alarms', breadcrumb: 'Alarms and events' },
+        readiness: { title: 'Pre-Lab Readiness', breadcrumb: 'Readiness' },
+        commissioning: { title: 'Commissioning', breadcrumb: 'Commissioning' },
+        engineering: { title: 'Engineering', breadcrumb: 'Engineering' }
     };
 
     const WIFI_STATES = ['Idle', 'Scanning', 'Connecting primary', 'Connecting fallback', 'Connected', 'Setup AP', 'Disconnected'];
