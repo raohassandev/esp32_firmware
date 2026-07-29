@@ -1,25 +1,23 @@
 #include "network_manager.h"
+#include "network_scan_internal.h"
+
 #include <stdlib.h>
 #include <string.h>
-#include "config_manager.h"
-#include "esp_check.h"
+
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/event_groups.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 
-#define SCAN_REQUEST_BIT BIT0
 #define RAW_SCAN_LIMIT 64
 
 static const char *TAG = "wifi_scan";
-static EventGroupHandle_t s_scan_events;
 static SemaphoreHandle_t s_snapshot_lock;
 static network_scan_snapshot_t s_snapshot;
-static portMUX_TYPE s_init_lock = portMUX_INITIALIZER_UNLOCKED;
-static bool s_initializing;
+static TaskHandle_t s_manager_task;
+static uint32_t s_manager_wake_bit;
 static bool s_initialized;
 
 static uint32_t now_ms(void)
@@ -34,10 +32,12 @@ static int compare_rssi_desc(const void *left, const void *right)
     return (int)b->rssi - (int)a->rssi;
 }
 
-static void update_failure(uint32_t generation, esp_err_t error)
+static void complete_failure(uint32_t generation, esp_err_t error)
 {
+    if (!s_snapshot_lock) return;
     xSemaphoreTake(s_snapshot_lock, portMAX_DELAY);
-    if (s_snapshot.generation == generation) {
+    if (s_snapshot.generation == generation &&
+        s_snapshot.state == NETWORK_SCAN_RUNNING) {
         s_snapshot.state = NETWORK_SCAN_FAILED;
         s_snapshot.last_error = error;
         s_snapshot.completed_ms = now_ms();
@@ -62,11 +62,9 @@ static esp_err_t collect_scan(network_scan_snapshot_t *next)
 
     wifi_ap_record_t *records = calloc(record_count, sizeof(*records));
     network_scan_ap_t *candidates = calloc(record_count, sizeof(*candidates));
-    app_config_t *config = malloc(sizeof(*config));
-    if (!records || !candidates || !config) {
+    if (!records || !candidates) {
         free(records);
         free(candidates);
-        free(config);
         return ESP_ERR_NO_MEM;
     }
 
@@ -74,15 +72,6 @@ static esp_err_t collect_scan(network_scan_snapshot_t *next)
     if (err != ESP_OK) {
         free(records);
         free(candidates);
-        free(config);
-        return err;
-    }
-
-    err = config_manager_get_snapshot(config);
-    if (err != ESP_OK) {
-        free(records);
-        free(candidates);
-        free(config);
         return err;
     }
 
@@ -103,123 +92,66 @@ static esp_err_t collect_scan(network_scan_snapshot_t *next)
         }
 
         if (existing >= 0 && candidates[existing].rssi >= records[index].rssi) continue;
-        network_scan_ap_t *target = existing >= 0 ? &candidates[existing] : &candidates[unique_count++];
+        network_scan_ap_t *target = existing >= 0
+                                        ? &candidates[existing]
+                                        : &candidates[unique_count++];
         memset(target, 0, sizeof(*target));
         strlcpy(target->ssid, ssid, sizeof(target->ssid));
         target->rssi = records[index].rssi;
         target->channel = records[index].primary;
         target->auth_mode = (uint8_t)records[index].authmode;
-        target->configured_primary = config->wifi.primary.enabled && strcmp(ssid, config->wifi.primary.ssid) == 0;
-        target->configured_fallback = config->wifi.fallback.enabled && strcmp(ssid, config->wifi.fallback.ssid) == 0;
+        target->configured_primary = strcmp(ssid, status.ssid) == 0 &&
+                                     status.network_ready &&
+                                     !status.using_fallback_sta;
+        target->configured_fallback = strcmp(ssid, status.ssid) == 0 &&
+                                      status.network_ready &&
+                                      status.using_fallback_sta;
         target->connected = status.network_ready && strcmp(ssid, status.ssid) == 0;
     }
 
     qsort(candidates, unique_count, sizeof(*candidates), compare_rssi_desc);
-    next->count = unique_count > NETWORK_SCAN_MAX_RESULTS ? NETWORK_SCAN_MAX_RESULTS : unique_count;
+    next->count = unique_count > NETWORK_SCAN_MAX_RESULTS
+                      ? NETWORK_SCAN_MAX_RESULTS
+                      : unique_count;
     if (next->count > 0) {
-        memcpy(next->results, candidates, next->count * sizeof(*next->results));
+        memcpy(next->results, candidates,
+               next->count * sizeof(*next->results));
     }
 
     free(records);
     free(candidates);
-    free(config);
     return ESP_OK;
 }
 
-static void scan_worker(void *argument)
+esp_err_t network_scan_service_init(TaskHandle_t manager_task,
+                                    uint32_t manager_wake_bit)
 {
-    (void)argument;
-    while (true) {
-        xEventGroupWaitBits(s_scan_events, SCAN_REQUEST_BIT, pdTRUE, pdFALSE, portMAX_DELAY);
+    if (!manager_task || manager_wake_bit == 0U) return ESP_ERR_INVALID_ARG;
+    if (s_initialized) return ESP_OK;
 
-        uint32_t generation = 0;
-        xSemaphoreTake(s_snapshot_lock, portMAX_DELAY);
-        generation = s_snapshot.generation;
-        xSemaphoreGive(s_snapshot_lock);
-
-        network_scan_snapshot_t *next = calloc(1, sizeof(*next));
-        if (!next) {
-            update_failure(generation, ESP_ERR_NO_MEM);
-            continue;
-        }
-        next->generation = generation;
-        next->started_ms = now_ms();
-
-        esp_err_t err = collect_scan(next);
-        next->completed_ms = now_ms();
-        next->last_error = err;
-        next->state = err == ESP_OK ? NETWORK_SCAN_COMPLETE : NETWORK_SCAN_FAILED;
-
-        xSemaphoreTake(s_snapshot_lock, portMAX_DELAY);
-        if (s_snapshot.generation == generation) {
-            if (err == ESP_OK) {
-                s_snapshot = *next;
-                ESP_LOGI(TAG, "Scan generation %u completed with %u visible networks",
-                         (unsigned)generation, (unsigned)next->count);
-            } else {
-                s_snapshot.state = NETWORK_SCAN_FAILED;
-                s_snapshot.last_error = err;
-                s_snapshot.completed_ms = next->completed_ms;
-                ESP_LOGW(TAG, "Scan generation %u failed: %s",
-                         (unsigned)generation, esp_err_to_name(err));
-            }
-        }
-        xSemaphoreGive(s_snapshot_lock);
-        free(next);
-    }
-}
-
-static esp_err_t ensure_scan_service(void)
-{
-    portENTER_CRITICAL(&s_init_lock);
-    if (s_initialized) {
-        portEXIT_CRITICAL(&s_init_lock);
-        return ESP_OK;
-    }
-    if (s_initializing) {
-        portEXIT_CRITICAL(&s_init_lock);
-        return ESP_ERR_INVALID_STATE;
-    }
-    s_initializing = true;
-    portEXIT_CRITICAL(&s_init_lock);
-
-    EventGroupHandle_t events = xEventGroupCreate();
     SemaphoreHandle_t lock = xSemaphoreCreateMutex();
-    esp_err_t err = ESP_OK;
+    if (!lock) return ESP_ERR_NO_MEM;
 
-    if (!events || !lock) {
-        err = ESP_ERR_NO_MEM;
-    } else {
-        s_scan_events = events;
-        s_snapshot_lock = lock;
-        memset(&s_snapshot, 0, sizeof(s_snapshot));
-        s_snapshot.state = NETWORK_SCAN_IDLE;
-        if (xTaskCreate(scan_worker, "wifi_scan", 4096, NULL, 8, NULL) != pdPASS) {
-            s_scan_events = NULL;
-            s_snapshot_lock = NULL;
-            err = ESP_ERR_NO_MEM;
-        }
-    }
-
-    if (err != ESP_OK) {
-        if (lock) vSemaphoreDelete(lock);
-        if (events) vEventGroupDelete(events);
-    }
-
-    portENTER_CRITICAL(&s_init_lock);
-    s_initialized = err == ESP_OK;
-    s_initializing = false;
-    portEXIT_CRITICAL(&s_init_lock);
-    return err;
+    memset(&s_snapshot, 0, sizeof(s_snapshot));
+    s_snapshot.state = NETWORK_SCAN_IDLE;
+    s_snapshot_lock = lock;
+    s_manager_task = manager_task;
+    s_manager_wake_bit = manager_wake_bit;
+    s_initialized = true;
+    return ESP_OK;
 }
 
 esp_err_t network_manager_request_scan(void)
 {
-    ESP_RETURN_ON_ERROR(ensure_scan_service(), TAG, "scan service unavailable");
+    if (!s_initialized || !s_snapshot_lock || !s_manager_task) {
+        return ESP_ERR_INVALID_STATE;
+    }
 
     network_status_t status = {0};
     network_manager_get_status(&status);
-    if (!status.network_ready && !status.fallback_ap_active) return ESP_ERR_INVALID_STATE;
+    if (!status.network_ready && !status.fallback_ap_active) {
+        return ESP_ERR_INVALID_STATE;
+    }
     if (status.state == NETWORK_WIFI_SCANNING ||
         status.state == NETWORK_WIFI_CONNECTING_PRIMARY ||
         status.state == NETWORK_WIFI_CONNECTING_FALLBACK) {
@@ -234,23 +166,83 @@ esp_err_t network_manager_request_scan(void)
     s_snapshot.state = NETWORK_SCAN_RUNNING;
     s_snapshot.last_error = ESP_OK;
     s_snapshot.started_ms = now_ms();
+    s_snapshot.completed_ms = 0;
+    s_snapshot.count = 0;
     s_snapshot.generation++;
     if (s_snapshot.generation == 0) s_snapshot.generation = 1;
     xSemaphoreGive(s_snapshot_lock);
 
-    xEventGroupSetBits(s_scan_events, SCAN_REQUEST_BIT);
+    xTaskNotify(s_manager_task, s_manager_wake_bit, eSetBits);
     return ESP_OK;
+}
+
+void network_scan_service_execute(void)
+{
+    if (!s_initialized || !s_snapshot_lock) return;
+
+    uint32_t generation = 0;
+    xSemaphoreTake(s_snapshot_lock, portMAX_DELAY);
+    if (s_snapshot.state != NETWORK_SCAN_RUNNING) {
+        xSemaphoreGive(s_snapshot_lock);
+        return;
+    }
+    generation = s_snapshot.generation;
+    xSemaphoreGive(s_snapshot_lock);
+
+    network_status_t status = {0};
+    network_manager_get_status(&status);
+    if ((!status.network_ready && !status.fallback_ap_active) ||
+        status.state == NETWORK_WIFI_SCANNING ||
+        status.state == NETWORK_WIFI_CONNECTING_PRIMARY ||
+        status.state == NETWORK_WIFI_CONNECTING_FALLBACK) {
+        complete_failure(generation, ESP_ERR_INVALID_STATE);
+        return;
+    }
+
+    network_scan_snapshot_t *next = calloc(1, sizeof(*next));
+    if (!next) {
+        complete_failure(generation, ESP_ERR_NO_MEM);
+        return;
+    }
+    next->generation = generation;
+    next->started_ms = now_ms();
+
+    esp_err_t err = collect_scan(next);
+    next->completed_ms = now_ms();
+    next->last_error = err;
+    next->state = err == ESP_OK ? NETWORK_SCAN_COMPLETE : NETWORK_SCAN_FAILED;
+
+    xSemaphoreTake(s_snapshot_lock, portMAX_DELAY);
+    if (s_snapshot.generation == generation &&
+        s_snapshot.state == NETWORK_SCAN_RUNNING) {
+        s_snapshot = *next;
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "Manager-owned scan generation %u completed with %u visible networks",
+                     (unsigned)generation, (unsigned)next->count);
+        } else {
+            ESP_LOGW(TAG, "Manager-owned scan generation %u failed: %s",
+                     (unsigned)generation, esp_err_to_name(err));
+        }
+    }
+    xSemaphoreGive(s_snapshot_lock);
+    free(next);
+}
+
+void network_scan_service_reject(esp_err_t error)
+{
+    if (!s_initialized || !s_snapshot_lock) return;
+    xSemaphoreTake(s_snapshot_lock, portMAX_DELAY);
+    uint32_t generation = s_snapshot.generation;
+    bool running = s_snapshot.state == NETWORK_SCAN_RUNNING;
+    xSemaphoreGive(s_snapshot_lock);
+    if (running) complete_failure(generation, error);
 }
 
 void network_manager_get_scan_snapshot(network_scan_snapshot_t *out_snapshot)
 {
     if (!out_snapshot) return;
     memset(out_snapshot, 0, sizeof(*out_snapshot));
-
-    portENTER_CRITICAL(&s_init_lock);
-    bool initialized = s_initialized;
-    portEXIT_CRITICAL(&s_init_lock);
-    if (!initialized || !s_snapshot_lock) {
+    if (!s_initialized || !s_snapshot_lock) {
         out_snapshot->state = NETWORK_SCAN_IDLE;
         return;
     }
