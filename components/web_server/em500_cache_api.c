@@ -5,7 +5,13 @@
 #include "cJSON.h"
 #include "em500_cache.h"
 #include "esp_check.h"
+#include "esp_timer.h"
 #include "meter_manager.h"
+
+static uint32_t now_ms(void)
+{
+    return (uint32_t)(esp_timer_get_time() / 1000ULL);
+}
 
 static void add_group(cJSON *parent, const char *name,
                       const em500_cache_group_status_t *status)
@@ -35,10 +41,40 @@ static void add_group(cJSON *parent, const char *name,
     }
 }
 
+static void add_modbus_exception(cJSON *meter, const meter_data_t *runtime,
+                                 uint32_t timestamp)
+{
+    cJSON *exception = cJSON_AddObjectToObject(meter, "last_modbus_exception");
+    cJSON_AddBoolToObject(exception, "valid",
+                          runtime->last_modbus_exception_valid);
+    cJSON_AddNumberToObject(exception, "count",
+                            runtime->modbus_exception_count);
+    if (runtime->last_modbus_exception_valid) {
+        cJSON_AddNumberToObject(exception, "function",
+                                runtime->last_modbus_exception_function);
+        cJSON_AddNumberToObject(exception, "request_function",
+                                runtime->last_modbus_exception_function & 0x7FU);
+        cJSON_AddNumberToObject(exception, "code",
+                                runtime->last_modbus_exception_code);
+        cJSON_AddNumberToObject(exception, "received_ms",
+                                runtime->last_modbus_exception_ms);
+        cJSON_AddNumberToObject(exception, "age_ms",
+                                timestamp - runtime->last_modbus_exception_ms);
+    } else {
+        cJSON_AddNullToObject(exception, "function");
+        cJSON_AddNullToObject(exception, "request_function");
+        cJSON_AddNullToObject(exception, "code");
+        cJSON_AddNullToObject(exception, "received_ms");
+        cJSON_AddNullToObject(exception, "age_ms");
+    }
+}
+
 static esp_err_t cache_status_get(httpd_req_t *request)
 {
     cJSON *root = cJSON_CreateObject();
     if (!root) return httpd_resp_send_500(request);
+    uint32_t timestamp = now_ms();
+    cJSON_AddNumberToObject(root, "generated_ms", timestamp);
     cJSON_AddBoolToObject(root, "modbus_io_in_http_handler", false);
     cJSON_AddStringToObject(root, "acquisition_owner", "em500_cache_task");
     cJSON_AddNumberToObject(root, "meter_count", meter_manager_get_count());
@@ -56,6 +92,10 @@ static esp_err_t cache_status_get(httpd_req_t *request)
         cJSON_AddNumberToObject(meter, "requested_scopes", status.requested_scopes);
         cJSON_AddNumberToObject(meter, "generation", status.generation);
         cJSON_AddNumberToObject(meter, "requested_ms", status.requested_ms);
+        meter_data_t runtime = {0};
+        if (meter_manager_get_data(index, &runtime)) {
+            add_modbus_exception(meter, &runtime, timestamp);
+        }
         cJSON *groups = cJSON_AddObjectToObject(meter, "groups");
         add_group(groups, "instantaneous", &status.instantaneous);
         add_group(groups, "source_input", &status.source_input);
