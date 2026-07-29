@@ -7,7 +7,12 @@
         timer: null,
         gridTrend: [],
         solarTrend: [],
-        lastPayload: null
+        lastPayload: null,
+        /* Site capability report (/api/telemetry): which quantities this
+         * installation measures. devices.js already polls it on the dashboard
+         * route, so it is consumed from that event rather than requested a
+         * second time - the controller serves four client sockets (audit S1). */
+        siteTelemetry: null
     };
 
     const ICONS = {
@@ -143,6 +148,80 @@
         ensureView('system', 'operatorSystemView');
     }
 
+    /* ------------------------------------------------------------- power flow
+     *
+     * P0-7. This card used to show solar, controller and utility grid. For a
+     * PV-DG product that leaves out the generator - the asset the whole control
+     * strategy exists to protect - and the facility load both sources serve.
+     *
+     * The model is shared with the engineering dashboard (devices-utils.js) so
+     * the two screens cannot disagree about the plant. Its two rules are what
+     * make this card trustworthy on an unattended site: a quantity that is not
+     * measured says "Not measured" instead of 0 kW, and no arrow is drawn out of
+     * a node whose magnitude nobody is measuring. */
+    function flowNodeCard(entry) {
+        const iconName = entry.id === 'grid' ? 'grid'
+            : entry.id === 'solar' ? 'solar'
+            : entry.id === 'generator' ? 'meter'
+            : entry.id === 'load' ? 'shield'
+            : 'control';
+        const card = node('div', `op-flow-source op-flow-${entry.id}${entry.measured ? '' : ' op-flow-unmeasured'}`);
+        card.append(
+            icon(iconName),
+            node('span', '', entry.label),
+            node('strong', '', entry.value),
+            node('small', 'op-flow-kind', entry.valueKind === 'measured' ? 'Measured'
+                : entry.valueKind === 'command' ? 'Commanded, not measured'
+                : 'Not measured'),
+            node('small', '', entry.detail),
+            node('small', 'op-flow-provenance', entry.provenance)
+        );
+        (entry.notes || []).forEach((text) => card.append(node('small', 'op-flow-note', text)));
+        return card;
+    }
+
+    function flowArrow(entry) {
+        const arrow = node('div', `op-flow-arrow${entry.direction === 'unknown' ? ' op-flow-arrow-unknown' : ''}`);
+        arrow.append(node('span', '', entry.arrow), node('small', '', entry.directionLabel));
+        return arrow;
+    }
+
+    function flowCard(payload) {
+        const utils = window.PvdgDeviceUtils;
+        const card = node('article', 'op-card op-flow-card');
+        const head = node('div', 'op-card-head');
+        const copy = node('div');
+        copy.append(node('p', 'eyebrow', 'Live power flow'), node('h3', '', 'Site energy balance'));
+        head.append(copy);
+        if (!utils) {
+            card.append(head, node('div', 'op-empty-state', 'Power-flow model unavailable in this build.'));
+            return card;
+        }
+        const model = utils.buildPowerFlowModel({
+            status: payload.status,
+            telemetry: payload.telemetry,
+            inverterTelemetry: payload.inverterTelemetry
+        });
+        head.append(node('span', `op-state-pill ${model.summary.tone === 'neutral' ? '' : model.summary.tone}`, model.summary.label));
+        card.append(head);
+        card.append(node('p', 'op-flow-coverage', model.summary.coverage));
+
+        const body = node('div', 'op-flow-body');
+        const supply = node('div', 'op-flow-column');
+        const hub = node('div', 'op-flow-column op-flow-column-hub');
+        const demand = node('div', 'op-flow-column');
+        model.nodes.forEach((entry) => {
+            const slot = node('div', 'op-flow-slot');
+            slot.append(flowNodeCard(entry), flowArrow(entry));
+            if (entry.role === 'supply') supply.append(slot);
+            else if (entry.role === 'demand') demand.append(slot);
+            else hub.append(slot);
+        });
+        body.append(supply, hub, demand);
+        card.append(body);
+        return card;
+    }
+
     function renderDashboard(payload) {
         const view = byId('operatorDashboardView');
         if (!view) return;
@@ -166,22 +245,7 @@
         view.append(sectionHeader('Plant overview', 'Energy operation at a glance', 'Only the measurements and conditions needed for day-to-day operation.', 'Refresh'));
 
         const hero = node('div', 'op-hero-grid');
-        const flow = node('article', 'op-card op-flow-card');
-        const flowHead = node('div', 'op-card-head');
-        flowHead.append(node('div', '', '<p class="eyebrow">Live power flow</p><h3>Grid and solar balance</h3>'));
-        flowHead.firstChild.innerHTML = '<p class="eyebrow">Live power flow</p><h3>Grid and solar balance</h3>';
-        flowHead.append(node('span', `op-state-pill ${toneForState(gridOnline, !gridOnline)}`, importState));
-        const flowBody = node('div', 'op-flow-body');
-        const solarNode = node('div', 'op-flow-source');
-        solarNode.append(icon('solar'), node('span', '', 'Solar'), node('strong', '', finite(solarPower) ? formatPower(solarPower) : 'Not monitored'), node('small', '', installed ? `${formatPower(installed)} installed` : 'No commissioned capacity'));
-        const center = node('div', 'op-flow-center');
-        center.append(icon('control'), node('span', '', 'PV-DG controller'), node('strong', '', controlEnabled ? 'Automatic' : 'Monitoring'), node('small', '', controlEnabled ? 'Control active' : 'No commands issued'));
-        const gridNode = node('div', 'op-flow-source');
-        gridNode.append(icon('grid'), node('span', '', 'Utility grid'), node('strong', '', formatPower(gridPower)), node('small', '', gridOnline ? `${importState} · ${formatAge(status?.meter_age_ms)}` : 'Measurement unavailable'));
-        const arrow1 = node('div', 'op-flow-arrow', '→');
-        const arrow2 = node('div', 'op-flow-arrow', gridPower >= 0 ? '←' : '→');
-        flowBody.append(solarNode, arrow1, center, arrow2, gridNode);
-        flow.append(flowHead, flowBody);
+        const flow = flowCard(payload);
 
         const health = node('article', 'op-card op-health-card');
         health.append(node('div', 'op-card-title', 'System readiness'));
@@ -394,7 +458,7 @@
             const [status, meters, inverters, inverterTelemetry] = await Promise.all([
                 api('/api/status'), api('/api/meters'), api('/api/inverters'), api('/api/inverter-telemetry')
             ]);
-            state.lastPayload = { status, meters, inverters, inverterTelemetry };
+            state.lastPayload = { status, meters, inverters, inverterTelemetry, telemetry: state.siteTelemetry };
             const solar = Number(inverterTelemetry?.summary?.telemetry_valid) > 0 ? inverterTelemetry.summary.measured_total_kw : NaN;
             pushTrend(state.gridTrend, status.grid_power_kw);
             pushTrend(state.solarTrend, solar);
@@ -454,6 +518,13 @@
         hideLegacyOperatorContent();
         onRoute();
         window.addEventListener('hashchange', onRoute);
+        window.addEventListener('amx-site-telemetry', (event) => {
+            state.siteTelemetry = event.detail || null;
+            if (state.lastPayload) {
+                state.lastPayload.telemetry = state.siteTelemetry;
+                renderCurrent();
+            }
+        });
         state.timer = window.setInterval(refreshAll, 5000);
         new MutationObserver(() => {
             updateLanguage();

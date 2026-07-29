@@ -56,6 +56,15 @@
     --accent: var(--orange);
     --success: var(--green);
     --danger: var(--red);
+    /* Status names used by the operator stylesheets. These were referenced as
+       var(--bad)/var(--good)/var(--warning) with no definition anywhere, so the
+       declaration was simply dropped - the alarm count badge in the sidebar had
+       no background at all. Aliasing them onto the theme-aware colour tokens
+       fixes every call site in both themes at once. */
+    --good: var(--green);
+    --warning: var(--yellow);
+    --bad: var(--red);
+    --info: var(--blue);
 }
 
 * { box-sizing: border-box; }
@@ -131,13 +140,32 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .panel { padding: 19px; }
 .panel-header { display: flex; justify-content: space-between; gap: 14px; align-items: flex-start; margin-bottom: 17px; }
 .panel-header h3 { margin: 4px 0 0; font-size: 17px; }
-.power-flow { display: grid; grid-template-columns: 1fr 44px 1.15fr 44px 1fr; gap: 4px; align-items: stretch; min-height: 170px; }
-.flow-node { display: flex; flex-direction: column; justify-content: center; align-items: center; min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 14px; text-align: center; background: rgba(8, 24, 39, 0.72); }
-.flow-node.central { border-color: rgba(76, 167, 255, 0.32); background: rgba(76, 167, 255, 0.06); }
+/* P0-7 site energy model: utility grid / PCC, generator, solar fleet,
+ * controller and facility load, with the direction of flow between them.
+ * Supply nodes on the left, the controller in the middle, demand on the right. */
+.power-flow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0.95fr) minmax(0, 1fr); gap: 10px; align-items: start; }
+.flow-column { display: grid; gap: 10px; align-content: start; min-width: 0; }
+.flow-slot { display: grid; gap: 4px; min-width: 0; }
+.flow-node { display: flex; flex-direction: column; justify-content: center; align-items: center; min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 14px; text-align: center; background: var(--panel-strong); }
+.flow-node.central, .flow-node.flow-controller { border-color: var(--line-strong); background: var(--surface-raised); }
 .flow-node span, .flow-secondary span { color: var(--muted); font-size: 11px; }
 .flow-node strong { margin: 8px 0 5px; font-size: 20px; }
 .flow-node small, .flow-secondary small { color: var(--muted-2); font-size: 10px; line-height: 1.4; }
-.flow-line { display: grid; place-items: center; color: var(--orange); font-size: 25px; }
+.flow-node-label { font-weight: 800; text-transform: uppercase; letter-spacing: 0.07em; }
+/* An unmeasured node must be visibly different from a measured one but must not
+ * read as "off" or "resolved": it is dashed and labelled, never dimmed to the
+ * point of looking inactive. */
+.flow-node.flow-unmeasured { border-style: dashed; border-color: var(--line-strong); }
+.flow-kind { align-self: center; margin-bottom: 4px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 9px; font-weight: 850; letter-spacing: 0.07em; text-transform: uppercase; }
+.flow-kind-measured { color: var(--good); border-color: var(--good); }
+.flow-kind-command { color: var(--warning); border-color: var(--warning); }
+.flow-kind-not_measured { color: var(--muted); border-color: var(--line-strong); }
+.flow-node-provenance { margin-top: 5px; color: var(--muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.flow-node-note { margin-top: 5px; padding-top: 5px; border-top: 1px solid var(--line-soft); color: var(--muted); }
+.flow-coverage { margin: 0 0 12px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.flow-line { display: grid; place-items: center; gap: 2px; color: var(--orange); font-size: 22px; }
+.flow-line small { color: var(--muted-2); font-size: 9px; letter-spacing: 0.05em; text-transform: uppercase; }
+.flow-line-unknown { color: var(--muted-2); }
 .flow-secondary { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
 .flow-secondary > div { padding: 12px 14px; border: 1px solid var(--line-soft); border-radius: 11px; background: rgba(8, 24, 39, 0.55); }
 .flow-secondary strong { display: block; margin: 5px 0; font-size: 14px; }
@@ -266,7 +294,9 @@ input:disabled, select:disabled, textarea:disabled {
     .connection-overview > div { border-right: 0; border-bottom: 1px solid var(--line-soft); }
     .connection-overview > div:last-child { border-bottom: 0; }
     .power-flow { grid-template-columns: 1fr; }
-    .flow-line { min-height: 28px; transform: rotate(90deg); }
+    /* The connector now carries a text label ("Into site", "Flow not measured"),
+       so it must never be rotated - a rotated caption is unreadable. */
+    .flow-line { min-height: 28px; transform: none; }
     .flow-secondary { grid-template-columns: 1fr; }
     .notice { display: block; }
     .notice strong { display: block; margin-bottom: 4px; }

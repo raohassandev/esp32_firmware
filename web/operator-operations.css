@@ -7,7 +7,10 @@
     padding: 0 6px;
     border-radius: 999px;
     background: var(--bad);
-    color: #fff;
+    /* Was #fff. --action-solid-text is white in both themes, so this is the same
+       pixel with a token behind it - hardcoded hex is what produced the 1.10:1
+       and 1.17:1 text in the audit (S5). */
+    color: var(--action-solid-text);
     font-size: 10px;
     font-weight: 900;
 }
@@ -38,9 +41,67 @@
 .op-event-meta { display: grid; justify-items: end; gap: 7px; min-width: 90px; }
 .op-event-meta small { color: var(--muted); }
 .op-empty-state.good { color: var(--good); border-color: rgba(65,211,155,.28); background: rgba(65,211,155,.05); }
+/* -------------------------------------------------- P0-5b alarm condition table
+ * Every colour resolves through a token that is defined for both themes. The
+ * audit measured 1.10:1 and 1.17:1 text where a stylesheet hardcoded a surface
+ * and let the foreground follow the theme (S5); nothing here may repeat that. */
+.alarm-console { display: grid; gap: 16px; margin-top: 18px; }
+.alarm-semantics { margin: 0; }
+.alarm-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.alarm-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; padding: 12px 14px; border: 1px solid var(--line-soft); border-radius: 14px; background: var(--panel-strong); }
+.alarm-control { display: grid; gap: 5px; min-width: 190px; flex: 1 1 190px; color: var(--muted); font-size: 10px; font-weight: 850; letter-spacing: .07em; text-transform: uppercase; }
+/* S6: 44x44 minimum. Filter and sort controls are the primary interaction on
+   this page; an operator triaging alarms on a phone must be able to hit them. */
+.alarm-select { min-height: 44px; padding: 0 11px; border: 1px solid var(--line); border-radius: 10px; color: var(--text); background: var(--field); font-size: 12px; font-weight: 700; letter-spacing: normal; text-transform: none; }
+.alarm-message { padding: 11px 14px; border: 1px solid var(--line-soft); border-radius: 12px; color: var(--muted); background: var(--panel-strong); font-size: 12px; line-height: 1.5; }
+.alarm-list { display: grid; gap: 10px; }
+.alarm-row { display: grid; grid-template-columns: 38px minmax(0, 1fr) minmax(0, auto); gap: 14px; align-items: start; padding: 16px; border: 1px solid var(--line-soft); border-left: 4px solid var(--line); border-radius: 14px; background: var(--panel-strong); }
+.alarm-row.severity-critical { border-left-color: var(--bad); }
+.alarm-row.severity-warning { border-left-color: var(--warning); }
+.alarm-row.severity-information { border-left-color: var(--info); }
+/* Outstanding work is emphasised; nothing here fades a row out. A returned-to-
+   normal condition that nobody acknowledged must not read as resolved, so it is
+   never dimmed and never green. */
+.alarm-row.alarm-outstanding { border-color: var(--line-strong); }
+.alarm-row.alarm-returned { border-left-style: dashed; }
+.alarm-marker { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px; color: var(--muted); background: var(--surface-sunken); font-weight: 900; }
+.alarm-row.severity-critical .alarm-marker { color: var(--bad); }
+.alarm-row.severity-warning .alarm-marker { color: var(--warning); }
+.alarm-copy { display: grid; gap: 8px; min-width: 0; }
+.alarm-copy p { margin: 0; color: var(--muted); line-height: 1.5; }
+.alarm-heading { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.alarm-heading strong { font-size: 15px; }
+.alarm-id { padding: 2px 7px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); background: var(--surface-sunken); font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 11px; font-weight: 800; }
+.alarm-severity-pill { padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 9px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+.alarm-severity-pill.severity-critical { color: var(--bad); border-color: var(--bad); }
+.alarm-severity-pill.severity-warning { color: var(--warning); border-color: var(--warning); }
+.alarm-severity-pill.severity-information { color: var(--info); border-color: var(--info); }
+.alarm-state-line { display: grid; gap: 4px; }
+.alarm-state-pill { justify-self: start; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 11px; font-weight: 850; }
+.alarm-state-pill.tone-bad { color: var(--bad); border-color: var(--bad); }
+.alarm-state-pill.tone-warning { color: var(--warning); border-color: var(--warning); }
+.alarm-state-pill.tone-good { color: var(--good); border-color: var(--good); }
+.alarm-state-meaning { color: var(--muted); font-size: 11px; line-height: 1.45; }
+.alarm-action { color: var(--muted); font-size: 11px; line-height: 1.45; }
+.alarm-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 2px; }
+.alarm-meta-item { display: grid; gap: 3px; padding: 8px 10px; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--surface-sunken); }
+.alarm-meta-item span { color: var(--muted); font-size: 9px; font-weight: 850; letter-spacing: .06em; text-transform: uppercase; }
+.alarm-meta-item strong { font-size: 12px; font-variant-numeric: tabular-nums; }
+.alarm-actions { display: grid; gap: 8px; justify-items: end; align-content: start; min-width: 0; max-width: 240px; }
+.alarm-ack-button { min-height: 44px; min-width: 44px; }
+.alarm-ack-link { display: inline-grid; place-items: center; min-height: 44px; padding: 0 14px; text-decoration: none; }
+.alarm-ack-locked { display: grid; gap: 7px; justify-items: end; text-align: right; }
+.alarm-ack-locked small, .alarm-ack-note { color: var(--muted); font-size: 11px; line-height: 1.45; text-align: right; }
+
 html[data-theme="light"] .op-range-selector,
 html[data-theme="light"] .op-history-stat,
+html[data-theme="light"] .alarm-controls,
+html[data-theme="light"] .alarm-row,
+html[data-theme="light"] .alarm-message,
 html[data-theme="light"] .op-event-row { background: var(--surface-sunken); }
+html[data-theme="light"] .alarm-marker,
+html[data-theme="light"] .alarm-id,
+html[data-theme="light"] .alarm-meta-item { background: var(--panel); }
 /* S6: the range selector measured 105x30 on a phone. Grow the hit area only -
    font size and the pill design are unchanged. */
 @media (pointer: coarse), (max-width: 760px) {
@@ -54,6 +115,21 @@ html[data-theme="light"] .op-event-row { background: var(--surface-sunken); }
     .op-event-row { grid-template-columns: 34px minmax(0, 1fr); }
     .op-event-meta { grid-column: 2; justify-items: start; grid-auto-flow: column; justify-content: start; }
 }
+@media (max-width: 1100px) {
+    .alarm-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 760px) {
+    .alarm-row { grid-template-columns: 34px minmax(0, 1fr); }
+    .alarm-actions { grid-column: 1 / -1; justify-items: stretch; max-width: none; }
+    .alarm-ack-locked { justify-items: stretch; text-align: left; }
+    .alarm-ack-locked small, .alarm-ack-note { text-align: left; }
+    .alarm-ack-button, .alarm-ack-link { width: 100%; }
+    .alarm-control { flex: 1 1 100%; }
+    .alarm-meta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 @media (max-width: 520px) {
     .op-history-stats { grid-template-columns: 1fr; }
+    .alarm-summary, .alarm-meta { grid-template-columns: 1fr; }
 }

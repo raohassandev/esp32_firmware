@@ -356,6 +356,17 @@
         return reason && reason.message ? reason.message : String(reason || 'Unknown error');
     }
 
+    /* /api/telemetry is the controller's own statement of which quantities this
+     * site measures - generator power, facility load and inverter production are
+     * all declared there as supported or not. The dashboard power-flow model
+     * needs exactly that, so this poll is republished rather than duplicated:
+     * the HTTP server offers only four client sockets (audit S1), and a second
+     * poller for data already on the wire is the kind of avoidable load that
+     * made the operator dashboard unreachable. */
+    function publishTelemetry(payload) {
+        window.dispatchEvent(new CustomEvent('amx-site-telemetry', { detail: payload || null }));
+    }
+
     async function refresh(force = false) {
         const route = currentRoute();
         if (state.loading || (!force && !['dashboard', 'meters', 'inverters'].includes(route))) return;
@@ -367,6 +378,7 @@
                 state.telemetry = await api('/api/telemetry');
                 state.lastUpdated = new Date();
                 renderDashboard();
+                publishTelemetry(state.telemetry);
             } else if (route === 'meters') {
                 setText('meterTelemetryMessage', 'Refreshing meter diagnostics…');
                 state.meters = await api('/api/meters');
@@ -384,6 +396,7 @@
             if (route === 'dashboard') {
                 state.telemetry = null;
                 renderDashboard();
+                publishTelemetry(null);
             } else if (route === 'meters') {
                 state.meters = null;
                 renderMeters();
