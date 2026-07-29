@@ -4,10 +4,10 @@ on:
   pull_request:
   push:
     branches:
-      - fix/pvdg-reconnect-admission-gate
-      - feature/pvdg-batch3-consolidated
-      - feature/pvdg-multi-meter-commissioning
-      - feature/multibrand-inverter-profiles
+      - main
+      - dev
+      - 'feature/**'
+      - 'fix/**'
   workflow_dispatch:
     inputs:
       production_release:
