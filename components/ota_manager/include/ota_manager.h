@@ -78,9 +78,11 @@ esp_err_t ota_manager_validate_prefix(const uint8_t *prefix,
                                       size_t complete_image_size,
                                       esp_app_desc_t *out_candidate);
 
-/* Starts one streaming update into the inactive OTA slot. Only one session may
- * exist. The caller must abort or finish every successful begin. */
+/* Starts one streaming update into the inactive OTA slot. Identity is checked
+ * again from the supplied image header before esp_ota_begin(). Only one session
+ * may exist. The caller must abort or finish every successful begin. */
 esp_err_t ota_manager_begin(size_t image_size,
+                            const esp_image_header_t *image_header,
                             const esp_app_desc_t *candidate,
                             ota_manager_session_t *out_session);
 
