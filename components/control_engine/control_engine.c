@@ -38,6 +38,19 @@ typedef struct {
 } grid_evidence_runtime_t;
 
 static grid_evidence_runtime_t s_evidence;
+static meter_role_assignment_t s_roles;
+
+_Static_assert(APP_MAX_GENERATORS == SOURCE_MAX_GENERATORS,
+               "meter generator slots and source-mode generator channels must agree");
+
+static meter_role_assignment_t current_role_assignment(void)
+{
+    meter_role_assignment_t roles;
+    portENTER_CRITICAL(&s_lock);
+    roles = s_roles;
+    portEXIT_CRITICAL(&s_lock);
+    return roles;
+}
 static portMUX_TYPE s_evidence_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static uint32_t now_ms(void)
@@ -206,8 +219,14 @@ static void control_task(void *argument)
         bool safe_zero_pending = false;
         runtime_control_snapshot(&control_enabled, &safe_zero_pending);
 
+        /* Selected by role, not by array position. Reordering the meter list
+         * must never silently change which physical instrument the control loop
+         * regulates against. An absent or ambiguous grid assignment yields no
+         * measurement, so the existing freshness gate fails closed. */
         meter_data_t grid = {0};
-        bool have_grid = meter_manager_get_data(0, &grid);
+        const meter_role_assignment_t roles = current_role_assignment();
+        bool have_grid = roles.valid && roles.grid_index != METER_ROLE_INDEX_NONE &&
+                         meter_manager_get_data(roles.grid_index, &grid);
         float fleet_capacity_kw = inverter_manager_get_total_rated_kw();
         bool measurement_fresh = have_grid && meter_sample_fresh(&grid, timestamp);
         bool fleet_valid = isfinite(fleet_capacity_kw) && fleet_capacity_kw > 0.0f;
@@ -372,7 +391,23 @@ esp_err_t control_engine_init(void)
         return error;
     }
     s_config = config->control;
+    /* Resolved once here rather than every cycle: meter configuration changes
+     * already require a restart, and an app_config_t must not go on this task's
+     * 4 kB stack. */
+    const meter_role_assignment_t roles = config_manager_role_assignment(config);
+    portENTER_CRITICAL(&s_lock);
+    s_roles = roles;
+    portEXIT_CRITICAL(&s_lock);
     free(config);
+
+    if (!roles.valid) {
+        ESP_LOGW(TAG, "Automatic Solar-Grid control remains fail-closed: %s",
+                 roles.grid_count == 0U
+                     ? "no enabled meter is assigned the grid role"
+                     : roles.grid_count > 1U
+                           ? "more than one enabled meter is assigned the grid role"
+                           : "two meters claim the same generator slot");
+    }
 
     error = solar_grid_config_get_snapshot(&s_grid_config);
     if (error != ESP_OK || !solar_grid_config_valid(&s_grid_config)) {

@@ -104,6 +104,8 @@ jobs:
         run: python3 tests/multi_meter_config_source_contract.py
       - name: Check EM500 source detection contract
         run: python3 tests/em500_source_detection_source_contract.py
+      - name: Check meter role and schema 4 upgrade contract
+        run: python3 tests/meter_role_source_contract.py
       - name: Check configuration import safety contract
         run: python3 tests/config_import_safety_source_contract.py
       - name: Check persisted Solar-Grid control contract

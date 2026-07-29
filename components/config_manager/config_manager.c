@@ -23,13 +23,30 @@ typedef struct {
     char password[65];
 } legacy_wifi_config_v1_t;
 
+/* Frozen copy of meter_config_t as it stood through schema 3. The legacy
+ * layouts below MUST NOT reference the live meter_config_t: appending a field
+ * to it would silently change their sizes, no stored blob would match any
+ * known schema, and a commissioned controller would fall back to defaults and
+ * lose its Wi-Fi credentials. Never edit this struct. */
+typedef struct {
+    bool enabled;
+    char name[24];
+    modbus_endpoint_t endpoint;
+    uint8_t function_code;
+    uint16_t active_power_address;
+    modbus_data_type_t active_power_type;
+    modbus_word_order_t active_power_order;
+    float active_power_scale;
+    uint32_t poll_interval_ms;
+} legacy_meter_config_v3_t;
+
 typedef struct {
     uint32_t magic;
     uint16_t version;
     char device_name[32];
     legacy_wifi_config_v1_t wifi;
     uint8_t meter_count;
-    meter_config_t meters[APP_MAX_METERS];
+    legacy_meter_config_v3_t meters[APP_MAX_METERS];
     uint8_t inverter_count;
     inverter_config_t inverters[APP_MAX_INVERTERS];
     control_config_t control;
@@ -41,14 +58,29 @@ typedef struct {
     char device_name[32];
     app_wifi_config_t wifi;
     uint8_t meter_count;
-    meter_config_t meters[APP_MAX_METERS];
+    legacy_meter_config_v3_t meters[APP_MAX_METERS];
     uint8_t inverter_count;
     inverter_config_t inverters[APP_MAX_INVERTERS];
     control_config_t control;
 } legacy_app_config_v2_t;
 
-_Static_assert(sizeof(app_config_t) == sizeof(legacy_app_config_v2_t) + sizeof(uint32_t),
-               "schema 2 must remain a byte-exact prefix of the current layout");
+typedef struct {
+    uint32_t magic;
+    uint16_t version;
+    char device_name[32];
+    app_wifi_config_t wifi;
+    uint8_t meter_count;
+    legacy_meter_config_v3_t meters[APP_MAX_METERS];
+    uint8_t inverter_count;
+    inverter_config_t inverters[APP_MAX_INVERTERS];
+    control_config_t control;
+    uint32_t wifi_provision_id;
+} legacy_app_config_v3_t;
+
+_Static_assert(sizeof(legacy_app_config_v3_t) == sizeof(legacy_app_config_v2_t) + sizeof(uint32_t),
+               "schema 2 must remain a byte-exact prefix of schema 3");
+_Static_assert(sizeof(app_config_t) > sizeof(legacy_app_config_v3_t),
+               "schema 4 must be strictly larger than schema 3 so blob sizes stay distinguishable");
 
 static void defaults(app_config_t *c)
 {
@@ -75,9 +107,15 @@ static void defaults(app_config_t *c)
     c->wifi.max_retries_per_profile = 5;
     c->wifi.reconnect_backoff_ms = 2000;
 
+    for (uint8_t n = 0; n < APP_MAX_METERS; ++n) {
+        c->meters[n].role = METER_ROLE_UNASSIGNED;
+        c->meters[n].generator_index = METER_GENERATOR_INDEX_NONE;
+    }
     c->meter_count = 1;
     meter_config_t *m = &c->meters[0];
     m->enabled = true;
+    m->role = METER_ROLE_GRID;
+    m->generator_index = METER_GENERATOR_INDEX_NONE;
     strlcpy(m->name, "Grid Meter", sizeof(m->name));
     strlcpy(m->endpoint.host, CONFIG_PVDG_DEFAULT_ZLAN_HOST, sizeof(m->endpoint.host));
     m->endpoint.port = CONFIG_PVDG_DEFAULT_ZLAN_PORT;
@@ -168,11 +206,63 @@ static bool endpoint_valid(const modbus_endpoint_t *e)
 
 static bool meter_valid(const meter_config_t *m)
 {
+    if (m->role > METER_ROLE_PV) return false;
+    if (m->role == METER_ROLE_GENERATOR) {
+        if (m->generator_index >= APP_MAX_GENERATORS) return false;
+    } else if (m->generator_index != METER_GENERATOR_INDEX_NONE) {
+        return false;
+    }
     if (!m->enabled) return true;
     return endpoint_valid(&m->endpoint) && (m->function_code == 3 || m->function_code == 4) &&
            m->active_power_type <= MODBUS_DATA_FLOAT32 && m->active_power_order <= MODBUS_ORDER_DCBA &&
            isfinite(m->active_power_scale) && m->active_power_scale != 0.0f &&
            m->poll_interval_ms >= 100U;
+}
+
+/* Deliberately NOT part of valid(): a configuration that fails the role rules is
+ * still a configuration worth keeping. Discarding it would fall back to defaults
+ * and lose commissioned Wi-Fi credentials. Instead the assignment is reported so
+ * control can stay fail-closed until an engineer resolves it. */
+const char *meter_role_name(uint8_t role)
+{
+    switch (role) {
+    case METER_ROLE_GRID: return "grid";
+    case METER_ROLE_GENERATOR: return "generator";
+    case METER_ROLE_LOAD: return "load";
+    case METER_ROLE_PV: return "pv";
+    case METER_ROLE_UNASSIGNED:
+    default: return "unassigned";
+    }
+}
+
+meter_role_assignment_t config_manager_role_assignment(const app_config_t *c)
+{
+    meter_role_assignment_t out = {
+        .grid_index = METER_ROLE_INDEX_NONE,
+        .grid_count = 0U,
+        .generator_count = 0U,
+    };
+    for (uint8_t n = 0; n < APP_MAX_GENERATORS; ++n) out.generator_index[n] = METER_ROLE_INDEX_NONE;
+    if (!c) return out;
+
+    for (uint8_t n = 0; n < c->meter_count && n < APP_MAX_METERS; ++n) {
+        if (!c->meters[n].enabled) continue;
+        if (c->meters[n].role == METER_ROLE_GRID) {
+            if (out.grid_count == 0U) out.grid_index = n;
+            out.grid_count++;
+        } else if (c->meters[n].role == METER_ROLE_GENERATOR) {
+            const uint8_t slot = c->meters[n].generator_index;
+            if (slot < APP_MAX_GENERATORS && out.generator_index[slot] == METER_ROLE_INDEX_NONE) {
+                out.generator_index[slot] = n;
+                out.generator_count++;
+            } else {
+                /* Duplicate or out-of-range generator slot: refuse to guess. */
+                out.duplicate_generator = true;
+            }
+        }
+    }
+    out.valid = out.grid_count == 1U && !out.duplicate_generator;
+    return out;
 }
 
 static bool inverter_valid(const inverter_config_t *i)
@@ -210,6 +300,29 @@ static bool valid(const app_config_t *c)
     return true;
 }
 
+/* Schema 3 and earlier had no meter role. A commissioned controller with a
+ * single meter was, by construction, measuring the grid - that is the only
+ * meter the control engine ever read. Anything beyond the first is left
+ * unassigned so an engineer must state what it measures rather than the
+ * upgrade guessing and the control loop silently regulating against it. */
+static void upgrade_meters_from_v3(meter_config_t *next, uint8_t count,
+                                   const legacy_meter_config_v3_t *old)
+{
+    for (uint8_t n = 0; n < APP_MAX_METERS; ++n) {
+        next[n].enabled = old[n].enabled;
+        memcpy(next[n].name, old[n].name, sizeof(next[n].name));
+        next[n].endpoint = old[n].endpoint;
+        next[n].function_code = old[n].function_code;
+        next[n].active_power_address = old[n].active_power_address;
+        next[n].active_power_type = old[n].active_power_type;
+        next[n].active_power_order = old[n].active_power_order;
+        next[n].active_power_scale = old[n].active_power_scale;
+        next[n].poll_interval_ms = old[n].poll_interval_ms;
+        next[n].role = (n == 0U && count > 0U) ? METER_ROLE_GRID : METER_ROLE_UNASSIGNED;
+        next[n].generator_index = METER_GENERATOR_INDEX_NONE;
+    }
+}
+
 static void migrate_v1(const legacy_app_config_v1_t *old, app_config_t *next)
 {
     defaults(next);
@@ -220,7 +333,7 @@ static void migrate_v1(const legacy_app_config_v1_t *old, app_config_t *next)
         strlcpy(next->wifi.primary.password, old->wifi.password, sizeof(next->wifi.primary.password));
     }
     next->meter_count = old->meter_count <= APP_MAX_METERS ? old->meter_count : APP_MAX_METERS;
-    memcpy(next->meters, old->meters, sizeof(next->meters));
+    upgrade_meters_from_v3(next->meters, next->meter_count, old->meters);
     next->inverter_count = old->inverter_count <= APP_MAX_INVERTERS ? old->inverter_count : APP_MAX_INVERTERS;
     memcpy(next->inverters, old->inverters, sizeof(next->inverters));
     next->control = old->control;
@@ -262,14 +375,51 @@ esp_err_t config_manager_init(void)
             have_valid_config = err == ESP_OK && valid(loaded);
             stored_matches = have_valid_config;
             if (!have_valid_config) ESP_LOGW(TAG, "Stored configuration rejected by validation");
+        } else if (err == ESP_OK && stored_size == sizeof(legacy_app_config_v3_t)) {
+            legacy_app_config_v3_t *legacy = malloc(sizeof(*legacy));
+            if (legacy) {
+                size_t size = sizeof(*legacy);
+                if (nvs_get_blob(h, KEY, legacy, &size) == ESP_OK &&
+                    legacy->magic == APP_CONFIG_MAGIC && legacy->version == 3) {
+                    loaded->magic = legacy->magic;
+                    loaded->version = APP_CONFIG_VERSION;
+                    strlcpy(loaded->device_name, legacy->device_name, sizeof(loaded->device_name));
+                    loaded->wifi = legacy->wifi;
+                    loaded->meter_count = legacy->meter_count <= APP_MAX_METERS
+                                              ? legacy->meter_count : APP_MAX_METERS;
+                    upgrade_meters_from_v3(loaded->meters, loaded->meter_count, legacy->meters);
+                    loaded->inverter_count = legacy->inverter_count <= APP_MAX_INVERTERS
+                                                 ? legacy->inverter_count : APP_MAX_INVERTERS;
+                    memcpy(loaded->inverters, legacy->inverters, sizeof(loaded->inverters));
+                    loaded->control = legacy->control;
+                    loaded->control.enabled = false;
+                    /* Schema 3 already carries commissioned Wi-Fi and its own
+                     * provisioning generation; preserve it so an upgrade cannot
+                     * replay build credentials over what an operator set. */
+                    loaded->wifi_provision_id = legacy->wifi_provision_id;
+                    have_valid_config = valid(loaded);
+                    if (have_valid_config) ESP_LOGI(TAG, "Migrated configuration schema 3 to schema %u", APP_CONFIG_VERSION);
+                    else ESP_LOGW(TAG, "Schema 3 migration produced an invalid configuration; discarding it");
+                }
+                free(legacy);
+            }
         } else if (err == ESP_OK && stored_size == sizeof(legacy_app_config_v2_t)) {
             legacy_app_config_v2_t *legacy = malloc(sizeof(*legacy));
             if (legacy) {
                 size_t size = sizeof(*legacy);
                 if (nvs_get_blob(h, KEY, legacy, &size) == ESP_OK &&
                     legacy->magic == APP_CONFIG_MAGIC && legacy->version == 2) {
-                    memcpy(loaded, legacy, sizeof(*legacy));
+                    loaded->magic = legacy->magic;
                     loaded->version = APP_CONFIG_VERSION;
+                    strlcpy(loaded->device_name, legacy->device_name, sizeof(loaded->device_name));
+                    loaded->wifi = legacy->wifi;
+                    loaded->meter_count = legacy->meter_count <= APP_MAX_METERS
+                                              ? legacy->meter_count : APP_MAX_METERS;
+                    upgrade_meters_from_v3(loaded->meters, loaded->meter_count, legacy->meters);
+                    loaded->inverter_count = legacy->inverter_count <= APP_MAX_INVERTERS
+                                                 ? legacy->inverter_count : APP_MAX_INVERTERS;
+                    memcpy(loaded->inverters, legacy->inverters, sizeof(loaded->inverters));
+                    loaded->control = legacy->control;
                     /* Schema 2 already contains commissioned Wi-Fi. Treat the
                      * current build provisioning generation as consumed so an
                      * upgrade cannot overwrite those credentials. */
@@ -409,6 +559,13 @@ esp_err_t config_manager_export_json(char **out)
         cJSON_AddNumberToObject(o, "word_order", m->active_power_order);
         cJSON_AddNumberToObject(o, "scale", m->active_power_scale);
         cJSON_AddNumberToObject(o, "poll_ms", m->poll_interval_ms);
+        cJSON_AddNumberToObject(o, "role", m->role);
+        cJSON_AddStringToObject(o, "role_name", meter_role_name(m->role));
+        if (m->role == METER_ROLE_GENERATOR) {
+            cJSON_AddNumberToObject(o, "generator_index", m->generator_index);
+        } else {
+            cJSON_AddNullToObject(o, "generator_index");
+        }
         cJSON_AddItemToArray(ma, o);
     }
 

@@ -157,6 +157,22 @@ static bool parse_meter(cJSON *object, const meter_config_t *current,
                            error, error_size)) return false;
     next->endpoint.unit_id = (uint8_t)value;
 
+    /* What the meter measures. The control engine selects by role, so this is
+     * commissioning data, not a label. */
+    value = next->role;
+    if (!read_optional_u32(object, "role", METER_ROLE_UNASSIGNED, METER_ROLE_PV, &value,
+                           index, error, error_size)) return false;
+    next->role = (uint8_t)value;
+
+    if (next->role == METER_ROLE_GENERATOR) {
+        value = next->generator_index < APP_MAX_GENERATORS ? next->generator_index : 0U;
+        if (!read_optional_u32(object, "generator_index", 0, APP_MAX_GENERATORS - 1U, &value,
+                               index, error, error_size)) return false;
+        next->generator_index = (uint8_t)value;
+    } else {
+        next->generator_index = METER_GENERATOR_INDEX_NONE;
+    }
+
     value = next->endpoint.timeout_ms;
     if (!read_optional_u32(object, "timeout_ms", METER_TIMEOUT_MIN_MS,
                            METER_TIMEOUT_MAX_MS, &value, index,

@@ -5,9 +5,13 @@
 #include "modbus_types.h"
 
 #define APP_CONFIG_MAGIC 0x50564447u
-#define APP_CONFIG_VERSION 3u
+#define APP_CONFIG_VERSION 4u
 #define APP_MAX_METERS 4
 #define APP_MAX_INVERTERS 12
+/* Must equal SOURCE_MAX_GENERATORS in control_engine/source_mode.h. Defined
+ * here so config_manager does not have to depend on control_engine; the two are
+ * checked against each other by a _Static_assert in the control engine. */
+#define APP_MAX_GENERATORS 3
 
 typedef enum {
     APP_WIFI_IP_DHCP = 0,
@@ -37,6 +41,33 @@ typedef struct {
     uint32_t reconnect_backoff_ms;
 } app_wifi_config_t;
 
+/* What a meter measures. The control engine selects by role rather than by
+ * array position, so reordering the meter list cannot silently change which
+ * physical instrument the control loop regulates against. The name field is a
+ * display label and is never interpreted. */
+typedef enum {
+    METER_ROLE_UNASSIGNED = 0,
+    METER_ROLE_GRID = 1,
+    METER_ROLE_GENERATOR = 2,
+    METER_ROLE_LOAD = 3,
+    METER_ROLE_PV = 4
+} meter_role_t;
+
+#define METER_GENERATOR_INDEX_NONE 0xFFu
+#define METER_ROLE_INDEX_NONE 0xFFu
+
+/* Which meter fills which role, resolved from the configuration. Reported
+ * rather than enforced during load, so an ambiguous assignment keeps control
+ * fail-closed instead of causing a commissioned configuration to be discarded. */
+typedef struct {
+    uint8_t grid_index;
+    uint8_t grid_count;
+    uint8_t generator_index[APP_MAX_GENERATORS];
+    uint8_t generator_count;
+    bool duplicate_generator;
+    bool valid;
+} meter_role_assignment_t;
+
 typedef struct {
     bool enabled;
     char name[24];
@@ -47,6 +78,9 @@ typedef struct {
     modbus_word_order_t active_power_order;
     float active_power_scale;
     uint32_t poll_interval_ms;
+    /* Appended in schema 4. Kept last so schema 3 remains a byte-exact prefix. */
+    uint8_t role;             /* meter_role_t */
+    uint8_t generator_index;  /* 0..SOURCE_MAX_GENERATORS-1, else METER_GENERATOR_INDEX_NONE */
 } meter_config_t;
 
 typedef struct {
