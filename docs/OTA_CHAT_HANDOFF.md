@@ -16,18 +16,16 @@ git checkout feature/secure-web-ota
 git rebase origin/dev
 ```
 
-The rebase completed all 26 OTA commits. The final ancestry check reported:
+The initial rebase completed all 26 OTA commits. After the OTA hardening and tests were added, `dev` advanced by one documentation commit, so the complete branch was rebased once more. The final remote ancestry check reported:
 
 ```text
-git rev-list --left-right --count origin/dev...HEAD
-0 26
+git rev-list --left-right --count origin/dev...origin/feature/secure-web-ota
+0 38
 ```
-
-The branch was then updated with additional OTA hardening and tests.
 
 ## Rebase conflict resolution
 
-Two files conflicted during the actual rebase:
+Two files conflicted during the initial rebase:
 
 1. `sdkconfig.defaults`
 2. `.github/workflows/esp-idf-build.yml`
