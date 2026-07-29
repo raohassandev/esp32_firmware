@@ -20,5 +20,6 @@ typedef struct {
     bool last_modbus_exception_valid;
     uint8_t last_modbus_exception_function;
     uint8_t last_modbus_exception_code;
+    uint32_t last_modbus_exception_ms;
     uint32_t modbus_exception_count;
 } meter_data_t;
