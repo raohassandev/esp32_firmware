@@ -24,6 +24,45 @@
 #define MINUTE_INTERVAL_MS 60000U
 #define METER_FRESH_MS 5000U
 
+/* --- A4: nuisance-alarm suppression -------------------------------------
+ * ISA-18.2 and EEMUA 191 both require time delays on alarm conditions so a
+ * signal sitting at the edge of its threshold cannot chatter the alarm list.
+ * Both also warn that an on-delay is subtracted directly from the operator's
+ * response time, so it has to be bounded by process dynamics rather than
+ * chosen for convenience, and its value has to be published rather than
+ * buried in firmware - hence on_delay_ms / off_delay_ms in the alarm payload.
+ *
+ * The control loop runs on a 250 ms interval, so 1000 ms is four control
+ * intervals: long enough that a single late Modbus reply cannot raise an
+ * alarm, short enough to be irrelevant next to any human response time
+ * (EEMUA puts an operator at roughly one alarm per minute). The off-delay is
+ * deliberately longer than the on-delay: re-raising a condition costs an
+ * operator nothing, whereas a premature "all clear" on a fault that is still
+ * flapping is how a chattering signal disappears from view.
+ *
+ * Note the observation cadence is SAMPLE_INTERVAL_MS, so in practice these
+ * delays mean "the condition must still hold at the next observation". That
+ * is the intended effect: a state that does not survive one further look is
+ * fleeting, and fleeting conditions belong in the event log, not the alarm
+ * list. Conditions found already true at the first sample after boot bypass
+ * the on-delay - they have no transition to debounce and have already
+ * persisted across the boot - so a controller that boots into a fault still
+ * reports it immediately. */
+#define ALARM_ON_DELAY_MS 1000U
+#define ALARM_OFF_DELAY_MS 2000U
+
+/* --- A7: stale alarm detection ------------------------------------------
+ * An alarm standing for more than 24 h with nobody acting on it is the
+ * conventional definition of a stale alarm, and it almost always means the
+ * alarm is wrong rather than the plant is: either it should never have been
+ * an alarm, or it needs rationalising away. Surfacing it is the point; the
+ * threshold is published alongside the flag so the judgement is auditable.
+ * uint32 milliseconds wrap at ~49.7 days, far beyond this threshold. */
+#define ALARM_STALE_THRESHOLD_MS 86400000U
+
+/* Sentinel for "this alarm has no upstream cause" (see alarm_cause_of). */
+#define ALARM_NO_CAUSE 0xFFU
+
 typedef struct {
     uint32_t timestamp_ms;
     float grid_kw;
@@ -98,10 +137,13 @@ static bool event_condition_present(uint8_t code, uint8_t raw_active);
  * that clears itself was never acknowledged by anyone, and an acknowledged
  * condition that is still present must not disappear from view. */
 typedef struct {
-    bool present;
+    bool present;               /* confirmed state, after the A4 delays */
+    bool candidate;             /* raw state as last observed */
     bool acknowledged;
     uint8_t severity;
     uint16_t occurrences;
+    uint16_t suppressed_transitions;
+    uint32_t candidate_since_ms;
     uint32_t first_raised_ms;
     uint32_t last_raised_ms;
     uint32_t cleared_ms;
@@ -110,29 +152,89 @@ typedef struct {
 
 static operational_alarm_t s_alarms[EVENT_METER_STALE_ALARM + 1U];
 
-/* Caller holds s_lock. */
-static void update_alarm_locked(operational_event_code_t code, bool present,
-                                uint8_t severity, uint32_t timestamp)
+/* --- A6: priority rationalisation ----------------------------------------
+ * EEMUA 191's target distribution is roughly 5% high, 15% medium, 80% low.
+ * With four alarm codes that percentage cannot be met and pretending
+ * otherwise would be dishonest, so each code is instead rationalised
+ * individually against one test: does this stop the plant being controlled
+ * safely (high), does it degrade control or need attention soon (medium), or
+ * is it informational (low)?
+ *
+ * The 80% low band is not empty on this controller - it is carried by the
+ * event log rather than the alarm list. Controller start, control mode
+ * changes and solar fleet availability are recorded as events and
+ * deliberately never enter the alarm table (see event_is_alarm_condition),
+ * which is itself the outcome of rationalisation: an operator does not
+ * acknowledge them, so they are not alarms.
+ *
+ * Per code:
+ *   NET-001 controller network offline -> HIGH. The grid meter is reached
+ *     over this network, so losing it removes the measurement the control
+ *     loop depends on. It is not merely a remote-access nuisance; the plant
+ *     stops being controllable on measured grid power.
+ *   MTR-002 meter offline -> HIGH. Without a grid measurement, export
+ *     protection cannot be verified and automatic control must inhibit.
+ *   MTR-003 meter data stale -> MEDIUM. Data is arriving but late: control
+ *     degrades before it fails, and the operator has time to act.
+ *   MTR-001 grid measurement unavailable -> MEDIUM. This is the derived view
+ *     of whatever NET-001/MTR-002/MTR-003 already says. It is real and stays
+ *     inspectable, but it must not compete for attention at the same priority
+ *     as its own cause.
+ * Nothing here is rated low, because nothing that reaches the alarm table is
+ * informational; informational records are events. */
+static uint8_t alarm_priority(uint8_t code)
 {
-    if ((size_t)code >= sizeof(s_alarms) / sizeof(s_alarms[0])) return;
-    operational_alarm_t *alarm = &s_alarms[code];
-    alarm->severity = severity;
-    if (present) {
-        if (!alarm->present) {
-            if (alarm->first_raised_ms == 0U) alarm->first_raised_ms = timestamp;
-            alarm->last_raised_ms = timestamp;
-            if (alarm->occurrences < UINT16_MAX) alarm->occurrences++;
-            /* A fresh occurrence demands fresh attention: a previous
-             * acknowledgement does not carry over to a condition that went away
-             * and came back. */
-            alarm->acknowledged = false;
-            alarm->acknowledged_ms = 0U;
-        }
+    switch ((operational_event_code_t)code) {
+    case EVENT_NETWORK_STATE:        return 2;   /* high */
+    case EVENT_METER_OFFLINE_ALARM:  return 2;   /* high */
+    case EVENT_METER_STALE_ALARM:    return 1;   /* medium */
+    case EVENT_METER_STATE:          return 1;   /* medium */
+    default:                         return 0;   /* low */
+    }
+}
+
+static const char *alarm_priority_rationale(uint8_t code)
+{
+    switch ((operational_event_code_t)code) {
+    case EVENT_NETWORK_STATE:
+        return "High: the grid meter is reached over this network, so losing it removes the measurement automatic control depends on.";
+    case EVENT_METER_OFFLINE_ALARM:
+        return "High: without a grid measurement, export protection cannot be verified and automatic control must inhibit.";
+    case EVENT_METER_STALE_ALARM:
+        return "Medium: measurements are still arriving but are late, so control degrades before it fails.";
+    case EVENT_METER_STATE:
+        return "Medium: this is the derived consequence of a meter or network fault already raised at its own priority.";
+    default:
+        return "Low: informational, recorded as an event rather than acknowledged as an alarm.";
+    }
+}
+
+static const char *priority_label(uint8_t priority)
+{
+    return priority >= 2 ? "high" : priority == 1 ? "medium" : "low";
+}
+
+/* Caller holds s_lock. Promotes the pending candidate into the confirmed
+ * state. The raise/clear instant recorded is candidate_since_ms - when the
+ * condition actually appeared - not when the delay expired, so durations stay
+ * truthful and the delay does not quietly shorten a reported outage. */
+static void commit_alarm_locked(operational_alarm_t *alarm)
+{
+    if (alarm->candidate == alarm->present) return;
+    if (alarm->candidate) {
+        if (alarm->first_raised_ms == 0U) alarm->first_raised_ms = alarm->candidate_since_ms;
+        alarm->last_raised_ms = alarm->candidate_since_ms;
+        if (alarm->occurrences < UINT16_MAX) alarm->occurrences++;
+        /* A fresh occurrence demands fresh attention: a previous
+         * acknowledgement does not carry over to a condition that went away
+         * and came back. */
+        alarm->acknowledged = false;
+        alarm->acknowledged_ms = 0U;
         alarm->present = true;
         alarm->cleared_ms = 0U;
-    } else if (alarm->present) {
+    } else {
         alarm->present = false;
-        alarm->cleared_ms = timestamp;
+        alarm->cleared_ms = alarm->candidate_since_ms;
         /* ISA-18.2 keeps a condition that returned to normal without ever being
          * acknowledged in its own state, "RTN Unacknowledged", rather than
          * treating it as resolved. A fault that appears and clears itself
@@ -144,7 +246,57 @@ static void update_alarm_locked(operational_event_code_t code, bool present,
     }
 }
 
-static void append_event(operational_event_code_t code, bool active, uint8_t severity, int32_t value, uint32_t timestamp)
+/* Caller holds s_lock. Promotes a candidate whose on/off delay has elapsed. */
+static void service_alarm_locked(operational_alarm_t *alarm, uint32_t timestamp)
+{
+    if (alarm->candidate == alarm->present) return;
+    const uint32_t delay = alarm->candidate ? ALARM_ON_DELAY_MS : ALARM_OFF_DELAY_MS;
+    if ((uint32_t)(timestamp - alarm->candidate_since_ms) >= delay) commit_alarm_locked(alarm);
+}
+
+/* Caller holds s_lock. Run once per observation so a condition that simply
+ * persists - producing no further transition, therefore no further event -
+ * still gets its pending delay evaluated. */
+static void service_alarms_locked(uint32_t timestamp)
+{
+    for (size_t code = 0; code < sizeof(s_alarms) / sizeof(s_alarms[0]); ++code) {
+        if (!event_is_alarm_condition((uint8_t)code)) continue;
+        service_alarm_locked(&s_alarms[code], timestamp);
+    }
+}
+
+/* Caller holds s_lock. */
+static void update_alarm_locked(operational_event_code_t code, bool present,
+                                uint8_t severity, uint32_t timestamp,
+                                bool bypass_on_delay)
+{
+    /* The severity carried on the event record is the severity as logged at the
+     * time. The alarm table reports the rationalised priority instead, so an
+     * operator triaging alarms cannot be shown two different urgencies for the
+     * same condition depending on which view they opened. */
+    (void)severity;
+    if ((size_t)code >= sizeof(s_alarms) / sizeof(s_alarms[0])) return;
+    operational_alarm_t *alarm = &s_alarms[code];
+    alarm->severity = alarm_priority((uint8_t)code);
+
+    if (present != alarm->candidate) {
+        /* A chattering signal reverts before its delay has expired. That
+         * transition is deliberately not raised, but it is counted rather than
+         * silently swallowed: a signal that flaps is itself a fault worth
+         * seeing, and suppressed_transitions is the diagnostic that shows it. */
+        if (alarm->candidate != alarm->present &&
+            alarm->suppressed_transitions < UINT16_MAX) {
+            alarm->suppressed_transitions++;
+        }
+        alarm->candidate = present;
+        alarm->candidate_since_ms = timestamp;
+    }
+    if (bypass_on_delay) commit_alarm_locked(alarm);
+    else service_alarm_locked(alarm, timestamp);
+}
+
+static void append_event_ex(operational_event_code_t code, bool active, uint8_t severity,
+                            int32_t value, uint32_t timestamp, bool bypass_on_delay)
 {
     portENTER_CRITICAL(&s_lock);
     operational_event_t *event = &s_events[s_event_head];
@@ -160,9 +312,15 @@ static void append_event(operational_event_code_t code, bool active, uint8_t sev
      * record that produced it. */
     if (event_is_alarm_condition((uint8_t)code)) {
         update_alarm_locked(code, event_condition_present((uint8_t)code, active ? 1U : 0U),
-                            severity, timestamp);
+                            severity, timestamp, bypass_on_delay);
     }
     portEXIT_CRITICAL(&s_lock);
+}
+
+static void append_event(operational_event_code_t code, bool active, uint8_t severity,
+                         int32_t value, uint32_t timestamp)
+{
+    append_event_ex(code, active, severity, value, timestamp, false);
 }
 
 static void append_sample(operational_sample_t *ring, uint16_t capacity,
@@ -228,18 +386,24 @@ static void detect_events(const observed_state_t *next, uint32_t timestamp)
          * transition, so recording only changes meant a controller that booted
          * straight into a fault reported no alarm at all - the plant was
          * offline and the alarm list was empty. Anything already wrong at
-         * startup is raised here, once. */
+         * startup is raised here, once.
+         *
+         * These raises bypass the A4 on-delay: there is no transition here to
+         * debounce, the condition has already persisted across the boot, and
+         * deferring it would leave a controller that came up into a fault
+         * showing an empty alarm list for a further observation interval.
+         */
         if (!next->network_online) {
-            append_event(EVENT_NETWORK_STATE, false, 2, 0, timestamp);
+            append_event_ex(EVENT_NETWORK_STATE, false, 2, 0, timestamp, true);
         }
         if (!next->meter_online) {
-            append_event(EVENT_METER_STATE, false, 2, 0, timestamp);
+            append_event_ex(EVENT_METER_STATE, false, 2, 0, timestamp, true);
         }
         if ((next->alarm_flags & SAFETY_ALARM_METER_OFFLINE) != 0U) {
-            append_event(EVENT_METER_OFFLINE_ALARM, true, 2, 0, timestamp);
+            append_event_ex(EVENT_METER_OFFLINE_ALARM, true, 2, 0, timestamp, true);
         }
         if ((next->alarm_flags & SAFETY_ALARM_METER_STALE) != 0U) {
-            append_event(EVENT_METER_STALE_ALARM, true, 1, 0, timestamp);
+            append_event_ex(EVENT_METER_STALE_ALARM, true, 1, 0, timestamp, true);
         }
         s_observed = *next;
         s_observed.initialized = true;
@@ -279,6 +443,8 @@ static void operational_task(void *argument)
         detect_events(&observed, sample.timestamp_ms);
 
         portENTER_CRITICAL(&s_lock);
+        /* No logging, no allocation, no cJSON in here: interrupts are off. */
+        service_alarms_locked(sample.timestamp_ms);
         append_sample(s_fast, FAST_SAMPLE_COUNT, &s_fast_head, &s_fast_count, &sample);
         if (s_last_minute_ms == 0 || sample.timestamp_ms - s_last_minute_ms >= MINUTE_INTERVAL_MS) {
             append_sample(s_minute, MINUTE_SAMPLE_COUNT, &s_minute_head, &s_minute_count, &sample);
@@ -580,6 +746,70 @@ static const char *alarm_code_id(uint8_t code)
     }
 }
 
+/* --- A5: root-cause grouping ---------------------------------------------
+ * One physical event - losing the site network - currently raises four
+ * conditions: network offline, meter offline, meter data stale and grid
+ * measurement unavailable. EEMUA 191 targets no more than ten alarms in the
+ * first ten minutes of a major upset and puts an operator's absorption rate
+ * at roughly one alarm per minute, so four alarms for one cause is a flood in
+ * miniature: 40% of the ten-minute budget spent on a single fault.
+ *
+ * The remedy is attribution, not deletion. Every condition still exists, is
+ * still returned, and is still individually acknowledgeable - suppressing a
+ * real condition is how alarm systems decay. What changes is that a condition
+ * with a live upstream cause is marked consequential and names the alarm that
+ * explains it, and the summary reports primary counts separately so the
+ * number an operator triages from is the number of distinct faults.
+ *
+ * The primary is chosen by physical causality, deepest cause first. The grid
+ * meter is reached over the site network, so if the network is down the meter
+ * being unreachable is a consequence of that, not an independent fault;
+ * likewise a meter that is not answering at all explains data that has gone
+ * stale, and any of the three explains the derived "grid measurement
+ * unavailable". Attribution is evaluated against the live table at read time,
+ * so a meter that fails on its own - with the network healthy - is correctly
+ * reported as primary. */
+static uint8_t alarm_cause_of(uint8_t code, const operational_alarm_t *table)
+{
+    static const uint8_t upstream_of_grid_measurement[] = {
+        (uint8_t)EVENT_NETWORK_STATE,
+        (uint8_t)EVENT_METER_OFFLINE_ALARM,
+        (uint8_t)EVENT_METER_STALE_ALARM,
+    };
+    static const uint8_t upstream_of_meter_stale[] = {
+        (uint8_t)EVENT_NETWORK_STATE,
+        (uint8_t)EVENT_METER_OFFLINE_ALARM,
+    };
+    static const uint8_t upstream_of_meter_offline[] = {
+        (uint8_t)EVENT_NETWORK_STATE,
+    };
+
+    const uint8_t *chain = NULL;
+    size_t length = 0;
+    switch ((operational_event_code_t)code) {
+    case EVENT_METER_STATE:
+        chain = upstream_of_grid_measurement;
+        length = sizeof(upstream_of_grid_measurement);
+        break;
+    case EVENT_METER_STALE_ALARM:
+        chain = upstream_of_meter_stale;
+        length = sizeof(upstream_of_meter_stale);
+        break;
+    case EVENT_METER_OFFLINE_ALARM:
+        chain = upstream_of_meter_offline;
+        length = sizeof(upstream_of_meter_offline);
+        break;
+    default:
+        /* Network loss is the deepest cause this controller can observe: it
+         * has nothing upstream of it to blame, so it is always primary. */
+        return ALARM_NO_CAUSE;
+    }
+    for (size_t i = 0; i < length; ++i) {
+        if (table[chain[i]].present) return chain[i];
+    }
+    return ALARM_NO_CAUSE;
+}
+
 /* The alarm condition table: what is wrong now, since when, how often, and
  * whether anyone has taken responsibility. Cleared-but-unacknowledged rows are
  * still returned, because an operator needs to see that something happened
@@ -595,8 +825,15 @@ static esp_err_t alarms_get(httpd_req_t *request)
     cJSON *root = cJSON_CreateObject();
     if (!root) return httpd_resp_send_500(request);
     cJSON_AddNumberToObject(root, "generated_ms", current);
+    /* Published, not buried: an on-delay is taken out of the operator's own
+     * response time, so the value in force has to be inspectable. */
+    cJSON_AddNumberToObject(root, "on_delay_ms", ALARM_ON_DELAY_MS);
+    cJSON_AddNumberToObject(root, "off_delay_ms", ALARM_OFF_DELAY_MS);
+    cJSON_AddNumberToObject(root, "stale_threshold_ms", ALARM_STALE_THRESHOLD_MS);
     cJSON *items = cJSON_AddArrayToObject(root, "alarms");
     uint16_t active = 0, unacknowledged = 0;
+    uint16_t primary_active = 0, consequential_active = 0, primary_unacknowledged = 0;
+    uint16_t stale_count = 0, suppressed_total = 0;
 
     for (size_t code = 0; code < sizeof(snapshot) / sizeof(snapshot[0]); ++code) {
         const operational_alarm_t *a = &snapshot[code];
@@ -619,6 +856,11 @@ static esp_err_t alarms_get(httpd_req_t *request)
         cJSON_AddStringToObject(item, "detail", detail);
         cJSON_AddStringToObject(item, "recommended_action", action);
         cJSON_AddStringToObject(item, "severity", severity_label(a->severity));
+        /* A6: the rationalised priority and the reason it was assigned travel
+         * with the alarm, so the judgement can be reviewed rather than
+         * rediscovered from the source. */
+        cJSON_AddStringToObject(item, "priority", priority_label(alarm_priority((uint8_t)code)));
+        cJSON_AddStringToObject(item, "priority_rationale", alarm_priority_rationale((uint8_t)code));
         /* ISA-18.2 state names. "rtn_unacknowledged" is a condition that
          * cleared itself while nobody had accepted it: still outstanding work
          * even though nothing is wrong right now. */
@@ -643,18 +885,58 @@ static esp_err_t alarms_get(httpd_req_t *request)
         } else {
             cJSON_AddNullToObject(item, "acknowledged_age_ms");
         }
+        /* A5: attribution. Consequential rows stay in the list and stay
+         * acknowledgeable; they simply say which fault explains them. */
+        const uint8_t cause = a->present ? alarm_cause_of((uint8_t)code, snapshot)
+                                         : ALARM_NO_CAUSE;
+        const bool consequential = cause != ALARM_NO_CAUSE;
+        cJSON_AddStringToObject(item, "role", consequential ? "consequential" : "primary");
+        if (consequential) cJSON_AddStringToObject(item, "caused_by", alarm_code_id(cause));
+        else cJSON_AddNullToObject(item, "caused_by");
+
+        /* A7: an alarm standing this long with nobody acting on it is a design
+         * defect to surface, not a live problem to chase. */
+        const bool stale = a->present &&
+                           (uint32_t)(current - a->last_raised_ms) >= ALARM_STALE_THRESHOLD_MS;
+        cJSON_AddBoolToObject(item, "stale", stale);
+
+        /* A4: transitions that never survived their delay. Zero is the healthy
+         * value; a rising number is a chattering signal. */
+        cJSON_AddNumberToObject(item, "suppressed_transitions", a->suppressed_transitions);
         cJSON_AddItemToArray(items, item);
 
-        if (a->present) active++;
+        if (a->present) {
+            active++;
+            if (consequential) consequential_active++;
+            else primary_active++;
+        }
         /* Counts work outstanding, not just live conditions: a fault that came
          * and went unnoticed still needs someone to see it. */
-        if (!a->acknowledged) unacknowledged++;
+        if (!a->acknowledged) {
+            unacknowledged++;
+            /* Consequential rows must not inflate the number an operator
+             * triages from - that is the whole point of the grouping. */
+            if (!consequential) primary_unacknowledged++;
+        }
+        if (stale) stale_count++;
+        if (a->suppressed_transitions > 0U &&
+            suppressed_total <= (uint16_t)(UINT16_MAX - a->suppressed_transitions)) {
+            suppressed_total = (uint16_t)(suppressed_total + a->suppressed_transitions);
+        }
     }
 
     cJSON *summary = cJSON_AddObjectToObject(root, "summary");
     cJSON_AddNumberToObject(summary, "active", active);
     cJSON_AddNumberToObject(summary, "unacknowledged", unacknowledged);
+    /* Primary counts are the triage figures; the consequential count says how
+     * much of the list is explained detail rather than distinct faults. */
+    cJSON_AddNumberToObject(summary, "primary_active", primary_active);
+    cJSON_AddNumberToObject(summary, "consequential_active", consequential_active);
+    cJSON_AddNumberToObject(summary, "primary_unacknowledged", primary_unacknowledged);
+    cJSON_AddNumberToObject(summary, "stale", stale_count);
+    cJSON_AddNumberToObject(summary, "suppressed_transitions", suppressed_total);
     cJSON_AddStringToObject(summary, "state_model", "ISA-18.2");
+    cJSON_AddStringToObject(summary, "priority_model", "EEMUA-191");
     return send_json(request, root);
 }
 

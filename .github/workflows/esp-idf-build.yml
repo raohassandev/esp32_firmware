@@ -160,6 +160,8 @@ jobs:
         run: python3 tests/operator_meter_access_source_contract.py
       - name: Check operator history and event center
         run: python3 tests/operator_history_events_source_contract.py
+      - name: Check ISA-18.2 and EEMUA 191 alarm management contract
+        run: python3 tests/alarm_management_source_contract.py
       - name: Check complete operator product suite
         run: python3 tests/operator_product_suite_source_contract.py
       - name: Check pre-lab readiness workspace
