@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "alarm_journal.h"
 #include "cJSON.h"
 #include "control_engine.h"
 #include "esp_check.h"
@@ -60,8 +61,39 @@
  * uint32 milliseconds wrap at ~49.7 days, far beyond this threshold. */
 #define ALARM_STALE_THRESHOLD_MS 86400000U
 
+/* --- A3: shelving ---------------------------------------------------------
+ * ISA-18.2 keeps three suppression states apart and they must not collapse
+ * into one "disabled" flag: Shelved is the operator's own decision, is
+ * time-limited and expires by itself; Suppressed by design is the system's
+ * decision; Out of service is a maintenance action. Only shelving is
+ * implemented here, and it is implemented as the standard defines it, because
+ * the reason operators reach for "disable" is that shelving was not offered.
+ *
+ * The expiry is REQUIRED and BOUNDED, and those two properties are the whole
+ * safety argument. An indefinite shelf is a disabled alarm wearing a different
+ * name: it survives the shift that created it, nobody remembers it, and the
+ * alarm system quietly decays until an incident finds the gap. A shelf that
+ * expires by itself cannot outlive the operator's attention.
+ *
+ * Eight hours is one shift. It is long enough to work through a known nuisance
+ * without re-shelving every few minutes, and short enough that the shelf cannot
+ * be inherited by someone who never agreed to it. One minute is the floor -
+ * below that the shelf is not a decision, it is a mis-click.
+ *
+ * Shelving changes prominence only. Condition detection, the on/off delays,
+ * occurrence counting, root-cause attribution and the journal all continue
+ * exactly as before while an alarm is shelved: the operator has asked not to be
+ * pressed by it, not to stop the controller from noticing it. */
+#define ALARM_SHELF_MIN_MS 60000U
+#define ALARM_SHELF_MAX_MS 28800000U
+
 /* Sentinel for "this alarm has no upstream cause" (see alarm_cause_of). */
 #define ALARM_NO_CAUSE 0xFFU
+
+/* Staging depth for journal records produced inside a critical section. Alarm
+ * transitions are rare - a flood is single figures - and the ring is drained on
+ * every observation tick and after every operator action. */
+#define ALARM_JOURNAL_STAGE_DEPTH 32U
 
 typedef struct {
     uint32_t timestamp_ms;
@@ -140,14 +172,22 @@ typedef struct {
     bool present;               /* confirmed state, after the A4 delays */
     bool candidate;             /* raw state as last observed */
     bool acknowledged;
+    /* A3. Shelving is a separate axis from presence and acknowledgement on
+     * purpose: an alarm can be present, unacknowledged and shelved all at once,
+     * and each of those three facts is something different an operator needs. */
+    bool shelved;
     uint8_t severity;
     uint16_t occurrences;
     uint16_t suppressed_transitions;
+    uint16_t shelf_count;
     uint32_t candidate_since_ms;
     uint32_t first_raised_ms;
     uint32_t last_raised_ms;
     uint32_t cleared_ms;
     uint32_t acknowledged_ms;
+    uint32_t shelved_ms;
+    uint32_t shelf_expires_ms;
+    uint32_t shelf_duration_ms;
 } operational_alarm_t;
 
 static operational_alarm_t s_alarms[EVENT_METER_STALE_ALARM + 1U];
@@ -214,11 +254,90 @@ static const char *priority_label(uint8_t priority)
     return priority >= 2 ? "high" : priority == 1 ? "medium" : "low";
 }
 
+/* --- A2: staging between the alarm table and the persistent journal ---------
+ * The alarm table is updated inside a critical section, which is where the
+ * lifecycle transitions worth journalling become known. Interrupts are disabled
+ * there, so a flash write in that window would stall the control loop for as
+ * long as the filesystem felt like taking - and the control path must never
+ * wait on storage.
+ *
+ * So the two halves are split. Under the lock the transition is copied into
+ * this small RAM ring, which costs a handful of stores and cannot fail. Outside
+ * the lock, journal_flush() drains it one record at a time and writes each to
+ * flash. alarm_journal_append() is therefore never reachable from inside a
+ * critical section, and the contract test asserts exactly that.
+ *
+ * If the ring overflows - the journal is stalled, or an implausible burst of
+ * transitions - the oldest staged record is discarded and counted rather than
+ * silently lost, and rather than blocking the caller. Losing the oldest few
+ * records of a flood is survivable; stalling the control loop is not. */
+typedef struct {
+    uint32_t uptime_ms;
+    uint16_t detail;
+    uint8_t code;
+    uint8_t transition;
+} journal_stage_t;
+
+static journal_stage_t s_stage[ALARM_JOURNAL_STAGE_DEPTH];
+static uint8_t s_stage_head;
+static uint8_t s_stage_tail;
+static uint8_t s_stage_fill;
+static uint32_t s_stage_dropped;
+
+/* Caller holds s_lock. No allocation, no logging, no file access: this is the
+ * only journal-related code permitted to run with interrupts disabled. */
+static void journal_stage_locked(uint8_t code, uint8_t transition, uint32_t timestamp,
+                                 uint16_t detail)
+{
+    if (s_stage_fill >= ALARM_JOURNAL_STAGE_DEPTH) {
+        s_stage_tail = (uint8_t)((s_stage_tail + 1U) % ALARM_JOURNAL_STAGE_DEPTH);
+        s_stage_fill--;
+        s_stage_dropped++;
+    }
+    journal_stage_t *slot = &s_stage[s_stage_head];
+    slot->uptime_ms = timestamp;
+    slot->detail = detail;
+    slot->code = code;
+    slot->transition = transition;
+    s_stage_head = (uint8_t)((s_stage_head + 1U) % ALARM_JOURNAL_STAGE_DEPTH);
+    s_stage_fill++;
+}
+
+/* Caller holds NO lock. Each record is lifted out under a very short critical
+ * section and written to flash with the lock released, so the write can take as
+ * long as it needs without interrupts being off for any of it. */
+static void journal_flush(void)
+{
+    if (!alarm_journal_ready()) return;
+    for (;;) {
+        journal_stage_t staged = {0};
+        bool pending = false;
+        portENTER_CRITICAL(&s_lock);
+        if (s_stage_fill > 0U) {
+            staged = s_stage[s_stage_tail];
+            s_stage_tail = (uint8_t)((s_stage_tail + 1U) % ALARM_JOURNAL_STAGE_DEPTH);
+            s_stage_fill--;
+            pending = true;
+        }
+        portEXIT_CRITICAL(&s_lock);
+        if (!pending) return;
+
+        const alarm_journal_entry_t entry = {
+            .sequence = 0U,     /* assigned by the journal itself */
+            .uptime_ms = staged.uptime_ms,
+            .detail = staged.detail,
+            .code = staged.code,
+            .transition = staged.transition,
+        };
+        (void)alarm_journal_append(&entry);
+    }
+}
+
 /* Caller holds s_lock. Promotes the pending candidate into the confirmed
  * state. The raise/clear instant recorded is candidate_since_ms - when the
  * condition actually appeared - not when the delay expired, so durations stay
  * truthful and the delay does not quietly shorten a reported outage. */
-static void commit_alarm_locked(operational_alarm_t *alarm)
+static void commit_alarm_locked(uint8_t code, operational_alarm_t *alarm)
 {
     if (alarm->candidate == alarm->present) return;
     if (alarm->candidate) {
@@ -232,9 +351,16 @@ static void commit_alarm_locked(operational_alarm_t *alarm)
         alarm->acknowledged_ms = 0U;
         alarm->present = true;
         alarm->cleared_ms = 0U;
+        /* A2: staged, not written. The flash write happens outside this lock.
+         * Note this runs whether or not the alarm is shelved - shelving hides
+         * an alarm from the operator's attention, never from the record. */
+        journal_stage_locked(code, (uint8_t)ALARM_JOURNAL_RAISED,
+                             alarm->last_raised_ms, 0U);
     } else {
         alarm->present = false;
         alarm->cleared_ms = alarm->candidate_since_ms;
+        journal_stage_locked(code, (uint8_t)ALARM_JOURNAL_CLEARED,
+                             alarm->cleared_ms, 0U);
         /* ISA-18.2 keeps a condition that returned to normal without ever being
          * acknowledged in its own state, "RTN Unacknowledged", rather than
          * treating it as resolved. A fault that appears and clears itself
@@ -247,11 +373,32 @@ static void commit_alarm_locked(operational_alarm_t *alarm)
 }
 
 /* Caller holds s_lock. Promotes a candidate whose on/off delay has elapsed. */
-static void service_alarm_locked(operational_alarm_t *alarm, uint32_t timestamp)
+static void service_alarm_locked(uint8_t code, operational_alarm_t *alarm, uint32_t timestamp)
 {
     if (alarm->candidate == alarm->present) return;
     const uint32_t delay = alarm->candidate ? ALARM_ON_DELAY_MS : ALARM_OFF_DELAY_MS;
-    if ((uint32_t)(timestamp - alarm->candidate_since_ms) >= delay) commit_alarm_locked(alarm);
+    if ((uint32_t)(timestamp - alarm->candidate_since_ms) >= delay) {
+        commit_alarm_locked(code, alarm);
+    }
+}
+
+/* Caller holds s_lock. A3: a shelf is time-limited, so something has to end it
+ * without an operator being present. That is the entire difference between
+ * shelving and disabling, so the expiry runs on the observation tick and again
+ * whenever the alarm list is read - an expired shelf can never be observed as
+ * still shelved. The auto-unshelve is journalled like any other transition,
+ * because "the suppression ended and nobody was told" is exactly the hole that
+ * audited shelving exists to close. */
+static void service_shelf_locked(uint8_t code, operational_alarm_t *alarm, uint32_t timestamp)
+{
+    if (!alarm->shelved) return;
+    /* Signed difference: uptime milliseconds wrap at ~49.7 days and a shelf
+     * must not become permanent because the counter rolled over. */
+    if ((int32_t)(timestamp - alarm->shelf_expires_ms) < 0) return;
+    alarm->shelved = false;
+    alarm->shelf_expires_ms = 0U;
+    alarm->shelf_duration_ms = 0U;
+    journal_stage_locked(code, (uint8_t)ALARM_JOURNAL_SHELF_EXPIRED, timestamp, 0U);
 }
 
 /* Caller holds s_lock. Run once per observation so a condition that simply
@@ -261,7 +408,8 @@ static void service_alarms_locked(uint32_t timestamp)
 {
     for (size_t code = 0; code < sizeof(s_alarms) / sizeof(s_alarms[0]); ++code) {
         if (!event_is_alarm_condition((uint8_t)code)) continue;
-        service_alarm_locked(&s_alarms[code], timestamp);
+        service_alarm_locked((uint8_t)code, &s_alarms[code], timestamp);
+        service_shelf_locked((uint8_t)code, &s_alarms[code], timestamp);
     }
 }
 
@@ -291,8 +439,8 @@ static void update_alarm_locked(operational_event_code_t code, bool present,
         alarm->candidate = present;
         alarm->candidate_since_ms = timestamp;
     }
-    if (bypass_on_delay) commit_alarm_locked(alarm);
-    else service_alarm_locked(alarm, timestamp);
+    if (bypass_on_delay) commit_alarm_locked((uint8_t)code, alarm);
+    else service_alarm_locked((uint8_t)code, alarm, timestamp);
 }
 
 static void append_event_ex(operational_event_code_t code, bool active, uint8_t severity,
@@ -436,6 +584,10 @@ static void detect_events(const observed_state_t *next, uint32_t timestamp)
 static void operational_task(void *argument)
 {
     (void)argument;
+    /* Mounting and scanning the journal reads a quarter of a megabyte, so it is
+     * done here rather than during HTTP registration: a diagnostic feature must
+     * not delay the controller coming up, and if it fails it must not stop it. */
+    alarm_journal_open();
     for (;;) {
         operational_sample_t sample;
         observed_state_t observed;
@@ -451,6 +603,8 @@ static void operational_task(void *argument)
             s_last_minute_ms = sample.timestamp_ms;
         }
         portEXIT_CRITICAL(&s_lock);
+        /* Interrupts are back on before a single byte reaches flash. */
+        journal_flush();
         vTaskDelay(pdMS_TO_TICKS(SAMPLE_INTERVAL_MS));
     }
 }
@@ -817,11 +971,20 @@ static uint8_t alarm_cause_of(uint8_t code, const operational_alarm_t *table)
 static esp_err_t alarms_get(httpd_req_t *request)
 {
     operational_alarm_t snapshot[sizeof(s_alarms) / sizeof(s_alarms[0])];
+    const uint32_t current = now_ms();
     portENTER_CRITICAL(&s_lock);
+    /* A3: expire shelves before the snapshot is taken, so a shelf whose time
+     * ran out can never be reported as still in force. Reading the alarm list
+     * is the moment it matters most. */
+    for (size_t code = 0; code < sizeof(s_alarms) / sizeof(s_alarms[0]); ++code) {
+        service_shelf_locked((uint8_t)code, &s_alarms[code], current);
+    }
     memcpy(snapshot, s_alarms, sizeof(snapshot));
     portEXIT_CRITICAL(&s_lock);
+    /* The auto-unshelve above may have staged an audit record; write it now
+     * that interrupts are enabled again, before anything is serialized. */
+    journal_flush();
 
-    const uint32_t current = now_ms();
     cJSON *root = cJSON_CreateObject();
     if (!root) return httpd_resp_send_500(request);
     cJSON_AddNumberToObject(root, "generated_ms", current);
@@ -830,10 +993,18 @@ static esp_err_t alarms_get(httpd_req_t *request)
     cJSON_AddNumberToObject(root, "on_delay_ms", ALARM_ON_DELAY_MS);
     cJSON_AddNumberToObject(root, "off_delay_ms", ALARM_OFF_DELAY_MS);
     cJSON_AddNumberToObject(root, "stale_threshold_ms", ALARM_STALE_THRESHOLD_MS);
+    /* A3: the bounds on a shelf are published for the same reason the delays
+     * are. An operator is entitled to know how long suppression can last before
+     * being asked to accept it, and a reviewer is entitled to check that the
+     * bound exists at all. */
+    cJSON_AddNumberToObject(root, "shelf_minimum_ms", ALARM_SHELF_MIN_MS);
+    cJSON_AddNumberToObject(root, "shelf_maximum_ms", ALARM_SHELF_MAX_MS);
+    cJSON_AddBoolToObject(root, "shelf_expiry_required", true);
     cJSON *items = cJSON_AddArrayToObject(root, "alarms");
     uint16_t active = 0, unacknowledged = 0;
     uint16_t primary_active = 0, consequential_active = 0, primary_unacknowledged = 0;
     uint16_t stale_count = 0, suppressed_total = 0;
+    uint16_t shelved_count = 0, shelved_active = 0;
 
     for (size_t code = 0; code < sizeof(snapshot) / sizeof(snapshot[0]); ++code) {
         const operational_alarm_t *a = &snapshot[code];
@@ -903,9 +1074,37 @@ static esp_err_t alarms_get(httpd_req_t *request)
         /* A4: transitions that never survived their delay. Zero is the healthy
          * value; a rising number is a chattering signal. */
         cJSON_AddNumberToObject(item, "suppressed_transitions", a->suppressed_transitions);
+
+        /* A3: a shelved alarm stays in the list, keeps its state, its duration,
+         * its cause attribution and its acknowledgement - everything except its
+         * claim on the operator's attention. The three ISA-18.2 suppression
+         * states are reported by name rather than as one boolean, so "an
+         * operator shelved this until 14:00" can never be mistaken for "someone
+         * turned this off". Only "shelved" is implemented; the other two are
+         * named here as not-implemented rather than silently absorbed. */
+        cJSON_AddBoolToObject(item, "shelved", a->shelved);
+        cJSON_AddStringToObject(item, "suppression", a->shelved ? "shelved" : "none");
+        if (a->shelved) {
+            cJSON_AddNumberToObject(item, "shelf_remaining_ms",
+                                    (double)(a->shelf_expires_ms - current));
+            cJSON_AddNumberToObject(item, "shelf_duration_ms", (double)a->shelf_duration_ms);
+            cJSON_AddNumberToObject(item, "shelved_age_ms", (double)(current - a->shelved_ms));
+        } else {
+            cJSON_AddNullToObject(item, "shelf_remaining_ms");
+            cJSON_AddNullToObject(item, "shelf_duration_ms");
+            cJSON_AddNullToObject(item, "shelved_age_ms");
+        }
+        cJSON_AddNumberToObject(item, "shelf_count", a->shelf_count);
         cJSON_AddItemToArray(items, item);
 
-        if (a->present) {
+        /* Shelving changes the counts an operator triages from, and nothing
+         * else. The row above was emitted in full either way: prominence is the
+         * only thing an operator asked to give up. */
+        if (a->shelved) {
+            shelved_count++;
+            if (a->present) shelved_active++;
+        }
+        if (a->present && !a->shelved) {
             active++;
             if (consequential) consequential_active++;
             else primary_active++;
@@ -913,10 +1112,12 @@ static esp_err_t alarms_get(httpd_req_t *request)
         /* Counts work outstanding, not just live conditions: a fault that came
          * and went unnoticed still needs someone to see it. */
         if (!a->acknowledged) {
-            unacknowledged++;
-            /* Consequential rows must not inflate the number an operator
-             * triages from - that is the whole point of the grouping. */
-            if (!consequential) primary_unacknowledged++;
+            if (!a->shelved) {
+                unacknowledged++;
+                /* Consequential rows must not inflate the number an operator
+                 * triages from - that is the whole point of the grouping. */
+                if (!consequential) primary_unacknowledged++;
+            }
         }
         if (stale) stale_count++;
         if (a->suppressed_transitions > 0U &&
@@ -935,8 +1136,20 @@ static esp_err_t alarms_get(httpd_req_t *request)
     cJSON_AddNumberToObject(summary, "primary_unacknowledged", primary_unacknowledged);
     cJSON_AddNumberToObject(summary, "stale", stale_count);
     cJSON_AddNumberToObject(summary, "suppressed_transitions", suppressed_total);
+    /* Shelved work is reported, never hidden. The counts above are what an
+     * operator triages from; these two say how much was deliberately taken out
+     * of that view and is still waiting underneath it. */
+    cJSON_AddNumberToObject(summary, "shelved", shelved_count);
+    cJSON_AddNumberToObject(summary, "shelved_active", shelved_active);
     cJSON_AddStringToObject(summary, "state_model", "ISA-18.2");
     cJSON_AddStringToObject(summary, "priority_model", "EEMUA-191");
+    /* Named so the distinction ISA-18.2 draws cannot quietly collapse: this
+     * controller implements operator shelving only. Suppressed-by-design and
+     * out-of-service are absent, and absent is not the same as merged in. */
+    cJSON_AddStringToObject(summary, "suppression_model",
+                            "ISA-18.2 shelving only; suppressed-by-design and "
+                            "out-of-service are not implemented and are not "
+                            "collapsed into shelving");
     return send_json(request, root);
 }
 
@@ -1006,8 +1219,12 @@ static esp_err_t alarms_ack_post(httpd_req_t *request)
     if (was_outstanding) {
         alarm->acknowledged = true;
         alarm->acknowledged_ms = timestamp;
+        journal_stage_locked((uint8_t)code, (uint8_t)ALARM_JOURNAL_ACKNOWLEDGED, timestamp, 0U);
     }
     portEXIT_CRITICAL(&s_lock);
+    /* Written to flash with interrupts back on. An acknowledgement that only
+     * ever existed in RAM is not evidence of anything after a restart. */
+    journal_flush();
 
     cJSON *reply = cJSON_CreateObject();
     if (!reply) return httpd_resp_send_500(request);
@@ -1024,8 +1241,265 @@ static esp_err_t alarms_ack_post(httpd_req_t *request)
     return send_json(request, reply);
 }
 
+/* --- A3: shelving endpoints ----------------------------------------------
+ * Both of these mutate suppression state, so both demand the same
+ * authenticated engineering session that acknowledgement demands. This
+ * translation unit sits outside the authorization gateway - operator history
+ * has to stay readable without a session - so the check is written out here
+ * rather than inherited. An anonymous shelf would be worse than an anonymous
+ * acknowledgement: it removes a live condition from the operator's view and
+ * leaves no one accountable for having done it. */
+static esp_err_t alarm_shelf_code(httpd_req_t *request, const cJSON *root, int *out_code)
+{
+    const cJSON *code_item = cJSON_GetObjectItemCaseSensitive(root, "code");
+    const bool have_code = cJSON_IsNumber(code_item);
+    const int code = have_code ? code_item->valueint : -1;
+    if (!have_code || code < 0 ||
+        (size_t)code >= sizeof(s_alarms) / sizeof(s_alarms[0]) ||
+        !event_is_alarm_condition((uint8_t)code)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    (void)request;
+    *out_code = code;
+    return ESP_OK;
+}
+
+static esp_err_t alarms_shelve_post(httpd_req_t *request)
+{
+    if (!engineering_auth_is_authorized(request)) {
+        cJSON *err = cJSON_CreateObject();
+        if (!err) return httpd_resp_send_500(request);
+        cJSON_AddStringToObject(err, "error", "engineering_authentication_required");
+        cJSON_AddStringToObject(err, "message",
+                                "Shelving an alarm requires an authenticated engineering session.");
+        return send_json_status(request, "401 Unauthorized", err);
+    }
+
+    cJSON *root = NULL;
+    if (http_json_parse_bounded(request, 256U, 3000ULL, 4U, &root) != ESP_OK) {
+        cJSON *err = cJSON_CreateObject();
+        if (!err) return httpd_resp_send_500(request);
+        cJSON_AddStringToObject(err, "error", "Shelve request must be valid bounded JSON");
+        return send_json_status(request, "400 Bad Request", err);
+    }
+
+    int code = -1;
+    const esp_err_t code_error = alarm_shelf_code(request, root, &code);
+    /* The expiry is required, not defaulted. Defaulting it would let a caller
+     * that never thought about duration create a shelf anyway, and an
+     * unconsidered shelf is how suppression becomes permanent. */
+    const cJSON *duration_item = cJSON_GetObjectItemCaseSensitive(root, "duration_ms");
+    const bool have_duration = cJSON_IsNumber(duration_item);
+    const double requested = have_duration ? duration_item->valuedouble : 0.0;
+    cJSON_Delete(root);
+
+    if (code_error != ESP_OK) {
+        cJSON *err = cJSON_CreateObject();
+        if (!err) return httpd_resp_send_500(request);
+        cJSON_AddStringToObject(err, "error", "A known alarm code is required");
+        return send_json_status(request, "400 Bad Request", err);
+    }
+    if (!have_duration || !(requested >= (double)ALARM_SHELF_MIN_MS) ||
+        !(requested <= (double)ALARM_SHELF_MAX_MS)) {
+        cJSON *err = cJSON_CreateObject();
+        if (!err) return httpd_resp_send_500(request);
+        cJSON_AddStringToObject(err, "error", "shelf_duration_out_of_range");
+        cJSON_AddStringToObject(err, "message",
+            "A shelf must carry an explicit expiry within the published bounds. "
+            "An indefinite shelf is a disabled alarm under another name.");
+        cJSON_AddNumberToObject(err, "shelf_minimum_ms", ALARM_SHELF_MIN_MS);
+        cJSON_AddNumberToObject(err, "shelf_maximum_ms", ALARM_SHELF_MAX_MS);
+        return send_json_status(request, "400 Bad Request", err);
+    }
+
+    const uint32_t duration_ms = (uint32_t)requested;
+    const uint32_t timestamp = now_ms();
+    /* Seconds in the journal record: 8 h fits a uint16 and the audit trail does
+     * not need millisecond precision on a shift-length decision. */
+    const uint16_t duration_s = (uint16_t)(duration_ms / 1000U);
+    bool present = false;
+    uint16_t shelf_count = 0;
+    portENTER_CRITICAL(&s_lock);
+    operational_alarm_t *alarm = &s_alarms[code];
+    present = alarm->present;
+    alarm->shelved = true;
+    alarm->shelved_ms = timestamp;
+    alarm->shelf_duration_ms = duration_ms;
+    alarm->shelf_expires_ms = timestamp + duration_ms;
+    if (alarm->shelf_count < UINT16_MAX) alarm->shelf_count++;
+    shelf_count = alarm->shelf_count;
+    journal_stage_locked((uint8_t)code, (uint8_t)ALARM_JOURNAL_SHELVED, timestamp, duration_s);
+    portEXIT_CRITICAL(&s_lock);
+    /* The audit record is what makes suppression safe, so it is written before
+     * the operator is told the shelf took effect. */
+    journal_flush();
+
+    cJSON *reply = cJSON_CreateObject();
+    if (!reply) return httpd_resp_send_500(request);
+    cJSON_AddBoolToObject(reply, "shelved", true);
+    cJSON_AddNumberToObject(reply, "code", code);
+    cJSON_AddBoolToObject(reply, "present", present);
+    cJSON_AddNumberToObject(reply, "shelf_duration_ms", (double)duration_ms);
+    cJSON_AddNumberToObject(reply, "shelf_expires_in_ms", (double)duration_ms);
+    cJSON_AddNumberToObject(reply, "shelf_count", shelf_count);
+    cJSON_AddStringToObject(reply, "note",
+        "Shelved: the condition is still detected, still recorded and still listed, "
+        "and it leaves the triage counts until the shelf expires by itself.");
+    return send_json(request, reply);
+}
+
+static esp_err_t alarms_unshelve_post(httpd_req_t *request)
+{
+    if (!engineering_auth_is_authorized(request)) {
+        cJSON *err = cJSON_CreateObject();
+        if (!err) return httpd_resp_send_500(request);
+        cJSON_AddStringToObject(err, "error", "engineering_authentication_required");
+        cJSON_AddStringToObject(err, "message",
+                                "Unshelving an alarm requires an authenticated engineering session.");
+        return send_json_status(request, "401 Unauthorized", err);
+    }
+
+    cJSON *root = NULL;
+    if (http_json_parse_bounded(request, 256U, 3000ULL, 4U, &root) != ESP_OK) {
+        cJSON *err = cJSON_CreateObject();
+        if (!err) return httpd_resp_send_500(request);
+        cJSON_AddStringToObject(err, "error", "Unshelve request must be valid bounded JSON");
+        return send_json_status(request, "400 Bad Request", err);
+    }
+    int code = -1;
+    const esp_err_t code_error = alarm_shelf_code(request, root, &code);
+    cJSON_Delete(root);
+    if (code_error != ESP_OK) {
+        cJSON *err = cJSON_CreateObject();
+        if (!err) return httpd_resp_send_500(request);
+        cJSON_AddStringToObject(err, "error", "A known alarm code is required");
+        return send_json_status(request, "400 Bad Request", err);
+    }
+
+    const uint32_t timestamp = now_ms();
+    bool was_shelved = false;
+    portENTER_CRITICAL(&s_lock);
+    operational_alarm_t *alarm = &s_alarms[code];
+    was_shelved = alarm->shelved;
+    if (was_shelved) {
+        alarm->shelved = false;
+        alarm->shelf_expires_ms = 0U;
+        alarm->shelf_duration_ms = 0U;
+        journal_stage_locked((uint8_t)code, (uint8_t)ALARM_JOURNAL_UNSHELVED, timestamp, 0U);
+    }
+    portEXIT_CRITICAL(&s_lock);
+    journal_flush();
+
+    cJSON *reply = cJSON_CreateObject();
+    if (!reply) return httpd_resp_send_500(request);
+    cJSON_AddBoolToObject(reply, "unshelved", was_shelved);
+    cJSON_AddNumberToObject(reply, "code", code);
+    cJSON_AddStringToObject(reply, "note",
+        was_shelved ? "Shelf ended early; the alarm is back in the triage counts."
+                    : "This alarm was not shelved.");
+    return send_json(request, reply);
+}
+
+/* --- A2: the journal endpoint ---------------------------------------------
+ * Paged, and paged for a physical reason rather than a stylistic one. The
+ * journal holds far more than this controller can serialize: its minimum free
+ * internal heap has been measured close to its own critical threshold, and one
+ * response carrying the whole history would exhaust it. So the caller asks for
+ * a window and is told, honestly, whether more remains behind it. */
+#define ALARM_JOURNAL_PAGE_DEFAULT 50U
+#define ALARM_JOURNAL_PAGE_MAX 100U
+
+static esp_err_t alarms_journal_get(httpd_req_t *request)
+{
+    char query[64] = {0};
+    char value[16] = {0};
+    uint32_t offset = 0U;
+    uint32_t limit = ALARM_JOURNAL_PAGE_DEFAULT;
+    if (httpd_req_get_url_query_str(request, query, sizeof(query)) == ESP_OK) {
+        if (httpd_query_key_value(query, "offset", value, sizeof(value)) == ESP_OK) {
+            offset = (uint32_t)strtoul(value, NULL, 10);
+        }
+        if (httpd_query_key_value(query, "limit", value, sizeof(value)) == ESP_OK) {
+            const unsigned long parsed = strtoul(value, NULL, 10);
+            limit = parsed == 0UL ? ALARM_JOURNAL_PAGE_DEFAULT : (uint32_t)parsed;
+        }
+    }
+    if (limit > ALARM_JOURNAL_PAGE_MAX) limit = ALARM_JOURNAL_PAGE_MAX;
+
+    alarm_journal_entry_t *page = calloc(limit, sizeof(*page));
+    if (!page) return httpd_resp_send_500(request);
+    bool has_more = false;
+    const size_t returned = alarm_journal_read_page(offset, limit, page, &has_more);
+
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        free(page);
+        return httpd_resp_send_500(request);
+    }
+    const uint32_t current = now_ms();
+    cJSON_AddNumberToObject(root, "generated_ms", current);
+    /* This controller has no wall clock. Every time in this payload is
+     * milliseconds since the controller last started, and saying so is the
+     * difference between evidence and a fabricated date. Sequence numbers do
+     * survive a restart, so ordering across reboots is still answerable even
+     * though "when" is not. */
+    cJSON_AddStringToObject(root, "time_base", "uptime_ms");
+    cJSON_AddStringToObject(root, "time_note",
+        "Times are milliseconds since the controller started, not calendar times: "
+        "this controller has no real-time clock. A restart resets the time base; "
+        "the sequence number does not, so records remain ordered across reboots.");
+    cJSON_AddBoolToObject(root, "storage_ready", alarm_journal_ready());
+    cJSON_AddStringToObject(root, "storage_status", alarm_journal_status());
+    cJSON_AddBoolToObject(root, "persistent", true);
+    cJSON_AddNumberToObject(root, "capacity", ALARM_JOURNAL_CAPACITY);
+    cJSON_AddNumberToObject(root, "stored", alarm_journal_stored());
+    cJSON_AddNumberToObject(root, "next_sequence", alarm_journal_next_sequence());
+    /* Losses are reported rather than hidden. A history that quietly drops
+     * records is worse than one that admits it dropped them. */
+    cJSON_AddNumberToObject(root, "unreadable_skipped", alarm_journal_invalid_skipped());
+    cJSON_AddNumberToObject(root, "write_failures", alarm_journal_write_failures());
+    cJSON_AddNumberToObject(root, "staging_dropped", s_stage_dropped);
+    cJSON_AddNumberToObject(root, "offset", offset);
+    cJSON_AddNumberToObject(root, "limit", limit);
+    cJSON_AddNumberToObject(root, "returned", (double)returned);
+    cJSON_AddBoolToObject(root, "has_more", has_more);
+    if (has_more) cJSON_AddNumberToObject(root, "next_offset", offset + (uint32_t)returned);
+    else cJSON_AddNullToObject(root, "next_offset");
+
+    cJSON *entries = cJSON_AddArrayToObject(root, "entries");
+    for (size_t index = 0; index < returned; ++index) {
+        const alarm_journal_entry_t *entry = &page[index];
+        cJSON *item = cJSON_CreateObject();
+        if (!item) continue;
+        const operational_event_t probe = {
+            .code = entry->code,
+            .active = event_condition_present(entry->code, 1U) ? 1U : 0U,
+        };
+        const char *title, *detail, *action;
+        event_text(&probe, &title, &detail, &action);
+        cJSON_AddNumberToObject(item, "sequence", entry->sequence);
+        cJSON_AddNumberToObject(item, "code", entry->code);
+        cJSON_AddStringToObject(item, "id", alarm_code_id(entry->code));
+        cJSON_AddStringToObject(item, "title", title);
+        cJSON_AddStringToObject(item, "transition",
+                                alarm_journal_transition_name(entry->transition));
+        cJSON_AddNumberToObject(item, "uptime_ms", entry->uptime_ms);
+        cJSON_AddNumberToObject(item, "age_ms", (double)(current - entry->uptime_ms));
+        if (entry->transition == (uint8_t)ALARM_JOURNAL_SHELVED) {
+            cJSON_AddNumberToObject(item, "shelf_duration_ms",
+                                    (double)entry->detail * 1000.0);
+        } else {
+            cJSON_AddNullToObject(item, "shelf_duration_ms");
+        }
+        cJSON_AddItemToArray(entries, item);
+    }
+    free(page);
+    return send_json(request, root);
+}
+
 esp_err_t operational_api_register(httpd_handle_t server)
 {
+    alarm_journal_init();
     if (!s_task) {
         BaseType_t created = xTaskCreate(operational_task, "op_history", 5120, NULL, 4, &s_task);
         if (created != pdPASS) return ESP_ERR_NO_MEM;
@@ -1035,6 +1509,9 @@ esp_err_t operational_api_register(httpd_handle_t server)
         {.uri = "/api/operator/events", .method = HTTP_GET, .handler = events_get},
         {.uri = "/api/operator/alarms", .method = HTTP_GET, .handler = alarms_get},
         {.uri = "/api/operator/alarms/ack", .method = HTTP_POST, .handler = alarms_ack_post},
+        {.uri = "/api/operator/alarms/journal", .method = HTTP_GET, .handler = alarms_journal_get},
+        {.uri = "/api/operator/alarms/shelve", .method = HTTP_POST, .handler = alarms_shelve_post},
+        {.uri = "/api/operator/alarms/unshelve", .method = HTTP_POST, .handler = alarms_unshelve_post},
     };
     for (size_t i = 0; i < sizeof(handlers) / sizeof(handlers[0]); ++i) {
         ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &handlers[i]), "operational_api", "handler registration failed");
