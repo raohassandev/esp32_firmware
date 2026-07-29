@@ -23,6 +23,7 @@ _binary_inverter_profiles_js_start _binary_inverter_config_js_start
 _binary_inverter_telemetry_js_start _binary_em500_utils_js_start
 _binary_em500_core_js_start _binary_em500_quality_js_start
 _binary_em500_profiles_js_start _binary_em500_plan_js_start
+_binary_solar_grid_js_start
 */
 
 #define DECLARE_ASSET(name) \
@@ -74,6 +75,7 @@ DECLARE_ASSET(em500_core_js);
 DECLARE_ASSET(em500_quality_js);
 DECLARE_ASSET(em500_profiles_js);
 DECLARE_ASSET(em500_plan_js);
+DECLARE_ASSET(solar_grid_js);
 
 static const char *asset(const uint8_t *start, const uint8_t *end, size_t *length)
 {
@@ -131,3 +133,4 @@ ASSET_GETTER(web_assets_em500_core_js, em500_core_js)
 ASSET_GETTER(web_assets_em500_quality_js, em500_quality_js)
 ASSET_GETTER(web_assets_em500_profiles_js, em500_profiles_js)
 ASSET_GETTER(web_assets_em500_plan_js, em500_plan_js)
+ASSET_GETTER(web_assets_solar_grid_js, solar_grid_js)
