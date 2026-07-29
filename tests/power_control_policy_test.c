@@ -80,6 +80,35 @@ int main(void)
     assert(out.requested_pv_kw <= 200.0f);
     assert(out.next_integral_kw == in.integral_kw); /* anti-windup */
 
+    /* Phase 4: every unsettled source must zero the command in the same cycle,
+     * not ramp down and not hold the previous value. A source change always
+     * passes through one of these while the debounce runs, so this is what
+     * stops PV being held on a machine that has just been connected. */
+    const source_mode_t unsettled[] = {
+        SOURCE_MODE_UNKNOWN,
+        SOURCE_MODE_NO_SOURCE,
+        SOURCE_MODE_TRANSFER,
+        SOURCE_MODE_CONFLICT,
+    };
+    for (unsigned i = 0; i < sizeof(unsettled) / sizeof(unsettled[0]); ++i) {
+        in = base_input();
+        in.source_mode = unsettled[i];
+        in.current_pv_command_kw = 150.0f;   /* was carrying real output */
+        in.ramp_down_kw_per_second = 1.0f;   /* a slow ramp must not soften this */
+        out = power_control_step(&in);
+        assert(!out.valid);
+        assert(out.requested_pv_kw == 0.0f);
+    }
+
+    /* A settled generator still honours its safe limit, so returning from a
+     * transition cannot jump straight back to full output. */
+    in = base_input();
+    in.source_mode = SOURCE_MODE_GENERATOR_ONLY;
+    in.generator_safe_limit_kw = 0.0f;       /* uncommissioned rating */
+    in.current_pv_command_kw = 150.0f;
+    out = power_control_step(&in);
+    assert(out.requested_pv_kw == 0.0f);
+
     puts("power control policy tests passed");
     return 0;
 }

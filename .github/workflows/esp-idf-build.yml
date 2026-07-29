@@ -108,6 +108,8 @@ jobs:
         run: python3 tests/meter_role_source_contract.py
       - name: Check generator power policy contract
         run: python3 tests/generator_power_policy_source_contract.py
+      - name: Check source transition contract
+        run: python3 tests/source_transition_source_contract.py
       - name: Check configuration import safety contract
         run: python3 tests/config_import_safety_source_contract.py
       - name: Check persisted Solar-Grid control contract
