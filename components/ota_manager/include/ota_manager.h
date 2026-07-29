@@ -31,6 +31,7 @@ typedef struct {
     bool pending_verify;
     bool rollback_enabled;
     bool update_staged;
+    bool validation_scheduled;
     size_t image_size;
     size_t bytes_written;
     uint32_t started_ms;
@@ -87,6 +88,10 @@ void ota_manager_abort(ota_manager_session_t *session, esp_err_t reason);
 
 /* Returns true when the running OTA image is awaiting first-boot validation. */
 bool ota_manager_running_pending_verify(void);
+
+/* Schedules validation only after the complete application initialized. A
+ * pending image remains rollback-eligible throughout the stabilization delay. */
+esp_err_t ota_manager_schedule_boot_validation(uint32_t stabilization_ms);
 
 /* Marks a fully initialized first boot valid and cancels rollback. */
 esp_err_t ota_manager_mark_running_valid(void);
