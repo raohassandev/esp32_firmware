@@ -38,72 +38,79 @@ static bool pending_verify_for(const esp_partition_t *partition)
            state == ESP_OTA_IMG_PENDING_VERIFY;
 }
 
-static void refresh_partition_status_locked(void)
+/* Partition and OTA-state APIs may touch flash metadata. Populate a local
+ * snapshot outside the short interrupt-disabled status lock. */
+static void fill_partition_status(ota_manager_status_t *status)
 {
+    if (!status) return;
     const esp_partition_t *running = esp_ota_get_running_partition();
     const esp_partition_t *boot = esp_ota_get_boot_partition();
     const esp_partition_t *update = esp_ota_get_next_update_partition(NULL);
     const esp_app_desc_t *description = esp_app_get_description();
 
-    copy_text(s_status.running_partition, sizeof(s_status.running_partition),
+    copy_text(status->running_partition, sizeof(status->running_partition),
               running ? running->label : "", running ? sizeof(running->label) : 0U);
-    copy_text(s_status.boot_partition, sizeof(s_status.boot_partition),
+    copy_text(status->boot_partition, sizeof(status->boot_partition),
               boot ? boot->label : "", boot ? sizeof(boot->label) : 0U);
-    copy_text(s_status.update_partition, sizeof(s_status.update_partition),
+    copy_text(status->update_partition, sizeof(status->update_partition),
               update ? update->label : "", update ? sizeof(update->label) : 0U);
     if (description) {
-        copy_text(s_status.running_project, sizeof(s_status.running_project),
+        copy_text(status->running_project, sizeof(status->running_project),
                   description->project_name, sizeof(description->project_name));
-        copy_text(s_status.running_version, sizeof(s_status.running_version),
+        copy_text(status->running_version, sizeof(status->running_version),
                   description->version, sizeof(description->version));
     }
-    s_status.pending_verify = pending_verify_for(running);
-    s_status.update_staged = running && boot && running->address != boot->address;
+    status->pending_verify = pending_verify_for(running);
+    status->update_staged = running && boot && running->address != boot->address;
 #ifdef CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
-    s_status.rollback_enabled = true;
+    status->rollback_enabled = true;
 #else
-    s_status.rollback_enabled = false;
+    status->rollback_enabled = false;
 #endif
 }
 
 static void set_failure(esp_err_t error)
 {
+    const uint32_t completed_ms = now_ms();
     portENTER_CRITICAL(&s_lock);
     s_status.state = OTA_MANAGER_FAILED;
     s_status.upload_active = false;
     s_status.last_error = error;
-    s_status.completed_ms = now_ms();
+    s_status.completed_ms = completed_ms;
     s_upload_claimed = false;
-    refresh_partition_status_locked();
     portEXIT_CRITICAL(&s_lock);
 }
 
 esp_err_t ota_manager_init(void)
 {
+    ota_manager_status_t initial = {0};
+    initial.state = OTA_MANAGER_IDLE;
+    initial.last_error = ESP_OK;
+    fill_partition_status(&initial);
+
     portENTER_CRITICAL(&s_lock);
-    memset(&s_status, 0, sizeof(s_status));
-    s_status.state = OTA_MANAGER_IDLE;
-    s_status.last_error = ESP_OK;
+    s_status = initial;
     s_upload_claimed = false;
-    refresh_partition_status_locked();
     portEXIT_CRITICAL(&s_lock);
 
     ESP_LOGI(TAG, "OTA slots ready: running=%s boot=%s next=%s rollback=%s pending_verify=%s",
-             s_status.running_partition,
-             s_status.boot_partition,
-             s_status.update_partition,
-             s_status.rollback_enabled ? "enabled" : "disabled",
-             s_status.pending_verify ? "yes" : "no");
+             initial.running_partition,
+             initial.boot_partition,
+             initial.update_partition,
+             initial.rollback_enabled ? "enabled" : "disabled",
+             initial.pending_verify ? "yes" : "no");
     return ESP_OK;
 }
 
 void ota_manager_get_status(ota_manager_status_t *out_status)
 {
     if (!out_status) return;
+    ota_manager_status_t snapshot;
     portENTER_CRITICAL(&s_lock);
-    refresh_partition_status_locked();
-    *out_status = s_status;
+    snapshot = s_status;
     portEXIT_CRITICAL(&s_lock);
+    fill_partition_status(&snapshot);
+    *out_status = snapshot;
 }
 
 esp_err_t ota_manager_validate_prefix(const uint8_t *prefix,
@@ -128,7 +135,8 @@ esp_err_t ota_manager_validate_prefix(const uint8_t *prefix,
     memcpy(&candidate, prefix + description_offset, sizeof(candidate));
 
     const esp_app_desc_t *running = esp_app_get_description();
-    if (!running || candidate.project_name[0] == '\0' ||
+    if (!running || candidate.magic_word != ESP_APP_DESC_MAGIC_WORD ||
+        candidate.project_name[0] == '\0' ||
         strncmp(candidate.project_name, running->project_name,
                 sizeof(candidate.project_name)) != 0 ||
         candidate.secure_version < running->secure_version) {
@@ -180,13 +188,14 @@ esp_err_t ota_manager_begin(size_t image_size,
     out_session->active = true;
     out_session->candidate = *candidate;
 
+    const uint32_t started_ms = now_ms();
     portENTER_CRITICAL(&s_lock);
     s_status.state = OTA_MANAGER_RECEIVING;
     s_status.upload_active = true;
     s_status.update_staged = false;
     s_status.image_size = image_size;
     s_status.bytes_written = 0U;
-    s_status.started_ms = now_ms();
+    s_status.started_ms = started_ms;
     s_status.completed_ms = 0U;
     s_status.last_error = ESP_OK;
     copy_text(s_status.update_partition, sizeof(s_status.update_partition),
@@ -200,9 +209,14 @@ esp_err_t ota_manager_begin(size_t image_size,
     s_status.candidate_secure_version = candidate->secure_version;
     portEXIT_CRITICAL(&s_lock);
 
+    char project[sizeof(s_status.candidate_project)];
+    char version[sizeof(s_status.candidate_version)];
+    copy_text(project, sizeof(project), candidate->project_name,
+              sizeof(candidate->project_name));
+    copy_text(version, sizeof(version), candidate->version,
+              sizeof(candidate->version));
     ESP_LOGI(TAG, "Starting OTA upload to %s: %u bytes, project=%s version=%s",
-             partition->label, (unsigned)image_size,
-             s_status.candidate_project, s_status.candidate_version);
+             partition->label, (unsigned)image_size, project, version);
     return ESP_OK;
 }
 
@@ -253,15 +267,15 @@ esp_err_t ota_manager_finish(ota_manager_session_t *session)
         return error;
     }
 
+    const uint32_t completed_ms = now_ms();
     portENTER_CRITICAL(&s_lock);
     s_status.state = OTA_MANAGER_READY_TO_REBOOT;
     s_status.upload_active = false;
     s_status.update_staged = true;
     s_status.bytes_written = session->written;
-    s_status.completed_ms = now_ms();
+    s_status.completed_ms = completed_ms;
     s_status.last_error = ESP_OK;
     s_upload_claimed = false;
-    refresh_partition_status_locked();
     portEXIT_CRITICAL(&s_lock);
 
     ESP_LOGI(TAG, "OTA image validated and staged in %s; reboot required",
@@ -290,7 +304,6 @@ esp_err_t ota_manager_mark_running_valid(void)
     if (error == ESP_OK) {
         portENTER_CRITICAL(&s_lock);
         s_status.pending_verify = false;
-        refresh_partition_status_locked();
         portEXIT_CRITICAL(&s_lock);
         ESP_LOGI(TAG, "First-boot diagnostics passed; running image marked valid");
     }
