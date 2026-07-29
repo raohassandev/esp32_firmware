@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_H = (ROOT / "components/solar_grid_config/include/solar_grid_config.h").read_text(encoding="utf-8")
@@ -114,9 +115,11 @@ for token in [
     "web_assets_solar_grid_js",
     "solar_grid_api_register(s_server)",
     "solar_grid_status_api_register(s_server)",
-    "config.max_uri_handlers = 40",
 ]:
     require(token in SERVER, f"Solar-Grid server integration missing: {token}")
+handler_capacity = re.search(r"config\.max_uri_handlers\s*=\s*(\d+)", SERVER)
+require(handler_capacity is not None and int(handler_capacity.group(1)) >= 40,
+        "HTTP server must retain at least the Solar-Grid URI-handler capacity")
 require("DECLARE_ASSET(solar_grid_js)" in ASSETS,
         "Solar-Grid browser asset is not exported")
 for token in [
