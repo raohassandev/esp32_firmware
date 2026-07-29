@@ -7,6 +7,7 @@
 #include "config_types.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
 #include "nvs.h"
 
 #define SOLAR_GRID_NAMESPACE "pvdg_grid"
