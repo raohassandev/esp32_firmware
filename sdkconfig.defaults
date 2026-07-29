@@ -6,7 +6,10 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_ESP_TASK_WDT_EN=y
 CONFIG_ESP_TASK_WDT_TIMEOUT_S=5
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
-CONFIG_LWIP_MAX_SOCKETS=12
+# Shared by httpd, the Modbus TCP client, DHCP and DNS. httpd reserves 3 on top
+# of its max_open_sockets, so 12 left nothing spare once the web server was
+# sized for a browser's keep-alive connections.
+CONFIG_LWIP_MAX_SOCKETS=16
 CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
 CONFIG_HTTPD_MAX_URI_LEN=256
 CONFIG_PVDG_DEFAULT_WIFI_SSID="Rao1"

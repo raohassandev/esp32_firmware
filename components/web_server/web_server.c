@@ -134,6 +134,23 @@ esp_err_t web_server_start(void)
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.max_uri_handlers = 40;
     config.stack_size = 8192;
+    /* The default of 7 leaves only 4 client sockets once httpd takes its 3
+     * internal ones, and a browser opens up to 6 keep-alive connections per
+     * origin. One tab could therefore hold the pool and lock every other client
+     * out - including the operator UI and a second engineer. Observed on
+     * hardware: with a browser attached, unrelated requests timed out entirely
+     * and recovered the instant the browser closed.
+     * httpd enforces max_open_sockets + 3 <= CONFIG_LWIP_MAX_SOCKETS and
+     * refuses to start otherwise. The lwIP pool is shared with everything else
+     * on the device, so this must not consume all of it: the Modbus TCP client
+     * that polls the meters needs sockets too, as do DHCP and DNS. With
+     * CONFIG_LWIP_MAX_SOCKETS raised to 16 (see sdkconfig.defaults), 10 leaves
+     * httpd using 13 and three spare for the rest of the system. */
+    config.max_open_sockets = 10;
+    /* Without this the pool is never reclaimed: once full, httpd simply stops
+     * accepting instead of closing the least recently used connection, so a
+     * single stale client can wedge the server indefinitely. */
+    config.lru_purge_enable = true;
     ESP_RETURN_ON_ERROR(httpd_start(&s_server, &config), "web", "HTTP server start failed");
     const httpd_uri_t assets[] = {
         {.uri = "/", .method = HTTP_GET, .handler = index_handler},
