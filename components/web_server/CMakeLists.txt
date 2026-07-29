@@ -40,6 +40,7 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/inverter-config.js" "${CMAKE
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/inverter-telemetry.js" "${CMAKE_CURRENT_BINARY_DIR}/inverter-telemetry.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500-utils.js" "${CMAKE_CURRENT_BINARY_DIR}/em500-utils.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500-core.js" "${CMAKE_CURRENT_BINARY_DIR}/em500-core.js" COPYONLY)
+configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500-quality.js" "${CMAKE_CURRENT_BINARY_DIR}/em500-quality.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500-profiles.js" "${CMAKE_CURRENT_BINARY_DIR}/em500-profiles.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500-plan.js" "${CMAKE_CURRENT_BINARY_DIR}/em500-plan.js" COPYONLY)
 
@@ -113,6 +114,7 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/inverter-telemetry.js"
         "${CMAKE_CURRENT_BINARY_DIR}/em500-utils.js"
         "${CMAKE_CURRENT_BINARY_DIR}/em500-core.js"
+        "${CMAKE_CURRENT_BINARY_DIR}/em500-quality.js"
         "${CMAKE_CURRENT_BINARY_DIR}/em500-profiles.js"
         "${CMAKE_CURRENT_BINARY_DIR}/em500-plan.js"
 )
