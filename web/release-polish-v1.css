@@ -58,9 +58,9 @@
 /* Readiness cards must remain readable in dark mode. */
 [data-theme="dark"] .readiness-card,
 html:not([data-theme="light"]) .readiness-card {
-    background: #10243a !important;
-    border-color: #29445f !important;
-    color: #f4f8fc !important;
+    background: var(--surface-overlay) !important;
+    border-color: var(--line) !important;
+    color: var(--text) !important;
 }
 
 [data-theme="dark"] .readiness-card strong,

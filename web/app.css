@@ -20,6 +20,35 @@
     --red: #ff6b74;
     --shadow: 0 18px 50px rgba(0, 0, 0, 0.24);
     --radius: 16px;
+
+    /* Semantic surface tokens. Every themed surface must resolve through a
+       token; hardcoded hex here produced dark-on-dark in light theme (S5).
+       Each of these is redefined for light theme in theme.css. */
+    --surface-sunken: #0a192b;        /* inset rails: status strip */
+    --surface-raised: #17304d;        /* raised controls: .button.secondary */
+    --surface-raised-hover: #1d3b5e;
+    --surface-overlay: #10243a;       /* floating surfaces: toasts, shell controls */
+    --control-track: #071522;         /* switch track (off state) */
+    --line-strong: #3a6288;           /* hover / emphasis borders */
+    --action-solid: #153a5f;          /* solid shell action buttons */
+    --action-solid-hover: #1b4a76;
+    --action-solid-text: #ffffff;
+
+    /* Compatibility aliases. Several stylesheets were written against token
+       names that were never defined anywhere, so `var(--panel-bg, #fff)` fell
+       back to a light literal in BOTH themes - that is what rendered the
+       Pre-Lab Readiness cards white under near-white dark-theme text (S5a).
+       Aliasing them onto the real tokens fixes every such call site at once
+       and needs no per-theme duplication: the referenced token is already
+       theme-aware on the same element. */
+    --panel-bg: var(--panel);
+    --surface: var(--panel);
+    --border: var(--line);
+    --border-color: var(--line);
+    --input-bg: var(--field);
+    --accent: var(--orange);
+    --success: var(--green);
+    --danger: var(--red);
 }
 
 * { box-sizing: border-box; }
@@ -53,14 +82,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .breadcrumb { color: var(--muted-2); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; }
 .topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 .icon-button { width: 40px; height: 40px; border: 1px solid var(--line); border-radius: 11px; color: var(--text); background: var(--panel); cursor: pointer; transition: 160ms ease; }
-.icon-button:hover { border-color: #3b5d80; background: var(--panel-strong); }
+.icon-button:hover { border-color: var(--line-strong); background: var(--panel-strong); }
 .live-pill, .subtle-badge { display: inline-flex; align-items: center; min-height: 30px; padding: 0 11px; border: 1px solid var(--line); border-radius: 999px; font-size: 12px; font-weight: 750; white-space: nowrap; }
 .live-pill.good, .subtle-badge.good { color: var(--green); border-color: rgba(67, 209, 139, 0.35); background: rgba(67, 209, 139, 0.08); }
 .live-pill.bad, .subtle-badge.bad { color: var(--red); border-color: rgba(255, 107, 116, 0.35); background: rgba(255, 107, 116, 0.08); }
 .live-pill.warning, .subtle-badge.warning { color: var(--yellow); border-color: rgba(244, 201, 93, 0.35); background: rgba(244, 201, 93, 0.08); }
 .live-pill.neutral, .subtle-badge { color: var(--muted); }
 
-.status-strip { display: grid; grid-template-columns: repeat(6, minmax(130px, 1fr)); border-bottom: 1px solid var(--line-soft); background: #0a192b; overflow-x: auto; }
+.status-strip { display: grid; grid-template-columns: repeat(6, minmax(130px, 1fr)); border-bottom: 1px solid var(--line-soft); background: var(--surface-sunken); overflow-x: auto; }
 .status-item { min-width: 130px; padding: 12px 16px; border-right: 1px solid var(--line-soft); }
 .status-item:last-child { border-right: 0; }
 .status-label { display: block; margin-bottom: 5px; color: var(--muted-2); font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; }
@@ -132,13 +161,13 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 input, select, textarea { width: 100%; border: 1px solid var(--line); border-radius: 10px; color: var(--text); background: var(--field); transition: 150ms ease; }
 input, select { min-height: 42px; padding: 9px 11px; }
 textarea { padding: 13px; }
-input:hover, select:hover, textarea:hover { border-color: #365b81; }
+input:hover, select:hover, textarea:hover { border-color: var(--line-strong); }
 input:disabled, select:disabled { opacity: 0.48; cursor: not-allowed; }
 .field.invalid input, .field.invalid select { border-color: var(--red); }
 .field-error { display: block; margin-top: 5px; color: var(--red); font-size: 10px; }
 .switch { display: inline-flex; gap: 8px; align-items: center; color: var(--muted); cursor: pointer; font-size: 11px; }
 .switch input { position: absolute; width: 1px; height: 1px; opacity: 0; }
-.switch span { position: relative; width: 38px; height: 21px; border: 1px solid var(--line); border-radius: 999px; background: #071522; transition: 160ms ease; }
+.switch span { position: relative; width: 38px; height: 21px; border: 1px solid var(--line); border-radius: 999px; background: var(--control-track); transition: 160ms ease; }
 .switch span::after { content: ""; position: absolute; top: 3px; left: 3px; width: 13px; height: 13px; border-radius: 50%; background: var(--muted-2); transition: 160ms ease; }
 .switch input:checked + span { border-color: rgba(242, 138, 43, 0.6); background: rgba(242, 138, 43, 0.16); }
 .switch input:checked + span::after { left: 20px; background: var(--orange); }
@@ -153,8 +182,8 @@ input:disabled, select:disabled { opacity: 0.48; cursor: not-allowed; }
 .button:disabled { opacity: 0.48; cursor: wait; }
 .button.primary { color: #171b20; background: var(--orange); }
 .button.primary:hover { background: #ff9b3d; }
-.button.secondary { color: var(--text); border-color: var(--line); background: #17304d; }
-.button.secondary:hover { border-color: #3a6288; background: #1d3b5e; }
+.button.secondary { color: var(--text); border-color: var(--line); background: var(--surface-raised); }
+.button.secondary:hover { border-color: var(--line-strong); background: var(--surface-raised-hover); }
 .button.danger-button { color: #fff; border-color: rgba(255, 107, 116, 0.35); background: rgba(173, 42, 54, 0.52); }
 
 .asset-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
@@ -167,7 +196,7 @@ input:disabled, select:disabled { opacity: 0.48; cursor: not-allowed; }
 .empty-state { padding: 30px; border: 1px dashed var(--line); border-radius: var(--radius); color: var(--muted); text-align: center; }
 .json-editor { min-height: 410px; resize: vertical; font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 11px; line-height: 1.55; }
 .toast-region { position: fixed; z-index: 60; right: 20px; bottom: 20px; display: grid; gap: 9px; width: min(360px, calc(100vw - 40px)); }
-.toast { padding: 12px 14px; border: 1px solid var(--line); border-radius: 11px; color: var(--text); background: #10243a; box-shadow: var(--shadow); font-size: 12px; animation: toast-in 180ms ease; }
+.toast { padding: 12px 14px; border: 1px solid var(--line); border-radius: 11px; color: var(--text); background: var(--surface-overlay); box-shadow: var(--shadow); font-size: 12px; animation: toast-in 180ms ease; }
 .toast.good { border-color: rgba(67, 209, 139, 0.35); }
 .toast.bad { border-color: rgba(255, 107, 116, 0.35); }
 @keyframes toast-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }

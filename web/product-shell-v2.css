@@ -21,21 +21,21 @@ body.product-shell-v2 .topbar {
     backdrop-filter: blur(14px);
 }
 html[data-theme="dark"] body.product-shell-v2 .topbar {
-    color: #f4f8fc;
+    color: var(--text);
     background: rgba(7, 17, 31, 0.96);
     border-bottom-color: rgba(53, 77, 101, 0.72);
 }
 html[data-theme="light"] body.product-shell-v2 .topbar {
-    color: #172436;
+    color: var(--text);
     background: rgba(255, 255, 255, 0.96);
-    border-bottom-color: #d7e0e9;
+    border-bottom-color: var(--line-soft);
     box-shadow: 0 8px 24px rgba(31, 55, 78, 0.06);
 }
 body.product-shell-v2 .page-heading { display: grid; gap: 2px; }
 body.product-shell-v2 .page-heading h1 { margin: 0; color: inherit; font-size: 20px; }
 body.product-shell-v2 .breadcrumb { display: none; }
 body.product-shell-v2 .shell-page-context { color: var(--muted); font-size: 11px; line-height: 1.35; }
-html[data-theme="dark"] body.product-shell-v2 .shell-page-context { color: #9cb0c5; }
+html[data-theme="dark"] body.product-shell-v2 .shell-page-context { color: var(--muted); }
 body.product-shell-v2 .topbar-actions { gap: 8px; }
 body.product-shell-v2 .topbar-actions > * { flex: 0 0 auto; }
 body.product-shell-v2 .product-tool-button,
@@ -45,7 +45,8 @@ body.product-shell-v2 #controllerPill { display: none; }
 
 .shell-health-button,
 .shell-overflow-button {
-    min-height: 42px;
+    min-height: 44px;
+    min-width: 44px;
     border: 1px solid var(--line);
     border-radius: 11px;
     color: var(--text);
@@ -55,15 +56,15 @@ body.product-shell-v2 #controllerPill { display: none; }
 }
 html[data-theme="dark"] .shell-health-button,
 html[data-theme="dark"] .shell-overflow-button {
-    color: #f4f8fc;
-    border-color: #29445e;
-    background: #10243a;
+    color: var(--text);
+    border-color: var(--line);
+    background: var(--surface-overlay);
 }
 html[data-theme="light"] .shell-health-button,
 html[data-theme="light"] .shell-overflow-button {
-    color: #172436;
-    border-color: #c7d3df;
-    background: #ffffff;
+    color: var(--text);
+    border-color: var(--line);
+    background: var(--surface-overlay);
 }
 .shell-health-button { display: inline-flex; align-items: center; gap: 8px; padding: 0 12px; }
 .shell-health-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted-2); }
@@ -71,7 +72,7 @@ html[data-theme="light"] .shell-overflow-button {
 .shell-health-button.warning .shell-health-dot { background: var(--yellow); }
 .shell-health-button.bad .shell-health-dot { background: var(--red); }
 .shell-health-label { font-size: 12px; font-weight: 800; }
-.shell-overflow-button { width: 42px; font-size: 20px; }
+.shell-overflow-button { width: 44px; font-size: 20px; }
 
 body.product-shell-v2 .status-strip { display: none; }
 body.product-shell-v2 .content { padding-top: 22px; }
@@ -103,7 +104,7 @@ body.product-shell-v2 .panel { box-shadow: var(--shadow); }
 }
 .shell-popover-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px; border-bottom: 1px solid var(--line-soft); }
 .shell-popover-head h2 { margin: 0; font-size: 16px; }
-.shell-popover-close { width: 36px; height: 36px; border: 0; border-radius: 9px; color: var(--text); background: transparent; font-size: 22px; cursor: pointer; }
+.shell-popover-close { width: 44px; height: 44px; border: 0; border-radius: 9px; color: var(--text); background: transparent; font-size: 22px; cursor: pointer; }
 .shell-popover-body { padding: 12px; }
 .shell-status-list { display: grid; gap: 8px; }
 .shell-status-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 11px 12px; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--panel-strong); }
@@ -116,22 +117,22 @@ body.product-shell-v2 .panel { box-shadow: var(--shadow); }
 
 html[data-theme="light"] .engineering-page .engineering-login,
 html[data-theme="light"] .engineering-page .engineering-console .panel {
-    color: #172436;
-    background: #ffffff;
-    border-color: #c7d3df;
+    color: var(--text);
+    background: var(--panel);
+    border-color: var(--line);
 }
 html[data-theme="light"] .engineering-page input,
 html[data-theme="light"] .engineering-page select,
 html[data-theme="light"] .engineering-page textarea {
-    color: #172436;
-    background: #f8fafc;
-    border-color: #9fb3c7;
+    color: var(--text);
+    background: var(--field);
+    border-color: var(--line);
 }
 html[data-theme="dark"] .engineering-page .engineering-login,
 html[data-theme="dark"] .engineering-page .engineering-console .panel {
-    color: #f4f8fc;
-    background: #10243a;
-    border-color: #29445e;
+    color: var(--text);
+    background: var(--surface-overlay);
+    border-color: var(--line);
 }
 
 body.product-shell-v2 .product-mobile-nav { grid-template-columns: repeat(5, minmax(0, 1fr)); }
@@ -165,13 +166,13 @@ body.product-shell-v2 [data-page="dashboard"] .system-readiness-row {
 body.product-shell-v2 #refreshButton,
 body.product-shell-v2 .page-intro .button,
 body.product-shell-v2 .experience-masthead .button {
-    color: #fff !important;
-    background: #153a5f !important;
-    border-color: #244f78 !important;
+    color: var(--action-solid-text) !important;
+    background: var(--action-solid) !important;
+    border-color: var(--action-solid-hover) !important;
 }
 body.product-shell-v2 #refreshButton:hover,
 body.product-shell-v2 .page-intro .button:hover,
-body.product-shell-v2 .experience-masthead .button:hover { background: #1b4a76 !important; }
+body.product-shell-v2 .experience-masthead .button:hover { background: var(--action-solid-hover) !important; }
 
 html[data-access="engineering"] body.product-shell-v2 .engineering-link::after {
     content: 'DEV';
@@ -196,11 +197,11 @@ html[data-access="engineering"] body.product-shell-v2 .engineering-link::after {
     body.product-shell-v2 .page-heading { min-width: 0; }
     body.product-shell-v2 .page-heading h1 { max-width: 40vw; font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     body.product-shell-v2 .shell-page-context { display: none; }
-    .shell-health-button { width: 40px; padding: 0; justify-content: center; }
+    .shell-health-button { width: 44px; padding: 0; justify-content: center; }
     .shell-health-label { display: none; }
-    .shell-overflow-button { width: 40px; }
+    .shell-overflow-button { width: 44px; }
     body.product-shell-v2 #refreshButton,
-    body.product-shell-v2 #menuButton { width: 40px; height: 40px; flex-basis: 40px; }
+    body.product-shell-v2 #menuButton { width: 44px; height: 44px; flex-basis: 44px; }
     body.product-shell-v2 .content { padding-top: 14px; }
     .shell-popover-backdrop { place-items: end stretch; padding: 0; background: rgba(0,0,0,.48); }
     .shell-popover { width: 100%; max-height: 82vh; border-radius: 18px 18px 0 0; padding-bottom: env(safe-area-inset-bottom); }
