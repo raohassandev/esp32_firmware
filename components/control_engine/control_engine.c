@@ -21,6 +21,7 @@ static control_config_t s_config;
 static solar_grid_config_t s_grid_config;
 static control_status_t s_status;
 static bool s_runtime_forced_disabled;
+static bool s_safe_zero_pending;
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 
 typedef struct {
@@ -44,12 +45,19 @@ static uint32_t now_ms(void)
     return (uint32_t)(esp_timer_get_time() / 1000ULL);
 }
 
-static bool runtime_control_enabled(void)
+static void runtime_control_snapshot(bool *enabled, bool *safe_zero_pending)
 {
     portENTER_CRITICAL(&s_lock);
-    bool enabled = s_config.enabled && !s_runtime_forced_disabled;
+    if (enabled) *enabled = s_config.enabled && !s_runtime_forced_disabled;
+    if (safe_zero_pending) *safe_zero_pending = s_safe_zero_pending;
     portEXIT_CRITICAL(&s_lock);
-    return enabled;
+}
+
+static void clear_safe_zero_pending(void)
+{
+    portENTER_CRITICAL(&s_lock);
+    s_safe_zero_pending = false;
+    portEXIT_CRITICAL(&s_lock);
 }
 
 static bool meter_sample_fresh(const meter_data_t *meter, uint32_t timestamp)
@@ -194,7 +202,9 @@ static void control_task(void *argument)
     while (true) {
         uint32_t timestamp = now_ms();
         float interval_seconds = safe_interval_seconds(timestamp, &previous_ms);
-        bool control_enabled = runtime_control_enabled();
+        bool control_enabled = false;
+        bool safe_zero_pending = false;
+        runtime_control_snapshot(&control_enabled, &safe_zero_pending);
 
         meter_data_t grid = {0};
         bool have_grid = meter_manager_get_data(0, &grid);
@@ -286,6 +296,23 @@ static void control_task(void *argument)
             } else {
                 current_target_kw = applied_kw;
             }
+        } else if (safe_zero_pending) {
+            /* The HTTP/configuration path only sets this latch. The control task
+             * owns the physical zero command and retains the last confirmed
+             * applied value if that command cannot be confirmed. */
+            esp_err_t zero_result = inverter_manager_set_total_power_kw(0.0f);
+            if (zero_result == ESP_OK ||
+                (current_target_kw <= 0.0f && zero_result == ESP_ERR_INVALID_STATE)) {
+                clear_safe_zero_pending();
+                current_target_kw = 0.0f;
+                applied_kw = 0.0f;
+            } else {
+                applied_kw = current_target_kw;
+                mode = APP_MODE_FAILSAFE;
+                ESP_LOGE(TAG, "Safe-zero command after control disable failed: %s",
+                         esp_err_to_name(zero_result));
+            }
+            integral_kw = 0.0f;
         } else {
             current_target_kw = 0.0f;
             integral_kw = 0.0f;
@@ -361,6 +388,7 @@ esp_err_t control_engine_init(void)
 
     portENTER_CRITICAL(&s_lock);
     s_runtime_forced_disabled = false;
+    s_safe_zero_pending = false;
     s_status = (control_status_t){
         .enabled = s_config.enabled,
         .mode = s_config.enabled ? APP_MODE_FAILSAFE : APP_MODE_DISABLED,
@@ -406,10 +434,13 @@ void control_engine_get_status(control_status_t *out_status)
 void control_engine_force_disable(void)
 {
     portENTER_CRITICAL(&s_lock);
+    if (s_status.enabled || s_status.applied_pv_kw > 0.0f) {
+        s_safe_zero_pending = true;
+    }
     s_runtime_forced_disabled = true;
     s_status.enabled = false;
     s_status.mode = APP_MODE_DISABLED;
     s_status.requested_pv_kw = 0.0f;
     portEXIT_CRITICAL(&s_lock);
-    ESP_LOGW(TAG, "Runtime control disable latched; safe zero will be applied by the control task");
+    ESP_LOGW(TAG, "Runtime control disable latched; control task will confirm safe zero before clearing the pending state");
 }
