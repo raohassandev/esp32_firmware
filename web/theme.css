@@ -23,6 +23,10 @@ html[data-theme="light"] {
        surface in light theme (measured 1.17:1 on .button.secondary). */
     --surface-sunken: #f8fafc;
     --surface-raised: #e4ecf5;
+    /* Measured 4.79:1 text on surface. */
+    --disabled-text: #54687d;
+    --disabled-surface: #e5ebf1;
+    --disabled-line: #cbd6e1;
     --surface-raised-hover: #d5e1ee;
     --surface-overlay: #ffffff;
     --control-track: #eef2f7;
@@ -84,14 +88,6 @@ html[data-theme="light"] select,
 html[data-theme="light"] textarea {
     color: var(--text);
     background: var(--field);
-}
-
-html[data-theme="light"] button:disabled,
-html[data-theme="light"] .button:disabled {
-    color: #71859a;
-    border-color: #cbd6e1;
-    background: #e5ebf1;
-    opacity: 1;
 }
 
 html[data-theme="light"] .notice,

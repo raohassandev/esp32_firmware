@@ -26,6 +26,13 @@
        Each of these is redefined for light theme in theme.css. */
     --surface-sunken: #0a192b;        /* inset rails: status strip */
     --surface-raised: #17304d;        /* raised controls: .button.secondary */
+    /* Disabled controls. Explicit colours rather than opacity: fading the whole
+     * element drags text and background toward the page unpredictably, which is
+     * what made disabled buttons read as broken rather than unavailable.
+     * Measured 6.34:1 text on surface. */
+    --disabled-text: #9fb3c8;
+    --disabled-surface: #1b2f45;
+    --disabled-line: #2b4260;
     --surface-raised-hover: #1d3b5e;
     --surface-overlay: #10243a;       /* floating surfaces: toasts, shell controls */
     --control-track: #071522;         /* switch track (off state) */
@@ -162,7 +169,13 @@ input, select, textarea { width: 100%; border: 1px solid var(--line); border-rad
 input, select { min-height: 42px; padding: 9px 11px; }
 textarea { padding: 13px; }
 input:hover, select:hover, textarea:hover { border-color: var(--line-strong); }
-input:disabled, select:disabled { opacity: 0.48; cursor: not-allowed; }
+input:disabled, select:disabled, textarea:disabled {
+    color: var(--disabled-text);
+    background: var(--disabled-surface);
+    border-color: var(--disabled-line);
+    opacity: 1;
+    cursor: not-allowed;
+}
 .field.invalid input, .field.invalid select { border-color: var(--red); }
 .field-error { display: block; margin-top: 5px; color: var(--red); font-size: 10px; }
 .switch { display: inline-flex; gap: 8px; align-items: center; color: var(--muted); cursor: pointer; font-size: 11px; }
@@ -179,12 +192,24 @@ input:disabled, select:disabled { opacity: 0.48; cursor: not-allowed; }
 .action-message.bad { color: var(--red); }
 .action-message.good { color: var(--green); }
 .button { min-height: 40px; padding: 0 15px; border: 1px solid transparent; border-radius: 10px; font-weight: 800; font-size: 12px; cursor: pointer; transition: 150ms ease; }
-.button:disabled { opacity: 0.48; cursor: wait; }
+/* cursor was `wait`, which tells the operator the application is busy rather
+ * than that the control is unavailable - a meaningful difference on a
+ * commissioning screen where the two look identical otherwise. State is carried
+ * by colour AND cursor, never colour alone. */
 .button.primary { color: #171b20; background: var(--orange); }
 .button.primary:hover { background: #ff9b3d; }
 .button.secondary { color: var(--text); border-color: var(--line); background: var(--surface-raised); }
 .button.secondary:hover { border-color: var(--line-strong); background: var(--surface-raised-hover); }
 .button.danger-button { color: #fff; border-color: rgba(255, 107, 116, 0.35); background: rgba(173, 42, 54, 0.52); }
+.button:disabled, button:disabled,
+.button.primary:disabled, .button.secondary:disabled, .button.danger-button:disabled {
+    color: var(--disabled-text);
+    background: var(--disabled-surface);
+    border-color: var(--disabled-line);
+    opacity: 1;
+    cursor: not-allowed;
+    box-shadow: none;
+}
 
 .asset-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
 .asset-card { padding: 17px; border: 1px solid var(--line-soft); border-radius: var(--radius); background: var(--panel); box-shadow: var(--shadow); }
