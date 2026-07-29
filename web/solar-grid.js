@@ -7,11 +7,20 @@
         timer: null,
         controller: null,
         sequence: 0,
-        saving: false
+        saving: false,
+        savingRamps: false
     };
 
     const byId = (id) => document.getElementById(id);
     const route = () => window.location.hash.replace(/^#\/?/, '').split(/[?&]/, 1)[0] || 'dashboard';
+    const access = () => window.AutomatrixEngineeringAccess;
+
+    /* Solar+Grid configuration and status are Engineering data for the Control
+     * route. Requesting them from the operator dashboard produced 40 guaranteed
+     * 401s in the 60-run audit, each holding one of very few client sockets. */
+    function controlScopeAllowed() {
+        return Boolean(access()?.mayRequest('/api/solar-grid/config'));
+    }
 
     async function api(path, options = {}) {
         const { timeoutMs = 5000, signal: externalSignal, ...fetchOptions } = options;
@@ -100,6 +109,195 @@
         );
         block.append(grid);
         return block;
+    }
+
+    /* Schema 5 keeps one rate-limit profile per carrying source. control_engine.c
+     * selects generator_ramp while a generator carries the plant (Generator Only,
+     * Island, Grid+Generator sync) and grid_ramp otherwise. */
+    const RAMP_PROFILES = [
+        {
+            key: 'grid_ramp',
+            prefix: 'gridRamp',
+            title: 'Grid ramp profile',
+            detail: 'Used while the grid carries the plant. A stiff grid normally tolerates a fast PV change, so this profile is off by default.'
+        },
+        {
+            key: 'generator_ramp',
+            prefix: 'generatorRamp',
+            title: 'Generator ramp profile',
+            detail: 'Used while a generator carries the plant: Generator Only, Island and Grid+Generator sync. This is where rate limiting matters.'
+        }
+    ];
+
+    function rampFields(profile) {
+        const block = node('article', 'panel solar-grid-ramp');
+        block.append(node('h4', '', profile.title), node('p', '', profile.detail));
+
+        const toggle = node('label', 'switch field-switch');
+        const enabled = node('input');
+        enabled.id = `${profile.prefix}Enabled`;
+        enabled.type = 'checkbox';
+        toggle.append(enabled, node('span'), node('b', '', 'Limit the rate of change'));
+        block.append(toggle);
+
+        const up = numberInput(`${profile.prefix}Up`, 0, '0.1');
+        const down = numberInput(`${profile.prefix}Down`, 0, '0.1');
+        up.max = '10000';
+        down.max = '10000';
+        const grid = node('div', 'field-grid');
+        grid.append(
+            field('Up rate (% of installed PV capacity per second)', up),
+            field('Down rate (% of installed PV capacity per second)', down)
+        );
+        block.append(grid);
+        return block;
+    }
+
+    function ensureRampEditor(root) {
+        if (byId('controlRampEditor')) return;
+        const panel = node('article', 'panel form-panel');
+        panel.id = 'controlRampEditor';
+
+        const header = node('div', 'panel-header');
+        const copy = node('div');
+        copy.append(node('p', 'eyebrow', 'Persisted control settings'), node('h3', '', 'PV command ramp profiles'));
+        header.append(copy);
+        panel.append(header);
+
+        const notice = node('div', 'notice warning');
+        notice.append(
+            node('strong', '', 'Disabling a ramp removes only the rate limit.'),
+            node('span', '', 'The export/import policy, the generator minimum-loading limit and every other safety clamp are applied first and still hold. Disabled means reach the allowed target immediately, never ignore the limits.')
+        );
+        panel.append(notice);
+
+        const guidance = node('div', 'notice safe');
+        guidance.append(
+            node('strong', '', 'Set the generator down rate higher than its up rate.'),
+            node('span', '', 'Reducing PV is the direction that protects a generator from under-loading and reverse power, so it must never be the slower move. An enabled profile with a zero rate is rejected by the controller: a zero rate would freeze the PV command instead of removing the limit.')
+        );
+        panel.append(guidance);
+
+        const profiles = node('div', 'dashboard-grid solar-grid-ramps');
+        RAMP_PROFILES.forEach((profile) => profiles.append(rampFields(profile)));
+        panel.append(profiles);
+
+        const advisory = node('p', 'action-message warning');
+        advisory.id = 'controlRampAdvisory';
+        advisory.setAttribute('role', 'status');
+        panel.append(advisory);
+
+        const actions = node('div', 'panel-actions');
+        const save = node('button', 'button primary', 'Save ramp profiles');
+        save.id = 'controlRampSave';
+        save.type = 'button';
+        const message = node('span', 'action-message');
+        message.id = 'controlRampMessage';
+        message.setAttribute('role', 'status');
+        actions.append(save, message);
+        panel.append(actions);
+
+        root.append(panel);
+        save.addEventListener('click', saveRamps);
+        /* The workspace is not in the document yet when this runs, so resolve
+         * the controls inside the panel rather than through getElementById. */
+        RAMP_PROFILES.forEach((profile) => {
+            ['Enabled', 'Up', 'Down'].forEach((suffix) => {
+                const control = panel.querySelector(`#${profile.prefix}${suffix}`);
+                control?.addEventListener('change', rampAdvisory);
+                control?.addEventListener('input', rampAdvisory);
+            });
+        });
+    }
+
+    function setRampMessage(message, tone = '') {
+        const target = byId('controlRampMessage');
+        if (!target) return;
+        target.textContent = message || '';
+        target.className = `action-message${tone ? ` ${tone}` : ''}`;
+    }
+
+    /* Advisory, not a blocker: a slower down rate is accepted by the firmware but
+     * is wrong for a generator, so it is surfaced rather than silently saved. */
+    function rampAdvisory() {
+        const target = byId('controlRampAdvisory');
+        if (!target) return;
+        const enabled = byId('generatorRampEnabled')?.checked;
+        const up = Number(byId('generatorRampUp')?.value);
+        const down = Number(byId('generatorRampDown')?.value);
+        const risky = enabled && Number.isFinite(up) && Number.isFinite(down) && down <= up;
+        target.textContent = risky
+            ? 'Review: the generator down rate is not faster than its up rate. Reducing PV is the direction that protects a generator from under-loading and reverse power.'
+            : '';
+    }
+
+    function renderRamps(control) {
+        RAMP_PROFILES.forEach((profile) => {
+            const values = control?.[profile.key] || {};
+            const generator = profile.key === 'generator_ramp';
+            byId(`${profile.prefix}Enabled`).checked = Boolean(values.enabled);
+            byId(`${profile.prefix}Up`).value = Number.isFinite(Number(values.up_pct_s))
+                ? Number(values.up_pct_s) : (generator ? 5 : 100);
+            byId(`${profile.prefix}Down`).value = Number.isFinite(Number(values.down_pct_s))
+                ? Number(values.down_pct_s) : (generator ? 20 : 100);
+        });
+        rampAdvisory();
+    }
+
+    function collectRamps() {
+        const control = {};
+        for (const profile of RAMP_PROFILES) {
+            const enabled = byId(`${profile.prefix}Enabled`).checked;
+            const up = Number(byId(`${profile.prefix}Up`).value);
+            const down = Number(byId(`${profile.prefix}Down`).value);
+            if (!Number.isFinite(up) || !Number.isFinite(down) ||
+                up < 0 || down < 0 || up > 10000 || down > 10000) {
+                throw new Error(`${profile.title}: both rates must be between 0 and 10000 % per second.`);
+            }
+            /* Mirrors ramp_profile_valid() in config_manager.c: an enabled profile
+             * with a zero rate would freeze the command, so the controller rejects
+             * it. Say so here instead of letting the POST fail opaquely. */
+            if (enabled && (up <= 0 || down <= 0)) {
+                throw new Error(`${profile.title}: an enabled profile needs a non-zero rate in both directions. A zero rate would freeze the PV command, so the controller rejects it - clear "Limit the rate of change" instead to remove the rate limit.`);
+            }
+            control[profile.key] = { enabled, up_pct_s: up, down_pct_s: down };
+        }
+        return { control };
+    }
+
+    async function loadRamps() {
+        if (!byId('controlRampEditor')) return;
+        try {
+            const config = await api('/api/config', { timeoutMs: 5000 });
+            renderRamps(config?.control || {});
+            setRampMessage('Ramp profiles loaded from the controller.');
+        } catch (error) {
+            setRampMessage(`Ramp profiles unavailable: ${error.message}`, 'bad');
+        }
+    }
+
+    async function saveRamps() {
+        if (state.savingRamps) return;
+        const save = byId('controlRampSave');
+        state.savingRamps = true;
+        if (save) save.disabled = true;
+        try {
+            const payload = collectRamps();
+            setRampMessage('Saving ramp profiles and forcing automatic control disabled...');
+            await api('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+                timeoutMs: 7000
+            });
+            setRampMessage('Ramp profiles saved. Automatic control is disabled and a restart is required.', 'good');
+            await loadRamps();
+        } catch (error) {
+            setRampMessage(error.message, 'bad');
+        } finally {
+            state.savingRamps = false;
+            if (save) save.disabled = false;
+        }
     }
 
     function ensureWorkspace() {
@@ -195,6 +393,7 @@
         configPanel.append(actions);
 
         root.append(runtime, configPanel);
+        ensureRampEditor(root);
         anchor.after(root);
 
         save.addEventListener('click', saveConfig);
@@ -356,12 +555,13 @@
     function schedule() {
         window.clearTimeout(state.timer);
         state.timer = null;
-        if (route() !== 'control' || document.hidden) return;
+        if (route() !== 'control' || document.hidden || !controlScopeAllowed()) return;
         state.timer = window.setTimeout(refreshStatus, REFRESH_MS);
     }
 
     async function refreshStatus() {
         if (route() !== 'control' || document.hidden) return;
+        if (!controlScopeAllowed()) return;
         state.controller?.abort();
         const controller = new AbortController();
         state.controller = controller;
@@ -383,22 +583,29 @@
     async function load() {
         ensureWorkspace();
         if (!byId('solarGridWorkspace')) return;
+        if (!controlScopeAllowed()) {
+            setMessage('Unlock Engineering on this page to load the Solar + Grid settings.');
+            setRampMessage('Unlock Engineering on this page to view the ramp profiles.');
+            return;
+        }
         try {
             renderConfig(await api('/api/solar-grid/config', { timeoutMs: 4000 }));
             setMessage('Settings loaded. Saving always forces control disabled.');
         } catch (error) {
             setMessage(`Configuration unavailable: ${error.message}`, 'bad');
         }
+        await loadRamps();
         if (route() === 'control' && !document.hidden) refreshStatus();
     }
 
     function start() {
         load();
-        window.addEventListener('hashchange', () => {
-            if (route() === 'control') {
-                ensureWorkspace();
-                refreshStatus();
-            } else stop();
+        /* Entering the Control route and unlocking Engineering both widen the
+         * scope, so both re-run the gated load: settings appear straight after
+         * sign-in without a manual refresh. */
+        access()?.onScopeChange(() => {
+            if (route() === 'control' && controlScopeAllowed()) load();
+            else stop();
         });
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) stop();

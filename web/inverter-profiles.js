@@ -3,6 +3,14 @@
 
     const state = { profiles: [], loading: false, loaded: false, saving: false, probing: false };
     const byId = (id) => document.getElementById(id);
+    const access = () => window.AutomatrixEngineeringAccess;
+
+    /* The profile catalogue is the single largest source of operator-side 401s
+     * (80 in the 60-run audit). It is Engineering data for the Inverters and
+     * Commissioning routes only. */
+    function catalogueScopeAllowed() {
+        return Boolean(access()?.mayRequest('/api/inverter-profiles'));
+    }
 
     function manufacturers(profiles) {
         return [...new Set((profiles || []).map((profile) => profile.manufacturer).filter(Boolean))]
@@ -204,6 +212,7 @@
 
     async function loadProfiles(force = false) {
         ensureScaffold();
+        if (!catalogueScopeAllowed()) return;
         if (state.loading || (state.loaded && !force)) return;
         state.loading = true;
         setBadge('Loading');
@@ -228,5 +237,7 @@
 
     window.PvdgInverterProfileUtils = { manufacturers, profilesForManufacturer, writeStatus };
     document.addEventListener('DOMContentLoaded', () => { ensureScaffold(); loadProfiles(); });
-    window.addEventListener('hashchange', () => { if (location.hash === '#/inverters') loadProfiles(); });
+    /* Route changes and sign-in both re-evaluate the scope, so the catalogue
+     * loads as soon as Engineering is unlocked on the Inverters page. */
+    access()?.onScopeChange(() => loadProfiles());
 })();

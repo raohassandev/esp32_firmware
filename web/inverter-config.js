@@ -124,8 +124,17 @@
         if (add) add.disabled = state.saving || state.inverters.length >= 12;
     }
 
+    const access = () => window.AutomatrixEngineeringAccess;
+
+    /* This editor is Engineering-only and lives on the Inverters route, so its
+     * baseline read has no reason to run from the operator dashboard. */
+    function editorScopeAllowed() {
+        return Boolean(access()?.mayUseEngineering('inverters', 'commissioning'));
+    }
+
     async function load() {
         if (state.loading) return;
+        if (!editorScopeAllowed()) return;
         state.loading = true;
         setMessage('Loading inverter configuration…');
         try {
@@ -213,10 +222,8 @@
     }
 
     document.addEventListener('DOMContentLoaded', start, { once: true });
-    window.addEventListener('hashchange', () => {
-        if (location.hash === '#/inverters') {
-            ensureScaffold();
-            load();
-        }
+    access()?.onScopeChange(() => {
+        ensureScaffold();
+        load();
     });
 })();

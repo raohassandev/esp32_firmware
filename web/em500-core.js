@@ -18,11 +18,20 @@
         initialized: false,
         requestController: null,
         requestSequence: 0,
-        pollTimer: null
+        pollTimer: null,
+        profilesLoaded: false
     };
 
     const tabs = new Map();
     const byId = (id) => document.getElementById(id);
+    const access = () => window.AutomatrixEngineeringAccess;
+
+    /* The EM500 workspace reads meter internals that only Engineering may see,
+     * and only the Meters route displays them. Building it on every route made
+     * the operator dashboard issue requests it could never be authorised for. */
+    function meterScopeAllowed() {
+        return Boolean(access()?.mayRequest('/api/meters/em500/'));
+    }
 
     function node(tag, className = '', text = null) {
         const result = document.createElement(tag);
@@ -391,6 +400,7 @@
 
     async function refreshActive(automatic = false) {
         if (currentRoute() !== 'meters') return;
+        if (!meterScopeAllowed()) return;
         if (automatic && state.loading) return;
         const definition = tabs.get(state.activeTab);
         if (!definition) return;
@@ -443,9 +453,12 @@
             });
         });
         window.addEventListener('hashchange', () => {
-            if (currentRoute() === 'meters') refreshActive(false);
+            if (currentRoute() === 'meters') enterWorkspace();
             else state.requestController?.abort();
         });
+        /* Unlocking Engineering while already on Meters must populate the
+         * workspace without a manual refresh. */
+        access()?.onScopeChange(enterWorkspace);
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) state.requestController?.abort();
             else if (currentRoute() === 'meters' && state.activeTab === 'live') refreshActive(false);
@@ -459,18 +472,27 @@
         }, 5000);
     }
 
+    async function enterWorkspace() {
+        if (currentRoute() !== 'meters' || !meterScopeAllowed()) return;
+        try {
+            if (!state.profilesLoaded) {
+                await loadProfiles();
+                state.profilesLoaded = true;
+                setMessage(`Loaded ${state.profiles.length} meter profile${state.profiles.length === 1 ? '' : 's'}.`, 'good');
+            }
+            await refreshActive(false);
+        } catch (error) {
+            state.profilesLoaded = false;
+            setMessage(`Meter workspace initialization failed: ${error.message}`, 'bad');
+        }
+    }
+
     async function start() {
         ensureScaffold();
         bind();
         updateTabState();
         startPolling();
-        try {
-            await loadProfiles();
-            setMessage(`Loaded ${state.profiles.length} meter profile${state.profiles.length === 1 ? '' : 's'}.`, 'good');
-            if (currentRoute() === 'meters') await refreshActive(false);
-        } catch (error) {
-            setMessage(`Meter workspace initialization failed: ${error.message}`, 'bad');
-        }
+        await enterWorkspace();
     }
 
     window.PvdgEm500App = Object.freeze({
