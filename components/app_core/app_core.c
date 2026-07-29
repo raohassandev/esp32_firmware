@@ -3,6 +3,7 @@
 #include "esp_log.h"
 #include "config_manager.h"
 #include "solar_grid_config.h"
+#include "ota_manager.h"
 #include "network_manager.h"
 #include "profile_manager.h"
 #include "meter_manager.h"
@@ -27,6 +28,7 @@ esp_err_t app_core_init(void)
     ESP_LOGI(TAG, "Initializing configuration");
     ESP_RETURN_ON_ERROR(config_manager_init(), TAG, "configuration init failed");
     ESP_RETURN_ON_ERROR(solar_grid_config_init(), TAG, "Solar-Grid configuration init failed");
+    ESP_RETURN_ON_ERROR(ota_manager_init(), TAG, "OTA manager init failed");
 
     ESP_LOGI(TAG, "Initializing network");
     ESP_RETURN_ON_ERROR(network_manager_init(), TAG, "network init failed");
@@ -40,7 +42,18 @@ esp_err_t app_core_init(void)
     all_ok &= init_optional(web_server_start(), "web server");
 
     if (!all_ok) {
+        if (ota_manager_running_pending_verify()) {
+            ESP_LOGE(TAG, "A first OTA boot has degraded subsystems; rollback is required");
+            return ESP_FAIL;
+        }
         ESP_LOGW(TAG, "Startup completed with degraded subsystems; device remains reachable for recovery");
+        return ESP_OK;
     }
+
+    /* A newly staged image remains rollback-eligible for 30 seconds after the
+     * full application and web server initialize. A crash or mandatory startup
+     * failure before this task confirms the image preserves the previous slot. */
+    ESP_RETURN_ON_ERROR(ota_manager_schedule_boot_validation(30000U),
+                        TAG, "OTA first-boot validation scheduling failed");
     return ESP_OK;
 }
