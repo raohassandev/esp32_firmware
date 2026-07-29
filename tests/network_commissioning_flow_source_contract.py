@@ -8,6 +8,7 @@ server = (root / 'components' / 'web_server' / 'web_server.c').read_text(encodin
 assets = (root / 'components' / 'web_server' / 'web_assets.c').read_text(encoding='utf-8')
 cmake = (root / 'components' / 'web_server' / 'CMakeLists.txt').read_text(encoding='utf-8')
 network_cmake = (root / 'components' / 'network_manager' / 'CMakeLists.txt').read_text(encoding='utf-8')
+network_source = (root / 'components' / 'network_manager' / 'network_manager.c').read_text(encoding='utf-8')
 copy_source = (root / 'components' / 'network_manager' / 'network_wifi_copy.c').read_text(encoding='utf-8')
 
 required = [
@@ -52,8 +53,38 @@ with tempfile.TemporaryDirectory() as directory:
     ], check=True)
     subprocess.run([str(binary)], check=True)
 
+# Wi-Fi event callbacks may capture immutable event data only. Radio operations,
+# retries, fallback transitions and status completion belong to manager_task.
+event_handler = network_source.split('static void event_handler', 1)[1].split('esp_err_t network_manager_init', 1)[0]
+for forbidden in [
+    'esp_wifi_connect(',
+    'esp_wifi_disconnect(',
+    'esp_wifi_set_mode(',
+    'esp_wifi_set_config(',
+    'esp_wifi_scan_start(',
+    'start_fallback_ap(',
+    'connect_profile(',
+]:
+    assert forbidden not in event_handler, f'event callback still owns Wi-Fi action: {forbidden}'
+for required_token in [
+    'xQueueCreate(MANAGER_EVENT_QUEUE_LENGTH',
+    'xQueueSend(s_event_queue',
+    'xQueueReceive(s_event_queue',
+    'MANAGER_EVENT_STA_DISCONNECTED',
+    'MANAGER_EVENT_STA_GOT_IP',
+    'handle_sta_disconnected',
+    'handle_sta_got_ip',
+    'xTaskNotifyWait',
+    'connect_deadline',
+    'operator_gate_timeout_ticks()',
+]:
+    assert required_token in network_source, f'manager-owned Wi-Fi recovery missing: {required_token}'
+assert 'vTaskDelay(' not in network_source, 'reconnect backoff must be interruptible, not a blocking task delay'
+assert network_source.count('s_retry_count++') == 1, 'retry counter must have one manager-owned mutation path'
+assert network_source.count('s_failed_sweeps++') == 1, 'failed-sweep counter must have one manager-owned mutation path'
+
 # The module must not write control or inverter commands.
 for forbidden in ['/api/control', '/api/inverter-command', '/api/config/import']:
     assert forbidden not in js, f'network flow must not call {forbidden}'
 
-print('network commissioning and maximum-length Wi-Fi field tests: PASS')
+print('network commissioning, maximum-length Wi-Fi and manager-owned recovery tests: PASS')
