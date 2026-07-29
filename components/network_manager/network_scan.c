@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "config_manager.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
@@ -62,9 +63,11 @@ static esp_err_t collect_scan(network_scan_snapshot_t *next)
 
     wifi_ap_record_t *records = calloc(record_count, sizeof(*records));
     network_scan_ap_t *candidates = calloc(record_count, sizeof(*candidates));
-    if (!records || !candidates) {
+    app_config_t *config = malloc(sizeof(*config));
+    if (!records || !candidates || !config) {
         free(records);
         free(candidates);
+        free(config);
         return ESP_ERR_NO_MEM;
     }
 
@@ -72,6 +75,15 @@ static esp_err_t collect_scan(network_scan_snapshot_t *next)
     if (err != ESP_OK) {
         free(records);
         free(candidates);
+        free(config);
+        return err;
+    }
+
+    err = config_manager_get_snapshot(config);
+    if (err != ESP_OK) {
+        free(records);
+        free(candidates);
+        free(config);
         return err;
     }
 
@@ -100,12 +112,10 @@ static esp_err_t collect_scan(network_scan_snapshot_t *next)
         target->rssi = records[index].rssi;
         target->channel = records[index].primary;
         target->auth_mode = (uint8_t)records[index].authmode;
-        target->configured_primary = strcmp(ssid, status.ssid) == 0 &&
-                                     status.network_ready &&
-                                     !status.using_fallback_sta;
-        target->configured_fallback = strcmp(ssid, status.ssid) == 0 &&
-                                      status.network_ready &&
-                                      status.using_fallback_sta;
+        target->configured_primary = config->wifi.primary.enabled &&
+                                     strcmp(ssid, config->wifi.primary.ssid) == 0;
+        target->configured_fallback = config->wifi.fallback.enabled &&
+                                      strcmp(ssid, config->wifi.fallback.ssid) == 0;
         target->connected = status.network_ready && strcmp(ssid, status.ssid) == 0;
     }
 
@@ -120,6 +130,7 @@ static esp_err_t collect_scan(network_scan_snapshot_t *next)
 
     free(records);
     free(candidates);
+    free(config);
     return ESP_OK;
 }
 
