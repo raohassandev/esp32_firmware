@@ -69,13 +69,27 @@ set(WEB_SERVER_C_SOURCES
     "solar_grid_api.c"
     "solar_grid_status_api.c"
     "system_resource_api.c"
+    "audit_log_core.c"
+    "audit_log.c"
+    "audit_log_api.c"
     "web_assets.c"
+)
+
+# Sources that persist configuration. Each is compiled so that its calls to the
+# persistence entry points are routed through the audit wrappers, which record
+# the write and then call the real function. See the header comment in
+# include/audit_log.h for why the audit point is here and not in each handler.
+set(AUDIT_PERSISTENCE_SOURCES
+    "web_api.c"
+    "inverter_config_api.c"
+    "meter_config_api.c"
+    "solar_grid_api.c"
 )
 
 idf_component_register(
     SRCS ${WEB_SERVER_C_SOURCES}
     INCLUDE_DIRS "include"
-    REQUIRES esp_http_server esp_system esp_timer esp_hw_support spi_flash cjson nvs_flash mbedtls config_manager solar_grid_config source_detection network_manager meter_manager modbus_tcp inverter_manager control_engine safety_manager
+    REQUIRES esp_http_server esp_system esp_timer esp_hw_support esp_app_format esp_partition app_update spi_flash cjson nvs_flash mbedtls config_manager solar_grid_config source_detection network_manager meter_manager modbus_tcp inverter_manager control_engine safety_manager
     EMBED_TXTFILES
         "${CMAKE_CURRENT_BINARY_DIR}/index.html"
         "${CMAKE_CURRENT_BINARY_DIR}/app.css"
@@ -133,6 +147,20 @@ foreach(source IN LISTS WEB_SERVER_C_SOURCES)
 endforeach()
 set_source_files_properties("engineering_guard.c" "operational_api.c" PROPERTIES
     COMPILE_DEFINITIONS ENGINEERING_GUARD_IMPLEMENTATION=1)
+# The audit wrappers must be visible before any header is parsed, because the
+# substitution below also rewrites the declarations in config_manager.h and
+# solar_grid_config.h. The wrappers are declared with identical signatures, so
+# the rewritten declarations agree with them.
+#
+# audit_log*.c are excluded: they implement the wrappers and must reach the real
+# persistence functions.
+foreach(source IN LISTS AUDIT_PERSISTENCE_SOURCES)
+    set_property(SOURCE ${source} APPEND PROPERTY COMPILE_OPTIONS "-include;audit_log.h")
+    set_property(SOURCE ${source} APPEND PROPERTY COMPILE_DEFINITIONS
+        config_manager_save=audit_config_manager_save
+        solar_grid_config_save=audit_solar_grid_config_save)
+endforeach()
+
 set_property(SOURCE "em500_api.c" APPEND PROPERTY
     COMPILE_DEFINITIONS meter_manager_read_registers=em500_cache_read_pdu_registers)
 set_property(SOURCE "em500_history_api.c" "em500_settings_api.c" "em500_settings_plan_api.c"

@@ -180,6 +180,8 @@ jobs:
         run: python3 tests/commissioning_wizard_v2_source_contract.py
       - name: Check controller resource telemetry
         run: python3 tests/system_resource_api_source_contract.py
+      - name: Check controller identity and audit trail contract
+        run: python3 tests/audit_log_source_contract.py
       - name: Check commissioning release V3
         run: python3 tests/commissioning_release_v3_source_contract.py
       - name: Check engineering auth-loop prevention
