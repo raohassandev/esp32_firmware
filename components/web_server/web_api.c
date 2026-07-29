@@ -82,6 +82,54 @@ static esp_err_t status_get(httpd_req_t *request)
         cJSON_AddNullToObject(root, "grid_power_kw");
     }
     cJSON_AddNumberToObject(root, "meter_errors", meter.response_errors);
+
+    /* Provenance for the grid measurement. Without it the same signal read at
+     * two different instants looks like two disagreeing values, and an operator
+     * has no way to tell which one the controller is acting on. Every live value
+     * should say where it came from, how old it is and whether it can be
+     * trusted. The flat fields above are kept so existing callers still work. */
+    {
+        app_config_t *config = calloc(1U, sizeof(*config));
+        cJSON *m = cJSON_AddObjectToObject(root, "grid_measurement");
+        if (m) {
+            const char *quality = !meter.online      ? "unavailable"
+                                  : !meter_has_data  ? "unavailable"
+                                  : meter.degraded   ? "degraded"
+                                  : meter_age_ms > METER_STALE_AFTER_MS ? "stale"
+                                                                        : "good";
+            cJSON_AddStringToObject(m, "quantity", "Grid active power");
+            cJSON_AddStringToObject(m, "unit", "kW");
+            /* Measured, not requested or commanded - the distinction matters on
+             * a controller that also publishes setpoints. */
+            cJSON_AddStringToObject(m, "kind", "measured");
+            cJSON_AddStringToObject(m, "quality", quality);
+            if (meter_has_data) {
+                cJSON_AddNumberToObject(m, "value", meter.active_power_kw);
+                cJSON_AddNumberToObject(m, "age_ms", (double)meter_age_ms);
+            } else {
+                cJSON_AddNullToObject(m, "value");
+                cJSON_AddNullToObject(m, "age_ms");
+            }
+            if (config && config_manager_get_snapshot(config) == ESP_OK) {
+                const meter_role_assignment_t roles = config_manager_role_assignment(config);
+                if (roles.grid_index != METER_ROLE_INDEX_NONE &&
+                    roles.grid_index < config->meter_count) {
+                    cJSON_AddStringToObject(m, "source", config->meters[roles.grid_index].name);
+                    cJSON_AddNumberToObject(m, "source_index", roles.grid_index);
+                    cJSON_AddNumberToObject(m, "unit_id",
+                                            config->meters[roles.grid_index].endpoint.unit_id);
+                } else {
+                    /* No single grid meter resolved: say so rather than naming
+                     * an arbitrary instrument. */
+                    cJSON_AddNullToObject(m, "source");
+                    cJSON_AddNullToObject(m, "source_index");
+                    cJSON_AddNullToObject(m, "unit_id");
+                }
+                cJSON_AddBoolToObject(m, "role_assignment_valid", roles.valid);
+            }
+        }
+        free(config);
+    }
     cJSON_AddBoolToObject(root, "control_enabled", control.enabled);
     cJSON_AddNumberToObject(root, "mode", control.mode);
     cJSON_AddNumberToObject(root, "requested_pv_kw", control.requested_pv_kw);

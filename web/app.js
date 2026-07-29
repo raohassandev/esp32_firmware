@@ -78,6 +78,22 @@
         return Number.isFinite(number) ? `${number.toFixed(2)} kW` : 'Unavailable';
     }
 
+    /* Renders "EM500 slave 3 · unit 3 · 45 ms · Good" from the provenance the
+     * status API publishes alongside a live value. Returns a plain statement of
+     * ignorance rather than an empty string when provenance is absent, so a
+     * value never appears more authoritative than it is. */
+    function describeProvenance(provenance) {
+        if (!provenance || typeof provenance !== 'object') return 'Source unknown';
+        const parts = [];
+        if (provenance.source) parts.push(String(provenance.source));
+        if (Number.isFinite(Number(provenance.unit_id))) parts.push(`unit ${provenance.unit_id}`);
+        if (Number.isFinite(Number(provenance.age_ms))) parts.push(formatAge(provenance.age_ms));
+        const quality = String(provenance.quality || '').trim();
+        if (quality) parts.push(quality.charAt(0).toUpperCase() + quality.slice(1));
+        if (provenance.role_assignment_valid === false) parts.push('role assignment invalid');
+        return parts.length ? parts.join(' · ') : 'Source unknown';
+    }
+
     function formatAge(milliseconds) {
         const value = Number(milliseconds);
         if (!Number.isFinite(value) || value < 0) return 'Unavailable';
@@ -181,6 +197,12 @@
 
         setText('dashboardMode', controlEnabled ? mode : 'Control disabled');
         setTone('dashboardMode', controlEnabled ? 'warning' : 'good');
+
+        /* Every live value states where it came from, how old it is and whether
+         * it can be trusted. Without this the same signal sampled at two
+         * instants reads as two disagreeing measurements, and an operator
+         * cannot tell which one the controller is acting on. */
+        setText('gridPowerProvenance', describeProvenance(status.grid_measurement));
 
         if (meterFresh) {
             setText('gridPowerValue', formatPower(status.grid_power_kw));

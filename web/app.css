@@ -249,3 +249,14 @@ input:disabled, select:disabled { opacity: 0.48; cursor: not-allowed; }
     .action-message { width: 100%; }
     .action-bar .button { flex: 1 1 100%; }
 }
+
+/* Measurement provenance: source, age and quality shown with every live value.
+ * Deliberately quiet - it must be readable on demand without competing with the
+ * measurement itself. */
+.metric-provenance {
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+}
