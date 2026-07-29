@@ -1,4 +1,5 @@
 #include "network_manager.h"
+#include "network_scan_internal.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -26,6 +27,7 @@
 #define MANAGER_WAKE_RADIO_EVENT BIT0
 #define MANAGER_WAKE_OPERATOR BIT1
 #define MANAGER_WAKE_CONNECT BIT2
+#define MANAGER_WAKE_USER_SCAN BIT3
 
 typedef enum {
     OPERATOR_RECONNECT_IDLE = 0,
@@ -660,6 +662,14 @@ static void manager_task(void *arg)
             begin_operator_reconnect(&connect_pending, &connect_deadline);
         }
 
+        if ((notifications & MANAGER_WAKE_USER_SCAN) != 0U) {
+            if (operator_phase() == OPERATOR_RECONNECT_IDLE) {
+                network_scan_service_execute();
+            } else {
+                network_scan_service_reject(ESP_ERR_INVALID_STATE);
+            }
+        }
+
         now = xTaskGetTickCount();
         if (connect_pending && tick_due(now, connect_deadline) &&
             normal_connect_allowed()) {
@@ -756,6 +766,8 @@ esp_err_t network_manager_init(void)
     ESP_RETURN_ON_ERROR(esp_wifi_set_mode(WIFI_MODE_STA), TAG, "Wi-Fi mode failed");
 
     if (xTaskCreate(manager_task, "wifi_manager", 6144, NULL, 12, &s_task) != pdPASS) return ESP_ERR_NO_MEM;
+    ESP_RETURN_ON_ERROR(network_scan_service_init(s_task, MANAGER_WAKE_USER_SCAN),
+                        TAG, "scan service init failed");
     return esp_wifi_start();
 }
 
