@@ -10,10 +10,10 @@ esp_err_t modbus_tcp_write_single(modbus_connection_t *connection, uint16_t addr
 esp_err_t modbus_tcp_write_multiple(modbus_connection_t *connection, uint16_t address,
                                      const uint16_t *values, uint16_t count);
 
-/* Returns the most recent Modbus exception response for this connection. The
- * exception is cleared at the start of every transaction; transport/protocol
- * failures therefore cannot be mistaken for a device exception. */
+/* Returns the most recently received Modbus exception. A later successful or
+ * transport-failed transaction does not erase the preserved device exception. */
 bool modbus_tcp_get_last_exception(modbus_connection_t *connection,
                                    uint8_t *function_code,
                                    uint8_t *exception_code,
+                                   uint32_t *exception_ms,
                                    uint32_t *exception_count);
