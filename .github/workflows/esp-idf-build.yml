@@ -55,6 +55,7 @@ jobs:
           node --check web/inverter-telemetry.js
           node --check web/em500-utils.js
           node --check web/em500-core.js
+          node --check web/em500-quality.js
           node --check web/em500-profiles.js
           node --check web/em500-plan.js
           node --check tools/soltrix_modbus_simulator.js
