@@ -120,13 +120,20 @@ static void defaults(app_config_t *c)
     strlcpy(m->endpoint.host, CONFIG_PVDG_DEFAULT_ZLAN_HOST, sizeof(m->endpoint.host));
     m->endpoint.port = CONFIG_PVDG_DEFAULT_ZLAN_PORT;
     m->endpoint.unit_id = 1;
-    m->endpoint.timeout_ms = 1500;
+    /* Sized against the measured link rather than left at a value that would
+     * stall several control cycles: median transaction 28 ms, p90 37 ms. A read
+     * that overruns this is abandoned and retried on the next poll instead of
+     * holding the loop. */
+    m->endpoint.timeout_ms = 300;
     m->function_code = 3;
     m->active_power_address = 57;
     m->active_power_type = MODBUS_DATA_INT32;
     m->active_power_order = MODBUS_ORDER_ABCD;
     m->active_power_scale = 0.00001f;
-    m->poll_interval_ms = 1000;
+    /* The control loop runs every 250 ms. Polling slower than that made it act
+     * on the same sample repeatedly, so the default matches the loop and the
+     * measured link, which sustains a transaction in about 28 ms. */
+    m->poll_interval_ms = 250;
 
     c->inverter_count = 1;
     inverter_config_t *i = &c->inverters[0];
@@ -148,7 +155,11 @@ static void defaults(app_config_t *c)
     c->control.ramp_up_percent_per_second = 5.0f;
     c->control.ramp_down_percent_per_second = 20.0f;
     c->control.interval_ms = 250;
-    c->control.meter_stale_timeout_ms = 3000;
+    /* Four missed polls at the 250 ms default. Tightened from 3000 ms because
+     * the measurement is now much fresher: a stale gate far longer than the
+     * poll interval lets control keep acting on an old sample. Shorter is the
+     * safe direction - it fails closed sooner. */
+    c->control.meter_stale_timeout_ms = 1000;
     c->wifi_provision_id = CONFIG_PVDG_WIFI_PROVISION_ID;
 }
 
