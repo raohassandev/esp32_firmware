@@ -13,6 +13,7 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/commissioning-release-v3.css
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/wifi.css" "${CMAKE_CURRENT_BINARY_DIR}/wifi.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/devices.css" "${CMAKE_CURRENT_BINARY_DIR}/devices.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500.css" "${CMAKE_CURRENT_BINARY_DIR}/em500.css" COPYONLY)
+configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/ota.css" "${CMAKE_CURRENT_BINARY_DIR}/ota.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/app.js" "${CMAKE_CURRENT_BINARY_DIR}/app.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/theme.js" "${CMAKE_CURRENT_BINARY_DIR}/theme.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/engineering-session-resilience.js" "${CMAKE_CURRENT_BINARY_DIR}/engineering-session-resilience.js" COPYONLY)
@@ -44,6 +45,7 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500-quality.js" "${CMAKE_C
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500-profiles.js" "${CMAKE_CURRENT_BINARY_DIR}/em500-profiles.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500-plan.js" "${CMAKE_CURRENT_BINARY_DIR}/em500-plan.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/solar-grid.js" "${CMAKE_CURRENT_BINARY_DIR}/solar-grid.js" COPYONLY)
+configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/ota.js" "${CMAKE_CURRENT_BINARY_DIR}/ota.js" COPYONLY)
 
 set(WEB_SERVER_C_SOURCES
     "web_server.c"
@@ -66,6 +68,7 @@ set(WEB_SERVER_C_SOURCES
     "em500_settings_plan_api.c"
     "solar_grid_api.c"
     "solar_grid_status_api.c"
+    "ota_api.c"
     "system_resource_api.c"
     "web_assets.c"
 )
@@ -73,7 +76,7 @@ set(WEB_SERVER_C_SOURCES
 idf_component_register(
     SRCS ${WEB_SERVER_C_SOURCES}
     INCLUDE_DIRS "include"
-    REQUIRES esp_http_server esp_system esp_timer esp_hw_support spi_flash cjson nvs_flash mbedtls config_manager solar_grid_config network_manager meter_manager modbus_tcp inverter_manager control_engine safety_manager
+    REQUIRES esp_http_server esp_system esp_timer esp_hw_support spi_flash cjson nvs_flash mbedtls config_manager solar_grid_config ota_manager network_manager meter_manager modbus_tcp inverter_manager control_engine safety_manager
     EMBED_TXTFILES
         "${CMAKE_CURRENT_BINARY_DIR}/index.html"
         "${CMAKE_CURRENT_BINARY_DIR}/app.css"
@@ -90,6 +93,7 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/wifi.css"
         "${CMAKE_CURRENT_BINARY_DIR}/devices.css"
         "${CMAKE_CURRENT_BINARY_DIR}/em500.css"
+        "${CMAKE_CURRENT_BINARY_DIR}/ota.css"
         "${CMAKE_CURRENT_BINARY_DIR}/app.js"
         "${CMAKE_CURRENT_BINARY_DIR}/theme.js"
         "${CMAKE_CURRENT_BINARY_DIR}/engineering-session-resilience.js"
@@ -121,6 +125,7 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/em500-profiles.js"
         "${CMAKE_CURRENT_BINARY_DIR}/em500-plan.js"
         "${CMAKE_CURRENT_BINARY_DIR}/solar-grid.js"
+        "${CMAKE_CURRENT_BINARY_DIR}/ota.js"
 )
 
 foreach(source IN LISTS WEB_SERVER_C_SOURCES)
