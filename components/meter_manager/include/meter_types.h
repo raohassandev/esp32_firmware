@@ -17,4 +17,8 @@ typedef struct {
     uint8_t recent_sample_count;
     uint8_t recent_success_percent;
     int32_t last_error;
+    bool last_modbus_exception_valid;
+    uint8_t last_modbus_exception_function;
+    uint8_t last_modbus_exception_code;
+    uint32_t modbus_exception_count;
 } meter_data_t;
