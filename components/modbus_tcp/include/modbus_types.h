@@ -39,5 +39,6 @@ typedef struct {
     bool last_exception_valid;
     uint8_t last_exception_function;
     uint8_t last_exception_code;
+    uint32_t last_exception_ms;
     uint32_t exception_count;
 } modbus_connection_t;
