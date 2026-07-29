@@ -99,6 +99,8 @@ jobs:
         run: python3 tests/solar_grid_control_source_contract.py
       - name: Check rollback-safe OTA contract
         run: python3 tests/ota_update_source_contract.py
+      - name: Prove OTA identity interruption and boot-switch behavior
+        run: python3 tests/ota_update_behavior_contract.py
       - name: Check Modbus runtime safety contract
         run: python3 tests/modbus_runtime_safety_source_contract.py
       - name: Check 64-bit energy decoder contract
