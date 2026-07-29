@@ -1,0 +1,114 @@
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x15 (USB_UART_CHIP_RESET),boot:0x8 (SPI_FAST_FLASH_BOOT)
+Saved PC:0x4037b2fa
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fce2820,len:0x14f0
+load:0x403c8700,len:0xda0
+load:0x403cb700,len:0x2f58
+entry 0x403c8908
+I (24) boot: ESP-IDF v6.0.1 2nd stage bootloader
+I (24) boot: compile time Jul 28 2026 17:48:18
+I (25) boot: Multicore bootloader
+I (25) boot: chip revision: v0.2
+I (27) boot: efuse block revision: v1.3
+I (31) boot.esp32s3: Boot SPI Speed : 80MHz
+I (35) boot.esp32s3: SPI Mode       : DIO
+I (39) boot.esp32s3: SPI Flash Size : 16MB
+I (43) boot: Enabling RNG early entropy source...
+I (47) boot: Partition Table:
+I (50) boot: ## Label            Usage          Type ST Offset   Length
+I (56) boot:  0 nvs              WiFi data        01 02 00009000 00006000
+I (62) boot:  1 otadata          OTA data         01 00 0000f000 00002000
+I (69) boot:  2 phy_init         RF data          01 01 00011000 00001000
+I (75) boot:  3 ota_0            OTA app          00 10 00020000 00300000
+I (82) boot:  4 ota_1            OTA app          00 11 00320000 00300000
+I (89) boot:  5 storage          Unknown data     01 82 00620000 001e0000
+I (95) boot: End of partition table
+I (98) esp_image: segment 0: paddr=00020020 vaddr=3c0b0020 size=96998h (616856) map
+I (216) esp_image: segment 1: paddr=000b69c0 vaddr=3fc97900 size=05100h ( 20736) load
+I (221) esp_image: segment 2: paddr=000bbac8 vaddr=40374000 size=04550h ( 17744) load
+I (225) esp_image: segment 3: paddr=000c0020 vaddr=42000020 size=a534ch (676684) map
+I (349) esp_image: segment 4: paddr=00165374 vaddr=40378550 size=0f2f4h ( 62196) load
+I (363) esp_image: segment 5: paddr=00174670 vaddr=50000000 size=00024h (    36) load
+I (372) boot: Loaded app from partition at offset 0x20000
+I (372) boot: Disabling RNG early entropy source...
+I (383) cpu_start: Multicore app
+I (391) cpu_start: GPIO 44 and 43 are used as console UART I/O pins
+I (392) cpu_start: Pro cpu start user code
+I (392) cpu_start: cpu freq: 240000000 Hz
+I (393) app_init: Application information:
+I (397) app_init: Project name:     automatrix_pvdg
+I (402) app_init: App version:      ed765b0
+I (406) app_init: Compile time:     Jul 28 2026 17:47:46
+I (411) app_init: ELF file SHA256:  daeb127ae...
+I (415) app_init: ESP-IDF:          v6.0.1
+I (419) efuse_init: Min chip rev:     v0.0
+I (423) efuse_init: Max chip rev:     v0.99 
+I (427) efuse_init: Chip rev:         v0.2
+I (431) heap_init: Initializing. RAM available for dynamic allocation:
+I (437) heap_init: At 3FCAB780 len 0003DF90 (247 KiB): RAM
+I (442) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM
+I (447) heap_init: At 3FCF0000 len 00008000 (32 KiB): DRAM
+I (452) heap_init: At 600FE000 len 00001FE8 (7 KiB): RTCRAM
+I (459) spi_flash: detected chip: boya
+I (461) spi_flash: flash io: dio
+I (465) sleep_gpio: Configure to isolate all GPIO pins in sleep state
+I (470) sleep_gpio: Enable automatic switching of GPIO sleep configuration
+I (477) main_task: Started on CPU0
+I (487) main_task: Calling app_main()
+I (487) app_core: Initializing configuration
+I (507) app_core: Initializing network
+I (507) wifi_manager: Profiles: primary 'Tenda_69B540', fallback '' (disabled), recovery AP 'Automatrix-PVDG-Setup'
+I (517) pp: pp rom version: e7ae62f
+I (517) net80211: net80211 rom version: e7ae62f
+I (517) main_task: Returned from app_main()
+I (527) wifi:wifi driver task: 3fcb307c, prio:23, stack:6656, core=0
+I (537) wifi:wifi firmware version: b37c951
+I (537) wifi:wifi certification version: v7.0
+I (537) wifi:config NVS flash: enabled
+I (537) wifi:config nano formatting: disabled
+I (547) wifi:Init data frame dynamic rx buffer num: 32
+I (547) wifi:Init static rx mgmt buffer num: 5
+I (557) wifi:Init management short buffer num: 32
+I (557) wifi:Init dynamic tx buffer num: 32
+I (557) wifi:Init static tx FG buffer num: 2
+I (567) wifi:Init static rx buffer size: 1600
+I (567) wifi:Init static rx buffer num: 10
+I (577) wifi:Init dynamic rx buffer num: 32
+I (577) wifi_init: rx ba win: 6
+I (577) wifi_init: accept mbox: 6
+I (587) wifi_init: tcpip mbox: 32
+I (587) wifi_init: udp mbox: 6
+I (587) wifi_init: tcp mbox: 6
+I (587) wifi_init: tcp tx win: 5760
+I (597) wifi_init: tcp rx win: 5760
+I (597) wifi_init: tcp mss: 1440
+I (597) wifi_init: WiFi IRAM OP enabled
+I (607) wifi_init: WiFi RX IRAM OP enabled
+I (607) phy_init: phy_version 711,97bcf0a2,Aug 25 2025,19:04:10
+I (647) wifi:mode : sta (3c:0f:02:d9:8e:1c)
+I (647) wifi:enable tsf
+W (657) meters: Grid Meter legacy EM500 scale 0.01000000 normalized to 0.00001000 kW/raw
+I (657) app_main: Bootstrap stack headroom: 10204 bytes of 12288; free heap 198864 bytes (min 198864)
+I (667) app_main: PV-DG controller started
+I (5157) wifi_manager: Scan found 11 APs; primary 'Tenda_69B540' visible, fallback '(disabled)' not visible
+W (5157) wifi:Password length matches WPA2 standards, authmode threshold changes from OPEN to WPA2
+I (5157) wifi_manager: Connecting to primary SSID 'Tenda_69B540' using DHCP
+W (5657) meters: Grid Meter: network unavailable or no route to host (ESP_ERR_INVALID_STATE) reading 192.168.0.200:502 [failure 1]
+I (7647) wifi:new:<5,0>, old:<1,0>, ap:<255,255>, sta:<5,0>, prof:1, snd_ch_cfg:0x0
+I (7647) wifi:state: init -> auth (0xb0)
+I (7657) wifi:state: auth -> assoc (0x0)
+I (7677) wifi:state: assoc -> run (0x10)
+I (7687) wifi:connected with Tenda_69B540, aid = 2, channel 5, BW20, bssid = b4:0f:3b:69:b5:40
+I (7687) wifi:security: WPA2-PSK, phy: bgn, rssi: -56, cipher(pairwise:0x3, group:0x3), pmf:0
+I (7697) wifi:pm start, type: 1
+
+I (7697) wifi:dp: 1, bi: 102400, li: 3, scale listen interval from 307200 us to 307200 us
+I (7707) wifi:set rx beacon pti, rx_bcn_pti: 0, bcn_timeout: 25000, mt_pti: 0, mt_time: 10000
+I (7717) wifi:<ba-add>idx:0 (ifx:0, b4:0f:3b:69:b5:40), tid:0, ssn:2, winSize:64
+I (7757) wifi:AP's beacon interval = 102400 us, DTIM period = 1
+I (10817) esp_netif_handlers: sta ip: 192.168.0.100, mask: 255.255.255.0, gw: 192.168.0.1
+I (10817) wifi_manager: Ready: SSID=Tenda_69B540 IP=192.168.0.100 GW=192.168.0.1 MASK=255.255.255.0 RSSI=-60
+I (10857) meters: Grid Meter communication recovered after 1 failed polls; quality 50%

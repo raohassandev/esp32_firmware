@@ -1,0 +1,1 @@
+{"operator_view":true,"configured_count":1,"meters":[{"index":0,"name":"Grid Meter","enabled":true,"runtime":{"available":true,"online":false,"has_data":false,"stale":false,"active_power_kw":null,"data_age_ms":null,"state":"unavailable"}}],"summary":{"enabled":1,"online":0,"stale_or_unavailable":1,"initialization_failed":0,"with_data":0}}

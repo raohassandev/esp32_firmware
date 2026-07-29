@@ -1,0 +1,19 @@
+﻿
+Algorithm Hash                                                             Path                                                                        
+--------- ----                                                             ----                                                                        
+SHA256    FE1372ACEE69A32A40DD615760C079C093E3143FF0D59C7848FACE97183FF0F0 D:\Working\esp32_firmware\evidence\2026-07-27\preflash\api-config.json      
+SHA256    63F7B4AC6A3E114D7F732736C32F4B5A3FFB2D677454E7D0AABF2061C3556355 D:\Working\esp32_firmware\evidence\2026-07-27\preflash\api-inverters.json   
+SHA256    49931F082EF44454F8E46A1757168897E844E4B0A64B93C4CC40C479BE97425B D:\Working\esp32_firmware\evidence\2026-07-27\preflash\api-meters.json      
+SHA256    61E1D59B840F984CCFA2A7705953A5B866161D8B2A4D30F282E667FB5C5E0B61 D:\Working\esp32_firmware\evidence\2026-07-27\preflash\api-status.json      
+SHA256    72BA8CD9C2CA978D7E61B625CF4A9B3B0AF485DFFA269041A81F4A6D50C1727C D:\Working\esp32_firmware\evidence\2026-07-27\preflash\api-telemetry.json   
+SHA256    9E9C0862B1814F87FB878EC8BED9F1DC5BF694092B00F8D1851FC32A1ED89E9D D:\Working\esp32_firmware\evidence\2026-07-27\preflash\app.css              
+SHA256    6D88E3A62D461B802B7524897AE9536AA74BA33D35B37F5132CF9C1A48105E2F D:\Working\esp32_firmware\evidence\2026-07-27\preflash\app.js               
+SHA256    39BF269881A9189A38B9FC96B132D589D12028E5A829E9C537A09518EF0CA22D D:\Working\esp32_firmware\evidence\2026-07-27\preflash\device-discovery.json
+SHA256    9D9B096CD673E6040E11649CF53B1F1239A6AFF812202DD778CE2FCDA28A6806 D:\Working\esp32_firmware\evidence\2026-07-27\preflash\host-network.txt     
+SHA256    ED785B97BC2719C0F0FF7E4CF534097CE53CF0429C45F08A22031D8BD1C7A9AB D:\Working\esp32_firmware\evidence\2026-07-27\preflash\index.html           
+SHA256    8F902F352A9676CD5228946DBEC78135E6503E52CAA0D7CB9EE24474A966CE98 D:\Working\esp32_firmware\evidence\2026-07-27\preflash\serial.log           
+SHA256    50A019D1B131FBD9B2C2A74BC730D43551C837BCCC2C6E00030E7A6E93B66762 D:\Working\esp32_firmware\evidence\2026-07-27\preflash\serial-boot.log      
+SHA256    850D994E670896BB1EF9A102A28B12A39293173FD5C0F9FF2C0F42B1E41CFCCD D:\Working\esp32_firmware\evidence\2026-07-27\preflash\SHA256SUMS.txt       
+
+
+

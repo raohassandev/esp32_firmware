@@ -1,0 +1,147 @@
+﻿=== ipconfig /all ===
+
+Windows IP Configuration
+
+   Host Name . . . . . . . . . . . . : DESKTOP-VGKJPLL
+   Primary Dns Suffix  . . . . . . . : 
+   Node Type . . . . . . . . . . . . : Hybrid
+   IP Routing Enabled. . . . . . . . : No
+   WINS Proxy Enabled. . . . . . . . : No
+
+Wireless LAN adapter Local Area Connection* 1:
+
+   Media State . . . . . . . . . . . : Media disconnected
+   Connection-specific DNS Suffix  . : 
+   Description . . . . . . . . . . . : Microsoft Wi-Fi Direct Virtual Adapter
+   Physical Address. . . . . . . . . : 48-51-C5-FF-8C-38
+   DHCP Enabled. . . . . . . . . . . : Yes
+   Autoconfiguration Enabled . . . . : Yes
+
+Wireless LAN adapter Local Area Connection* 10:
+
+   Media State . . . . . . . . . . . : Media disconnected
+   Connection-specific DNS Suffix  . : 
+   Description . . . . . . . . . . . : Microsoft Wi-Fi Direct Virtual Adapter #2
+   Physical Address. . . . . . . . . : 4A-51-C5-FF-8C-37
+   DHCP Enabled. . . . . . . . . . . : No
+   Autoconfiguration Enabled . . . . : Yes
+
+Wireless LAN adapter Wi-Fi:
+
+   Connection-specific DNS Suffix  . : www.tendawifi.com
+   Description . . . . . . . . . . . : Intel(R) Wi-Fi 6 AX201 160MHz
+   Physical Address. . . . . . . . . : 48-51-C5-FF-8C-37
+   DHCP Enabled. . . . . . . . . . . : Yes
+   Autoconfiguration Enabled . . . . : Yes
+   Link-local IPv6 Address . . . . . : fe80::4c61:de64:b544:b301%18(Preferred) 
+   IPv4 Address. . . . . . . . . . . : 192.168.0.100(Preferred) 
+   Subnet Mask . . . . . . . . . . . : 255.255.255.0
+   Lease Obtained. . . . . . . . . . : Monday, July 27, 2026 1:44:54 PM
+   Lease Expires . . . . . . . . . . : Tuesday, July 28, 2026 1:47:04 PM
+   Default Gateway . . . . . . . . . : 192.168.0.1
+   DHCP Server . . . . . . . . . . . : 192.168.0.1
+   DHCPv6 IAID . . . . . . . . . . . : 122180037
+   DHCPv6 Client DUID. . . . . . . . : 00-01-00-01-31-86-B5-11-48-51-C5-FF-8C-37
+   DNS Servers . . . . . . . . . . . : 192.168.0.1
+   NetBIOS over Tcpip. . . . . . . . : Enabled
+
+Ethernet adapter vEthernet (Default Switch):
+
+   Connection-specific DNS Suffix  . : 
+   Description . . . . . . . . . . . : Hyper-V Virtual Ethernet Adapter
+   Physical Address. . . . . . . . . : 00-15-5D-00-6F-00
+   DHCP Enabled. . . . . . . . . . . : No
+   Autoconfiguration Enabled . . . . : Yes
+   Link-local IPv6 Address . . . . . : fe80::8f60:b37e:6f94:4561%23(Preferred) 
+   IPv4 Address. . . . . . . . . . . : 172.31.192.1(Preferred) 
+   Subnet Mask . . . . . . . . . . . : 255.255.240.0
+   Default Gateway . . . . . . . . . : 
+   DHCPv6 IAID . . . . . . . . . . . : 385881437
+   DHCPv6 Client DUID. . . . . . . . : 00-01-00-01-31-86-B5-11-48-51-C5-FF-8C-37
+   NetBIOS over Tcpip. . . . . . . . : Enabled
+=== Get-NetIPConfiguration ===
+
+
+ComputerName         : DESKTOP-VGKJPLL
+InterfaceAlias       : vEthernet (Default Switch)
+InterfaceIndex       : 23
+InterfaceDescription : Hyper-V Virtual Ethernet Adapter
+CompartmentId        : 1
+NetAdapter           : MSFT_NetAdapter (CreationClassName = "MSFT_NetAdapter", DeviceID = "{FE89AE2C-73D5-4C1F-967C-1D7383DAAFB3}", SystemCreationClassName = "CIM_NetworkPort", SystemName = "DESKTOP-VGKJPLL")
+NetCompartment       : MSFT_NetCompartment (InstanceID = ";55;")
+NetIPv6Interface     : MSFT_NetIPInterface (Name = "??55??55;", CreationClassName = "", SystemCreationClassName = "", SystemName = "")
+NetIPv4Interface     : MSFT_NetIPInterface (Name = "??55?55;", CreationClassName = "", SystemCreationClassName = "", SystemName = "")
+NetProfile           : 
+AllIPAddresses       : {172.31.192.1, fe80::8f60:b37e:6f94:4561%23}
+IPv6Address          : {}
+IPv6TemporaryAddress : {}
+IPv6LinkLocalAddress : {fe80::8f60:b37e:6f94:4561%23}
+IPv4Address          : {172.31.192.1}
+IPv6DefaultGateway   : 
+IPv4DefaultGateway   : 
+DNSServer            : {MSFT_DNSClientServerAddress (Name = "23", CreationClassName = "", SystemCreationClassName = "", SystemName = "23"), MSFT_DNSClientServerAddress (Name = "23", CreationClassName = "", 
+                       SystemCreationClassName = "", SystemName = "2")}
+Detailed             : False
+
+ComputerName         : DESKTOP-VGKJPLL
+InterfaceAlias       : Wi-Fi
+InterfaceIndex       : 18
+InterfaceDescription : Intel(R) Wi-Fi 6 AX201 160MHz
+CompartmentId        : 1
+NetAdapter           : MSFT_NetAdapter (CreationClassName = "MSFT_NetAdapter", DeviceID = "{C63AFA3E-A370-4227-A3C2-2B0EA9F2742F}", SystemCreationClassName = "CIM_NetworkPort", SystemName = "DESKTOP-VGKJPLL")
+NetCompartment       : MSFT_NetCompartment (InstanceID = ";55;")
+NetIPv6Interface     : MSFT_NetIPInterface (Name = ";B55??55;", CreationClassName = "", SystemCreationClassName = "", SystemName = "")
+NetIPv4Interface     : MSFT_NetIPInterface (Name = ";B55?55;", CreationClassName = "", SystemCreationClassName = "", SystemName = "")
+NetProfile           : MSFT_NetConnectionProfile (InstanceID = "{C63AFA3E-A370-4227-A3C2-2B0EA9F2742F}")
+AllIPAddresses       : {192.168.0.100, fe80::4c61:de64:b544:b301%18}
+IPv6Address          : {}
+IPv6TemporaryAddress : {}
+IPv6LinkLocalAddress : {fe80::4c61:de64:b544:b301%18}
+IPv4Address          : {192.168.0.100}
+IPv6DefaultGateway   : 
+IPv4DefaultGateway   : {MSFT_NetRoute (InstanceID = ":8:8:8:9:55;B55;C?8;@B8:8;55;")}
+DNSServer            : {MSFT_DNSClientServerAddress (Name = "18", CreationClassName = "", SystemCreationClassName = "", SystemName = "23"), MSFT_DNSClientServerAddress (Name = "18", CreationClassName = "", 
+                       SystemCreationClassName = "", SystemName = "2")}
+Detailed             : False
+
+
+
+
+=== Get-NetAdapter ===
+
+Name                       InterfaceDescription             ifIndex Status MacAddress        LinkSpeed
+----                       --------------------             ------- ------ ----------        ---------
+vEthernet (Default Switch) Hyper-V Virtual Ethernet Adapter      23 Up     00-15-5D-00-6F-00   10 Gbps
+Wi-Fi                      Intel(R) Wi-Fi 6 AX201 160MHz         18 Up     48-51-C5-FF-8C-37 72.2 Mbps
+
+
+
+=== netsh wlan show interfaces ===
+
+There is 1 interface on the system: 
+
+    Name                   : Wi-Fi
+    Description            : Intel(R) Wi-Fi 6 AX201 160MHz
+    GUID                   : c63afa3e-a370-4227-a3c2-2b0ea9f2742f
+    Physical address       : 48:51:c5:ff:8c:37
+    Interface type         : Primary
+    State                  : connected
+    SSID                   : Tenda_69B540
+    AP BSSID               : b4:0f:3b:69:b5:40
+    Band                   : 2.4 GHz
+    Channel                : 11
+    Connected Akm-cipher   : [ akm = 00-0f-ac:02, cipher =  00-0f-ac:04 ]
+    Network type           : Infrastructure
+    Radio type             : 802.11n
+    Authentication         : WPA2-Personal
+    Cipher                 : CCMP
+    Connection mode        : Auto Connect
+    Receive rate (Mbps)    : 78
+    Transmit rate (Mbps)   : 72.2
+    Signal                 : 86% 
+    Rssi                   : -52
+    Profile                : Tenda_69B540 
+    QoS MSCS Configured         : 0
+    QoS Map Configured          : 0
+    QoS Map Allowed by Policy   : 0
+

@@ -1,0 +1,1 @@
+{"schema":3,"device_name":"automatrix-pvdg","operator_view":true,"engineering_details_hidden":true,"wifi":{"primary":{"enabled":false,"ssid":"","password":"","ip_mode":0},"fallback":{"enabled":false,"ssid":"","password":"","ip_mode":0}},"meters":[{"name":"Grid Meter","enabled":true}],"inverters":[{"name":"Inverter 1","enabled":false,"rated_kw":100}],"control":{"enabled":false}}

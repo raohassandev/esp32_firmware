@@ -1,0 +1,1 @@
+{"operator_view":true,"read_only_endpoint":true,"writes_issued":false,"count":1,"inverters":[{"index":0,"online":false,"telemetry_valid":false,"telemetry_stale":false,"measured_power_kw":null,"telemetry_age_ms":null}],"summary":{"online":0,"telemetry_valid":0,"stale":0,"measured_total_kw":0,"commandable_rated_kw":0}}

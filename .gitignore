@@ -1,7 +1,13 @@
 # Build output
 build/
+build-*/
 sdkconfig
 sdkconfig.old
+
+# Qualification evidence: keep the JSON/log records, never the firmware images
+evidence/**/*.bin
+evidence/**/*.elf
+evidence/**/*.map
 
 # Transient build/flash transcripts, regenerated on every run.
 # Validation evidence that must persist lives in verified-runtime*.log.

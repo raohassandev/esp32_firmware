@@ -1,0 +1,2 @@
+W (408307) meters: Grid Meter: TCP timeout, no response (ESP_ERRW (7155077) httpd_uri: httpd_uri: URI '/api/info' not found
+W (7155077) httpd_txrx: httpd_resp_send_err: 404 Not Found - Nothing matches the given URI

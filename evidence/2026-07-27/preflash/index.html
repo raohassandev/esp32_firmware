@@ -1,0 +1,97 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#081525">
+    <title>Automatrix PV-DG Controller</title>
+    <link rel="stylesheet" href="/app.css">
+    <script src="/app.js" defer></script>
+</head>
+<body>
+    <div class="app-shell">
+        <aside class="sidebar" id="sidebar" aria-label="Primary navigation">
+            <div class="brand-block">
+                <div class="brand-mark" aria-hidden="true">A</div>
+                <div><div class="brand-name">AUTOMATRIX</div><div class="brand-product">PV-DG Controller</div></div>
+            </div>
+            <nav class="nav-list">
+                <a class="nav-link" href="#/dashboard" data-route="dashboard"><span aria-hidden="true">⌂</span><span>Dashboard</span></a>
+                <a class="nav-link" href="#/wifi" data-route="wifi"><span aria-hidden="true">⌁</span><span>Wi-Fi</span></a>
+                <a class="nav-link" href="#/meters" data-route="meters"><span aria-hidden="true">▤</span><span>Meters</span></a>
+                <a class="nav-link" href="#/inverters" data-route="inverters"><span aria-hidden="true">◇</span><span>Inverters</span></a>
+                <a class="nav-link" href="#/control" data-route="control"><span aria-hidden="true">⇄</span><span>PV-DG Control</span></a>
+                <a class="nav-link" href="#/system" data-route="system"><span aria-hidden="true">⚙</span><span>System</span></a>
+            </nav>
+            <div class="sidebar-footer"><div class="sidebar-state" id="sidebarState">Connecting to controller…</div><div class="sidebar-version" id="sidebarVersion">Firmware configuration loading</div></div>
+        </aside>
+
+        <div class="workspace">
+            <header class="topbar">
+                <button class="icon-button menu-button" id="menuButton" type="button" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false">☰</button>
+                <div class="page-heading"><div class="breadcrumb">Controller / <span id="breadcrumbCurrent">Dashboard</span></div><h1 id="pageTitle">Dashboard</h1></div>
+                <div class="topbar-actions"><span class="live-pill neutral" id="controllerPill">Connecting…</span><button class="icon-button" id="refreshButton" type="button" aria-label="Refresh controller data">↻</button></div>
+            </header>
+
+            <section class="status-strip" aria-label="Controller status">
+                <div class="status-item"><span class="status-label">Controller</span><strong id="statusController">Checking</strong></div>
+                <div class="status-item"><span class="status-label">Network</span><strong id="statusNetwork">--</strong></div>
+                <div class="status-item"><span class="status-label">Meter</span><strong id="statusMeter">--</strong></div>
+                <div class="status-item"><span class="status-label">Control</span><strong id="statusControl">--</strong></div>
+                <div class="status-item"><span class="status-label">Alarms</span><strong id="statusAlarms">--</strong></div>
+                <div class="status-item"><span class="status-label">Updated</span><strong id="statusUpdated">Never</strong></div>
+            </section>
+
+            <main class="content" id="mainContent">
+                <section class="page active" data-page="dashboard" aria-labelledby="dashboardTitle">
+                    <div class="page-intro"><div><p class="eyebrow">Live operation</p><h2 id="dashboardTitle">Power and communication overview</h2><p>Current grid condition, controller safety state and communication health at a glance.</p></div><div class="mode-panel"><span>Operating mode</span><strong id="dashboardMode">Unavailable</strong></div></div>
+                    <div class="metric-grid">
+                        <article class="metric-card emphasis"><div class="metric-head"><span>Grid power</span><span class="dot" id="gridDot"></span></div><div class="metric-value" id="gridPowerValue">Unavailable</div><div class="metric-foot" id="gridPowerDetail">Waiting for valid meter data</div></article>
+                        <article class="metric-card"><div class="metric-head"><span>Meter health</span><span class="dot" id="meterDot"></span></div><div class="metric-value compact" id="meterHealthValue">Checking</div><div class="metric-foot" id="meterHealthDetail">--</div></article>
+                        <article class="metric-card"><div class="metric-head"><span>Requested PV</span><span class="dot neutral"></span></div><div class="metric-value" id="requestedPvValue">Unavailable</div><div class="metric-foot">Control request, not measured PV production</div></article>
+                        <article class="metric-card"><div class="metric-head"><span>Applied PV</span><span class="dot neutral"></span></div><div class="metric-value" id="appliedPvValue">Unavailable</div><div class="metric-foot">Applied controller output, not inverter telemetry</div></article>
+                    </div>
+                    <div class="dashboard-grid">
+                        <article class="panel power-flow-panel">
+                            <div class="panel-header"><div><p class="eyebrow">Power flow</p><h3>Site energy balance</h3></div><span class="subtle-badge" id="flowState">Waiting for meter</span></div>
+                            <div class="power-flow" aria-label="Power flow overview">
+                                <div class="flow-node"><span>PV command</span><strong id="flowPv">Unavailable</strong><small>Applied controller request</small></div><div class="flow-line"><span>→</span></div>
+                                <div class="flow-node central"><span>Facility load</span><strong id="flowLoad">Unavailable</strong><small>Load telemetry not configured</small></div><div class="flow-line"><span id="gridArrow">↔</span></div>
+                                <div class="flow-node"><span>Utility grid</span><strong id="flowGrid">Unavailable</strong><small id="flowGridDetail">Meter data required</small></div>
+                            </div>
+                            <div class="flow-secondary"><div><span>Generator</span><strong>Unavailable</strong><small>Generator telemetry not configured</small></div><div><span>Meter age</span><strong id="flowMeterAge">Unavailable</strong><small>Time since last valid sample</small></div></div>
+                        </article>
+                        <article class="panel"><div class="panel-header"><div><p class="eyebrow">Communication</p><h3>System health</h3></div></div><div class="health-list"><div class="health-row"><span>Wi-Fi connection</span><strong id="healthWifi">Checking</strong></div><div class="health-row"><span>Controller address</span><strong id="healthIp">--</strong></div><div class="health-row"><span>Meter communication</span><strong id="healthMeter">Checking</strong></div><div class="health-row"><span>Control safety</span><strong id="healthControl">Checking</strong></div><div class="health-row"><span>Active alarms</span><strong id="healthAlarms">Checking</strong></div></div></article>
+                    </div>
+                </section>
+
+                <section class="page" data-page="wifi" aria-labelledby="wifiTitle">
+                    <div class="page-intro"><div><p class="eyebrow">Commissioning</p><h2 id="wifiTitle">Wi-Fi connection</h2><p>Manage primary and fallback networks, static addressing and the recovery access point.</p></div></div>
+                    <div class="connection-overview panel"><div><span class="status-label">Connected network</span><strong id="wifiCurrentSsid">Unavailable</strong><small id="wifiConnectionRole">--</small></div><div><span class="status-label">Controller IP</span><strong id="wifiCurrentIp">Unavailable</strong><small id="wifiNetworkDetail">--</small></div><div><span class="status-label">Signal</span><strong id="wifiCurrentRssi">Unavailable</strong><small id="wifiSignalQuality">--</small></div><div><span class="status-label">Recovery AP</span><strong id="wifiRecoveryState">Inactive</strong><small id="wifiRecoveryDetail">--</small></div></div>
+                    <div class="notice warning"><strong>Connection changes restart the controller.</strong><span>Confirm the new network is reachable before saving. Existing passwords remain stored when password fields are left blank.</span></div>
+                    <form id="wifiForm" novalidate>
+                        <div class="form-layout">
+                            <article class="panel form-panel"><div class="panel-header"><div><p class="eyebrow">Preferred network</p><h3>Primary station</h3></div><label class="switch"><input id="primaryEnabled" type="checkbox"><span></span><b>Enabled</b></label></div><div class="field-grid"><label class="field wide"><span>SSID</span><input id="primarySsid" autocomplete="off" maxlength="32"></label><label class="field wide"><span>Password</span><input id="primaryPassword" type="password" autocomplete="new-password" maxlength="64" placeholder="Leave blank to preserve"></label><label class="field"><span>IP mode</span><select id="primaryMode"><option value="0">DHCP</option><option value="1">Static IPv4</option></select></label><label class="field static-primary"><span>Static IP</span><input id="primaryIp" inputmode="decimal" placeholder="192.168.0.110"></label><label class="field static-primary"><span>Gateway</span><input id="primaryGateway" inputmode="decimal" placeholder="192.168.0.1"></label><label class="field static-primary"><span>Netmask</span><input id="primaryNetmask" inputmode="decimal" placeholder="255.255.255.0"></label><label class="field static-primary"><span>Primary DNS</span><input id="primaryDns1" inputmode="decimal" placeholder="8.8.8.8"></label><label class="field static-primary"><span>Backup DNS</span><input id="primaryDns2" inputmode="decimal" placeholder="1.1.1.1"></label></div></article>
+                            <article class="panel form-panel"><div class="panel-header"><div><p class="eyebrow">Secondary network</p><h3>Fallback station</h3></div><label class="switch"><input id="fallbackEnabled" type="checkbox"><span></span><b>Enabled</b></label></div><div class="field-grid"><label class="field wide"><span>SSID</span><input id="fallbackSsid" autocomplete="off" maxlength="32"></label><label class="field wide"><span>Password</span><input id="fallbackPassword" type="password" autocomplete="new-password" maxlength="64" placeholder="Leave blank to preserve"></label><label class="field"><span>IP mode</span><select id="fallbackMode"><option value="0">DHCP</option><option value="1">Static IPv4</option></select></label><label class="field static-fallback"><span>Static IP</span><input id="fallbackIp" inputmode="decimal"></label><label class="field static-fallback"><span>Gateway</span><input id="fallbackGateway" inputmode="decimal"></label><label class="field static-fallback"><span>Netmask</span><input id="fallbackNetmask" inputmode="decimal"></label><label class="field static-fallback"><span>Primary DNS</span><input id="fallbackDns1" inputmode="decimal"></label><label class="field static-fallback"><span>Backup DNS</span><input id="fallbackDns2" inputmode="decimal"></label></div></article>
+                        </div>
+                        <article class="panel form-panel"><div class="panel-header"><div><p class="eyebrow">Recovery</p><h3>Connection policy and setup access point</h3></div></div><div class="field-grid four-column"><label class="switch field-switch"><input id="scanBeforeConnect" type="checkbox"><span></span><b>Scan before connecting</b></label><label class="switch field-switch"><input id="recoveryEnabled" type="checkbox"><span></span><b>Recovery AP enabled</b></label><label class="field"><span>Recovery AP SSID</span><input id="recoverySsid" maxlength="32"></label><label class="field"><span>Recovery AP password</span><input id="recoveryPassword" type="password" maxlength="64" placeholder="Leave blank to preserve"></label><label class="field"><span>Retries per profile</span><input id="wifiRetries" type="number" min="1" max="20"></label><label class="field"><span>Base reconnect delay (ms)</span><input id="wifiBackoff" type="number" min="500" max="60000"></label></div></article>
+                        <div class="action-bar"><div class="action-message" id="wifiMessage" role="status"></div><button class="button secondary" id="wifiRescanButton" type="button">Rescan and reconnect</button><button class="button primary" type="submit">Save and restart</button></div>
+                    </form>
+                </section>
+
+                <section class="page" data-page="meters" aria-labelledby="metersTitle">
+                    <div class="page-intro"><div><p class="eyebrow">Measurement</p><h2 id="metersTitle">Grid meters</h2><p>Review meter communication, freshness and Modbus acquisition settings.</p></div></div>
+                    <div class="dashboard-grid"><article class="panel"><div class="panel-header"><div><p class="eyebrow">Live status</p><h3 id="meterNameHeading">Grid meter</h3></div><span class="subtle-badge" id="meterPageBadge">Checking</span></div><div class="health-list"><div class="health-row"><span>Grid power</span><strong id="meterPagePower">Unavailable</strong></div><div class="health-row"><span>Data age</span><strong id="meterPageAge">Unavailable</strong></div><div class="health-row"><span>Response errors</span><strong id="meterPageErrors">--</strong></div></div></article><article class="panel form-panel"><div class="panel-header"><div><p class="eyebrow">Acquisition</p><h3>Meter configuration</h3></div></div><div class="field-grid"><label class="field"><span>Host</span><input id="meterHost"></label><label class="field"><span>Port</span><input id="meterPort" type="number" min="1" max="65535"></label><label class="field"><span>Unit ID</span><input id="meterUnit" type="number" min="1" max="247"></label><label class="field"><span>Modbus PDU address</span><input id="meterAddress" type="number" min="0" max="65535"></label><label class="field"><span>Scale to kW</span><input id="meterScale" type="number" step="0.00001"></label><label class="field"><span>Poll interval (ms)</span><input id="meterPoll" type="number" min="100" disabled title="Read-only in this milestone"></label><label class="field"><span>Timeout (ms)</span><input id="meterTimeout" type="number" min="100" disabled title="Read-only in this milestone"></label></div><div class="panel-actions"><button class="button primary" id="meterSaveButton" type="button">Save meter settings</button><span id="meterMessage" class="action-message" role="status"></span></div></article></div>
+                </section>
+
+                <section class="page" data-page="inverters" aria-labelledby="invertersTitle"><div class="page-intro"><div><p class="eyebrow">Generation assets</p><h2 id="invertersTitle">Inverters</h2><p>Configured inverter endpoints and command-safety state.</p></div></div><div class="notice safe"><strong>Automatic inverter control remains disabled by default.</strong><span>This page does not enable control or issue commands.</span></div><div class="asset-grid" id="inverterList"></div></section>
+
+                <section class="page" data-page="control" aria-labelledby="controlTitle"><div class="page-intro"><div><p class="eyebrow">Safe commissioning</p><h2 id="controlTitle">PV-DG control</h2><p>Review control targets and timing without enabling automatic inverter commands.</p></div></div><div class="notice danger"><strong id="controlSafetyTitle">Automatic control disabled</strong><span id="controlSafetyDetail">No inverter commands are issued while control is disabled.</span></div><div class="dashboard-grid"><article class="panel"><div class="panel-header"><div><p class="eyebrow">Runtime</p><h3>Control status</h3></div></div><div class="health-list"><div class="health-row"><span>Mode</span><strong id="controlPageMode">Unavailable</strong></div><div class="health-row"><span>Requested PV</span><strong id="controlPageRequested">Unavailable</strong></div><div class="health-row"><span>Applied PV</span><strong id="controlPageApplied">Unavailable</strong></div><div class="health-row"><span>Meter interlock</span><strong id="controlPageMeter">Checking</strong></div></div></article><article class="panel form-panel"><div class="panel-header"><div><p class="eyebrow">Parameters</p><h3>Control configuration</h3></div></div><div class="field-grid"><label class="field"><span>Grid import target (kW)</span><input id="controlTarget" type="number" step="0.1"></label><label class="field"><span>Deadband (kW)</span><input id="controlDeadband" type="number" step="0.1" min="0"></label><label class="field"><span>Control interval (ms)</span><input id="controlInterval" type="number" min="100"></label><label class="field"><span>Meter stale timeout (ms)</span><input id="controlStaleTimeout" type="number" min="500" disabled title="Read-only in this milestone"></label></div><div class="panel-actions"><button class="button primary" id="controlSaveButton" type="button">Save parameters</button><span id="controlMessage" class="action-message" role="status"></span></div></article></div></section>
+
+                <section class="page" data-page="system" aria-labelledby="systemTitle"><div class="page-intro"><div><p class="eyebrow">Maintenance</p><h2 id="systemTitle">System</h2><p>Controller identity, configuration backup and controlled restart.</p></div></div><div class="dashboard-grid"><article class="panel"><div class="panel-header"><div><p class="eyebrow">Controller</p><h3>System information</h3></div></div><div class="health-list"><div class="health-row"><span>Device name</span><strong id="systemDeviceName">--</strong></div><div class="health-row"><span>Configuration schema</span><strong id="systemSchema">--</strong></div><div class="health-row"><span>Current IP</span><strong id="systemIp">--</strong></div><div class="health-row"><span>Connected SSID</span><strong id="systemSsid">--</strong></div></div><div class="panel-actions"><button class="button secondary" id="exportButton" type="button">Export configuration</button><button class="button danger-button" id="restartButton" type="button">Restart controller</button></div></article><article class="panel"><div class="panel-header"><div><p class="eyebrow">Advanced</p><h3>Configuration JSON</h3></div><span class="subtle-badge">Passwords masked</span></div><textarea id="advancedJson" class="json-editor" spellcheck="false" aria-label="Advanced configuration JSON" readonly></textarea><div class="panel-actions"><button class="button secondary" id="reloadConfigButton" type="button">Reload</button><button class="button primary" id="saveJsonButton" type="button" disabled title="Advanced JSON write support is scheduled for a later milestone">Read-only</button><span id="systemMessage" class="action-message" role="status">Advanced JSON is read-only in this milestone.</span></div></article></div></section>
+            </main>
+        </div>
+    </div>
+    <div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="true"></div>
+</body>
+</html>
