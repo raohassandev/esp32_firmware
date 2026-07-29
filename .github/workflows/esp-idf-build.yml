@@ -4,10 +4,11 @@ on:
   pull_request:
   push:
     branches:
-      - main
-      - dev
-      - 'feature/**'
-      - 'fix/**'
+      - fix/pvdg-reconnect-admission-gate
+      - feature/pvdg-batch3-consolidated
+      - feature/pvdg-multi-meter-commissioning
+      - feature/multibrand-inverter-profiles
+      - feature/secure-web-ota
   workflow_dispatch:
     inputs:
       production_release:
