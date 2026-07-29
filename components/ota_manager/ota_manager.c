@@ -40,6 +40,18 @@ static bool pending_verify_for(const esp_partition_t *partition)
            state == ESP_OTA_IMG_PENDING_VERIFY;
 }
 
+static bool upload_admission_open(void)
+{
+#ifdef CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    const esp_partition_t *boot = esp_ota_get_boot_partition();
+    return running && boot && !pending_verify_for(running) &&
+           running->address == boot->address;
+#else
+    return false;
+#endif
+}
+
 /* Partition and OTA-state APIs may touch flash metadata. Populate a local
  * snapshot outside the short interrupt-disabled status lock. */
 static void fill_partition_status(ota_manager_status_t *status)
@@ -161,6 +173,10 @@ esp_err_t ota_manager_begin(size_t image_size,
     if (!candidate || !out_session || image_size < OTA_MANAGER_PREFIX_BYTES) {
         return ESP_ERR_INVALID_ARG;
     }
+    /* Never erase the alternate slot while it is staged as the next boot image,
+     * and never accept another image while this running image still needs
+     * first-boot validation. Rollback support is mandatory for this feature. */
+    if (!upload_admission_open()) return ESP_ERR_INVALID_STATE;
 
     portENTER_CRITICAL(&s_lock);
     if (s_upload_claimed) {
