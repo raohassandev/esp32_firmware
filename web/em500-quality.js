@@ -16,6 +16,12 @@
 
     const app = () => window.PvdgEm500App;
     const byId = (id) => document.getElementById(id);
+    const access = () => window.AutomatrixEngineeringAccess;
+
+    /* The EM500 acquisition cache is Engineering-only meter internals. */
+    function meterScopeAllowed() {
+        return Boolean(access()?.mayRequest('/api/meters/em500/cache'));
+    }
 
     function currentRoute() {
         return window.location.hash.replace(/^#\/?/, '').split(/[?&]/, 1)[0] || 'dashboard';
@@ -239,6 +245,7 @@
     async function refreshQuality(automatic = false) {
         const core = app();
         if (!core || currentRoute() !== 'meters' || document.hidden) return;
+        if (!meterScopeAllowed()) return;
         if (automatic && core.state.loading) {
             scheduleQualityRefresh();
             return;
@@ -287,6 +294,11 @@
         window.addEventListener('hashchange', () => {
             if (currentRoute() === 'meters') resetAndRefresh();
             else stop({ resetWarm: true });
+        });
+        /* Unlocking Engineering while already on Meters must start the quality
+         * view without a manual refresh. */
+        access()?.onScopeChange(() => {
+            if (currentRoute() === 'meters' && meterScopeAllowed()) resetAndRefresh();
         });
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) stop();

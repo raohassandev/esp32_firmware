@@ -142,7 +142,13 @@
         }
     }
 
+    const access = () => window.AutomatrixEngineeringAccess;
+
     async function loadBaseline() {
+        /* Only the Wi-Fi commissioning form uses this baseline. Probing the
+         * session and the configuration from every other route wasted two
+         * requests per page load against a four-socket server. */
+        if (!access()?.mayUseEngineering('wifi', 'commissioning')) return;
         try {
             await ensureEngineeringSession();
             const config = await api('/api/config');
@@ -156,6 +162,7 @@
 
     document.addEventListener('DOMContentLoaded', () => {
         loadBaseline();
+        access()?.onScopeChange(loadBaseline);
         const form = byId('wifiForm');
         if (form) form.dataset.networkFlow = 'resilient';
     });

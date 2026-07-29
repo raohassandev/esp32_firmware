@@ -178,6 +178,8 @@ jobs:
         run: python3 tests/engineering_auth_loop_source_contract.py
       - name: Check production access policy
         run: python3 tests/release_access_policy_source_contract.py
+      - name: Check operator endpoint scope and ramp commissioning UI
+        run: python3 tests/operator_endpoint_scope_source_contract.py
       - name: Enforce production release gate
         env:
           PVDG_PRODUCTION_RELEASE: ${{ inputs.production_release && '1' || '0' }}

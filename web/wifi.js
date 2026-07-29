@@ -24,6 +24,15 @@
         return window.location.hash.replace(/^#\/?/, '').split(/[?&]/, 1)[0] === 'wifi';
     }
 
+    const access = () => window.AutomatrixEngineeringAccess;
+
+    /* /api/wifi/scan is Engineering-only. Asking for it from the operator
+     * dashboard can only produce a 401, and each of those still consumes one of
+     * the controller's few client sockets. */
+    function scanScopeAllowed() {
+        return Boolean(access()?.mayRequest('/api/wifi/scan'));
+    }
+
     async function api(path, options = {}) {
         const {
             timeoutMs = DEFAULT_API_TIMEOUT_MS,
@@ -230,6 +239,7 @@
 
     async function loadScanSnapshot({ automatic = false } = {}) {
         if (automatic && (!isWifiRoute() || document.hidden)) return;
+        if (!scanScopeAllowed()) return;
         state.scanController?.abort();
         const controller = new AbortController();
         state.scanController = controller;
@@ -272,6 +282,11 @@
     }
 
     async function requestScan() {
+        if (!scanScopeAllowed()) {
+            setScanBadge('Engineering required', 'warning');
+            setScanMessage('Unlock Engineering on this page before starting a radio scan.', 'warning');
+            return;
+        }
         const button = byId('wifiScanButton');
         if (button) button.disabled = true;
         cancelScanPolling({ resetDeadline: true });
@@ -524,9 +539,12 @@
         }
 
         window.addEventListener('hashchange', () => {
-            if (isWifiRoute()) loadScanSnapshot();
-            else cancelScanPolling();
+            if (!isWifiRoute()) cancelScanPolling();
         });
+        /* Leaving the route stops polling above; entering it - or signing in
+         * while already on it - loads the survey through the shared scope hook,
+         * so the data appears after login without a manual refresh. */
+        access()?.onScopeChange(() => { if (isWifiRoute()) loadScanSnapshot(); });
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) cancelScanPolling();
             else if (isWifiRoute()) loadScanSnapshot();

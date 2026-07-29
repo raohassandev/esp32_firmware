@@ -386,7 +386,13 @@
         else connectionStep(root);
     }
 
+    const access = () => window.AutomatrixEngineeringAccess;
+
     async function loadProfiles() {
+        /* The catalogue belongs to the commissioning route and to Engineering.
+         * Loading it on every route made the operator dashboard issue a request
+         * that can only answer 401, on a controller with very few sockets. */
+        if (!access()?.mayRequest('/api/inverter-profiles')) return;
         try {
             const payload = await api('/api/inverter-profiles');
             state.profiles = Array.isArray(payload.profiles) ? payload.profiles : [];
@@ -403,6 +409,13 @@
     window.addEventListener('hashchange', () => {
         document.body.classList.toggle('commissioning-route-active', routeActive());
         if (routeActive()) { ensurePage(); render(); }
+    });
+    /* Entering commissioning or unlocking Engineering there loads the catalogue
+     * without a manual refresh. */
+    access()?.onScopeChange(async () => {
+        if (!routeActive() || state.profiles.length) return;
+        await loadProfiles();
+        if (state.profiles.length) render();
     });
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
     else start();

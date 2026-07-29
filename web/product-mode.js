@@ -16,15 +16,65 @@
         '#inverterProfilePicker',
         '#inverterConfigurationEditor',
         '#meterConfigurationEditor',
+        '#controlRampEditor',
         '[data-page="system"] .dashboard-grid > article:nth-child(2)',
         '[data-page="system"] .panel-actions'
     ];
+    /* Engineering-only APIs, paired with the routes that legitimately need them.
+     * Modules ask before they fetch, because an unconditional request costs more
+     * here than a console line: the controller serves a very small client socket
+     * pool, so every request that can only answer 401 holds a socket another
+     * client needs; each response also allocates on a device whose minimum free
+     * heap has been measured close to its own critical threshold; and the failure
+     * is printed on the customer-facing operator screen. See finding S4 in
+     * docs/UI_VISUAL_AUDIT_2026-07-29.md. */
+    const ENGINEERING_ONLY_ENDPOINTS = [
+        { path: '/api/wifi/scan', routes: ['wifi', 'commissioning'] },
+        { path: '/api/wifi/config', routes: ['wifi', 'commissioning'] },
+        { path: '/api/solar-grid/config', routes: ['control', 'commissioning'] },
+        { path: '/api/solar-grid/status', routes: ['control', 'commissioning'] },
+        { path: '/api/inverter-profiles', routes: ['inverters', 'commissioning'] },
+        { path: '/api/inverter-profile-assignment', routes: ['inverters', 'commissioning'] },
+        { path: '/api/inverter-probe', routes: ['inverters', 'commissioning'] },
+        { path: '/api/inverters/config', routes: ['inverters', 'commissioning'] },
+        { path: '/api/meters/em500/', routes: ['meters', 'commissioning'] }
+    ];
+
     const state = { authenticated: false, sessionExpired: false };
     const originalFetch = window.fetch.bind(window);
     let renewalPromise = null;
 
     function currentRoute() {
         return location.hash.replace(/^#\/?/, '') || 'dashboard';
+    }
+
+    /* The single scope predicate: authorised AND standing on a route that needs
+     * the data. Modules must reuse this rather than reading auth state directly. */
+    function engineeringScopeAllows(routes) {
+        if (!state.authenticated) return false;
+        if (!Array.isArray(routes) || routes.length === 0) return true;
+        return routes.includes(currentRoute());
+    }
+
+    function engineeringEndpointScope(path) {
+        const url = String(path || '').split('?', 1)[0];
+        return ENGINEERING_ONLY_ENDPOINTS.find((entry) => url.startsWith(entry.path)) || null;
+    }
+
+    /* Operator endpoints (/api/status, /api/telemetry, /api/meters, /api/operator/*)
+     * are not listed above and therefore stay permitted without authentication. */
+    function mayRequest(path) {
+        const scope = engineeringEndpointScope(path);
+        return scope ? engineeringScopeAllows(scope.routes) : true;
+    }
+
+    /* Route changes and sign-in/sign-out are the only two events that can widen
+     * or narrow a module's scope, so both re-run the caller's gated loader.
+     * This is what makes data appear straight after login without a refresh. */
+    function onScopeChange(handler) {
+        if (typeof handler !== 'function') return;
+        window.addEventListener('amx-access-change', handler);
+        window.addEventListener('hashchange', handler);
     }
 
     async function renewEngineeringSession() {
@@ -271,6 +321,10 @@
     window.AutomatrixEngineeringAccess = Object.freeze({
         isAuthenticated: () => state.authenticated,
         renew: renewEngineeringSession,
-        requireRoute: enforceRoute
+        requireRoute: enforceRoute,
+        currentRoute,
+        mayRequest,
+        mayUseEngineering: (...routes) => engineeringScopeAllows(routes.flat()),
+        onScopeChange
     });
 })();

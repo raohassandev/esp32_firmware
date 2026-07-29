@@ -7,8 +7,13 @@
     };
 
     const byId = (id) => document.getElementById(id);
+    const access = () => window.AutomatrixEngineeringAccess;
 
     async function loadContext() {
+        /* This baseline is only ever consulted while validating the Wi-Fi form,
+         * so fetching it from any other route is pure waste on a socket-starved
+         * controller - and the scan endpoint answers 401 without Engineering. */
+        if (!access()?.mayRequest('/api/wifi/scan')) return;
         const requests = await Promise.allSettled([
             fetch('/api/config', { cache: 'no-store' }).then((response) => response.json()),
             fetch('/api/wifi/scan', { cache: 'no-store' }).then((response) => response.json())
@@ -67,9 +72,7 @@
     function bind() {
         const form = byId('wifiForm');
         if (form) form.addEventListener('submit', guardSubmit, true);
-        window.addEventListener('hashchange', () => {
-            if (window.location.hash.includes('/wifi')) loadContext();
-        });
+        access()?.onScopeChange(loadContext);
         const scanButton = byId('wifiScanButton');
         if (scanButton) scanButton.addEventListener('click', () => window.setTimeout(loadContext, 1500));
     }
