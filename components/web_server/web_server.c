@@ -14,6 +14,7 @@
 #include "meter_config_api.h"
 #include "meter_read_jobs.h"
 #include "operational_api.h"
+#include "ota_api.h"
 #include "solar_grid_api.h"
 #include "solar_grid_status_api.h"
 #include "system_resource_api.h"
@@ -72,6 +73,7 @@ static esp_err_t css_handler(httpd_req_t *request)
         web_assets_wifi_css,
         web_assets_devices_css,
         web_assets_em500_css,
+        web_assets_ota_css,
         web_assets_theme_css,
         web_assets_product_mode_css,
         web_assets_operator_operations_css,
@@ -108,6 +110,7 @@ static esp_err_t js_handler(httpd_req_t *request)
         web_assets_em500_profiles_js,
         web_assets_em500_plan_js,
         web_assets_solar_grid_js,
+        web_assets_ota_js,
         web_assets_operator_view_js,
         web_assets_operator_operations_js,
         web_assets_operator_product_suite_js,
@@ -130,7 +133,7 @@ esp_err_t web_server_start(void)
     ESP_RETURN_ON_ERROR(em500_cache_init(), "web", "EM500 acquisition cache init failed");
     ESP_RETURN_ON_ERROR(meter_read_jobs_init(), "web", "meter read-job queue init failed");
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 40;
+    config.max_uri_handlers = 44;
     config.stack_size = 8192;
     ESP_RETURN_ON_ERROR(httpd_start(&s_server, &config), "web", "HTTP server start failed");
     const httpd_uri_t assets[] = {
@@ -156,7 +159,8 @@ esp_err_t web_server_start(void)
     ESP_RETURN_ON_ERROR(em500_settings_api_register(s_server), "web", "EM500 settings API registration failed");
     ESP_RETURN_ON_ERROR(em500_settings_plan_api_register(s_server), "web", "EM500 settings plan API registration failed");
     ESP_RETURN_ON_ERROR(solar_grid_api_register(s_server), "web", "Solar-Grid configuration API registration failed");
-    return solar_grid_status_api_register(s_server);
+    ESP_RETURN_ON_ERROR(solar_grid_status_api_register(s_server), "web", "Solar-Grid status API registration failed");
+    return ota_api_register(s_server);
 }
 
 void web_server_stop(void)
