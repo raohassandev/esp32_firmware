@@ -48,7 +48,36 @@ direct 272.26 kW   controller 269.04 kW
 Agreement is within live load fluctuation between the two reads. **The long-standing question
 of whether the reported grid power was trustworthy is now closed for this meter.**
 
-## Phase 1 Mode A: `0x2160` does not exist on this meter
+## RESOLVED: the source input is `0x2100` on slave 3
+
+The site confirmed the correct register by energising the 220 VAC source-detection input while
+watching it. Reproduced independently from the controller network:
+
+| Slave | `0x2100` | `0x2101` | `0x2102` | 220 VAC input |
+|---:|---:|---:|---:|---|
+| 3 | **1** | 0 | 0 | applied |
+| 3 | **0** | 0 | 0 | not applied |
+| 1 | 0 | 0 | 0 | (no input wired) |
+
+So `0` = grid, `1` = generator, exactly the semantics the specification assumed — only the
+register and the slave were wrong. `0x2100` is the documented Lovato "OR of all digital inputs"
+register, read with function code 3, so this is no longer a clone-specific guess.
+
+The default in `source_detection_config.h` has been changed from `0x2160` to `0x2100`.
+
+Both meters answer on the same daisy chain behind `192.168.100.200:502`:
+
+| Slave | Total active power (PDU 57) | Source input |
+|---:|---:|---|
+| 1 | 291.30 kW | not wired |
+| 3 | 288.70 kW | **wired, verified** |
+
+**Which meter measures which circuit is still unknown to me.** Both read roughly the same power,
+so I cannot infer from the readings whether one is the grid feed and the other a generator feed.
+That has to be stated by someone who can see the installation before meter roles are assigned or
+Mode B is used.
+
+## Superseded: `0x2160` does not exist on these meters
 
 `docs/PHASE1_SOURCE_DETECTION_SPEC.md` defaults the single-input source register to decimal
 8544 (`0x2160`), recorded as clone-specific and established by physical observation. On this

@@ -17,19 +17,27 @@ Two site topologies must be supported. Both resolve to the same internal source 
 
 Some sites use one EM500 and wire a 220 VAC source-detection signal into a digital input.
 
-- **Register:** decimal `8544` = hex `0x2160`
+- **Register:** hex `0x2100` = decimal `8448`, read with **function code 3**
 - `0` → **grid** is running with solar
 - `1` → **generator** is running with solar
 
-`0x2160` is **not** in the official Lovato DMG610 map — the EM500 is a DMG610 clone and this
-register is clone-specific. It is classified `CLONE_SPECIFIC` in
-`docs/EM500_DMG610_REGISTER_CATALOG.md` and was established by physical observation on the
-installed meter, not from a datasheet.
+**Verified on site 2026-07-29** by energising and de-energising the 220 VAC source-detection
+input and observing the register change on the installed meter (slave 3): `0` with no supply,
+`1` with supply present. `0x2101` and `0x2102` stayed `0` throughout.
+
+`0x2100` is the Lovato DMG610 "OR of all digital inputs" register — a documented address, not a
+clone-specific guess. The earlier default of `0x2160`, recorded as `CLONE_SPECIFIC` in
+`docs/EM500_DMG610_REGISTER_CATALOG.md`, returns **exception 0x02, illegal data address**, on
+these units for a single-register read and must not be used.
+
+Note the source input is wired to **slave 3**, while a second meter on the same daisy chain
+answers as slave 1. Both report total active power, so either can serve as a power source; only
+slave 3 carries the source-detection input.
 
 Because of that, every one of these must be site-configurable, not hardcoded:
 
 ```
-source_status_register          default 0x2160
+source_status_register          default 0x2100
 source_status_function          3 or 4, physically verified per site
 source_status_address_base      0 or 1 (PDU vs display convention)
 source_status_grid_value        default 0

@@ -47,8 +47,9 @@ require("grid_active && generator_active" in ENGINE and "SOURCE_REASON_CONFLICT"
 require("!grid_active && !generator_active" in ENGINE and "SOURCE_REASON_NO_SOURCE" in ENGINE,
         "neither-above-threshold evidence must fail closed")
 
-require("SOURCE_DETECTION_SINGLE_REGISTER_DEFAULT 0x2160u" in CONFIG_H,
-        "clone-specific source input default must remain 0x2160")
+require("SOURCE_DETECTION_SINGLE_REGISTER_DEFAULT 0x2100u" in CONFIG_H,
+        "source input default must be 0x2100, verified on the installed meters; "
+        "0x2160 returns illegal data address on these units")
 require("SOURCE_DETECTION_POWER_THRESHOLD_DEFAULT_KW 1.0f" in CONFIG_H,
         "power threshold must default to 1.0 kW, not zero")
 require("config->debounce_ms = 0U" in CONFIG and "config->stale_timeout_ms = 0U" in CONFIG,
@@ -59,8 +60,13 @@ require("pvdg/config blob" in CONFIG,
         "commissioned app configuration preservation must be documented in code")
 require("nvs_flash_erase" not in CONFIG and "nvs_erase" not in CONFIG,
         "source detection must never erase commissioned NVS")
-require("#define APP_CONFIG_VERSION 3u" in APP_CONFIG,
-        "Phase 1 must not resize or reset the commissioned app/Wi-Fi schema")
+# The point of this assertion is that source detection keeps its settings in its
+# own namespace and is never the reason the commissioned app/Wi-Fi schema moves.
+# Schema 4 was introduced deliberately by the meter-role work, with a verified
+# upgrade path covered by tests/meter_role_source_contract.py, so pinning a
+# version number here would only couple the two. Assert the real guarantee.
+require("config_types.h" not in CONFIG and "app_config_t" not in CONFIG,
+        "source detection must not reach into the commissioned app configuration layout")
 
 for token in [
     "Automatic Solar-Grid control remains fail-closed",

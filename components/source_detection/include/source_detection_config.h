@@ -14,7 +14,12 @@ extern "C" {
 #define SOURCE_DETECTION_CONFIG_VERSION 1u
 #define SOURCE_DETECTION_METER_INDEX_NONE UINT8_MAX
 #define SOURCE_DETECTION_ADDRESS_BASE_UNCONFIGURED UINT8_MAX
-#define SOURCE_DETECTION_SINGLE_REGISTER_DEFAULT 0x2160u
+/* Verified on the installed meters 2026-07-29 by energising the 220 VAC
+ * source-detection input and observing the register change: 0 with no supply,
+ * 1 with supply present. 0x2160 was the previous default and returns exception
+ * 0x02, illegal data address, on these units. 0x2100 is the Lovato DMG610
+ * "OR of all digital inputs" register, read with function code 3. */
+#define SOURCE_DETECTION_SINGLE_REGISTER_DEFAULT 0x2100u
 #define SOURCE_DETECTION_POWER_THRESHOLD_DEFAULT_KW 1.0f
 
 typedef struct {
