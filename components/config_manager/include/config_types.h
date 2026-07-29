@@ -5,7 +5,7 @@
 #include "modbus_types.h"
 
 #define APP_CONFIG_MAGIC 0x50564447u
-#define APP_CONFIG_VERSION 4u
+#define APP_CONFIG_VERSION 5u
 #define APP_MAX_METERS 4
 #define APP_MAX_INVERTERS 12
 /* Must equal SOURCE_MAX_GENERATORS in control_engine/source_mode.h. Defined
@@ -95,6 +95,21 @@ typedef struct {
     float maximum_percent;
 } inverter_config_t;
 
+/* Rate limiting for the PV command, configurable independently per source.
+ *
+ * Disabling the ramp removes only the rate limit. The export/import policy, the
+ * generator minimum-loading limit and every safety clamp still apply, so a
+ * disabled ramp means "reach the allowed target immediately", never "ignore the
+ * limits".
+ *
+ * The down rate should exceed the up rate: reducing PV is the direction that
+ * protects a generator from under-loading and reverse power. */
+typedef struct {
+    bool enabled;
+    float up_percent_per_second;
+    float down_percent_per_second;
+} ramp_profile_t;
+
 typedef struct {
     bool enabled;
     float grid_import_target_kw;
@@ -105,6 +120,15 @@ typedef struct {
     float ramp_down_percent_per_second;
     uint32_t interval_ms;
     uint32_t meter_stale_timeout_ms;
+    /* Appended in schema 5. control_config_t is embedded in app_config_t ahead
+     * of wifi_provision_id, so growing it shifts that field: schema 4 is NOT a
+     * byte-exact prefix of schema 5 and must be migrated field by field, never
+     * memcpy'd wholesale. The blob sizes differ, which is what keeps the two
+     * distinguishable on load.
+     * ramp_up/down_percent_per_second above are retained as the legacy fields
+     * that seed generator_ramp on upgrade. */
+    ramp_profile_t grid_ramp;
+    ramp_profile_t generator_ramp;
 } control_config_t;
 
 typedef struct {

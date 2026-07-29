@@ -44,6 +44,23 @@ static meter_role_assignment_t s_roles;
 _Static_assert(APP_MAX_GENERATORS == SOURCE_MAX_GENERATORS,
                "meter generator slots and source-mode generator channels must agree");
 
+/* Converts a ramp profile into the kW/s the policy layer expects.
+ *
+ * A disabled ramp yields a rate large enough that the policy's rate limiter can
+ * never bind, which lets the command step straight to the allowed target. It
+ * does NOT bypass the policy: the export/import target, the generator limit and
+ * every safety clamp are applied first and still hold. */
+static float ramp_kw_per_second(const ramp_profile_t *ramp, bool upward,
+                                float fleet_capacity_kw, bool fleet_valid)
+{
+    if (!fleet_valid) return 0.0f;
+    if (!ramp->enabled) return fleet_capacity_kw;   /* full range within one second */
+    const float percent = upward ? ramp->up_percent_per_second
+                                 : ramp->down_percent_per_second;
+    if (!isfinite(percent) || percent <= 0.0f) return 0.0f;
+    return fleet_capacity_kw * percent * 0.01f;
+}
+
 static meter_role_assignment_t current_role_assignment(void)
 {
     meter_role_assignment_t roles;
@@ -286,6 +303,14 @@ static void control_task(void *argument)
          * than commanding against a machine of unknown capacity. This reduces
          * the likelihood of reverse power; it does not replace the generator's
          * own protection relay. */
+        /* Ramping is chosen by which source is carrying the plant: a generator
+         * needs its rate limited, the grid does not. */
+        const bool generator_carrying = source.mode == SOURCE_MODE_GENERATOR_ONLY ||
+                                        source.mode == SOURCE_MODE_ISLAND ||
+                                        source.mode == SOURCE_MODE_GRID_GENERATOR_SYNC;
+        const ramp_profile_t ramp = generator_carrying ? s_config.generator_ramp
+                                                       : s_config.grid_ramp;
+
         float generator_safe_limit_kw = 0.0f;
         if (source.mode == SOURCE_MODE_GENERATOR_ONLY) {
             const generator_limit_input_t limit_input = {
@@ -312,12 +337,8 @@ static void control_task(void *argument)
             .ki = s_config.ki,
             .deadband_kw = s_config.deadband_kw,
             .interval_seconds = interval_seconds,
-            .ramp_up_kw_per_second = fleet_valid
-                ? fleet_capacity_kw * s_config.ramp_up_percent_per_second * 0.01f
-                : 0.0f,
-            .ramp_down_kw_per_second = fleet_valid
-                ? fleet_capacity_kw * s_config.ramp_down_percent_per_second * 0.01f
-                : 0.0f,
+            .ramp_up_kw_per_second = ramp_kw_per_second(&ramp, true, fleet_capacity_kw, fleet_valid),
+            .ramp_down_kw_per_second = ramp_kw_per_second(&ramp, false, fleet_capacity_kw, fleet_valid),
             .integral_kw = integral_kw,
             .generator_safe_limit_kw = generator_safe_limit_kw,
         };

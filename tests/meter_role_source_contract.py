@@ -2,6 +2,7 @@
 """Meter roles must select the control input, and the schema-4 upgrade must not
 cost a commissioned controller its configuration."""
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,7 +17,11 @@ def require(condition, message):
 
 
 # The role must exist as real configuration, not a display label.
-require("APP_CONFIG_VERSION 4u" in TYPES, "meter roles require config schema 4")
+# Assert the schema has advanced past the roleless layout, not a specific number:
+# pinning the version couples this contract to every later schema change.
+_schema = re.search(r"#define APP_CONFIG_VERSION (\d+)u", TYPES)
+require(_schema and int(_schema.group(1)) >= 4,
+        "meter roles require config schema 4 or later")
 for token in ("METER_ROLE_UNASSIGNED", "METER_ROLE_GRID", "METER_ROLE_GENERATOR",
               "METER_ROLE_LOAD", "METER_ROLE_PV", "METER_GENERATOR_INDEX_NONE"):
     require(token in TYPES, f"meter role vocabulary missing {token}")
@@ -32,7 +37,7 @@ for legacy in ("legacy_app_config_v1_t", "legacy_app_config_v2_t", "legacy_app_c
     block = CONFIG[CONFIG.index(f"}} {legacy};") - 700:CONFIG.index(f"}} {legacy};")]
     require("legacy_meter_config_v3_t meters" in block,
             f"{legacy} must use the frozen meter layout, not the live one")
-require("_Static_assert(sizeof(app_config_t) > sizeof(legacy_app_config_v3_t)" in CONFIG,
+require("_Static_assert(sizeof(legacy_app_config_v4_t) > sizeof(legacy_app_config_v3_t)" in CONFIG,
         "schema 4 must stay distinguishable from schema 3 by blob size")
 
 # The upgrade must preserve, never reset.

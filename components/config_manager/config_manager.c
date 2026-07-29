@@ -23,6 +23,21 @@ typedef struct {
     char password[65];
 } legacy_wifi_config_v1_t;
 
+/* Frozen control layout as it stood through schema 4, before the per-source ramp
+ * profiles. Every legacy app layout embeds this rather than the live
+ * control_config_t, so growing control_config_t cannot change their sizes. */
+typedef struct {
+    bool enabled;
+    float grid_import_target_kw;
+    float deadband_kw;
+    float kp;
+    float ki;
+    float ramp_up_percent_per_second;
+    float ramp_down_percent_per_second;
+    uint32_t interval_ms;
+    uint32_t meter_stale_timeout_ms;
+} legacy_control_config_v4_t;
+
 /* Frozen copy of meter_config_t as it stood through schema 3. The legacy
  * layouts below MUST NOT reference the live meter_config_t: appending a field
  * to it would silently change their sizes, no stored blob would match any
@@ -49,7 +64,7 @@ typedef struct {
     legacy_meter_config_v3_t meters[APP_MAX_METERS];
     uint8_t inverter_count;
     inverter_config_t inverters[APP_MAX_INVERTERS];
-    control_config_t control;
+    legacy_control_config_v4_t control;
 } legacy_app_config_v1_t;
 
 typedef struct {
@@ -61,8 +76,25 @@ typedef struct {
     legacy_meter_config_v3_t meters[APP_MAX_METERS];
     uint8_t inverter_count;
     inverter_config_t inverters[APP_MAX_INVERTERS];
-    control_config_t control;
+    legacy_control_config_v4_t control;
 } legacy_app_config_v2_t;
+
+/* Frozen schema 4 layouts. Same rule as the v3 snapshot above: these must never
+ * reference the live meter_config_t or control_config_t, because growing either
+ * would change these sizes and a stored blob would stop matching any schema. */
+typedef struct {
+    bool enabled;
+    char name[24];
+    modbus_endpoint_t endpoint;
+    uint8_t function_code;
+    uint16_t active_power_address;
+    modbus_data_type_t active_power_type;
+    modbus_word_order_t active_power_order;
+    float active_power_scale;
+    uint32_t poll_interval_ms;
+    uint8_t role;
+    uint8_t generator_index;
+} legacy_meter_config_v4_t;
 
 typedef struct {
     uint32_t magic;
@@ -73,14 +105,29 @@ typedef struct {
     legacy_meter_config_v3_t meters[APP_MAX_METERS];
     uint8_t inverter_count;
     inverter_config_t inverters[APP_MAX_INVERTERS];
-    control_config_t control;
+    legacy_control_config_v4_t control;
     uint32_t wifi_provision_id;
 } legacy_app_config_v3_t;
 
+typedef struct {
+    uint32_t magic;
+    uint16_t version;
+    char device_name[32];
+    app_wifi_config_t wifi;
+    uint8_t meter_count;
+    legacy_meter_config_v4_t meters[APP_MAX_METERS];
+    uint8_t inverter_count;
+    inverter_config_t inverters[APP_MAX_INVERTERS];
+    legacy_control_config_v4_t control;
+    uint32_t wifi_provision_id;
+} legacy_app_config_v4_t;
+
 _Static_assert(sizeof(legacy_app_config_v3_t) == sizeof(legacy_app_config_v2_t) + sizeof(uint32_t),
                "schema 2 must remain a byte-exact prefix of schema 3");
-_Static_assert(sizeof(app_config_t) > sizeof(legacy_app_config_v3_t),
-               "schema 4 must be strictly larger than schema 3 so blob sizes stay distinguishable");
+_Static_assert(sizeof(legacy_app_config_v4_t) > sizeof(legacy_app_config_v3_t),
+               "schema 4 must stay distinguishable from schema 3 by blob size");
+_Static_assert(sizeof(app_config_t) > sizeof(legacy_app_config_v4_t),
+               "schema 5 must stay distinguishable from schema 4 by blob size");
 
 static void defaults(app_config_t *c)
 {
@@ -154,6 +201,17 @@ static void defaults(app_config_t *c)
     c->control.ki = 0.05f;
     c->control.ramp_up_percent_per_second = 5.0f;
     c->control.ramp_down_percent_per_second = 20.0f;
+    /* No machine to protect on the grid, so the command may step straight to
+     * whatever the export policy allows. Disabling the ramp removes only the
+     * rate limit - the policy target and safety clamps still apply. */
+    c->control.grid_ramp.enabled = false;
+    c->control.grid_ramp.up_percent_per_second = 100.0f;
+    c->control.grid_ramp.down_percent_per_second = 100.0f;
+    /* A generator must be ramped, and downward faster than upward: reducing PV
+     * is the direction that protects against under-loading and reverse power. */
+    c->control.generator_ramp.enabled = true;
+    c->control.generator_ramp.up_percent_per_second = 5.0f;
+    c->control.generator_ramp.down_percent_per_second = 20.0f;
     c->control.interval_ms = 250;
     /* Four missed polls at the 250 ms default. Tightened from 3000 ms because
      * the measurement is now much fresher: a stale gate far longer than the
@@ -287,6 +345,21 @@ static bool inverter_valid(const inverter_config_t *i)
            (i->power_limit_function == 0 || i->power_limit_function == 6 || i->power_limit_function == 16);
 }
 
+static bool ramp_profile_valid(const ramp_profile_t *r)
+{
+    /* A rate of zero with the ramp enabled would freeze the command forever, so
+     * an enabled profile must be able to move in both directions. */
+    if (!isfinite(r->up_percent_per_second) || !isfinite(r->down_percent_per_second) ||
+        r->up_percent_per_second < 0.0f || r->down_percent_per_second < 0.0f ||
+        r->up_percent_per_second > 10000.0f || r->down_percent_per_second > 10000.0f) {
+        return false;
+    }
+    if (r->enabled && (r->up_percent_per_second <= 0.0f || r->down_percent_per_second <= 0.0f)) {
+        return false;
+    }
+    return true;
+}
+
 static bool control_valid(const control_config_t *c)
 {
     return isfinite(c->grid_import_target_kw) && isfinite(c->deadband_kw) &&
@@ -294,7 +367,8 @@ static bool control_valid(const control_config_t *c)
            isfinite(c->ramp_up_percent_per_second) && isfinite(c->ramp_down_percent_per_second) &&
            c->deadband_kw >= 0.0f && c->kp >= 0.0f && c->ki >= 0.0f &&
            c->ramp_up_percent_per_second >= 0.0f && c->ramp_down_percent_per_second >= 0.0f &&
-           c->interval_ms >= 50U && c->meter_stale_timeout_ms >= 100U;
+           c->interval_ms >= 50U && c->meter_stale_timeout_ms >= 100U &&
+           ramp_profile_valid(&c->grid_ramp) && ramp_profile_valid(&c->generator_ramp);
 }
 
 static bool valid(const app_config_t *c)
@@ -334,6 +408,33 @@ static void upgrade_meters_from_v3(meter_config_t *next, uint8_t count,
     }
 }
 
+/* Schema 4 and earlier had a single ramp rate pair applied in every source mode.
+ * Those rates were tuned for a generator, so they seed the generator profile.
+ * The grid profile starts disabled: with no machine to protect there is no
+ * reason to rate-limit, and disabling the ramp removes only the rate limit -
+ * the export policy and every safety clamp still apply. */
+static void upgrade_control_from_v4(control_config_t *next,
+                                    const legacy_control_config_v4_t *old)
+{
+    next->enabled = false;   /* an upgrade never arms automatic control */
+    next->grid_import_target_kw = old->grid_import_target_kw;
+    next->deadband_kw = old->deadband_kw;
+    next->kp = old->kp;
+    next->ki = old->ki;
+    next->ramp_up_percent_per_second = old->ramp_up_percent_per_second;
+    next->ramp_down_percent_per_second = old->ramp_down_percent_per_second;
+    next->interval_ms = old->interval_ms;
+    next->meter_stale_timeout_ms = old->meter_stale_timeout_ms;
+
+    next->generator_ramp.enabled = true;
+    next->generator_ramp.up_percent_per_second = old->ramp_up_percent_per_second;
+    next->generator_ramp.down_percent_per_second = old->ramp_down_percent_per_second;
+
+    next->grid_ramp.enabled = false;
+    next->grid_ramp.up_percent_per_second = old->ramp_up_percent_per_second;
+    next->grid_ramp.down_percent_per_second = old->ramp_down_percent_per_second;
+}
+
 static void migrate_v1(const legacy_app_config_v1_t *old, app_config_t *next)
 {
     defaults(next);
@@ -347,8 +448,7 @@ static void migrate_v1(const legacy_app_config_v1_t *old, app_config_t *next)
     upgrade_meters_from_v3(next->meters, next->meter_count, old->meters);
     next->inverter_count = old->inverter_count <= APP_MAX_INVERTERS ? old->inverter_count : APP_MAX_INVERTERS;
     memcpy(next->inverters, old->inverters, sizeof(next->inverters));
-    next->control = old->control;
-    next->control.enabled = false;
+    upgrade_control_from_v4(&next->control, &old->control);
     next->wifi_provision_id = CONFIG_PVDG_WIFI_PROVISION_ID;
     if (strcmp(next->wifi.fallback.ssid, next->wifi.primary.ssid) == 0) next->wifi.fallback.enabled = false;
 }
@@ -386,6 +486,34 @@ esp_err_t config_manager_init(void)
             have_valid_config = err == ESP_OK && valid(loaded);
             stored_matches = have_valid_config;
             if (!have_valid_config) ESP_LOGW(TAG, "Stored configuration rejected by validation");
+        } else if (err == ESP_OK && stored_size == sizeof(legacy_app_config_v4_t)) {
+            legacy_app_config_v4_t *legacy = malloc(sizeof(*legacy));
+            if (legacy) {
+                size_t size = sizeof(*legacy);
+                if (nvs_get_blob(h, KEY, legacy, &size) == ESP_OK &&
+                    legacy->magic == APP_CONFIG_MAGIC && legacy->version == 4) {
+                    loaded->magic = legacy->magic;
+                    loaded->version = APP_CONFIG_VERSION;
+                    strlcpy(loaded->device_name, legacy->device_name, sizeof(loaded->device_name));
+                    loaded->wifi = legacy->wifi;
+                    loaded->meter_count = legacy->meter_count <= APP_MAX_METERS
+                                              ? legacy->meter_count : APP_MAX_METERS;
+                    /* Schema 4 already carries roles, so meters copy straight across. */
+                    for (uint8_t n = 0; n < APP_MAX_METERS; ++n) {
+                        memcpy(&loaded->meters[n], &legacy->meters[n],
+                               sizeof(legacy->meters[n]));
+                    }
+                    loaded->inverter_count = legacy->inverter_count <= APP_MAX_INVERTERS
+                                                 ? legacy->inverter_count : APP_MAX_INVERTERS;
+                    memcpy(loaded->inverters, legacy->inverters, sizeof(loaded->inverters));
+                    upgrade_control_from_v4(&loaded->control, &legacy->control);
+                    loaded->wifi_provision_id = legacy->wifi_provision_id;
+                    have_valid_config = valid(loaded);
+                    if (have_valid_config) ESP_LOGI(TAG, "Migrated configuration schema 4 to schema %u", APP_CONFIG_VERSION);
+                    else ESP_LOGW(TAG, "Schema 4 migration produced an invalid configuration; discarding it");
+                }
+                free(legacy);
+            }
         } else if (err == ESP_OK && stored_size == sizeof(legacy_app_config_v3_t)) {
             legacy_app_config_v3_t *legacy = malloc(sizeof(*legacy));
             if (legacy) {
@@ -402,8 +530,7 @@ esp_err_t config_manager_init(void)
                     loaded->inverter_count = legacy->inverter_count <= APP_MAX_INVERTERS
                                                  ? legacy->inverter_count : APP_MAX_INVERTERS;
                     memcpy(loaded->inverters, legacy->inverters, sizeof(loaded->inverters));
-                    loaded->control = legacy->control;
-                    loaded->control.enabled = false;
+                    upgrade_control_from_v4(&loaded->control, &legacy->control);
                     /* Schema 3 already carries commissioned Wi-Fi and its own
                      * provisioning generation; preserve it so an upgrade cannot
                      * replay build credentials over what an operator set. */
@@ -430,12 +557,11 @@ esp_err_t config_manager_init(void)
                     loaded->inverter_count = legacy->inverter_count <= APP_MAX_INVERTERS
                                                  ? legacy->inverter_count : APP_MAX_INVERTERS;
                     memcpy(loaded->inverters, legacy->inverters, sizeof(loaded->inverters));
-                    loaded->control = legacy->control;
+                    upgrade_control_from_v4(&loaded->control, &legacy->control);
                     /* Schema 2 already contains commissioned Wi-Fi. Treat the
                      * current build provisioning generation as consumed so an
                      * upgrade cannot overwrite those credentials. */
                     loaded->wifi_provision_id = CONFIG_PVDG_WIFI_PROVISION_ID;
-                    loaded->control.enabled = false;
                     have_valid_config = valid(loaded);
                     if (have_valid_config) ESP_LOGI(TAG, "Migrated configuration schema 2 to schema %u", APP_CONFIG_VERSION);
                     else ESP_LOGW(TAG, "Schema 2 migration produced an invalid configuration; discarding it");
@@ -604,6 +730,14 @@ esp_err_t config_manager_export_json(char **out)
     cJSON_AddNumberToObject(cc, "ki", c->control.ki);
     cJSON_AddNumberToObject(cc, "ramp_up_pct_s", c->control.ramp_up_percent_per_second);
     cJSON_AddNumberToObject(cc, "ramp_down_pct_s", c->control.ramp_down_percent_per_second);
+    for (int which = 0; which < 2; ++which) {
+        const ramp_profile_t *ramp = which == 0 ? &c->control.grid_ramp
+                                                : &c->control.generator_ramp;
+        cJSON *ro = cJSON_AddObjectToObject(cc, which == 0 ? "grid_ramp" : "generator_ramp");
+        cJSON_AddBoolToObject(ro, "enabled", ramp->enabled);
+        cJSON_AddNumberToObject(ro, "up_pct_s", ramp->up_percent_per_second);
+        cJSON_AddNumberToObject(ro, "down_pct_s", ramp->down_percent_per_second);
+    }
     cJSON_AddNumberToObject(cc, "interval_ms", c->control.interval_ms);
     cJSON_AddNumberToObject(cc, "meter_stale_timeout_ms", c->control.meter_stale_timeout_ms);
 
@@ -726,6 +860,23 @@ esp_err_t config_manager_import_json(const char *text)
             !read_float(cc, "ki", &c->control.ki)) err = ESP_ERR_INVALID_ARG;
         cJSON *x = cJSON_GetObjectItemCaseSensitive(cc, "interval_ms");
         if (cJSON_IsNumber(x)) c->control.interval_ms = (uint32_t)x->valuedouble;
+
+        /* Ramp behaviour is commissioning data: which sources are rate-limited,
+         * and how fast in each direction. valid() rejects an enabled profile
+         * with a zero rate, which would otherwise freeze the command. */
+        for (int which = 0; which < 2; ++which) {
+            cJSON *ro = cJSON_GetObjectItemCaseSensitive(cc, which == 0 ? "grid_ramp"
+                                                                        : "generator_ramp");
+            if (!cJSON_IsObject(ro)) continue;
+            ramp_profile_t *ramp = which == 0 ? &c->control.grid_ramp
+                                              : &c->control.generator_ramp;
+            cJSON *e = cJSON_GetObjectItemCaseSensitive(ro, "enabled");
+            if (cJSON_IsBool(e)) ramp->enabled = cJSON_IsTrue(e);
+            if (!read_float(ro, "up_pct_s", &ramp->up_percent_per_second) ||
+                !read_float(ro, "down_pct_s", &ramp->down_percent_per_second)) {
+                err = ESP_ERR_INVALID_ARG;
+            }
+        }
     }
 
     cJSON_Delete(r);

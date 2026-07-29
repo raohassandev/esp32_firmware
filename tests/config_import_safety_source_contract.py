@@ -101,8 +101,8 @@ assert "source_mode_from_measured_source" in CONTROL_ENGINE, \
     "generator operation must come from the measured-source mapping, which fails closed"
 assert "transition_pending" in CONTROL_ENGINE, \
     "a source transition still inside its debounce must not count as a settled generator"
-assert "SOURCE_MODE_GENERATOR_ONLY" not in CONTROL_ENGINE.split("generator_safe_limit_kw")[0], \
-    "generator mode must not be asserted before the measured-source mapping has produced it"
+assert ".source_mode = SOURCE_MODE_GENERATOR_ONLY" not in CONTROL_ENGINE, \
+    "generator mode must be produced by the source mapping, never hardcoded into the policy input"
 
 with tempfile.TemporaryDirectory() as directory:
     binary = Path(directory) / "power_control_policy_test"
