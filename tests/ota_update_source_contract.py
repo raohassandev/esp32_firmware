@@ -41,6 +41,10 @@ for token in [
     "OTA_MANAGER_PREFIX_BYTES",
     "ota_manager_schedule_boot_validation",
     "validation_scheduled",
+    "upload_admission_open",
+    "!pending_verify_for(running)",
+    "running->address == boot->address",
+    "if (!upload_admission_open()) return ESP_ERR_INVALID_STATE",
 ]:
     require(token in MANAGER or token in MANAGER_H,
             f"OTA manager safeguard missing: {token}")
@@ -48,6 +52,8 @@ require("fill_partition_status(&snapshot)" in MANAGER,
         "partition metadata must be refreshed outside the status critical section")
 require("refresh_partition_status_locked" not in MANAGER,
         "flash/partition APIs must not run inside an interrupt-disabled critical section")
+require(MANAGER.index("if (!upload_admission_open())") < MANAGER.index("s_upload_claimed = true"),
+        "pending/staged image admission must be checked before claiming or erasing the OTA slot")
 
 for forbidden in ["nvs_flash_erase", "erase_flash", "erase-flash"]:
     require(forbidden not in MANAGER and forbidden not in API,
