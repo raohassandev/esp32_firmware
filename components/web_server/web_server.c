@@ -136,7 +136,12 @@ esp_err_t web_server_start(void)
     /* Raised alongside the commissioning-gate and write-confirmation
      * endpoints. httpd refuses to register beyond this limit, and a
      * refused safety endpoint would be a silent loss of visibility. */
-    config.max_uri_handlers = 48;
+    /* Must stay ahead of the routes actually registered: every registration site
+     * propagates failure, so an overflow does not drop one endpoint, it aborts
+     * web_server start and leaves the unit with no web interface. A slot is a
+     * few bytes, headroom is not. tests/uri_handler_capacity_source_contract.py
+     * counts the routes and fails if this number stops leading them. */
+    config.max_uri_handlers = 56;
     config.stack_size = 8192;
     /* The default of 7 leaves only 4 client sockets once httpd takes its 3
      * internal ones, and a browser opens up to 6 keep-alive connections per

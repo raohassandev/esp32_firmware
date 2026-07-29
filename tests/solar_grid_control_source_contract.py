@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -114,12 +115,14 @@ for token in [
     "web_assets_solar_grid_js",
     "solar_grid_api_register(s_server)",
     "solar_grid_status_api_register(s_server)",
-    # Raised from 40 alongside the commissioning-gate and write-confirmation
-    # endpoints. httpd refuses registration beyond this limit, so the number must
-    # stay ahead of the number of routes actually registered.
-    "config.max_uri_handlers = 48",
 ]:
     require(token in SERVER, f"Solar-Grid server integration missing: {token}")
+# Handler capacity is asserted against the actual route count in
+# tests/uri_handler_capacity_source_contract.py. Pinning the literal here only
+# broke when someone edited that one line, and stayed silent when a route was
+# added -- which is the change that can actually take the web server down.
+require(re.search(r"config\.max_uri_handlers\s*=\s*\d+", SERVER) is not None,
+        "web server must set an explicit URI handler capacity")
 require("DECLARE_ASSET(solar_grid_js)" in ASSETS,
         "Solar-Grid browser asset is not exported")
 for token in [
