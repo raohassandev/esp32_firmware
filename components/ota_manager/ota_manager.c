@@ -32,6 +32,48 @@ static void copy_text(char *destination, size_t destination_size,
     destination[length] = '\0';
 }
 
+static bool fixed_text_equals(const char *field, size_t field_size,
+                              const char *expected)
+{
+    if (!field || field_size == 0U || !expected) return false;
+    const size_t expected_length = strlen(expected);
+    if (expected_length >= field_size) return false;
+    const size_t field_length = strnlen(field, field_size);
+    return field_length == expected_length &&
+           memcmp(field, expected, expected_length) == 0;
+}
+
+static bool descriptor_matches_candidate(const esp_app_desc_t *written,
+                                         const esp_app_desc_t *candidate)
+{
+    if (!written || !candidate) return false;
+    return written->magic_word == ESP_APP_DESC_MAGIC_WORD &&
+           written->secure_version == candidate->secure_version &&
+           memcmp(written->project_name, candidate->project_name,
+                  sizeof(written->project_name)) == 0 &&
+           memcmp(written->version, candidate->version,
+                  sizeof(written->version)) == 0 &&
+           memcmp(written->app_elf_sha256, candidate->app_elf_sha256,
+                  sizeof(written->app_elf_sha256)) == 0;
+}
+
+static bool image_identity_valid(const esp_image_header_t *image_header,
+                                 const esp_app_desc_t *candidate,
+                                 const esp_app_desc_t *running)
+{
+    if (!image_header || !candidate || !running) return false;
+    return image_header->magic == ESP_IMAGE_HEADER_MAGIC &&
+           image_header->chip_id == (esp_chip_id_t)CONFIG_IDF_FIRMWARE_CHIP_ID &&
+           candidate->magic_word == ESP_APP_DESC_MAGIC_WORD &&
+           fixed_text_equals(candidate->project_name,
+                             sizeof(candidate->project_name),
+                             OTA_MANAGER_PRODUCT_ID) &&
+           fixed_text_equals(running->project_name,
+                             sizeof(running->project_name),
+                             OTA_MANAGER_PRODUCT_ID) &&
+           candidate->secure_version >= running->secure_version;
+}
+
 static bool pending_verify_for(const esp_partition_t *partition)
 {
     if (!partition) return false;
@@ -139,21 +181,16 @@ esp_err_t ota_manager_validate_prefix(const uint8_t *prefix,
     }
 
     const esp_image_header_t *image_header = (const esp_image_header_t *)prefix;
-    if (image_header->magic != ESP_IMAGE_HEADER_MAGIC) {
-        return ESP_ERR_OTA_VALIDATE_FAILED;
-    }
-
     const size_t description_offset =
         sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t);
     esp_app_desc_t candidate = {0};
     memcpy(&candidate, prefix + description_offset, sizeof(candidate));
 
     const esp_app_desc_t *running = esp_app_get_description();
-    if (!running || candidate.magic_word != ESP_APP_DESC_MAGIC_WORD ||
-        candidate.project_name[0] == '\0' ||
-        strncmp(candidate.project_name, running->project_name,
-                sizeof(candidate.project_name)) != 0 ||
-        candidate.secure_version < running->secure_version) {
+    if (!image_identity_valid(image_header, &candidate, running)) {
+        portENTER_CRITICAL(&s_lock);
+        s_status.image_identity_verified = false;
+        portEXIT_CRITICAL(&s_lock);
         return ESP_ERR_OTA_VALIDATE_FAILED;
     }
 
@@ -162,17 +199,31 @@ esp_err_t ota_manager_validate_prefix(const uint8_t *prefix,
         return ESP_ERR_INVALID_SIZE;
     }
 
+    portENTER_CRITICAL(&s_lock);
+    s_status.image_identity_verified = true;
+    s_status.image_validated = false;
+    s_status.boot_partition_preserved_after_abort = false;
+    portEXIT_CRITICAL(&s_lock);
+
     *out_candidate = candidate;
     return ESP_OK;
 }
 
 esp_err_t ota_manager_begin(size_t image_size,
+                            const esp_image_header_t *image_header,
                             const esp_app_desc_t *candidate,
                             ota_manager_session_t *out_session)
 {
-    if (!candidate || !out_session || image_size < OTA_MANAGER_PREFIX_BYTES) {
+    if (!image_header || !candidate || !out_session ||
+        image_size < OTA_MANAGER_PREFIX_BYTES) {
         return ESP_ERR_INVALID_ARG;
     }
+
+    const esp_app_desc_t *running_description = esp_app_get_description();
+    if (!image_identity_valid(image_header, candidate, running_description)) {
+        return ESP_ERR_OTA_VALIDATE_FAILED;
+    }
+
     /* Never erase the alternate slot while it is staged as the next boot image,
      * and never accept another image while this running image still needs
      * first-boot validation. Rollback support is mandatory for this feature. */
@@ -188,11 +239,14 @@ esp_err_t ota_manager_begin(size_t image_size,
 
     memset(out_session, 0, sizeof(*out_session));
     const esp_partition_t *partition = esp_ota_get_next_update_partition(NULL);
-    if (!partition || image_size > partition->size) {
+    const esp_partition_t *boot_before = esp_ota_get_boot_partition();
+    if (!partition || !boot_before || image_size > partition->size) {
         set_failure(ESP_ERR_INVALID_SIZE);
         return ESP_ERR_INVALID_SIZE;
     }
 
+    /* Identity and target checks above must complete before this call because
+     * esp_ota_begin() may erase the inactive OTA partition. */
     esp_ota_handle_t handle = 0;
     esp_err_t error = esp_ota_begin(partition, image_size, &handle);
     if (error != ESP_OK) {
@@ -202,8 +256,11 @@ esp_err_t ota_manager_begin(size_t image_size,
 
     out_session->handle = handle;
     out_session->partition = partition;
+    out_session->boot_partition_before = boot_before;
     out_session->expected_size = image_size;
     out_session->active = true;
+    out_session->identity_verified = true;
+    out_session->image_validated = false;
     out_session->candidate = *candidate;
 
     const uint32_t started_ms = now_ms();
@@ -211,6 +268,9 @@ esp_err_t ota_manager_begin(size_t image_size,
     s_status.state = OTA_MANAGER_RECEIVING;
     s_status.upload_active = true;
     s_status.update_staged = false;
+    s_status.image_identity_verified = true;
+    s_status.image_validated = false;
+    s_status.boot_partition_preserved_after_abort = false;
     s_status.image_size = image_size;
     s_status.bytes_written = 0U;
     s_status.started_ms = started_ms;
@@ -233,8 +293,9 @@ esp_err_t ota_manager_begin(size_t image_size,
               sizeof(candidate->project_name));
     copy_text(version, sizeof(version), candidate->version,
               sizeof(candidate->version));
-    ESP_LOGI(TAG, "Starting OTA upload to %s: %u bytes, project=%s version=%s",
-             partition->label, (unsigned)image_size, project, version);
+    ESP_LOGI(TAG, "Starting OTA upload to %s: %u bytes, project=%s version=%s target=%u",
+             partition->label, (unsigned)image_size, project, version,
+             (unsigned)image_header->chip_id);
     return ESP_OK;
 }
 
@@ -242,7 +303,8 @@ esp_err_t ota_manager_write(ota_manager_session_t *session,
                             const void *data,
                             size_t length)
 {
-    if (!session || !session->active || !data || length == 0U ||
+    if (!session || !session->active || !session->identity_verified ||
+        session->image_validated || !data || length == 0U ||
         session->written > session->expected_size ||
         length > session->expected_size - session->written) {
         return ESP_ERR_INVALID_ARG;
@@ -263,7 +325,7 @@ esp_err_t ota_manager_write(ota_manager_session_t *session,
 
 esp_err_t ota_manager_finish(ota_manager_session_t *session)
 {
-    if (!session || !session->active ||
+    if (!session || !session->active || !session->identity_verified ||
         session->written != session->expected_size) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -272,6 +334,8 @@ esp_err_t ota_manager_finish(ota_manager_session_t *session)
     s_status.state = OTA_MANAGER_VALIDATING;
     portEXIT_CRITICAL(&s_lock);
 
+    /* esp_ota_end() performs ESP-IDF whole-image verification. The boot
+     * partition must not change unless this returns ESP_OK. */
     esp_err_t error = esp_ota_end(session->handle);
     session->active = false;
     if (error != ESP_OK) {
@@ -279,6 +343,36 @@ esp_err_t ota_manager_finish(ota_manager_session_t *session)
         return error;
     }
 
+    esp_app_desc_t written_candidate = {0};
+    error = esp_ota_get_partition_description(session->partition,
+                                              &written_candidate);
+    if (error != ESP_OK ||
+        !descriptor_matches_candidate(&written_candidate,
+                                      &session->candidate)) {
+        if (error == ESP_OK) error = ESP_ERR_OTA_VALIDATE_FAILED;
+        set_failure(error);
+        return error;
+    }
+
+    const esp_partition_t *boot_before_switch = esp_ota_get_boot_partition();
+    if (!boot_before_switch || !session->boot_partition_before ||
+        boot_before_switch->address != session->boot_partition_before->address) {
+        set_failure(ESP_ERR_INVALID_STATE);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    session->image_validated = true;
+    portENTER_CRITICAL(&s_lock);
+    s_status.image_validated = true;
+    portEXIT_CRITICAL(&s_lock);
+
+    if (!session->image_validated) {
+        set_failure(ESP_ERR_OTA_VALIDATE_FAILED);
+        return ESP_ERR_OTA_VALIDATE_FAILED;
+    }
+
+    /* This is the only boot-selection change in the upload path and it occurs
+     * after esp_ota_end() plus descriptor identity verification. */
     error = esp_ota_set_boot_partition(session->partition);
     if (error != ESP_OK) {
         set_failure(error);
@@ -296,16 +390,35 @@ esp_err_t ota_manager_finish(ota_manager_session_t *session)
     s_upload_claimed = false;
     portEXIT_CRITICAL(&s_lock);
 
-    ESP_LOGI(TAG, "OTA image validated and staged in %s; reboot required",
+    ESP_LOGI(TAG, "OTA image fully validated and staged in %s; reboot required",
              session->partition->label);
     return ESP_OK;
 }
 
 void ota_manager_abort(ota_manager_session_t *session, esp_err_t reason)
 {
+    const esp_partition_t *boot_before =
+        session ? session->boot_partition_before : NULL;
     if (session && session->active) {
         esp_ota_abort(session->handle);
         session->active = false;
+    }
+
+    const esp_partition_t *boot_after = esp_ota_get_boot_partition();
+    const bool boot_preserved = boot_before && boot_after &&
+                                boot_before->address == boot_after->address;
+    portENTER_CRITICAL(&s_lock);
+    s_status.image_validated = false;
+    s_status.boot_partition_preserved_after_abort = boot_preserved;
+    portEXIT_CRITICAL(&s_lock);
+
+    if (!boot_preserved) {
+        ESP_LOGE(TAG, "Interrupted OTA did not preserve the original boot partition");
+        reason = ESP_ERR_INVALID_STATE;
+    } else {
+        ESP_LOGW(TAG, "OTA upload aborted after %u bytes; boot partition remains %s",
+                 session ? (unsigned)session->written : 0U,
+                 boot_after->label);
     }
     set_failure(reason == ESP_OK ? ESP_FAIL : reason);
 }
@@ -360,7 +473,7 @@ esp_err_t ota_manager_schedule_boot_validation(uint32_t stabilization_ms)
 
     BaseType_t created = xTaskCreate(boot_validation_task,
                                      "ota_validate",
-                                     3072,
+                                     4096,
                                      (void *)(uintptr_t)stabilization_ms,
                                      6,
                                      NULL);
