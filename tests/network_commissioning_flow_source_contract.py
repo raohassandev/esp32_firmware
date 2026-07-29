@@ -10,6 +10,8 @@ assets = (root / 'components' / 'web_server' / 'web_assets.c').read_text(encodin
 cmake = (root / 'components' / 'web_server' / 'CMakeLists.txt').read_text(encoding='utf-8')
 network_cmake = (root / 'components' / 'network_manager' / 'CMakeLists.txt').read_text(encoding='utf-8')
 network_source = (root / 'components' / 'network_manager' / 'network_manager.c').read_text(encoding='utf-8')
+scan_source = (root / 'components' / 'network_manager' / 'network_scan.c').read_text(encoding='utf-8')
+scan_internal = (root / 'components' / 'network_manager' / 'network_scan_internal.h').read_text(encoding='utf-8')
 copy_source = (root / 'components' / 'network_manager' / 'network_wifi_copy.c').read_text(encoding='utf-8')
 
 required = [
@@ -84,6 +86,30 @@ assert 'vTaskDelay(' not in network_source, 'reconnect backoff must be interrupt
 assert network_source.count('s_retry_count++') == 1, 'retry counter must have one manager-owned mutation path'
 assert network_source.count('s_failed_sweeps++') == 1, 'failed-sweep counter must have one manager-owned mutation path'
 
+# HTTP requests only mark a scan pending. The same Wi-Fi manager task that owns
+# connection/recovery calls the scan executor after receiving its notification.
+for token in [
+    '#define MANAGER_WAKE_USER_SCAN BIT3',
+    'network_scan_service_init(s_task, MANAGER_WAKE_USER_SCAN)',
+    '(notifications & MANAGER_WAKE_USER_SCAN)',
+    'network_scan_service_execute()',
+    'network_scan_service_reject(ESP_ERR_INVALID_STATE)',
+]:
+    assert token in network_source, f'manager-owned user scan integration missing: {token}'
+for token in [
+    'network_scan_service_init',
+    'network_scan_service_execute',
+    'network_scan_service_reject',
+]:
+    assert token in scan_internal and token in scan_source, f'scan service interface missing: {token}'
+assert 'xTaskNotify(s_manager_task, s_manager_wake_bit, eSetBits)' in scan_source
+assert 'xTaskCreate(' not in scan_source, 'Wi-Fi scan must not create a second radio-owner task'
+assert 'xEventGroupCreate(' not in scan_source, 'Wi-Fi scan must use the manager notification path'
+assert 'esp_wifi_scan_start(&scan_config, true)' in scan_source
+assert 'config_manager_get_snapshot(config)' in scan_source, 'saved primary/fallback labels must be preserved'
+assert 'configured_primary = config->wifi.primary.enabled' in scan_source
+assert 'configured_fallback = config->wifi.fallback.enabled' in scan_source
+
 # Browser radio-scan polling must have one cancellable request, stop away from
 # the Wi-Fi route, pause in hidden tabs and terminate after a bounded deadline.
 for token in [
@@ -111,4 +137,4 @@ assert "Recovery AP SSID must contain no more than 32 characters." in wifi_js
 for forbidden in ['/api/control', '/api/inverter-command', '/api/config/import']:
     assert forbidden not in js, f'network flow must not call {forbidden}'
 
-print('network commissioning, fixed-width credentials, manager-owned recovery and bounded browser scan tests: PASS')
+print('network commissioning, fixed-width credentials, single-task radio ownership and bounded browser scan tests: PASS')
