@@ -133,6 +133,14 @@ static void update_alarm_locked(operational_event_code_t code, bool present,
     } else if (alarm->present) {
         alarm->present = false;
         alarm->cleared_ms = timestamp;
+        /* ISA-18.2 keeps a condition that returned to normal without ever being
+         * acknowledged in its own state, "RTN Unacknowledged", rather than
+         * treating it as resolved. A fault that appears and clears itself
+         * overnight would otherwise leave nothing an operator sees in the
+         * morning - which on an unattended site is the fault pattern that
+         * matters most. The acknowledged flag is left untouched here, so the
+         * reader can distinguish "cleared and accepted" from "cleared, and
+         * nobody ever knew". */
     }
 }
 
@@ -611,9 +619,13 @@ static esp_err_t alarms_get(httpd_req_t *request)
         cJSON_AddStringToObject(item, "detail", detail);
         cJSON_AddStringToObject(item, "recommended_action", action);
         cJSON_AddStringToObject(item, "severity", severity_label(a->severity));
+        /* ISA-18.2 state names. "rtn_unacknowledged" is a condition that
+         * cleared itself while nobody had accepted it: still outstanding work
+         * even though nothing is wrong right now. */
         cJSON_AddStringToObject(item, "state",
-                                a->present ? (a->acknowledged ? "acknowledged" : "active")
-                                           : "cleared");
+                                a->present ? (a->acknowledged ? "acknowledged" : "unacknowledged")
+                                : a->acknowledged ? "normal"
+                                                  : "rtn_unacknowledged");
         cJSON_AddBoolToObject(item, "present", a->present);
         cJSON_AddBoolToObject(item, "acknowledged", a->acknowledged);
         cJSON_AddNumberToObject(item, "occurrences", a->occurrences);
@@ -634,12 +646,15 @@ static esp_err_t alarms_get(httpd_req_t *request)
         cJSON_AddItemToArray(items, item);
 
         if (a->present) active++;
-        if (a->present && !a->acknowledged) unacknowledged++;
+        /* Counts work outstanding, not just live conditions: a fault that came
+         * and went unnoticed still needs someone to see it. */
+        if (!a->acknowledged) unacknowledged++;
     }
 
     cJSON *summary = cJSON_AddObjectToObject(root, "summary");
     cJSON_AddNumberToObject(summary, "active", active);
     cJSON_AddNumberToObject(summary, "unacknowledged", unacknowledged);
+    cJSON_AddStringToObject(summary, "state_model", "ISA-18.2");
     return send_json(request, root);
 }
 
