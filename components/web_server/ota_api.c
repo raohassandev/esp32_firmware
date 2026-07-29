@@ -14,6 +14,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "ota_manager.h"
+#include "sdkconfig.h"
 
 #define OTA_UPLOAD_CHUNK_BYTES 4096U
 #define OTA_UPLOAD_DEADLINE_MS 600000U
@@ -66,6 +67,11 @@ static cJSON *status_json(void)
     cJSON_AddBoolToObject(root, "rollback_enabled", status.rollback_enabled);
     cJSON_AddBoolToObject(root, "validation_scheduled", status.validation_scheduled);
     cJSON_AddBoolToObject(root, "update_staged", status.update_staged);
+    cJSON_AddBoolToObject(root, "image_identity_verified",
+                         status.image_identity_verified);
+    cJSON_AddBoolToObject(root, "image_validated", status.image_validated);
+    cJSON_AddBoolToObject(root, "boot_partition_preserved_after_abort",
+                         status.boot_partition_preserved_after_abort);
     cJSON_AddNumberToObject(root, "image_size", (double)status.image_size);
     cJSON_AddNumberToObject(root, "bytes_written", (double)status.bytes_written);
     double progress = status.image_size > 0U
@@ -89,6 +95,9 @@ static cJSON *status_json(void)
                             status.candidate_idf_version);
     cJSON_AddNumberToObject(root, "candidate_secure_version",
                             status.candidate_secure_version);
+    cJSON_AddStringToObject(root, "expected_product_id", OTA_MANAGER_PRODUCT_ID);
+    cJSON_AddNumberToObject(root, "expected_target_chip_id",
+                            CONFIG_IDF_FIRMWARE_CHIP_ID);
     cJSON_AddNumberToObject(root, "max_image_bytes",
                             update ? (double)update->size : 0.0);
     cJSON_AddBoolToObject(root, "nvs_erase_required", false);
@@ -179,12 +188,14 @@ static esp_err_t upload_handler(httpd_req_t *request)
                           "Firmware header could not be received completely", error);
     }
 
+    const esp_image_header_t *image_header =
+        (const esp_image_header_t *)prefix;
     esp_app_desc_t candidate = {0};
     error = ota_manager_validate_prefix(prefix, sizeof(prefix), image_size,
                                         &candidate);
     if (error != ESP_OK) {
         return send_error(request, "400 Bad Request",
-                          "Firmware image is invalid, belongs to another project, exceeds the OTA slot, or violates secure-version policy",
+                          "Firmware image product ID or ESP target does not match this controller, exceeds the OTA slot, or violates secure-version policy",
                           error);
     }
 
@@ -196,7 +207,7 @@ static esp_err_t upload_handler(httpd_req_t *request)
     }
 
     ota_manager_session_t session = {0};
-    error = ota_manager_begin(image_size, &candidate, &session);
+    error = ota_manager_begin(image_size, image_header, &candidate, &session);
     if (error != ESP_OK) {
         return send_error(request, error == ESP_ERR_INVALID_STATE
                                        ? "409 Conflict"
@@ -236,7 +247,7 @@ static esp_err_t upload_handler(httpd_req_t *request)
         return send_error(request, error == ESP_ERR_TIMEOUT
                                        ? "408 Request Timeout"
                                        : "400 Bad Request",
-                          "Firmware upload was interrupted or incomplete",
+                          "Firmware upload was interrupted or incomplete; the existing boot partition was preserved",
                           error == ESP_OK ? ESP_FAIL : error);
     }
 
@@ -244,7 +255,7 @@ static esp_err_t upload_handler(httpd_req_t *request)
     if (error != ESP_OK) {
         if (session.active) ota_manager_abort(&session, error);
         return send_error(request, "400 Bad Request",
-                          "ESP-IDF rejected the completed firmware image",
+                          "ESP-IDF rejected the completed firmware image before boot selection changed",
                           error);
     }
 
@@ -253,7 +264,7 @@ static esp_err_t upload_handler(httpd_req_t *request)
     cJSON_AddBoolToObject(root, "accepted", true);
     cJSON_AddBoolToObject(root, "reboot_required", true);
     cJSON_AddStringToObject(root, "message",
-                            "Firmware validated and staged. Reboot explicitly to test the new slot with rollback protection.");
+                            "Firmware identity and complete image validated before staging. Reboot explicitly to test the new slot with rollback protection.");
     return send_json(request, root, NULL);
 }
 
@@ -268,7 +279,8 @@ static esp_err_t reboot_handler(httpd_req_t *request)
 {
     ota_manager_status_t status;
     ota_manager_get_status(&status);
-    if (status.upload_active || !status.update_staged) {
+    if (status.upload_active || !status.update_staged ||
+        !status.image_identity_verified || !status.image_validated) {
         return send_error(request, "409 Conflict",
                           "No completely validated OTA image is staged for reboot",
                           ESP_ERR_INVALID_STATE);
