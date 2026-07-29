@@ -188,6 +188,10 @@ jobs:
         run: python3 tests/release_access_policy_source_contract.py
       - name: Check operator endpoint scope and ramp commissioning UI
         run: python3 tests/operator_endpoint_scope_source_contract.py
+      - name: Check alarm management UI
+        run: python3 tests/alarm_ui_source_contract.py
+      - name: Check site power-flow model
+        run: python3 tests/power_flow_model_source_contract.py
       - name: Enforce production release gate
         env:
           PVDG_PRODUCTION_RELEASE: ${{ inputs.production_release && '1' || '0' }}

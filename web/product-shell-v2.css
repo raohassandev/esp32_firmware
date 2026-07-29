@@ -140,10 +140,13 @@ body.product-shell-v2 .product-mobile-nav { grid-template-columns: repeat(5, min
 /* Screenshot-driven dashboard corrections. */
 body.product-shell-v2 [data-page="dashboard"] .experience-masthead { margin-bottom: 14px; }
 body.product-shell-v2 [data-page="dashboard"] .experience-section { min-width: 0; }
+/* P0-7 changed this from a five-cell strip to three columns (supply,
+   controller, demand). The override still forces full width, but it must not
+   reimpose the old five-column track list. */
 body.product-shell-v2 [data-page="dashboard"] .power-flow {
     width: 100%;
-    grid-template-columns: minmax(150px, 1fr) 42px minmax(180px, 1.15fr) 42px minmax(150px, 1fr) !important;
-    align-items: center;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 0.95fr) minmax(0, 1fr) !important;
+    align-items: start;
     gap: 10px !important;
 }
 body.product-shell-v2 [data-page="dashboard"] .panel,

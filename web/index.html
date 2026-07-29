@@ -54,12 +54,9 @@
                     <div class="dashboard-grid">
                         <article class="panel power-flow-panel">
                             <div class="panel-header"><div><p class="eyebrow">Power flow</p><h3>Site energy balance</h3></div><span class="subtle-badge" id="flowState">Waiting for meter</span></div>
-                            <div class="power-flow" aria-label="Power flow overview">
-                                <div class="flow-node"><span>PV command</span><strong id="flowPv">Unavailable</strong><small>Applied controller request</small></div><div class="flow-line"><span>→</span></div>
-                                <div class="flow-node central"><span>Facility load</span><strong id="flowLoad">Unavailable</strong><small>Load telemetry not configured</small></div><div class="flow-line"><span id="gridArrow">↔</span></div>
-                                <div class="flow-node"><span>Utility grid</span><strong id="flowGrid">Unavailable</strong><small id="flowGridDetail">Meter data required</small></div>
-                            </div>
-                            <div class="flow-secondary"><div><span>Generator</span><strong>Unavailable</strong><small>Generator telemetry not configured</small></div><div><span>Meter age</span><strong id="flowMeterAge">Unavailable</strong><small>Time since last valid sample</small></div></div>
+                            <p class="flow-coverage" id="flowCoverage" role="status">Reading which quantities this site measures…</p>
+                            <div class="power-flow" id="powerFlow" aria-label="Site power flow: utility grid, generator, solar fleet, controller and facility load"></div>
+                            <div class="flow-secondary"><div><span>Meter age</span><strong id="flowMeterAge">Unavailable</strong><small>Time since the last valid grid sample</small></div><div><span>Measurement points</span><strong id="flowMeterCount">Unavailable</strong><small>Meters configured on this site</small></div></div>
                         </article>
                         <article class="panel"><div class="panel-header"><div><p class="eyebrow">Communication</p><h3>System health</h3></div></div><div class="health-list"><div class="health-row"><span>Wi-Fi connection</span><strong id="healthWifi">Checking</strong></div><div class="health-row"><span>Controller address</span><strong id="healthIp">--</strong></div><div class="health-row"><span>Meter communication</span><strong id="healthMeter">Checking</strong></div><div class="health-row"><span>Control safety</span><strong id="healthControl">Checking</strong></div><div class="health-row"><span>Active alarms</span><strong id="healthAlarms">Checking</strong></div></div></article>
                     </div>

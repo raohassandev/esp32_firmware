@@ -26,6 +26,14 @@
         route: 'dashboard',
         config: null,
         status: null,
+        /* Site capability report from the public /api/telemetry endpoint: which
+         * quantities this installation actually measures. It is polled by
+         * devices.js on the dashboard route and republished as an event, so the
+         * flow model costs no additional request on a controller that can serve
+         * only four client sockets (audit S1/S4). */
+        telemetry: null,
+        inverterTelemetry: null,
+        sourceDetection: null,
         refreshing: false,
         saving: false,
         lastUpdatedAt: null
@@ -78,20 +86,17 @@
         return Number.isFinite(number) ? `${number.toFixed(2)} kW` : 'Unavailable';
     }
 
+    const deviceUtils = () => window.PvdgDeviceUtils || null;
+
     /* Renders "EM500 slave 3 · unit 3 · 45 ms · Good" from the provenance the
      * status API publishes alongside a live value. Returns a plain statement of
      * ignorance rather than an empty string when provenance is absent, so a
-     * value never appears more authoritative than it is. */
+     * value never appears more authoritative than it is. The implementation now
+     * lives in devices-utils.js so the dashboard, the flow model and the
+     * operator view describe the same measurement the same way. */
     function describeProvenance(provenance) {
-        if (!provenance || typeof provenance !== 'object') return 'Source unknown';
-        const parts = [];
-        if (provenance.source) parts.push(String(provenance.source));
-        if (Number.isFinite(Number(provenance.unit_id))) parts.push(`unit ${provenance.unit_id}`);
-        if (Number.isFinite(Number(provenance.age_ms))) parts.push(formatAge(provenance.age_ms));
-        const quality = String(provenance.quality || '').trim();
-        if (quality) parts.push(quality.charAt(0).toUpperCase() + quality.slice(1));
-        if (provenance.role_assignment_valid === false) parts.push('role assignment invalid');
-        return parts.length ? parts.join(' · ') : 'Source unknown';
+        const utils = deviceUtils();
+        return utils ? utils.describeProvenance(provenance) : 'Source unknown';
     }
 
     function formatAge(milliseconds) {
@@ -155,6 +160,128 @@
     function closeMenu() {
         document.body.classList.remove('menu-open');
         byId('menuButton').setAttribute('aria-expanded', 'false');
+    }
+
+    /* ------------------------------------------------------------ power flow
+     *
+     * P0-7. The flow view carried solar, controller and utility grid. On a PV-DG
+     * controller the generator is the asset the entire control strategy exists
+     * to protect and facility load is what both sources are there to serve, so
+     * both are now first-class nodes. Where a quantity is not measured on this
+     * site the node says exactly that: showing 0 kW for an unmetered generator
+     * would tell an operator it is off-load when in fact nothing is watching it.
+     * The model itself lives in devices-utils.js and is unit-tested. */
+    function flowNodeElement(entry) {
+        const node = document.createElement('article');
+        node.className = `flow-node flow-${entry.role}${entry.measured ? '' : ' flow-unmeasured'}${entry.tone ? ` tone-${entry.tone}` : ''}`;
+        node.dataset.flowNode = entry.id;
+
+        const head = document.createElement('span');
+        head.className = 'flow-node-label';
+        head.textContent = entry.label;
+
+        const value = document.createElement('strong');
+        value.className = 'flow-node-value';
+        value.textContent = entry.value;
+
+        const kind = document.createElement('span');
+        kind.className = `flow-kind flow-kind-${entry.valueKind}`;
+        kind.textContent = entry.valueKind === 'measured' ? 'Measured'
+            : entry.valueKind === 'command' ? 'Commanded'
+            : 'Not measured';
+
+        const detail = document.createElement('small');
+        detail.className = 'flow-node-detail';
+        detail.textContent = entry.detail;
+
+        const provenance = document.createElement('small');
+        provenance.className = 'flow-node-provenance';
+        provenance.textContent = entry.provenance;
+
+        node.append(head, value, kind, detail, provenance);
+        (entry.notes || []).forEach((note) => {
+            const line = document.createElement('small');
+            line.className = 'flow-node-note';
+            line.textContent = note;
+            node.append(line);
+        });
+        return node;
+    }
+
+    function flowConnector(entry) {
+        const line = document.createElement('div');
+        line.className = `flow-line${entry.direction === 'unknown' ? ' flow-line-unknown' : ''}`;
+        const glyph = document.createElement('span');
+        glyph.setAttribute('aria-hidden', 'true');
+        glyph.textContent = entry.arrow;
+        const label = document.createElement('small');
+        label.textContent = entry.directionLabel;
+        line.append(glyph, label);
+        return line;
+    }
+
+    function renderPowerFlow() {
+        const container = byId('powerFlow');
+        const utils = deviceUtils();
+        if (!container || !utils || !state.status) return;
+
+        const model = utils.buildPowerFlowModel({
+            status: state.status,
+            telemetry: state.telemetry,
+            inverterTelemetry: state.inverterTelemetry,
+            sourceDetection: state.sourceDetection
+        });
+
+        container.replaceChildren();
+        const supply = document.createElement('div');
+        supply.className = 'flow-column flow-supply';
+        const demand = document.createElement('div');
+        demand.className = 'flow-column flow-demand';
+        const hub = document.createElement('div');
+        hub.className = 'flow-column flow-hub';
+
+        model.nodes.forEach((entry) => {
+            const wrap = document.createElement('div');
+            wrap.className = 'flow-slot';
+            wrap.append(flowNodeElement(entry), flowConnector(entry));
+            if (entry.role === 'supply') supply.append(wrap);
+            else if (entry.role === 'demand') demand.append(wrap);
+            else hub.append(wrap);
+        });
+        container.append(supply, hub, demand);
+
+        setBadge('flowState', model.summary.label, model.summary.tone === 'neutral' ? '' : model.summary.tone);
+        setText('flowCoverage', model.summary.coverage);
+        setText('flowMeterCount', model.summary.meters_configured == null
+            ? 'Unavailable'
+            : `${model.summary.meters_configured} configured`);
+    }
+
+    /* devices.js already polls the public /api/telemetry on the dashboard route.
+     * Reusing its answer instead of issuing a second one keeps the flow model
+     * free of additional socket pressure on a server with four client sockets. */
+    function bindSiteTelemetry() {
+        window.addEventListener('amx-site-telemetry', (event) => {
+            state.telemetry = event.detail || null;
+            renderPowerFlow();
+        });
+    }
+
+    /* Source detection is engineering-gated. It is requested only when the
+     * shared scope predicate says the request can succeed, so the operator
+     * dashboard never fires a guaranteed 401 (audit S4). */
+    async function refreshSourceDetection() {
+        const access = window.AutomatrixEngineeringAccess;
+        if (!access || !access.mayUseEngineering('dashboard')) {
+            state.sourceDetection = null;
+            return;
+        }
+        try {
+            state.sourceDetection = await api('/api/source-detection');
+        } catch (error) {
+            state.sourceDetection = null;
+        }
+        renderPowerFlow();
     }
 
     function renderControllerUnavailable() {
@@ -230,15 +357,8 @@
 
         setText('requestedPvValue', Number.isFinite(Number(status.requested_pv_kw)) ? formatPower(status.requested_pv_kw) : 'Unavailable');
         setText('appliedPvValue', Number.isFinite(Number(status.applied_pv_kw)) ? formatPower(status.applied_pv_kw) : 'Unavailable');
-        setText('flowPv', Number.isFinite(Number(status.applied_pv_kw)) ? formatPower(status.applied_pv_kw) : 'Unavailable');
-        setText('flowLoad', 'Unavailable');
         setText('flowMeterAge', meterHasData ? formatAge(status.meter_age_ms) : 'Unavailable');
-
-        const descriptor = meterHasData ? gridDescriptor(status.grid_power_kw) : gridDescriptor(null);
-        setText('flowGrid', meterFresh ? formatPower(status.grid_power_kw) : meterStale ? `${formatPower(status.grid_power_kw)} stale` : 'Unavailable');
-        setText('flowGridDetail', meterFresh ? descriptor.detail : meterStale ? 'Last valid sample; not current' : 'Meter data required');
-        setText('gridArrow', descriptor.arrow);
-        setBadge('flowState', meterFresh ? descriptor.label : meterStale ? 'Stale meter data' : 'Meter offline', meterFresh ? 'good' : meterStale ? 'warning' : 'bad');
+        renderPowerFlow();
 
         setText('healthWifi', networkOnline ? `${connectionRole} · ${status.ssid || '--'}` : wifiState);
         setTone('healthWifi', networkOnline ? 'good' : 'bad');
@@ -669,10 +789,13 @@
 
     async function start() {
         bindEvents();
+        bindSiteTelemetry();
         if (!window.location.hash) window.location.hash = '#/dashboard';
         navigate();
         await Promise.allSettled([loadConfig(), refreshStatus()]);
         window.setInterval(refreshStatus, 2000);
+        window.AutomatrixEngineeringAccess?.onScopeChange(refreshSourceDetection);
+        refreshSourceDetection();
     }
 
     start().catch((error) => {

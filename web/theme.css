@@ -75,7 +75,8 @@ html[data-theme="light"] .em500-setting-note {
     background: #f7fafc;
 }
 
-html[data-theme="light"] .flow-node.central { background: #edf6ff; }
+html[data-theme="light"] .flow-node.central,
+html[data-theme="light"] .flow-node.flow-controller { background: var(--surface-raised); }
 html[data-theme="light"] .device-meta-grid { background: var(--line-soft); }
 html[data-theme="light"] .em500-tabs { background: #edf2f7; }
 html[data-theme="light"] .em500-table th { color: #dbe8f5; background: #32465a; }
@@ -135,7 +136,7 @@ html[data-theme="light"] .em500-table-wrap {
     .page-intro { flex-direction: column; }
     .mode-panel { width: 100%; min-width: 0; }
     .power-flow { grid-template-columns: 1fr; }
-    .flow-line { min-height: 28px; transform: rotate(90deg); }
+    .flow-line { min-height: 28px; transform: none; }
     .flow-secondary { grid-template-columns: 1fr; }
     .panel, .metric-card, .device-runtime-card { padding: 15px; border-radius: 13px; }
     .em500-table { min-width: 590px; }
