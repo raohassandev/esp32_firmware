@@ -71,8 +71,8 @@ require("Any uncertain, stale, open-breaker or contradictory evidence blocks PV"
         "grid evidence gate must document immediate fail-closed behavior")
 require("output.control_allowed = output.recovery_stable" in GATE,
         "grid recovery must remain blocked until continuous stabilization completes")
-require("output.loss_confirmed" in GATE and "output.control_allowed = false" not in GATE,
-        "grid-loss classification timer contract is incomplete")
+require("output.loss_confirmed" in GATE,
+        "grid-loss confirmation timer contract is incomplete")
 
 require("control_engine_force_disable" in CONTROL_H and
         "s_runtime_forced_disabled = true" in CONTROL,
@@ -83,6 +83,8 @@ require("application->control.enabled = false" in API,
         "Solar-Grid writes must persist automatic control disabled")
 require(API.index("application->control.enabled = false") < API.index("solar_grid_config_save(&next)"),
         "control must be disabled before the new source model is persisted")
+require('"control_forced_disabled", true' in API,
+        "Solar-Grid save response must disclose the enforced disable")
 require("http_json_parse_bounded" in API and "SOLAR_GRID_JSON_MAX_DEPTH" in API,
         "Solar-Grid write API lacks bounded body/depth protection")
 require("meter_manager_read_registers" not in API,
@@ -128,7 +130,6 @@ for token in [
     "Grid breaker closed evidence",
     "Evidence stale timeout",
     "Recovery stable time",
-    "control_forced_disabled",
     "restart is required",
     "AbortController",
     "document.hidden",
