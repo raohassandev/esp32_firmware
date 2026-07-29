@@ -101,11 +101,77 @@ static void test_generator_limit(void)
     assert(source_mode_generator_safe_pv_kw(&in) == 0.0f);
 }
 
+/* The power-following path must never claim knowledge measurement cannot give. */
+static void test_measured_source_mapping(void)
+{
+    source_mode_result_t r = source_mode_from_measured_source(MEASURED_SOURCE_GRID, true);
+    assert(r.mode == SOURCE_MODE_GRID_ONLY);
+    assert(r.control_allowed);
+    assert(!r.evidence_conflict);
+
+    r = source_mode_from_measured_source(MEASURED_SOURCE_GENERATOR, true);
+    assert(r.mode == SOURCE_MODE_GENERATOR_ONLY);
+    assert(r.control_allowed);
+
+    /* Unknown source fails closed. */
+    r = source_mode_from_measured_source(MEASURED_SOURCE_UNKNOWN, true);
+    assert(r.mode == SOURCE_MODE_UNKNOWN);
+    assert(!r.control_allowed);
+
+    /* Stale evidence fails closed regardless of what the source claimed. */
+    for (int s = 0; s <= (int)MEASURED_SOURCE_GENERATOR; ++s) {
+        r = source_mode_from_measured_source((measured_source_t)s, false);
+        assert(r.mode == SOURCE_MODE_UNKNOWN);
+        assert(!r.control_allowed);
+    }
+
+    /* Measurement can never produce a synchronised or transfer verdict:
+     * commanding PV onto an unsynchronised bus is the failure this prevents. */
+    for (int s = 0; s <= (int)MEASURED_SOURCE_GENERATOR; ++s) {
+        for (int fresh = 0; fresh <= 1; ++fresh) {
+            r = source_mode_from_measured_source((measured_source_t)s, fresh != 0);
+            assert(r.mode != SOURCE_MODE_GRID_GENERATOR_SYNC);
+            assert(r.mode != SOURCE_MODE_TRANSFER);
+            assert(r.mode != SOURCE_MODE_ISLAND);
+            assert(!r.transition_active);
+        }
+    }
+}
+
+/* An uncommissioned generator rating must hold PV at zero rather than being
+ * treated as an unlimited machine. */
+static void test_uncommissioned_generator_holds_pv_off(void)
+{
+    generator_limit_input_t in = {
+        .evidence_fresh = true,
+        .facility_load_kw = 300.0f,
+        .running_generator_rated_kw = 0.0f,
+        .minimum_loading_percent = 30.0f,
+        .reserve_kw = 0.0f,
+        .reverse_power_margin_kw = 0.0f,
+    };
+    assert(source_mode_generator_safe_pv_kw(&in) == 0.0f);
+
+    /* Once commissioned, PV is limited to what leaves the machine loaded. */
+    in.running_generator_rated_kw = 400.0f;   /* minimum 30% = 120 kW */
+    in.reverse_power_margin_kw = 20.0f;
+    const float safe = source_mode_generator_safe_pv_kw(&in);
+    assert(safe > 0.0f);
+    assert(safe <= 300.0f - (120.0f + 20.0f) + 0.001f);
+
+    /* Load falling below the machine's minimum must curtail PV completely,
+     * which is the reverse-power avoidance case. */
+    in.facility_load_kw = 100.0f;
+    assert(source_mode_generator_safe_pv_kw(&in) == 0.0f);
+}
+
 int main(void)
 {
     test_modes();
     test_generator_fleet();
     test_generator_limit();
+    test_measured_source_mapping();
+    test_uncommissioned_generator_holds_pv_off();
     puts("source mode unit tests passed");
     return 0;
 }

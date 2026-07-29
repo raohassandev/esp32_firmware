@@ -83,8 +83,26 @@ for token in [
     assert token in CONTROL_ENGINE, f"live grid control policy wiring missing: {token}"
 assert ".source_mode = SOURCE_MODE_GRID_ONLY" not in CONTROL_ENGINE, \
     "live Grid Only mode must be proven by explicit source evidence, not assumed from meter freshness"
-assert "SOURCE_MODE_GENERATOR_ONLY" not in CONTROL_ENGINE, \
-    "live generator operation must not be inferred before real run/breaker/ATS evidence exists"
+# This previously asserted SOURCE_MODE_GENERATOR_ONLY was absent entirely, because at
+# the time nothing could establish generator operation. That is no longer true, and the
+# scope was changed deliberately by the system owner on 2026-07-29 (see section 4.4 of
+# docs/CHATGPT_EXECUTION_BRIEF.md): no genset controller is integrated, the source is
+# established by a wired 220 VAC input verified on site plus meter power, and the
+# controller only ever reduces PV.
+#
+# The guarantee being protected is unchanged, so it is asserted directly instead of by
+# the absence of a symbol: generator operation must never be inferred from a power
+# reading alone, and breaker or synchronisation state must never be fabricated.
+assert ".generator_breaker_closed = false," in CONTROL_ENGINE, \
+    "generator breaker state must never be fabricated from a measurement"
+assert ".grid_generator_synchronized = false," in CONTROL_ENGINE, \
+    "synchronisation state must never be fabricated from a measurement"
+assert "source_mode_from_measured_source" in CONTROL_ENGINE, \
+    "generator operation must come from the measured-source mapping, which fails closed"
+assert "transition_pending" in CONTROL_ENGINE, \
+    "a source transition still inside its debounce must not count as a settled generator"
+assert "SOURCE_MODE_GENERATOR_ONLY" not in CONTROL_ENGINE.split("generator_safe_limit_kw")[0], \
+    "generator mode must not be asserted before the measured-source mapping has produced it"
 
 with tempfile.TemporaryDirectory() as directory:
     binary = Path(directory) / "power_control_policy_test"

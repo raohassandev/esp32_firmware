@@ -10,7 +10,7 @@ extern "C" {
 #endif
 
 #define SOLAR_GRID_CONFIG_MAGIC 0x53475244u
-#define SOLAR_GRID_CONFIG_VERSION 1u
+#define SOLAR_GRID_CONFIG_VERSION 2u
 
 typedef enum {
     SOLAR_GRID_POLICY_ZERO_EXPORT = 0,
@@ -45,6 +45,17 @@ typedef struct {
     uint32_t evidence_stale_timeout_ms;
     uint32_t grid_loss_trip_ms;
     uint32_t grid_recovery_stable_ms;
+    /* Appended in schema 2: generator limits for the power-following topology.
+     * Kept last so schema 1 remains a byte-exact prefix.
+     *
+     * generator_rated_kw of zero means "not commissioned" and keeps PV at zero
+     * whenever the generator is carrying the plant. There is no safe default
+     * rating: guessing one would let PV be commanded against a machine whose
+     * capacity is unknown. */
+    float generator_rated_kw;
+    float generator_minimum_loading_percent;
+    float generator_reserve_kw;
+    float generator_reverse_power_margin_kw;
 } solar_grid_config_t;
 
 esp_err_t solar_grid_config_init(void);

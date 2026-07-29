@@ -147,3 +147,32 @@ const char *source_mode_name(source_mode_t mode)
     default: return "unknown";
     }
 }
+
+source_mode_result_t source_mode_from_measured_source(measured_source_t source,
+                                                      bool evidence_fresh)
+{
+    source_mode_result_t result = {
+        .mode = SOURCE_MODE_UNKNOWN,
+        .control_allowed = false,
+        .transition_active = false,
+        .evidence_conflict = false,
+    };
+    if (!evidence_fresh) return result;
+
+    switch (source) {
+    case MEASURED_SOURCE_GRID:
+        result.mode = SOURCE_MODE_GRID_ONLY;
+        result.control_allowed = true;
+        break;
+    case MEASURED_SOURCE_GENERATOR:
+        result.mode = SOURCE_MODE_GENERATOR_ONLY;
+        result.control_allowed = true;
+        break;
+    case MEASURED_SOURCE_UNKNOWN:
+    default:
+        /* Left fail-closed. Measurement cannot distinguish "no source" from
+         * "source not yet identified", and guessing either way is unsafe. */
+        break;
+    }
+    return result;
+}

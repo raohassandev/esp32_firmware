@@ -14,6 +14,28 @@
 #define SOLAR_GRID_KEY "config"
 
 static const char *TAG = "solar_grid_cfg";
+
+/* Frozen schema 1 layout. Never edit: it exists so a stored blob written before
+ * the generator limits were appended can still be recognised by size and
+ * upgraded instead of being discarded. */
+typedef struct {
+    uint32_t magic;
+    uint16_t version;
+    solar_grid_policy_t policy;
+    solar_grid_meter_orientation_t meter_orientation;
+    float export_limit_kw;
+    float minimum_import_kw;
+    solar_grid_signal_config_t grid_available;
+    solar_grid_signal_config_t grid_breaker_closed;
+    uint32_t evidence_poll_interval_ms;
+    uint32_t evidence_stale_timeout_ms;
+    uint32_t grid_loss_trip_ms;
+    uint32_t grid_recovery_stable_ms;
+} legacy_solar_grid_config_v1_t;
+
+_Static_assert(sizeof(solar_grid_config_t) ==
+                   sizeof(legacy_solar_grid_config_v1_t) + 4U * sizeof(float),
+               "schema 1 must remain a byte-exact prefix of schema 2");
 static solar_grid_config_t s_config;
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 
@@ -73,6 +95,21 @@ bool solar_grid_config_valid(const solar_grid_config_t *config)
         config->evidence_stale_timeout_ms > 600000U ||
         config->grid_loss_trip_ms > 60000U ||
         config->grid_recovery_stable_ms > 600000U) {
+        return false;
+    }
+    /* Generator limits. Zero rated kW is the uncommissioned state and is valid:
+     * it holds PV at zero while a generator carries the plant rather than
+     * rejecting the whole configuration. Negative or non-finite is not. */
+    if (!isfinite(config->generator_rated_kw) || config->generator_rated_kw < 0.0f ||
+        config->generator_rated_kw > 1000000.0f ||
+        !isfinite(config->generator_minimum_loading_percent) ||
+        config->generator_minimum_loading_percent < 0.0f ||
+        config->generator_minimum_loading_percent > 100.0f ||
+        !isfinite(config->generator_reserve_kw) || config->generator_reserve_kw < 0.0f ||
+        config->generator_reserve_kw > 1000000.0f ||
+        !isfinite(config->generator_reverse_power_margin_kw) ||
+        config->generator_reverse_power_margin_kw < 0.0f ||
+        config->generator_reverse_power_margin_kw > 1000000.0f) {
         return false;
     }
     return true;
@@ -138,6 +175,39 @@ esp_err_t solar_grid_config_init(void)
                  solar_grid_policy_name(loaded.policy),
                  solar_grid_config_evidence_complete(&loaded) ? "configured" : "not configured");
         return ESP_OK;
+    }
+
+    /* Schema 1 predates the generator limits. Upgrade it rather than falling
+     * back to defaults, which would discard a commissioned grid policy. The
+     * generator fields start at zero, which reads as "not commissioned" and
+     * holds PV at zero while a generator carries the plant. */
+    if (error == ESP_OK && size == sizeof(legacy_solar_grid_config_v1_t)) {
+        legacy_solar_grid_config_v1_t legacy = {0};
+        size_t legacy_size = sizeof(legacy);
+        nvs_handle_t legacy_handle;
+        if (nvs_open(SOLAR_GRID_NAMESPACE, NVS_READONLY, &legacy_handle) == ESP_OK) {
+            const esp_err_t legacy_error =
+                nvs_get_blob(legacy_handle, SOLAR_GRID_KEY, &legacy, &legacy_size);
+            nvs_close(legacy_handle);
+            if (legacy_error == ESP_OK && legacy.magic == SOLAR_GRID_CONFIG_MAGIC &&
+                legacy.version == 1u) {
+                memset(&loaded, 0, sizeof(loaded));
+                memcpy(&loaded, &legacy, sizeof(legacy));
+                loaded.version = SOLAR_GRID_CONFIG_VERSION;
+                loaded.generator_rated_kw = 0.0f;
+                loaded.generator_minimum_loading_percent = 0.0f;
+                loaded.generator_reserve_kw = 0.0f;
+                loaded.generator_reverse_power_margin_kw = 0.0f;
+                if (solar_grid_config_valid(&loaded)) {
+                    set_active(&loaded);
+                    ESP_LOGI(TAG, "Migrated Solar-Grid configuration schema 1 to schema %u; "
+                                  "generator limits are not commissioned",
+                             SOLAR_GRID_CONFIG_VERSION);
+                    return solar_grid_config_save(&loaded);
+                }
+                ESP_LOGW(TAG, "Schema 1 Solar-Grid migration produced an invalid configuration");
+            }
+        }
     }
 
     solar_grid_config_defaults(&loaded);

@@ -14,6 +14,7 @@
 #include "power_control_policy.h"
 #include "safety_manager.h"
 #include "solar_grid_config.h"
+#include "source_detection.h"
 #include "source_mode.h"
 
 static const char *TAG = "control";
@@ -237,16 +238,37 @@ static void control_task(void *argument)
         bool evidence_fresh = evidence.configured && evidence.last_update_ms != 0U &&
                               timestamp - evidence.last_update_ms <=
                                   s_grid_config.evidence_stale_timeout_ms;
-        source_evidence_t source_evidence = {
-            .evidence_fresh = evidence_fresh,
-            .transfer_active = false,
-            .grid_available = evidence.grid_available,
-            .grid_breaker_closed = evidence.grid_breaker_closed,
-            .generator_running = false,
-            .generator_breaker_closed = false,
-            .grid_generator_synchronized = false,
-        };
-        source_mode_result_t source = source_mode_evaluate(&source_evidence);
+
+        /* Two independent ways to establish which source is carrying the plant.
+         * Breaker/synchronisation evidence from a genset controller is stronger
+         * and wins when configured. Otherwise fall back to the measured source
+         * identity, which says only which source is carrying load - it never
+         * claims a breaker position or that two sources are synchronised. */
+        source_mode_result_t source;
+        if (evidence.configured) {
+            source_evidence_t source_evidence = {
+                .evidence_fresh = evidence_fresh,
+                .transfer_active = false,
+                .grid_available = evidence.grid_available,
+                .grid_breaker_closed = evidence.grid_breaker_closed,
+                .generator_running = false,
+                .generator_breaker_closed = false,
+                .grid_generator_synchronized = false,
+            };
+            source = source_mode_evaluate(&source_evidence);
+        } else {
+            measured_source_t measured = MEASURED_SOURCE_UNKNOWN;
+            bool measured_fresh = false;
+            source_detection_status_t detection;
+            if (source_detection_get_status(&detection) == ESP_OK) {
+                measured_fresh = detection.configured && detection.evidence_fresh &&
+                                 !detection.fail_closed && !detection.transition_pending;
+                if (detection.state == SOURCE_STATE_GRID) measured = MEASURED_SOURCE_GRID;
+                else if (detection.state == SOURCE_STATE_GENERATOR) measured = MEASURED_SOURCE_GENERATOR;
+            }
+            source = source_mode_from_measured_source(measured, measured_fresh);
+            evidence_fresh = measured_fresh;
+        }
         grid_gate_input_t gate_input = {
             .configured = evidence.configured,
             .evidence_fresh = evidence_fresh,
@@ -257,6 +279,25 @@ static void control_task(void *argument)
             .recovery_stable_ms = s_grid_config.grid_recovery_stable_ms,
         };
         grid_gate_output_t gate = grid_control_gate_step(&gate_memory, &gate_input);
+
+        /* While a generator carries the plant, PV must leave enough load on the
+         * machine to satisfy its minimum loading and stay clear of reverse
+         * power. An uncommissioned rating yields zero, which holds PV off rather
+         * than commanding against a machine of unknown capacity. This reduces
+         * the likelihood of reverse power; it does not replace the generator's
+         * own protection relay. */
+        float generator_safe_limit_kw = 0.0f;
+        if (source.mode == SOURCE_MODE_GENERATOR_ONLY) {
+            const generator_limit_input_t limit_input = {
+                .evidence_fresh = measurement_fresh,
+                .facility_load_kw = fabsf(measured_grid_kw),
+                .running_generator_rated_kw = s_grid_config.generator_rated_kw,
+                .minimum_loading_percent = s_grid_config.generator_minimum_loading_percent,
+                .reserve_kw = s_grid_config.generator_reserve_kw,
+                .reverse_power_margin_kw = s_grid_config.generator_reverse_power_margin_kw,
+            };
+            generator_safe_limit_kw = source_mode_generator_safe_pv_kw(&limit_input);
+        }
 
         power_control_input_t input = {
             .measurement_fresh = measurement_fresh && fleet_valid && gate.control_allowed,
@@ -278,7 +319,7 @@ static void control_task(void *argument)
                 ? fleet_capacity_kw * s_config.ramp_down_percent_per_second * 0.01f
                 : 0.0f,
             .integral_kw = integral_kw,
-            .generator_safe_limit_kw = 0.0f,
+            .generator_safe_limit_kw = generator_safe_limit_kw,
         };
 
         power_control_output_t policy = {0};
