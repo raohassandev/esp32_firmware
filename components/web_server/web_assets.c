@@ -21,7 +21,8 @@ _binary_network_commissioning_fix_js_start _binary_devices_utils_js_start
 _binary_devices_js_start _binary_devices_refresh_js_start
 _binary_inverter_profiles_js_start _binary_inverter_config_js_start
 _binary_inverter_telemetry_js_start _binary_em500_utils_js_start
-_binary_em500_core_js_start _binary_em500_profiles_js_start _binary_em500_plan_js_start
+_binary_em500_core_js_start _binary_em500_quality_js_start
+_binary_em500_profiles_js_start _binary_em500_plan_js_start
 */
 
 #define DECLARE_ASSET(name) \
@@ -70,6 +71,7 @@ DECLARE_ASSET(inverter_config_js);
 DECLARE_ASSET(inverter_telemetry_js);
 DECLARE_ASSET(em500_utils_js);
 DECLARE_ASSET(em500_core_js);
+DECLARE_ASSET(em500_quality_js);
 DECLARE_ASSET(em500_profiles_js);
 DECLARE_ASSET(em500_plan_js);
 
@@ -126,5 +128,6 @@ ASSET_GETTER(web_assets_inverter_config_js, inverter_config_js)
 ASSET_GETTER(web_assets_inverter_telemetry_js, inverter_telemetry_js)
 ASSET_GETTER(web_assets_em500_utils_js, em500_utils_js)
 ASSET_GETTER(web_assets_em500_core_js, em500_core_js)
+ASSET_GETTER(web_assets_em500_quality_js, em500_quality_js)
 ASSET_GETTER(web_assets_em500_profiles_js, em500_profiles_js)
 ASSET_GETTER(web_assets_em500_plan_js, em500_plan_js)
