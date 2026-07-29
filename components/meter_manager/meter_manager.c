@@ -149,6 +149,26 @@ static void update_quality(meter_runtime_t *meter, meter_data_t *data, bool succ
     data->current_poll_delay_ms = bounded_poll_delay(meter, data);
 }
 
+static void capture_modbus_exception(meter_runtime_t *meter)
+{
+    uint8_t function_code = 0;
+    uint8_t exception_code = 0;
+    uint32_t exception_ms = 0;
+    uint32_t exception_count = 0;
+    bool valid = modbus_tcp_get_last_exception(&meter->connection,
+                                               &function_code,
+                                               &exception_code,
+                                               &exception_ms,
+                                               &exception_count);
+    meter_data_t next = data_snapshot(meter);
+    next.last_modbus_exception_valid = valid;
+    next.last_modbus_exception_function = function_code;
+    next.last_modbus_exception_code = exception_code;
+    next.last_modbus_exception_ms = exception_ms;
+    next.modbus_exception_count = exception_count;
+    store_data(meter, &next);
+}
+
 static esp_err_t serialized_read(meter_runtime_t *meter,
                                  uint8_t function_code,
                                  uint16_t address,
@@ -166,6 +186,7 @@ static esp_err_t serialized_read(meter_runtime_t *meter,
                                               address,
                                               count,
                                               registers);
+    capture_modbus_exception(meter);
     xSemaphoreGive(meter->io_mutex);
     return err;
 }
