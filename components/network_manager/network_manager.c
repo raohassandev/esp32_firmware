@@ -10,19 +10,22 @@
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
+#include "freertos/queue.h"
 #include "freertos/task.h"
 #include "lwip/inet.h"
 #include "sdkconfig.h"
 
 #define READY_BIT BIT0
-#define CONNECT_REQUEST_BIT BIT1
-#define OPERATOR_RECONNECT_BIT BIT2
 #define MAX_SCAN_RESULTS 32
 #define AP_RESCAN_INTERVAL_MS 15000
 #define AP_RESCAN_MAX_INTERVAL_MS 240000
 #define AP_RESCAN_MAX_SHIFT 4
 #define OPERATOR_RESPONSE_DRAIN_MS 500
 #define OPERATOR_ADMISSION_QUIET_MS 500
+#define MANAGER_EVENT_QUEUE_LENGTH 8
+#define MANAGER_WAKE_RADIO_EVENT BIT0
+#define MANAGER_WAKE_OPERATOR BIT1
+#define MANAGER_WAKE_CONNECT BIT2
 
 typedef enum {
     OPERATOR_RECONNECT_IDLE = 0,
@@ -37,18 +40,35 @@ typedef enum {
     OPERATOR_GATE_COMMITTED
 } operator_gate_action_t;
 
+typedef enum {
+    MANAGER_EVENT_STA_START = 0,
+    MANAGER_EVENT_STA_DISCONNECTED,
+    MANAGER_EVENT_STA_GOT_IP
+} manager_event_type_t;
+
+typedef struct {
+    manager_event_type_t type;
+    uint8_t disconnect_reason;
+    esp_netif_ip_info_t ip_info;
+} manager_event_t;
+
 static const char *TAG = "wifi_manager";
 static EventGroupHandle_t s_events;
+static QueueHandle_t s_event_queue;
 static TaskHandle_t s_task;
 static esp_netif_t *s_sta_netif;
 static esp_netif_t *s_ap_netif;
 static app_wifi_config_t s_cfg;
 static network_status_t s_status;
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
+
+/* These connection/recovery fields are owned exclusively by manager_task after
+ * initialization. Event callbacks and HTTP handlers only enqueue/notify. */
 static bool s_using_fallback;
 static uint8_t s_retry_count;
 static uint32_t s_failed_sweeps;
-static volatile bool s_force_primary_attempt;
+static bool s_force_primary_attempt;
+static bool s_event_queue_overflow;
 
 /* The HTTP task and Wi-Fi manager share this admission state. The same lock
  * serializes a late response handler against the final transition to
@@ -59,6 +79,12 @@ static uint16_t s_operator_response_inflight;
 static TickType_t s_operator_last_response_complete_tick;
 static TickType_t s_operator_quiescing_start_tick;
 static operator_reconnect_phase_t s_operator_phase;
+
+static void wake_manager(uint32_t bits)
+{
+    TaskHandle_t task = s_task;
+    if (task) xTaskNotify(task, bits, eSetBits);
+}
 
 static void reset_operator_reconnect_locked(void)
 {
@@ -229,10 +255,10 @@ static esp_err_t start_fallback_ap(void)
     wifi_config_t ap = {0};
     strlcpy((char *)ap.ap.ssid, s_cfg.fallback_ap_ssid, sizeof(ap.ap.ssid));
     strlcpy((char *)ap.ap.password, s_cfg.fallback_ap_password, sizeof(ap.ap.password));
-    ap.ap.ssid_len = strlen((char *)ap.ap.ssid);
+    ap.ap.ssid_len = strlen(s_cfg.fallback_ap_ssid);
     ap.ap.channel = 1;
     ap.ap.max_connection = 4;
-    ap.ap.authmode = strlen((char *)ap.ap.password) >= 8 ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
+    ap.ap.authmode = strlen(s_cfg.fallback_ap_password) >= 8 ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
 
     ESP_RETURN_ON_ERROR(esp_wifi_set_mode(WIFI_MODE_APSTA), TAG, "APSTA mode failed");
     ESP_RETURN_ON_ERROR(esp_wifi_set_config(WIFI_IF_AP, &ap), TAG, "fallback AP config failed");
@@ -272,11 +298,7 @@ static void choose_and_connect(void)
      * the scan did not see it (hidden SSID or marginal signal). Once the
      * recovery AP is serving, a blind attempt on an absent SSID is skipped so
      * the radio spends its time on the AP instead of doomed connect attempts;
-     * boot and an operator rescan still force the attempt.
-     *
-     * Only a reconnect that has already committed to DISCONNECTING is handed
-     * back to the normal retry state machine here. A newly admitted HTTP request
-     * may coexist with a normal connection sweep and must not be cleared. */
+     * boot and an operator rescan still force the attempt. */
     const bool force_primary = s_force_primary_attempt;
     s_force_primary_attempt = false;
     if (s_cfg.primary.enabled && (primary_found || !ap_active || force_primary)) {
@@ -291,9 +313,7 @@ static void choose_and_connect(void)
         if (connect_profile(&s_cfg.fallback, true) == ESP_OK) return;
     }
 
-    /* No profile could be started, so this is a genuine recovery situation. */
     clear_operator_reconnect_if_disconnecting();
-
     if (ap_active) {
         set_state(NETWORK_WIFI_AP_FALLBACK);
         return;
@@ -307,9 +327,7 @@ static void choose_and_connect(void)
 }
 
 /* Bounded exponential backoff between STA sweeps while the recovery AP is up,
- * so a visible but permanently unusable SSID (wrong credentials, reason 210) is
- * not retried every few seconds forever, flooding the log and consuming the
- * airtime the AP needs to serve its clients. */
+ * so a visible but permanently unusable SSID is not retried continuously. */
 static uint32_t ap_retry_delay_ms(void)
 {
     uint32_t shift = s_failed_sweeps < AP_RESCAN_MAX_SHIFT ? s_failed_sweeps : AP_RESCAN_MAX_SHIFT;
@@ -375,7 +393,37 @@ static operator_gate_action_t operator_gate_step(void)
     return action;
 }
 
-static void begin_operator_reconnect(void)
+static bool tick_due(TickType_t now, TickType_t deadline)
+{
+    return (int32_t)(now - deadline) >= 0;
+}
+
+static TickType_t ticks_until(TickType_t now, TickType_t deadline)
+{
+    return tick_due(now, deadline) ? 0 : deadline - now;
+}
+
+static TickType_t earlier_timeout(TickType_t left, TickType_t right)
+{
+    if (left == portMAX_DELAY) return right;
+    if (right == portMAX_DELAY) return left;
+    return left < right ? left : right;
+}
+
+static void schedule_connect(bool *pending, TickType_t *deadline,
+                             uint32_t delay_ms, bool replace)
+{
+    if (!pending || !deadline) return;
+    TickType_t candidate = xTaskGetTickCount() + pdMS_TO_TICKS(delay_ms);
+    if (!*pending || replace || (int32_t)(candidate - *deadline) < 0) {
+        *pending = true;
+        *deadline = candidate;
+    }
+    wake_manager(MANAGER_WAKE_CONNECT);
+}
+
+static void begin_operator_reconnect(bool *connect_pending,
+                                     TickType_t *connect_deadline)
 {
     if (operator_phase() != OPERATOR_RECONNECT_DISCONNECTING) return;
 
@@ -392,7 +440,8 @@ static void begin_operator_reconnect(void)
     set_state(NETWORK_WIFI_SCANNING);
 
     if (!associated) {
-        xEventGroupSetBits(s_events, CONNECT_REQUEST_BIT);
+        schedule_connect(connect_pending, connect_deadline,
+                         s_cfg.reconnect_backoff_ms, true);
         return;
     }
 
@@ -404,23 +453,16 @@ static void begin_operator_reconnect(void)
     }
 }
 
-static void run_connect_cycle(void)
+static void perform_connect_cycle(bool *connect_pending,
+                                  TickType_t *connect_deadline)
 {
-    network_status_t status;
-    network_manager_get_status(&status);
-    uint32_t delay_ms = status.fallback_ap_active ? ap_retry_delay_ms() : s_cfg.reconnect_backoff_ms;
-    if (status.fallback_ap_active) {
-        wifi_mode_t mode = WIFI_MODE_NULL;
-        esp_wifi_get_mode(&mode);
-        ESP_LOGI(TAG, "Recovery AP '%s' serving on 192.168.4.1 (radio mode %d); next STA sweep in %u ms",
-                 s_cfg.fallback_ap_ssid, (int)mode, (unsigned)delay_ms);
-    }
-    vTaskDelay(pdMS_TO_TICKS(delay_ms));
     choose_and_connect();
 
+    network_status_t status;
     network_manager_get_status(&status);
     if (status.state == NETWORK_WIFI_AP_FALLBACK) {
-        xEventGroupSetBits(s_events, CONNECT_REQUEST_BIT);
+        schedule_connect(connect_pending, connect_deadline,
+                         ap_retry_delay_ms(), true);
     }
 }
 
@@ -432,127 +474,237 @@ static bool normal_connect_allowed(void)
            (phase == OPERATOR_RECONNECT_DISCONNECTING && !ready);
 }
 
+static void handle_sta_disconnected(uint8_t reason,
+                                    bool *connect_pending,
+                                    TickType_t *connect_deadline)
+{
+    xEventGroupClearBits(s_events, READY_BIT);
+    portENTER_CRITICAL(&s_lock);
+    s_status.network_ready = false;
+    s_status.disconnect_count++;
+    strlcpy(s_status.ip, "0.0.0.0", sizeof(s_status.ip));
+    portEXIT_CRITICAL(&s_lock);
+
+    if (operator_disconnect_is_intentional()) {
+        ESP_LOGI(TAG, "Intentional disconnect acknowledged (reason=%u); operator reconnect in progress",
+                 (unsigned)reason);
+        set_state(NETWORK_WIFI_SCANNING);
+        schedule_connect(connect_pending, connect_deadline,
+                         s_cfg.reconnect_backoff_ms, true);
+        return;
+    }
+
+    s_retry_count++;
+    if (s_retry_count <= s_cfg.max_retries_per_profile) {
+        ESP_LOGW(TAG, "Disconnected from %s profile, reason=%u; retry %u/%u",
+                 s_using_fallback ? "fallback" : "primary",
+                 (unsigned)reason,
+                 (unsigned)s_retry_count,
+                 (unsigned)s_cfg.max_retries_per_profile);
+        set_state(s_using_fallback ? NETWORK_WIFI_CONNECTING_FALLBACK
+                                   : NETWORK_WIFI_CONNECTING_PRIMARY);
+        esp_err_t retry_error = esp_wifi_connect();
+        if (retry_error != ESP_OK) {
+            ESP_LOGW(TAG, "Immediate station retry failed: %s", esp_err_to_name(retry_error));
+            schedule_connect(connect_pending, connect_deadline,
+                             s_cfg.reconnect_backoff_ms, true);
+        }
+        return;
+    }
+
+    if (!s_using_fallback && s_cfg.fallback.enabled) {
+        ESP_LOGW(TAG, "Primary profile exhausted %u attempts (last reason=%u); switching to fallback SSID '%s'",
+                 (unsigned)s_cfg.max_retries_per_profile,
+                 (unsigned)reason,
+                 s_cfg.fallback.ssid);
+        if (connect_profile(&s_cfg.fallback, true) != ESP_OK) {
+            schedule_connect(connect_pending, connect_deadline,
+                             s_cfg.reconnect_backoff_ms, true);
+        }
+        return;
+    }
+
+    ESP_LOGW(TAG, "All configured STA profiles exhausted (last reason=%u); enabling recovery AP",
+             (unsigned)reason);
+    if (s_failed_sweeps < UINT32_MAX) s_failed_sweeps++;
+    esp_err_t ap_error = start_fallback_ap();
+    if (ap_error != ESP_OK) {
+        set_state(NETWORK_WIFI_DISCONNECTED);
+        ESP_LOGE(TAG, "Recovery AP start failed: %s", esp_err_to_name(ap_error));
+    }
+    schedule_connect(connect_pending, connect_deadline,
+                     ap_retry_delay_ms(), true);
+}
+
+static void handle_sta_got_ip(const esp_netif_ip_info_t *ip_info)
+{
+    if (!ip_info) return;
+
+    wifi_ap_record_t ap = {0};
+    esp_err_t ap_info_error = esp_wifi_sta_get_ap_info(&ap);
+
+    portENTER_CRITICAL(&s_lock);
+    bool ap_was_active = s_status.fallback_ap_active;
+    portEXIT_CRITICAL(&s_lock);
+
+    bool ap_stopped = !ap_was_active;
+    if (ap_was_active) {
+        ESP_LOGI(TAG, "STA connected; stopping recovery AP");
+        esp_err_t mode_error = esp_wifi_set_mode(WIFI_MODE_STA);
+        ap_stopped = mode_error == ESP_OK;
+        if (mode_error != ESP_OK) {
+            ESP_LOGW(TAG, "Recovery AP could not be stopped: %s", esp_err_to_name(mode_error));
+        }
+    }
+
+    portENTER_CRITICAL(&s_lock);
+    s_status.state = NETWORK_WIFI_CONNECTED;
+    s_status.network_ready = true;
+    s_status.using_fallback_sta = s_using_fallback;
+    s_status.fallback_ap_active = !ap_stopped;
+    strlcpy(s_status.ssid,
+            s_using_fallback ? s_cfg.fallback.ssid : s_cfg.primary.ssid,
+            sizeof(s_status.ssid));
+    snprintf(s_status.ip, sizeof(s_status.ip), IPSTR, IP2STR(&ip_info->ip));
+    snprintf(s_status.gateway, sizeof(s_status.gateway), IPSTR, IP2STR(&ip_info->gw));
+    snprintf(s_status.netmask, sizeof(s_status.netmask), IPSTR, IP2STR(&ip_info->netmask));
+    s_status.rssi = ap_info_error == ESP_OK ? ap.rssi : 0;
+    s_status.reconnect_count++;
+    portEXIT_CRITICAL(&s_lock);
+
+    s_failed_sweeps = 0;
+    s_retry_count = 0;
+    clear_operator_reconnect_if_disconnecting();
+    xEventGroupSetBits(s_events, READY_BIT);
+
+    network_status_t status;
+    network_manager_get_status(&status);
+    ESP_LOGI(TAG, "Ready: SSID=%s IP=%s GW=%s MASK=%s RSSI=%d",
+             status.ssid, status.ip, status.gateway, status.netmask, status.rssi);
+}
+
+static void recover_event_queue_overflow(bool *connect_pending,
+                                         TickType_t *connect_deadline)
+{
+    bool overflow = false;
+    portENTER_CRITICAL(&s_lock);
+    overflow = s_event_queue_overflow;
+    s_event_queue_overflow = false;
+    portEXIT_CRITICAL(&s_lock);
+    if (!overflow) return;
+
+    ESP_LOGE(TAG, "Wi-Fi event queue overflow; forcing a fail-safe reconnect");
+    xEventGroupClearBits(s_events, READY_BIT);
+    portENTER_CRITICAL(&s_lock);
+    s_status.network_ready = false;
+    strlcpy(s_status.ip, "0.0.0.0", sizeof(s_status.ip));
+    portEXIT_CRITICAL(&s_lock);
+    s_retry_count = 0;
+    s_failed_sweeps = 0;
+    s_force_primary_attempt = true;
+    esp_err_t error = esp_wifi_disconnect();
+    if (error != ESP_OK && error != ESP_ERR_WIFI_NOT_CONNECT) {
+        ESP_LOGW(TAG, "Fail-safe disconnect returned %s", esp_err_to_name(error));
+    }
+    schedule_connect(connect_pending, connect_deadline, 0, true);
+}
+
+static void drain_radio_events(bool *connect_pending,
+                               TickType_t *connect_deadline)
+{
+    manager_event_t event;
+    while (xQueueReceive(s_event_queue, &event, 0) == pdTRUE) {
+        switch (event.type) {
+            case MANAGER_EVENT_STA_START:
+                schedule_connect(connect_pending, connect_deadline,
+                                 s_cfg.reconnect_backoff_ms, false);
+                break;
+            case MANAGER_EVENT_STA_DISCONNECTED:
+                handle_sta_disconnected(event.disconnect_reason,
+                                        connect_pending, connect_deadline);
+                break;
+            case MANAGER_EVENT_STA_GOT_IP:
+                *connect_pending = false;
+                handle_sta_got_ip(&event.ip_info);
+                break;
+            default:
+                break;
+        }
+    }
+    recover_event_queue_overflow(connect_pending, connect_deadline);
+}
+
 static void manager_task(void *arg)
 {
     (void)arg;
-    bool connect_request_pending = false;
+    bool connect_pending = false;
+    TickType_t connect_deadline = 0;
 
     while (true) {
-        TickType_t timeout = operator_gate_timeout_ticks();
-        EventBits_t bits = xEventGroupWaitBits(
-            s_events,
-            CONNECT_REQUEST_BIT | OPERATOR_RECONNECT_BIT,
-            pdTRUE,
-            pdFALSE,
-            timeout);
+        TickType_t now = xTaskGetTickCount();
+        TickType_t reconnect_timeout = connect_pending
+                                           ? ticks_until(now, connect_deadline)
+                                           : portMAX_DELAY;
+        TickType_t timeout = earlier_timeout(operator_gate_timeout_ticks(),
+                                             reconnect_timeout);
+        uint32_t notifications = 0;
+        xTaskNotifyWait(0, UINT32_MAX, &notifications, timeout);
 
-        if ((bits & CONNECT_REQUEST_BIT) != 0) connect_request_pending = true;
+        if ((notifications & MANAGER_WAKE_RADIO_EVENT) != 0U) {
+            drain_radio_events(&connect_pending, &connect_deadline);
+        }
 
         operator_gate_action_t action = operator_gate_step();
         if (action == OPERATOR_GATE_COMMITTED) {
-            /* Any normal bit consumed before commitment is stale. An associated
-             * STA produces a fresh bit from its intentional disconnect event;
-             * an unassociated STA is signalled by begin_operator_reconnect(). */
-            connect_request_pending = false;
-            begin_operator_reconnect();
+            connect_pending = false;
+            begin_operator_reconnect(&connect_pending, &connect_deadline);
         }
 
-        if (connect_request_pending && normal_connect_allowed()) {
-            connect_request_pending = false;
-            run_connect_cycle();
+        now = xTaskGetTickCount();
+        if (connect_pending && tick_due(now, connect_deadline) &&
+            normal_connect_allowed()) {
+            connect_pending = false;
+            perform_connect_cycle(&connect_pending, &connect_deadline);
         }
     }
+}
+
+static void enqueue_manager_event(const manager_event_t *event)
+{
+    if (!event || !s_event_queue) return;
+    if (xQueueSend(s_event_queue, event, 0) != pdTRUE) {
+        portENTER_CRITICAL(&s_lock);
+        s_event_queue_overflow = true;
+        portEXIT_CRITICAL(&s_lock);
+    }
+    wake_manager(MANAGER_WAKE_RADIO_EVENT);
 }
 
 static void event_handler(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     (void)arg;
+    manager_event_t event = {0};
+
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
-        xEventGroupSetBits(s_events, CONNECT_REQUEST_BIT);
+        event.type = MANAGER_EVENT_STA_START;
+        enqueue_manager_event(&event);
         return;
     }
 
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
-        const wifi_event_sta_disconnected_t *event = data;
-        xEventGroupClearBits(s_events, READY_BIT);
-        portENTER_CRITICAL(&s_lock);
-        s_status.network_ready = false;
-        s_status.disconnect_count++;
-        strlcpy(s_status.ip, "0.0.0.0", sizeof(s_status.ip));
-        portEXIT_CRITICAL(&s_lock);
-
-        /* Only a transition that atomically committed to DISCONNECTING owns this
-         * event. A merely admitted/draining HTTP request must not suppress a
-         * genuine link-loss retry that happened before radio teardown. */
-        if (operator_disconnect_is_intentional()) {
-            ESP_LOGI(TAG, "Intentional disconnect acknowledged (reason=%u); operator reconnect in progress",
-                     event ? event->reason : 0);
-            set_state(NETWORK_WIFI_SCANNING);
-            xEventGroupSetBits(s_events, CONNECT_REQUEST_BIT);
-            return;
-        }
-
-        s_retry_count++;
-        if (s_retry_count <= s_cfg.max_retries_per_profile) {
-            ESP_LOGW(TAG, "Disconnected from %s profile, reason=%u; retry %u/%u",
-                     s_using_fallback ? "fallback" : "primary",
-                     event ? event->reason : 0,
-                     (unsigned)s_retry_count,
-                     (unsigned)s_cfg.max_retries_per_profile);
-            set_state(s_using_fallback ? NETWORK_WIFI_CONNECTING_FALLBACK : NETWORK_WIFI_CONNECTING_PRIMARY);
-            esp_wifi_connect();
-        } else if (!s_using_fallback && s_cfg.fallback.enabled) {
-            ESP_LOGW(TAG, "Primary profile exhausted %u attempts (last reason=%u); switching to fallback SSID '%s'",
-                     (unsigned)s_cfg.max_retries_per_profile,
-                     event ? event->reason : 0,
-                     s_cfg.fallback.ssid);
-            if (connect_profile(&s_cfg.fallback, true) != ESP_OK) {
-                xEventGroupSetBits(s_events, CONNECT_REQUEST_BIT);
-            }
-        } else {
-            ESP_LOGW(TAG, "All configured STA profiles exhausted (last reason=%u); enabling recovery AP",
-                     event ? event->reason : 0);
-            if (s_failed_sweeps < UINT32_MAX) s_failed_sweeps++;
-            if (start_fallback_ap() != ESP_OK) set_state(NETWORK_WIFI_DISCONNECTED);
-            xEventGroupSetBits(s_events, CONNECT_REQUEST_BIT);
-        }
+        const wifi_event_sta_disconnected_t *disconnected = data;
+        event.type = MANAGER_EVENT_STA_DISCONNECTED;
+        event.disconnect_reason = disconnected ? disconnected->reason : 0;
+        enqueue_manager_event(&event);
         return;
     }
 
     if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
-        const ip_event_got_ip_t *event = data;
-        wifi_ap_record_t ap = {0};
-        esp_wifi_sta_get_ap_info(&ap);
-
-        portENTER_CRITICAL(&s_lock);
-        bool ap_was_active = s_status.fallback_ap_active;
-        portEXIT_CRITICAL(&s_lock);
-        if (ap_was_active) {
-            ESP_LOGI(TAG, "STA connected; stopping recovery AP");
-            esp_wifi_set_mode(WIFI_MODE_STA);
-        }
-
-        portENTER_CRITICAL(&s_lock);
-        s_status.state = NETWORK_WIFI_CONNECTED;
-        s_status.network_ready = true;
-        s_status.using_fallback_sta = s_using_fallback;
-        s_status.fallback_ap_active = false;
-        strlcpy(s_status.ssid, s_using_fallback ? s_cfg.fallback.ssid : s_cfg.primary.ssid, sizeof(s_status.ssid));
-        snprintf(s_status.ip, sizeof(s_status.ip), IPSTR, IP2STR(&event->ip_info.ip));
-        snprintf(s_status.gateway, sizeof(s_status.gateway), IPSTR, IP2STR(&event->ip_info.gw));
-        snprintf(s_status.netmask, sizeof(s_status.netmask), IPSTR, IP2STR(&event->ip_info.netmask));
-        s_status.rssi = ap.rssi;
-        s_status.reconnect_count++;
-        portEXIT_CRITICAL(&s_lock);
-
-        s_failed_sweeps = 0;
-        /* A successful association completes an operator transition only after
-         * that transition committed to DISCONNECTING. A response still draining
-         * during an unrelated connection attempt remains pending. */
-        clear_operator_reconnect_if_disconnecting();
-        xEventGroupSetBits(s_events, READY_BIT);
-        ESP_LOGI(TAG, "Ready: SSID=%s IP=%s GW=%s MASK=%s RSSI=%d",
-                 s_status.ssid, s_status.ip, s_status.gateway, s_status.netmask, s_status.rssi);
+        const ip_event_got_ip_t *got_ip = data;
+        if (!got_ip) return;
+        event.type = MANAGER_EVENT_STA_GOT_IP;
+        event.ip_info = got_ip->ip_info;
+        enqueue_manager_event(&event);
     }
 }
 
@@ -570,6 +722,11 @@ esp_err_t network_manager_init(void)
 
     memset(&s_status, 0, sizeof(s_status));
     strlcpy(s_status.ip, "0.0.0.0", sizeof(s_status.ip));
+    s_using_fallback = false;
+    s_retry_count = 0;
+    s_failed_sweeps = 0;
+    s_force_primary_attempt = false;
+    s_event_queue_overflow = false;
     clear_operator_reconnect();
 
     ESP_LOGI(TAG, "Profiles: primary '%s'%s, fallback '%s'%s, recovery AP '%s'%s",
@@ -578,7 +735,9 @@ esp_err_t network_manager_init(void)
              s_cfg.fallback_ap_ssid, s_cfg.fallback_ap_enabled ? "" : " (disabled)");
 
     s_events = xEventGroupCreate();
-    if (!s_events) return ESP_ERR_NO_MEM;
+    s_event_queue = xQueueCreate(MANAGER_EVENT_QUEUE_LENGTH,
+                                 sizeof(manager_event_t));
+    if (!s_events || !s_event_queue) return ESP_ERR_NO_MEM;
 
     ESP_RETURN_ON_ERROR(esp_netif_init(), TAG, "netif init failed");
     err = esp_event_loop_create_default();
@@ -608,7 +767,8 @@ bool network_manager_is_connected(void)
 bool network_manager_wait_ready(uint32_t timeout_ms)
 {
     if (!s_events) return false;
-    return (xEventGroupWaitBits(s_events, READY_BIT, pdFALSE, pdFALSE, pdMS_TO_TICKS(timeout_ms)) & READY_BIT) != 0;
+    return (xEventGroupWaitBits(s_events, READY_BIT, pdFALSE, pdFALSE,
+                                pdMS_TO_TICKS(timeout_ms)) & READY_BIT) != 0;
 }
 
 const char *network_manager_get_ip(void)
@@ -628,7 +788,7 @@ esp_err_t network_manager_operator_reconnect_response_begin(bool *accepted)
 {
     if (!accepted) return ESP_ERR_INVALID_ARG;
     *accepted = false;
-    if (!s_events) return ESP_ERR_INVALID_STATE;
+    if (!s_events || !s_task) return ESP_ERR_INVALID_STATE;
 
     esp_err_t result = ESP_OK;
     bool reopened = false;
@@ -647,8 +807,6 @@ esp_err_t network_manager_operator_reconnect_response_begin(bool *accepted)
             s_operator_phase = OPERATOR_RECONNECT_DRAINING;
             *accepted = true;
         } else if (s_operator_phase == OPERATOR_RECONNECT_QUIESCING) {
-            /* The admission decision and the manager's final commit use this
-             * same lock. Entering first atomically reopens the full drain. */
             s_operator_phase = OPERATOR_RECONNECT_DRAINING;
             s_operator_quiescing_start_tick = 0;
             reopened = true;
@@ -658,16 +816,17 @@ esp_err_t network_manager_operator_reconnect_response_begin(bool *accepted)
     portEXIT_CRITICAL(&s_lock);
 
     if (result == ESP_OK) {
-        xEventGroupSetBits(s_events, OPERATOR_RECONNECT_BIT);
+        wake_manager(MANAGER_WAKE_OPERATOR);
         if (reopened) ESP_LOGI(TAG, "Late reconnect request reopened the response drain");
     }
     return result;
 }
 
-void network_manager_operator_reconnect_response_complete(bool accepted, esp_err_t send_result)
+void network_manager_operator_reconnect_response_complete(bool accepted,
+                                                          esp_err_t send_result)
 {
     bool underflow = false;
-    bool wake_manager = false;
+    bool wake = false;
     TickType_t completed_at = xTaskGetTickCount();
 
     portENTER_CRITICAL(&s_lock);
@@ -680,7 +839,7 @@ void network_manager_operator_reconnect_response_complete(bool accepted, esp_err
             s_operator_phase != OPERATOR_RECONNECT_DISCONNECTING) {
             s_operator_reconnect_armed = true;
         }
-        wake_manager = s_operator_reconnect_pending;
+        wake = s_operator_reconnect_pending;
     }
     portEXIT_CRITICAL(&s_lock);
 
@@ -692,7 +851,7 @@ void network_manager_operator_reconnect_response_complete(bool accepted, esp_err
         ESP_LOGW(TAG, "Operator reconnect HTTP acknowledgement was not delivered: %s",
                  esp_err_to_name(send_result));
     }
-    if (wake_manager) xEventGroupSetBits(s_events, OPERATOR_RECONNECT_BIT);
+    if (wake) wake_manager(MANAGER_WAKE_OPERATOR);
 }
 
 esp_err_t network_manager_rescan_and_connect(void)
