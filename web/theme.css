@@ -34,6 +34,24 @@ html[data-theme="light"] {
     --action-solid: #1c4a78;
     --action-solid-hover: #163c63;
     --action-solid-text: #ffffff;
+
+    /* Light counterparts for the session banner and trend plot surfaces added
+       with the navigation/taxonomy/trend work. Every one of these is declared in
+       both themes; a token defined in only one theme is how --panel-bg and
+       --good/--bad produced unreadable text twice in this codebase. */
+    --session-surface: #e6eff9;
+    --session-line: #3f6f9f;
+    --session-text: #16283c;
+    --session-muted: #40566c;
+    --session-warn-surface: #fdf0dd;
+    --session-warn-line: #b9762a;
+    --session-warn-text: #653a04;
+
+    --chart-plot: #f7fafc;
+    --chart-gridline: #dae4ee;
+    --chart-axis: #7089a0;
+    --chart-tick: #46596d;
+    --nav-group-text: #4f6274;
 }
 
 html[data-theme="light"] body {

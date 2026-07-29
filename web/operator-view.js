@@ -26,6 +26,63 @@
         clock: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>'
     };
 
+    /* ------------------------------------------------------------ state taxonomy
+     *
+     * This screen used to carry Healthy, Ready, Available, Attention, Armed,
+     * Safe, Safely disabled, Monitoring only, Not commissioned, Not monitored,
+     * Clear, Normal and Review - thirteen words for five questions. They are
+     * now drawn from the closed families published by web/app.js, so the same
+     * condition reads the same way here, on the alarm centre and on the
+     * engineering dashboard.
+     *
+     * Two of them are deliberately NOT ours to choose. The controller publishes
+     * control_authority.mode_label and control_authority.inhibit_reason, and it
+     * publishes grid_measurement.quality. Those are the firmware's statements
+     * about a safety decision, and they are rendered exactly as received. */
+    const VOCAB = () => window.AutomatrixUi?.STATES || null;
+    function stateWord(family, key, fallback) {
+        const states = VOCAB();
+        return (states && states[family] && states[family][key]) || fallback;
+    }
+    function firmwareWord(value, absent) {
+        const ui = window.AutomatrixUi;
+        return ui ? ui.verbatim(value, absent) : (String(value || '').trim() || absent);
+    }
+
+    /* The firmware's own quality token for the grid measurement, presented as
+     * written rather than re-scored here. "degraded" is the controller saying
+     * something about the instrument that this screen has no basis to soften. */
+    function measurementQuality(status) {
+        const quality = status?.grid_measurement?.quality;
+        if (typeof quality === 'string' && quality) return quality.charAt(0).toUpperCase() + quality.slice(1);
+        if (status?.meter_online && !status?.meter_stale) return stateWord('dataQuality', 'good', 'Good');
+        if (status?.meter_stale && status?.meter_has_data) return stateWord('dataQuality', 'stale', 'Stale');
+        return stateWord('dataQuality', 'unavailable', 'Unavailable');
+    }
+
+    /* Control authority in the controller's words. mode_label is one of
+     * "Monitoring only", "Commanding" or "Inhibited"; when it is inhibited the
+     * reason is the firmware's sentence, not a summary of it. */
+    function controlAuthority(status) {
+        const authority = status?.control_authority || null;
+        const label = firmwareWord(authority?.mode_label, null);
+        if (label) {
+            return {
+                label,
+                reason: firmwareWord(authority?.inhibit_reason, ''),
+                commanding: authority?.command_authority === true,
+                enabled: authority?.control_enabled === true
+            };
+        }
+        const enabled = Boolean(status?.control_enabled);
+        return {
+            label: enabled ? stateWord('control', 'active', 'Active') : stateWord('control', 'standby', 'Standby'),
+            reason: '',
+            commanding: enabled,
+            enabled
+        };
+    }
+
     function isOperator() { return document.documentElement.dataset.access !== 'engineering'; }
     function route() { return location.hash.replace(/^#\/?/, '') || 'dashboard'; }
     function node(tag, className = '', text = null) {
@@ -235,9 +292,19 @@
         const installed = Number(inverterSummary.configured_rated_kw) || 0;
         const utilization = installed > 0 && finite(solarPower) ? (solarPower / installed) * 100 : NaN;
         const alarms = Array.isArray(status?.alarm_names) ? status.alarm_names : [];
-        const controlEnabled = Boolean(status?.control_enabled);
+        const authority = controlAuthority(status);
+        const controlEnabled = authority.enabled;
         const importState = finite(gridPower) ? (gridPower > 0.01 ? 'Importing' : gridPower < -0.01 ? 'Exporting' : 'Balanced') : 'Unknown';
         const systemHealthy = Boolean(status?.network_online) && gridOnline && alarms.length === 0;
+        const quality = measurementQuality(status);
+        const fleetState = Number(inverterSummary.online) > 0
+            ? stateWord('communication', 'online', 'Online')
+            : Number(inverterSummary.enabled) > 0
+                ? stateWord('communication', 'offline', 'Offline')
+                : stateWord('commissioning', 'notConfigured', 'Not configured');
+        const alarmState = alarms.length
+            ? stateWord('alarm', 'critical', 'Critical')
+            : systemHealthy ? stateWord('alarm', 'normal', 'Normal') : stateWord('alarm', 'warning', 'Warning');
 
         pushTrend(state.gridTrend, gridPower);
         pushTrend(state.solarTrend, solarPower);
@@ -251,11 +318,21 @@
         health.append(node('div', 'op-card-title', 'System readiness'));
         const readiness = node('div', 'op-readiness');
         readiness.append(
-            statusLine('wifi', 'Controller network', status?.network_online ? 'Online' : 'Offline', status?.ssid || 'No network', status?.network_online ? 'good' : 'bad'),
-            statusLine('meter', 'Grid measurement', gridOnline ? 'Healthy' : status?.meter_stale ? 'Stale' : 'Unavailable', gridOnline ? formatAge(status?.meter_age_ms) : 'Check meter communication', gridOnline ? 'good' : 'bad'),
-            statusLine('solar', 'Solar fleet', Number(inverterSummary.online) > 0 ? 'Available' : Number(inverterSummary.enabled) > 0 ? 'Attention' : 'Not commissioned', `${Number(inverterSummary.online) || 0} of ${Number(inverterSummary.enabled) || 0} enabled online`, Number(inverterSummary.online) > 0 ? 'good' : 'warning'),
-            statusLine('shield', 'Control safety', controlEnabled ? 'Enabled' : 'Safely disabled', controlEnabled ? 'Automatic commands permitted' : 'No inverter commands issued', controlEnabled ? 'warning' : 'good'),
-            statusLine('alarm', 'Active alarms', alarms.length ? `${alarms.length} active` : 'Clear', alarms.length ? alarms.slice(0, 2).join(', ') : 'No active alarms', alarms.length ? 'bad' : 'good')
+            statusLine('wifi', 'Controller network',
+                status?.network_online ? stateWord('communication', 'online', 'Online') : stateWord('communication', 'offline', 'Offline'),
+                status?.ssid || 'No network', status?.network_online ? 'good' : 'bad'),
+            statusLine('meter', 'Grid measurement', quality,
+                gridOnline ? formatAge(status?.meter_age_ms) : 'Check meter communication', gridOnline ? 'good' : 'bad'),
+            statusLine('solar', 'Solar fleet', fleetState,
+                `${Number(inverterSummary.online) || 0} of ${Number(inverterSummary.enabled) || 0} enabled online`,
+                Number(inverterSummary.online) > 0 ? 'good' : 'warning'),
+            /* The controller's own words for its command authority, and its own
+             * sentence for why it is inhibited. */
+            statusLine('shield', 'Control authority', authority.label,
+                authority.reason || (authority.commanding ? 'Automatic commands permitted' : 'No inverter commands issued'),
+                authority.commanding ? 'warning' : 'good'),
+            statusLine('alarm', 'Alarms', alarms.length ? `${alarms.length} ${stateWord('alarm', 'critical', 'Critical')}` : stateWord('alarm', 'normal', 'Normal'),
+                alarms.length ? alarms.slice(0, 2).join(', ') : 'No active alarm condition', alarms.length ? 'bad' : 'good')
         );
         health.append(readiness);
         hero.append(flow, health);
@@ -263,10 +340,12 @@
 
         const kpis = node('div', 'op-kpi-grid');
         kpis.append(
-            kpi('grid', 'Grid exchange', formatPower(gridPower), gridOnline ? importState : 'No current sample', gridOnline ? 'good' : 'bad'),
-            kpi('solar', 'Solar production', finite(solarPower) ? formatPower(solarPower) : 'Not monitored', installed ? `${formatPercent(utilization)} of installed capacity` : 'Commissioning required', finite(solarPower) ? 'good' : 'warning'),
-            kpi('control', 'Control mode', controlEnabled ? 'Automatic' : 'Monitoring only', controlEnabled ? 'Closed-loop control active' : 'Automatic control is locked', controlEnabled ? 'warning' : 'good'),
-            kpi('alarm', 'Plant attention', alarms.length ? 'Action required' : systemHealthy ? 'Normal' : 'Review status', alarms.length ? alarms[0] : 'No active alarm', alarms.length ? 'bad' : systemHealthy ? 'good' : 'warning')
+            kpi('grid', 'Grid exchange', formatPower(gridPower), gridOnline ? importState : stateWord('dataQuality', 'unavailable', 'Unavailable'), gridOnline ? 'good' : 'bad'),
+            kpi('solar', 'Solar production', finite(solarPower) ? formatPower(solarPower) : stateWord('dataQuality', 'unavailable', 'Unavailable'), installed ? `${formatPercent(utilization)} of installed capacity` : stateWord('commissioning', 'notConfigured', 'Not configured'), finite(solarPower) ? 'good' : 'warning'),
+            /* Verbatim again: this tile answers "may the controller command the
+             * fleet right now", and only the controller can answer it. */
+            kpi('control', 'Control authority', authority.label, authority.reason || (authority.commanding ? 'Closed-loop control active' : 'No inverter commands issued'), authority.commanding ? 'warning' : 'good'),
+            kpi('alarm', 'Plant attention', alarmState, alarms.length ? alarms[0] : 'No active alarm condition', alarms.length ? 'bad' : systemHealthy ? 'good' : 'warning')
         );
         view.append(kpis);
 
@@ -300,7 +379,14 @@
         const trendCard = node('article', 'op-card op-trend-card');
         trendCard.append(node('div', 'op-card-headline', 'Recent demand trend'), sparkline(state.gridTrend, 'Recent grid demand trend'), node('small', 'op-chart-note', 'Use the trend to identify rapid load changes and demand peaks'));
         const stateCard = node('article', 'op-card op-readiness-card');
-        stateCard.append(node('div', 'op-card-headline', 'Measurement health'), statusLine('meter', 'Communication', online ? 'Online' : 'Attention required', online ? 'Measurements are current' : 'Field communication needs checking', online ? 'good' : 'bad'), statusLine('clock', 'Freshness', online ? formatAge(runtime.data_age_ms ?? status.meter_age_ms) : 'No current sample', online ? 'Suitable for monitoring and control interlock' : 'Values cannot be used for automatic decisions', online ? 'good' : 'bad'), statusLine('shield', 'Enabled meters', `${Number(summary.online) || 0} online`, `${Number(summary.enabled) || 0} enabled meter${Number(summary.enabled) === 1 ? '' : 's'}`, Number(summary.online) > 0 ? 'good' : 'warning'));
+        stateCard.append(node('div', 'op-card-headline', 'Measurement health'),
+            statusLine('meter', 'Communication',
+                online ? stateWord('communication', 'online', 'Online') : stateWord('communication', 'offline', 'Offline'),
+                online ? 'Measurements are current' : 'Field communication needs checking', online ? 'good' : 'bad'),
+            statusLine('clock', 'Data quality', measurementQuality(status),
+                online ? `Last sample ${formatAge(runtime.data_age_ms ?? status.meter_age_ms)} · usable for the control interlock` : 'Values cannot be used for automatic decisions',
+                online ? 'good' : 'bad'),
+            statusLine('shield', 'Enabled meters', `${Number(summary.online) || 0} ${stateWord('communication', 'online', 'Online').toLowerCase()}`, `${Number(summary.enabled) || 0} enabled meter${Number(summary.enabled) === 1 ? '' : 's'}`, Number(summary.online) > 0 ? 'good' : 'warning'));
         overview.append(gaugeCard, trendCard, stateCard);
         view.append(overview);
 
@@ -317,7 +403,11 @@
             const fill = node('span', `op-bar-fill ${healthy ? 'good' : meter.enabled ? 'warning' : ''}`);
             fill.style.width = healthy ? '100%' : meter.enabled ? '35%' : '0%';
             bar.append(fill);
-            row.append(title, bar, node('strong', '', healthy ? formatPower(data.active_power_kw) : meter.enabled ? 'Attention' : 'Disabled'), node('small', '', healthy ? formatAge(data.data_age_ms) : meter.enabled ? 'No current data' : 'Not active'));
+            row.append(title, bar,
+                node('strong', '', healthy ? formatPower(data.active_power_kw)
+                    : meter.enabled ? stateWord('communication', 'offline', 'Offline')
+                    : stateWord('commissioning', 'notConfigured', 'Not configured')),
+                node('small', '', healthy ? formatAge(data.data_age_ms) : meter.enabled ? 'No current data' : 'Not active'));
             list.append(row);
         });
         if (!meters.length) list.append(node('div', 'op-empty-state', 'No grid meter has been commissioned.'));
@@ -342,7 +432,7 @@
         view.append(sectionHeader('Solar Inverters', 'Inverter fleet status', 'Capacity, availability, live production, and equipment attention for plant operators.', 'Refresh'));
         const top = node('div', 'op-inverter-overview');
         const productionCard = node('article', 'op-card op-gauge-card');
-        productionCard.append(gauge(production, installed || 1, 'Solar production', 'kW', finite(production) ? 'good' : 'warning'), node('strong', 'op-direction', finite(production) ? `${formatPercent(utilization)} utilization` : 'Production not monitored'), node('small', '', installed ? `${formatPower(installed)} installed capacity` : 'No inverter capacity configured'));
+        productionCard.append(gauge(production, installed || 1, 'Solar production', 'kW', finite(production) ? 'good' : 'warning'), node('strong', 'op-direction', finite(production) ? `${formatPercent(utilization)} utilization` : stateWord('dataQuality', 'unavailable', 'Unavailable')), node('small', '', installed ? `${formatPower(installed)} installed capacity` : stateWord('commissioning', 'notConfigured', 'Not configured')));
         const availabilityCard = node('article', 'op-card op-gauge-card');
         availabilityCard.append(gauge(availability, 100, 'Fleet availability', '%', availability >= 99 ? 'good' : availability > 0 ? 'warning' : 'bad'), node('strong', 'op-direction', `${Number(summary.online) || 0} of ${Number(summary.enabled) || 0} online`), node('small', '', availability >= 99 ? 'All enabled units available' : 'Review unavailable units below'));
         const trend = node('article', 'op-card op-trend-card');
@@ -368,8 +458,11 @@
             const fill = node('span', `op-bar-fill ${online ? 'good' : 'warning'}`);
             fill.style.width = `${load}%`;
             bar.append(fill);
-            output.append(bar, node('small', '', finite(measured) ? `${formatPower(measured)} · ${formatPercent(load)}` : 'Production not monitored'));
-            row.append(name, output, node('span', `op-state-pill ${online ? 'good' : inverter.enabled ? 'warning' : ''}`, online ? 'Online' : inverter.enabled ? 'Attention' : 'Disabled'));
+            output.append(bar, node('small', '', finite(measured) ? `${formatPower(measured)} · ${formatPercent(load)}` : stateWord('dataQuality', 'unavailable', 'Unavailable')));
+            row.append(name, output, node('span', `op-state-pill ${online ? 'good' : inverter.enabled ? 'warning' : ''}`,
+                online ? stateWord('communication', 'online', 'Online')
+                    : inverter.enabled ? stateWord('communication', 'offline', 'Offline')
+                    : stateWord('commissioning', 'notConfigured', 'Not configured')));
             list.append(row);
         });
         if (!inverters.length) list.append(node('div', 'op-empty-state', 'No solar inverter has been commissioned.'));
@@ -381,21 +474,37 @@
         const view = byId('operatorControlView');
         if (!view) return;
         const status = payload.status || {};
-        const enabled = Boolean(status.control_enabled);
+        const authority = controlAuthority(status);
+        const enabled = authority.enabled;
         const meterReady = Boolean(status.meter_online) && !Boolean(status.meter_stale);
         const commandable = Number(payload.inverters?.summary?.commandable_rated_kw) || 0;
-        const ready = enabled && meterReady && commandable > 0;
+        const ready = authority.commanding && meterReady && commandable > 0;
         view.replaceChildren();
         view.append(sectionHeader('Control', 'PV-DG operating state', 'A clear operational view of whether automatic control is active, available, or safely blocked.'));
         const hero = node('article', `op-card op-control-hero ${ready ? 'good' : enabled ? 'warning' : ''}`);
-        hero.append(icon('control'), node('div', '', `<p class="eyebrow">Current mode</p><h3>${enabled ? 'Automatic control enabled' : 'Monitoring only'}</h3><p>${enabled ? 'The controller may issue qualified inverter commands.' : 'No inverter commands are being issued.'}</p>`));
-        hero.lastChild.innerHTML = `<p class="eyebrow">Current mode</p><h3>${enabled ? 'Automatic control enabled' : 'Monitoring only'}</h3><p>${enabled ? 'The controller may issue qualified inverter commands.' : 'No inverter commands are being issued.'}</p>`;
+        /* The heading is the controller's own mode_label and the sentence under
+         * it is its own inhibit_reason. Rewriting either would be this screen
+         * inventing a safety statement the firmware did not make. */
+        const heroDetail = authority.reason
+            || (authority.commanding ? 'The controller may issue qualified inverter commands.' : 'No inverter commands are being issued.');
+        hero.append(icon('control'), node('div', ''));
+        hero.lastChild.append(
+            node('p', 'eyebrow', 'Control authority'),
+            node('h3', '', authority.label),
+            node('p', '', heroDetail)
+        );
         view.append(hero);
         const checks = node('div', 'op-three-column');
         checks.append(
-            kpi('meter', 'Grid measurement', meterReady ? 'Ready' : 'Blocked', meterReady ? 'Fresh grid feedback available' : 'Meter data is not suitable for control', meterReady ? 'good' : 'bad'),
-            kpi('solar', 'Commandable solar', formatPower(commandable), commandable > 0 ? 'Qualified inverter capacity' : 'No production-approved control channel', commandable > 0 ? 'good' : 'warning'),
-            kpi('shield', 'Safety state', enabled ? 'Armed' : 'Safe', enabled ? 'Automatic action permitted' : 'No commands issued', enabled ? 'warning' : 'good')
+            kpi('meter', 'Grid measurement', measurementQuality(status), meterReady ? 'Fresh grid feedback available' : 'Meter data is not suitable for control', meterReady ? 'good' : 'bad'),
+            kpi('solar', 'Commandable solar', formatPower(commandable),
+                commandable > 0 ? stateWord('commissioning', 'qualified', 'Qualified') : stateWord('commissioning', 'notConfigured', 'Not configured'),
+                commandable > 0 ? 'good' : 'warning'),
+            kpi('shield', 'Command path',
+                authority.commanding ? stateWord('control', 'active', 'Active')
+                    : enabled ? stateWord('control', 'inhibited', 'Inhibited')
+                    : stateWord('control', 'standby', 'Standby'),
+                authority.commanding ? 'Automatic action permitted' : 'No commands issued', authority.commanding ? 'warning' : 'good')
         );
         view.append(checks);
         const note = node('article', 'op-card op-decision-card');
@@ -408,13 +517,30 @@
         if (!view) return;
         const status = payload.status || {};
         const alarms = Array.isArray(status.alarm_names) ? status.alarm_names : [];
+        const authority = controlAuthority(status);
         view.replaceChildren();
         view.append(sectionHeader('Controller', 'System and support status', 'Product identity, connectivity, health, and service information for operators.'));
         const grid = node('div', 'op-two-column');
         const identity = node('article', 'op-card');
-        identity.append(node('div', 'op-card-headline', 'Controller information'), statusLine('shield', 'Product', 'Automatrix PV-DG Controller', 'Industrial solar-generator-grid coordination', 'good'), statusLine('wifi', 'Connection', status.network_online ? 'Online' : 'Offline', status.network_online ? `${status.ssid || 'Wi-Fi'} · ${status.ip || 'Address unavailable'}` : 'Network connection unavailable', status.network_online ? 'good' : 'bad'), statusLine('clock', 'Last update', new Date().toLocaleTimeString(), 'Live browser refresh', 'good'));
+        identity.append(node('div', 'op-card-headline', 'Controller information'),
+            statusLine('shield', 'Product', 'Automatrix PV-DG Controller', 'Industrial solar-generator-grid coordination', 'good'),
+            statusLine('wifi', 'Connection',
+                status.network_online ? stateWord('communication', 'online', 'Online') : stateWord('communication', 'offline', 'Offline'),
+                status.network_online ? `${status.ssid || 'Wi-Fi'} · ${status.ip || 'Address unavailable'}` : 'Network connection unavailable',
+                status.network_online ? 'good' : 'bad'),
+            statusLine('clock', 'Last update', new Date().toLocaleTimeString(), 'Live browser refresh', 'good'));
         const service = node('article', 'op-card');
-        service.append(node('div', 'op-card-headline', 'Service condition'), statusLine('alarm', 'Active alarms', alarms.length ? `${alarms.length} active` : 'Clear', alarms.length ? alarms.join(', ') : 'No active alarm', alarms.length ? 'bad' : 'good'), statusLine('meter', 'Grid monitoring', status.meter_online && !status.meter_stale ? 'Available' : 'Attention required', status.meter_online ? formatAge(status.meter_age_ms) : 'No current grid measurement', status.meter_online && !status.meter_stale ? 'good' : 'warning'), statusLine('control', 'Automatic control', status.control_enabled ? 'Enabled' : 'Disabled', status.control_enabled ? 'Qualified command path active' : 'No inverter commands issued', status.control_enabled ? 'warning' : 'good'));
+        service.append(node('div', 'op-card-headline', 'Service condition'),
+            statusLine('alarm', 'Alarms',
+                alarms.length ? `${alarms.length} ${stateWord('alarm', 'critical', 'Critical')}` : stateWord('alarm', 'normal', 'Normal'),
+                alarms.length ? alarms.join(', ') : 'No active alarm condition', alarms.length ? 'bad' : 'good'),
+            statusLine('meter', 'Grid measurement', measurementQuality(status),
+                status.meter_online ? formatAge(status.meter_age_ms) : 'No current grid measurement',
+                status.meter_online && !status.meter_stale ? 'good' : 'warning'),
+            /* Verbatim: the controller decides what its command authority is. */
+            statusLine('control', 'Control authority', authority.label,
+                authority.reason || (authority.commanding ? 'Qualified command path active' : 'No inverter commands issued'),
+                authority.commanding ? 'warning' : 'good'));
         grid.append(identity, service);
         view.append(grid);
         const support = node('article', 'op-card op-support-card');
@@ -434,18 +560,13 @@
         });
     }
 
+    /* One durable name per page, whatever the access level. This function used
+     * to rename four sidebar entries depending on whether engineering was
+     * unlocked, so "Meters" and "Grid Power" were the same page and an
+     * instruction given over the phone did not match what was on screen. The
+     * names now live in one table in web/app.js and are applied there. */
     function updateLanguage() {
-        const operator = isOperator();
-        const labels = {
-            meters: operator ? 'Grid Power' : 'Meters',
-            inverters: operator ? 'Solar Inverters' : 'Inverters',
-            control: operator ? 'Control' : 'PV-DG Control',
-            system: operator ? 'Controller' : 'System'
-        };
-        Object.entries(labels).forEach(([key, value]) => {
-            const link = document.querySelector(`[data-route="${key}"] span:last-child`);
-            if (link) link.textContent = value;
-        });
+        window.AutomatrixUi?.ensureNavigationHierarchy();
         const wifiLink = document.querySelector('[data-route="wifi"]');
         if (wifiLink) wifiLink.dataset.engineeringNav = 'true';
     }
@@ -488,20 +609,12 @@
         else if (current === 'system') renderSystem(state.lastPayload);
     }
 
+    /* The title, the breadcrumb and the selected navigation item come from the
+     * single route table. This function previously kept a second table whose
+     * title and breadcrumb differed from each other and from the sidebar
+     * ("Grid Power" / "Grid power" / "Meters" for one page). */
     function updateRouteTitles() {
-        if (!isOperator()) return;
-        const titles = {
-            dashboard: ['Dashboard', 'Dashboard'],
-            meters: ['Grid Power', 'Grid power'],
-            inverters: ['Solar Inverters', 'Solar inverters'],
-            control: ['Control', 'Control status'],
-            system: ['Controller', 'Controller status']
-        };
-        const current = titles[route()];
-        if (current) {
-            if (byId('pageTitle')) byId('pageTitle').textContent = current[0];
-            if (byId('breadcrumbCurrent')) byId('breadcrumbCurrent').textContent = current[1];
-        }
+        window.AutomatrixUi?.applyRouteChrome(route());
     }
 
     function onRoute() {

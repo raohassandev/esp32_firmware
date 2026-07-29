@@ -44,6 +44,91 @@
     const originalFetch = window.fetch.bind(window);
     let renewalPromise = null;
 
+    /* ------------------------------------------------ engineering session clock
+     *
+     * The firmware runs a sliding 30-minute window: engineering_auth.c extends
+     * s_session_expires_ms on every authorised request, and GET
+     * /api/engineering/session reports the length as session_timeout_minutes.
+     * The audit's complaint was not that the timeout exists - it is that
+     * nothing showed it, so an engineer could be signed out in the middle of
+     * writing a meter configuration with no warning at all.
+     *
+     * The anchor is only moved on an event that is KNOWN to extend the session
+     * server-side: a successful login, a session read that came back
+     * authenticated, or a response to an engineering-guarded endpoint that was
+     * not a 401. Ordinary operator polling does not extend the session and is
+     * deliberately not counted. The consequence is that the displayed time is
+     * never longer than the real one - the banner may warn early, it can never
+     * warn late, and on a device that writes inverter power limits that is the
+     * only acceptable direction to be wrong in. */
+    const SESSION_WARN_MS = 5 * 60 * 1000;
+    const sessionClock = { timeoutMs: 30 * 60 * 1000, anchor: 0, timer: null };
+
+    function sessionRemainingMs() {
+        if (!sessionClock.anchor) return null;
+        return Math.max(0, sessionClock.timeoutMs - (Date.now() - sessionClock.anchor));
+    }
+
+    function formatRemaining(ms) {
+        if (ms == null) return '--:--';
+        const total = Math.round(ms / 1000);
+        return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+    }
+
+    function noteSessionActivity(timeoutMinutes) {
+        const minutes = Number(timeoutMinutes);
+        if (Number.isFinite(minutes) && minutes > 0) sessionClock.timeoutMs = minutes * 60000;
+        sessionClock.anchor = Date.now();
+        renderSessionBanner();
+    }
+
+    /* Only the guarded endpoints extend the session, so only they move the
+     * anchor. The table above already names them. */
+    function noteRequestActivity(url, status) {
+        if (!state.authenticated || status === 401) return;
+        if (engineeringEndpointScope(url)) noteSessionActivity();
+    }
+
+    function renderSessionBanner() {
+        const banner = document.getElementById('engineeringSessionBanner');
+        if (!banner) return;
+        banner.hidden = !state.authenticated;
+        if (!state.authenticated) return;
+        const remaining = sessionRemainingMs();
+        const readout = document.getElementById('engineeringSessionRemaining');
+        if (readout) readout.textContent = formatRemaining(remaining);
+        const expiring = remaining != null && remaining <= SESSION_WARN_MS;
+        banner.classList.toggle('expiring', expiring);
+        const detail = document.getElementById('engineeringSessionDetail');
+        if (detail) {
+            detail.textContent = expiring
+                ? 'This session is about to end. Extend it before starting another write.'
+                : `Protected settings can be written from this browser. The controller ends this session ${Math.round(sessionClock.timeoutMs / 60000)} minutes after the last engineering request.`;
+        }
+    }
+
+    function startSessionClock() {
+        if (sessionClock.timer) return;
+        sessionClock.timer = window.setInterval(() => {
+            if (!state.authenticated) return;
+            const remaining = sessionRemainingMs();
+            renderSessionBanner();
+            /* At zero the client stops guessing and asks. The server is the only
+             * thing that knows whether some request this page did not attribute
+             * kept the session alive. */
+            if (remaining === 0) refreshSession();
+        }, 1000);
+    }
+
+    function bindSessionBanner() {
+        document.getElementById('engineeringSessionExtend')?.addEventListener('click', () => {
+            renewEngineeringSession();
+        });
+        document.getElementById('engineeringSessionLock')?.addEventListener('click', () => {
+            document.getElementById('engineeringLogout')?.click();
+        });
+    }
+
     function currentRoute() {
         return location.hash.replace(/^#\/?/, '') || 'dashboard';
     }
@@ -87,6 +172,9 @@
                 const payload = await response.json().catch(() => ({}));
                 if (response.ok && payload.authenticated === true) {
                     state.sessionExpired = false;
+                    /* This read extended the session server-side, so the clock
+                     * restarts from the controller's own declared length. */
+                    noteSessionActivity(payload.session_timeout_minutes);
                     setEngineering(true);
                     return true;
                 }
@@ -124,6 +212,9 @@
             if (retried) response = retried;
             if (response.status === 401) markSessionExpired();
         }
+        /* An answered engineering request has already pushed the controller's
+         * expiry out by a full timeout, so the banner must say so. */
+        noteRequestActivity(url, response.status);
         return response;
     };
 
@@ -145,6 +236,7 @@
 
     function setEngineering(authenticated) {
         state.authenticated = Boolean(authenticated);
+        if (!state.authenticated) sessionClock.anchor = 0;
         document.documentElement.dataset.access = state.authenticated ? 'engineering' : 'operator';
         document.body?.classList.toggle('engineering-authenticated', state.authenticated);
         document.querySelectorAll('[data-engineering-nav]').forEach((item) => item.hidden = !state.authenticated);
@@ -154,6 +246,7 @@
         if (lock) lock.textContent = state.authenticated ? '🔓' : '🔒';
         const logout = document.getElementById('engineeringLogout');
         if (logout) logout.hidden = !state.authenticated;
+        renderSessionBanner();
         enforceEngineeringDom();
         window.dispatchEvent(new CustomEvent('amx-access-change', {
             detail: { authenticated: state.authenticated }
@@ -175,8 +268,12 @@
         engineering.className = 'nav-link engineering-link';
         engineering.href = '#/engineering';
         engineering.dataset.route = 'engineering';
-        engineering.innerHTML = '<span aria-hidden="true">▣</span><span>Engineering</span><b id="engineeringLockIcon">🔒</b>';
+        engineering.setAttribute('aria-label', 'Engineering access');
+        engineering.innerHTML = '<span aria-hidden="true">▣</span><span>Engineering access</span><b id="engineeringLockIcon">🔒</b>';
         nav.append(engineering);
+        /* app.js owns where this lands: it belongs under Access, not at the end
+         * of whatever the sidebar happened to look like when this ran. */
+        window.AutomatrixUi?.ensureNavigationHierarchy();
     }
 
     function injectEngineeringPage() {
@@ -209,12 +306,21 @@
     function activateEngineeringRoute() {
         if (currentRoute() !== 'engineering') return;
         document.querySelectorAll('.page').forEach((page) => page.classList.toggle('active', page.dataset.page === 'engineering'));
+        /* Title, breadcrumb, document title and the selected navigation item are
+         * one string from one table in web/app.js. This page used to write three
+         * different ones of its own, which is exactly how "Engineering" came to
+         * mean a page, a mode, a role and a menu group at the same time. */
+        const ui = window.AutomatrixUi;
+        if (ui) {
+            ui.applyRouteChrome('engineering');
+            return;
+        }
         document.querySelectorAll('.nav-link').forEach((link) => link.classList.toggle('active', link.dataset.route === 'engineering'));
         const title = document.getElementById('pageTitle');
         const breadcrumb = document.getElementById('breadcrumbCurrent');
-        if (title) title.textContent = 'Engineering';
-        if (breadcrumb) breadcrumb.textContent = 'Restricted commissioning and service tools';
-        document.title = 'Engineering · Automatrix PV-DG';
+        if (title) title.textContent = 'Engineering access';
+        if (breadcrumb) breadcrumb.textContent = 'Engineering access';
+        document.title = 'Engineering access · Automatrix PV-DG';
     }
 
     function openLogin(message = '') {
@@ -258,6 +364,7 @@
             try {
                 message.textContent = 'Authenticating…';
                 const result = await login(password.value);
+                noteSessionActivity(result.session_timeout_minutes);
                 password.value = '';
                 message.textContent = result.password_change_recommended
                     ? 'Unlocked. Change the temporary password below.'
@@ -310,6 +417,8 @@
         addNavigation();
         injectEngineeringPage();
         bindForms();
+        bindSessionBanner();
+        startSessionClock();
         setEngineering(false);
         const main = document.getElementById('mainContent');
         if (main) new MutationObserver(enforceEngineeringDom).observe(main, { childList: true, subtree: true });
