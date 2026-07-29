@@ -12,7 +12,6 @@
 #include "inverter_config_api.h"
 #include "inverter_profile_api.h"
 #include "meter_config_api.h"
-#include "meter_read_jobs.h"
 #include "operational_api.h"
 #include "system_resource_api.h"
 #include "web_api.h"
@@ -102,6 +101,7 @@ static esp_err_t js_handler(httpd_req_t *request)
         web_assets_inverter_telemetry_js,
         web_assets_em500_utils_js,
         web_assets_em500_core_js,
+        web_assets_em500_quality_js,
         web_assets_em500_profiles_js,
         web_assets_em500_plan_js,
         web_assets_operator_view_js,
@@ -124,7 +124,6 @@ esp_err_t web_server_start(void)
     if (s_server) return ESP_OK;
     ESP_RETURN_ON_ERROR(engineering_auth_init(), "web", "engineering authentication init failed");
     ESP_RETURN_ON_ERROR(em500_cache_init(), "web", "EM500 acquisition cache init failed");
-    ESP_RETURN_ON_ERROR(meter_read_jobs_init(), "web", "meter read-job queue init failed");
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.max_uri_handlers = 36;
     config.stack_size = 8192;
