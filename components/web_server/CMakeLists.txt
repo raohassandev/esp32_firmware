@@ -43,6 +43,7 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500-core.js" "${CMAKE_CURR
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500-quality.js" "${CMAKE_CURRENT_BINARY_DIR}/em500-quality.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500-profiles.js" "${CMAKE_CURRENT_BINARY_DIR}/em500-profiles.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500-plan.js" "${CMAKE_CURRENT_BINARY_DIR}/em500-plan.js" COPYONLY)
+configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/solar-grid.js" "${CMAKE_CURRENT_BINARY_DIR}/solar-grid.js" COPYONLY)
 
 set(WEB_SERVER_C_SOURCES
     "web_server.c"
@@ -63,6 +64,8 @@ set(WEB_SERVER_C_SOURCES
     "em500_history_api.c"
     "em500_settings_api.c"
     "em500_settings_plan_api.c"
+    "solar_grid_api.c"
+    "solar_grid_status_api.c"
     "system_resource_api.c"
     "web_assets.c"
 )
@@ -70,7 +73,7 @@ set(WEB_SERVER_C_SOURCES
 idf_component_register(
     SRCS ${WEB_SERVER_C_SOURCES}
     INCLUDE_DIRS "include"
-    REQUIRES esp_http_server esp_system esp_timer esp_hw_support spi_flash cjson nvs_flash mbedtls config_manager network_manager meter_manager modbus_tcp inverter_manager control_engine safety_manager
+    REQUIRES esp_http_server esp_system esp_timer esp_hw_support spi_flash cjson nvs_flash mbedtls config_manager solar_grid_config network_manager meter_manager modbus_tcp inverter_manager control_engine safety_manager
     EMBED_TXTFILES
         "${CMAKE_CURRENT_BINARY_DIR}/index.html"
         "${CMAKE_CURRENT_BINARY_DIR}/app.css"
@@ -117,6 +120,7 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/em500-quality.js"
         "${CMAKE_CURRENT_BINARY_DIR}/em500-profiles.js"
         "${CMAKE_CURRENT_BINARY_DIR}/em500-plan.js"
+        "${CMAKE_CURRENT_BINARY_DIR}/solar-grid.js"
 )
 
 foreach(source IN LISTS WEB_SERVER_C_SOURCES)
