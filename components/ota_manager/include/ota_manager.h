@@ -14,6 +14,7 @@
 extern "C" {
 #endif
 
+#define OTA_MANAGER_PRODUCT_ID "automatrix_pvdg"
 #define OTA_MANAGER_PREFIX_BYTES \
     (sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t) + sizeof(esp_app_desc_t))
 
@@ -32,6 +33,9 @@ typedef struct {
     bool rollback_enabled;
     bool update_staged;
     bool validation_scheduled;
+    bool image_identity_verified;
+    bool image_validated;
+    bool boot_partition_preserved_after_abort;
     size_t image_size;
     size_t bytes_written;
     uint32_t started_ms;
@@ -51,9 +55,12 @@ typedef struct {
 typedef struct {
     esp_ota_handle_t handle;
     const esp_partition_t *partition;
+    const esp_partition_t *boot_partition_before;
     size_t expected_size;
     size_t written;
     bool active;
+    bool identity_verified;
+    bool image_validated;
     esp_app_desc_t candidate;
 } ota_manager_session_t;
 
@@ -63,8 +70,9 @@ esp_err_t ota_manager_init(void);
 /* Returns a lock-protected status snapshot. */
 void ota_manager_get_status(ota_manager_status_t *out_status);
 
-/* Validates the ESP application header and candidate descriptor before the
- * target OTA partition is erased. */
+/* Validates image magic, exact product identity, ESP target chip ID, secure
+ * version, and slot capacity before esp_ota_begin() can erase or write the
+ * inactive OTA partition. */
 esp_err_t ota_manager_validate_prefix(const uint8_t *prefix,
                                       size_t prefix_length,
                                       size_t complete_image_size,
@@ -80,10 +88,12 @@ esp_err_t ota_manager_write(ota_manager_session_t *session,
                             const void *data,
                             size_t length);
 
-/* Validates the written image and stages it as the next boot partition. */
+/* Runs ESP-IDF whole-image validation, re-reads and matches the staged
+ * descriptor, and only then switches the next boot partition. */
 esp_err_t ota_manager_finish(ota_manager_session_t *session);
 
-/* Aborts the active OTA handle and releases the single-upload lock. */
+/* Aborts the active OTA handle, verifies that the original boot partition is
+ * still selected, and releases the single-upload lock. */
 void ota_manager_abort(ota_manager_session_t *session, esp_err_t reason);
 
 /* Returns true when the running OTA image is awaiting first-boot validation. */
