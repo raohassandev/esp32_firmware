@@ -10,24 +10,95 @@ const PORT = Number(portArg ? portArg.split('=')[1] : 1502);
 const SCENARIO = String(scenarioArg ? scenarioArg.split('=')[1] : 'normal').toLowerCase();
 const SELF_TEST = args.has('--self-test');
 
+const EM500_SOURCE_ADDRESS = 0x2160;
+const EM500_POWER_ADDRESS = 57;
+const EM500_TARIFF1_IMPORT_ADDRESS = 0x1B48;
+const EM500_TARIFF2_IMPORT_ADDRESS = 0x1B5C;
+
 const DEVICES = new Map([
-    [21, { name: 'Huawei SUN2000', identityAddress: 40000, identity: 0xA021, powerAddress: 40010, powerW: 31000, limitAddress: 40125, limitRaw: 620 }],
-    [22, { name: 'GoodWe Commercial', identityAddress: 41000, identity: 0xA022, powerAddress: 41010, powerW: 27500, limitAddress: 41125, limitRaw: 550 }],
-    [23, { name: 'Solis Commercial', identityAddress: 42000, identity: 0xA023, powerAddress: 42010, powerW: 18500, limitAddress: 42125, limitRaw: 370 }],
+    [21, { kind: 'inverter', name: 'Huawei SUN2000', identityAddress: 40000, identity: 0xA021, powerAddress: 40010, powerW: 31000, limitAddress: 40125, limitRaw: 620 }],
+    [22, { kind: 'inverter', name: 'GoodWe Commercial', identityAddress: 41000, identity: 0xA022, powerAddress: 41010, powerW: 27500, limitAddress: 41125, limitRaw: 550 }],
+    [23, { kind: 'inverter', name: 'Solis Commercial', identityAddress: 42000, identity: 0xA023, powerAddress: 42010, powerW: 18500, limitAddress: 42125, limitRaw: 370 }],
 ]);
 
-function wordsFor(device, address, count) {
-    const words = new Array(count).fill(0);
-    const write = (base, values) => {
-        values.forEach((value, index) => {
-            const offset = base + index - address;
-            if (offset >= 0 && offset < count) words[offset] = value & 0xFFFF;
-        });
+const EM500_DEVICES = new Map([
+    [31, { kind: 'em500', name: 'EM500 Grid or Common Bus', role: 'grid' }],
+    [32, { kind: 'em500', name: 'EM500 Generator', role: 'generator' }],
+]);
+
+function writeWords(words, requestAddress, base, values) {
+    values.forEach((value, index) => {
+        const offset = base + index - requestAddress;
+        if (offset >= 0 && offset < words.length) words[offset] = value & 0xFFFF;
+    });
+}
+
+function signed32Words(value) {
+    const raw = value | 0;
+    return [(raw >>> 16) & 0xFFFF, raw & 0xFFFF];
+}
+
+function unsigned32Words(value) {
+    const raw = value >>> 0;
+    return [(raw >>> 16) & 0xFFFF, raw & 0xFFFF];
+}
+
+function em500ScenarioValues(device, scenario, context) {
+    let sourceValue = 0;
+    let powerRaw = device.role === 'grid' ? 5000 : 200;
+
+    switch (scenario) {
+    case 'em500-single-generator':
+        sourceValue = 1;
+        break;
+    case 'em500-single-toggle':
+        sourceValue = (context.sourceReads++ % 2) === 0 ? 0 : 1;
+        break;
+    case 'em500-dual-generator':
+        powerRaw = device.role === 'generator' ? 5000 : 200;
+        break;
+    case 'em500-dual-conflict':
+        powerRaw = 5000;
+        break;
+    case 'em500-dual-none':
+        powerRaw = 200;
+        break;
+    case 'em500-threshold-hover':
+        powerRaw = device.role === 'generator'
+            ? ((context.generatorPowerReads++ % 2) === 0 ? 900 : 1100)
+            : 200;
+        break;
+    case 'em500-single-grid':
+    case 'em500-dual-grid':
+    case 'normal':
+    default:
+        break;
+    }
+
+    return {
+        sourceValue,
+        powerRaw,
+        tariff1ImportRaw: device.role === 'grid' ? 12345 : 100,
+        tariff2ImportRaw: device.role === 'generator' ? 6789 : 200,
     };
-    write(device.identityAddress, [device.identity]);
-    const rawPower = device.powerW >>> 0;
-    write(device.powerAddress, [(rawPower >>> 16) & 0xFFFF, rawPower & 0xFFFF]);
-    write(device.limitAddress, [device.limitRaw]);
+}
+
+function wordsFor(device, address, count, scenario = 'normal', context = {}) {
+    const words = new Array(count).fill(0);
+    if (device.kind === 'em500') {
+        const values = em500ScenarioValues(device, scenario, context);
+        writeWords(words, address, EM500_SOURCE_ADDRESS, [values.sourceValue]);
+        writeWords(words, address, EM500_POWER_ADDRESS, signed32Words(values.powerRaw));
+        writeWords(words, address, EM500_TARIFF1_IMPORT_ADDRESS,
+            unsigned32Words(values.tariff1ImportRaw));
+        writeWords(words, address, EM500_TARIFF2_IMPORT_ADDRESS,
+            unsigned32Words(values.tariff2ImportRaw));
+        return words;
+    }
+
+    writeWords(words, address, device.identityAddress, [device.identity]);
+    writeWords(words, address, device.powerAddress, signed32Words(device.powerW));
+    writeWords(words, address, device.limitAddress, [device.limitRaw]);
     return words;
 }
 
@@ -52,12 +123,12 @@ function response(transactionId, unitId, pdu) {
     return frame;
 }
 
-function handleRequest(socket, frame, scenario) {
+function handleRequest(socket, frame, scenario, context) {
     if (frame.length < 8) return;
     const transactionId = frame.readUInt16BE(0);
     const unitId = frame.readUInt8(6);
     const functionCode = frame.readUInt8(7);
-    const device = DEVICES.get(unitId);
+    const device = DEVICES.get(unitId) || EM500_DEVICES.get(unitId);
 
     if (scenario === 'comm-lost') {
         socket.destroy();
@@ -77,12 +148,17 @@ function handleRequest(socket, frame, scenario) {
             socket.write(exception(transactionId, unitId, functionCode, 3));
             return;
         }
-        const words = wordsFor(device, address, count);
+        const words = wordsFor(device, address, count, scenario, context);
         const pdu = Buffer.alloc(2 + count * 2);
         pdu.writeUInt8(functionCode, 0);
         pdu.writeUInt8(count * 2, 1);
         words.forEach((word, index) => pdu.writeUInt16BE(word, 2 + index * 2));
         socket.write(response(transactionId, unitId, pdu));
+        return;
+    }
+
+    if (device.kind !== 'inverter') {
+        socket.write(exception(transactionId, unitId, functionCode, 1));
         return;
     }
 
@@ -130,6 +206,7 @@ function handleRequest(socket, frame, scenario) {
 }
 
 function createServer(scenario = SCENARIO) {
+    const context = { sourceReads: 0, generatorPowerReads: 0 };
     return net.createServer((socket) => {
         let pending = Buffer.alloc(0);
         socket.on('data', (chunk) => {
@@ -140,7 +217,7 @@ function createServer(scenario = SCENARIO) {
                 if (pending.length < frameLength) break;
                 const frame = pending.subarray(0, frameLength);
                 pending = pending.subarray(frameLength);
-                handleRequest(socket, frame, scenario);
+                handleRequest(socket, frame, scenario, context);
             }
         });
     });
@@ -196,15 +273,27 @@ async function runSelfTest() {
             assert.strictEqual(readback.readUInt16BE(9), targetRaw);
         }
 
+        const source = await request(port, 31, 3, EM500_SOURCE_ADDRESS, 1);
+        assert.strictEqual(source.readUInt16BE(9), 0);
+        const gridPower = await request(port, 31, 3, EM500_POWER_ADDRESS, 2);
+        assert.strictEqual(gridPower.readInt32BE(9), 5000);
+        const generatorPower = await request(port, 32, 3, EM500_POWER_ADDRESS, 2);
+        assert.strictEqual(generatorPower.readInt32BE(9), 200);
+
         const unknown = await request(port, 99, 3, 40000, 1);
         assert.strictEqual(unknown.readUInt8(7), 0x83);
 
         console.log(JSON.stringify({
             result: 'PASS',
-            simulator: 'SolTrix Modbus inverter simulator',
-            units: [...DEVICES.keys()],
-            scenarios: ['normal', 'stale', 'comm-lost', 'timeout', 'rollback'],
-            huaweiRegister40125: true,
+            simulator: 'SolTrix Modbus inverter and EM500 simulator',
+            inverterUnits: [...DEVICES.keys()],
+            em500Units: [...EM500_DEVICES.keys()],
+            scenarios: [
+                'normal', 'stale', 'comm-lost', 'timeout', 'rollback',
+                'em500-single-grid', 'em500-single-generator', 'em500-single-toggle',
+                'em500-dual-grid', 'em500-dual-generator', 'em500-dual-conflict',
+                'em500-dual-none', 'em500-threshold-hover'
+            ],
             productionEvidence: false,
         }));
     } finally {
@@ -221,9 +310,18 @@ if (require.main === module) {
     } else {
         const server = createServer();
         server.listen(PORT, '0.0.0.0', () => {
-            console.log(`SolTrix Modbus simulator listening on 0.0.0.0:${PORT} scenario=${SCENARIO} units=21,22,23`);
+            console.log(`SolTrix Modbus simulator listening on 0.0.0.0:${PORT} scenario=${SCENARIO} inverter-units=21,22,23 em500-units=31,32`);
         });
     }
 }
 
-module.exports = { DEVICES, createServer, request, wordsFor, runSelfTest };
+module.exports = {
+    DEVICES,
+    EM500_DEVICES,
+    EM500_SOURCE_ADDRESS,
+    EM500_POWER_ADDRESS,
+    createServer,
+    request,
+    wordsFor,
+    runSelfTest,
+};

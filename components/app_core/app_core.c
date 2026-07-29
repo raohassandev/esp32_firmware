@@ -3,6 +3,8 @@
 #include "esp_log.h"
 #include "config_manager.h"
 #include "solar_grid_config.h"
+#include "source_detection.h"
+#include "source_detection_config.h"
 #include "network_manager.h"
 #include "profile_manager.h"
 #include "meter_manager.h"
@@ -32,11 +34,20 @@ esp_err_t app_core_init(void)
     ESP_RETURN_ON_ERROR(network_manager_init(), TAG, "network init failed");
 
     bool all_ok = true;
+    bool source_config_ok = init_optional(source_detection_config_init(),
+                                          "source detection configuration");
+    all_ok &= source_config_ok;
     all_ok &= init_optional(profile_manager_init(), "profile manager");
-    all_ok &= init_optional(meter_manager_init(), "meter manager");
+    bool meter_ok = init_optional(meter_manager_init(), "meter manager");
+    all_ok &= meter_ok;
     all_ok &= init_optional(inverter_manager_init(), "inverter manager");
     all_ok &= init_optional(safety_manager_init(), "safety manager");
     all_ok &= init_optional(control_engine_init(), "control engine");
+    if (source_config_ok && meter_ok) {
+        all_ok &= init_optional(source_detection_init(), "EM500 source detection");
+    } else {
+        ESP_LOGW(TAG, "EM500 source detection remains unavailable because its configuration or meter manager did not initialize");
+    }
     all_ok &= init_optional(web_server_start(), "web server");
 
     if (!all_ok) {
