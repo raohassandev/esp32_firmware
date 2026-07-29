@@ -1,9 +1,9 @@
 #include "inverter_manager.h"
-#include "inverter_command_policy.h"
 #include "inverter_profile_store.h"
 #include "inverter_profiles.h"
 #include "inverter_profile_decode.h"
 #include "inverter_status.h"
+#include "inverter_write_confirmation.h"
 #include "esp_check.h"
 
 #include <math.h>
@@ -25,9 +25,30 @@ static const char *DEFAULT_PROFILE_ID = "custom.modbus-percent-v1";
 #define INVERTER_TELEMETRY_TASK_PRIORITY 5
 #define INVERTER_TELEMETRY_IDLE_MS 100
 #define INVERTER_IDENTITY_RECHECK_MS 60000U
+/* Transport-level retries only. There is no sleep between attempts and no
+ * readback transaction here: both would sit inside the control loop, and Modbus
+ * speed is the highest priority requirement for this controller. */
 #define INVERTER_COMMAND_MAX_ATTEMPTS 2U
-#define INVERTER_COMMAND_READBACK_DELAY_MS 100U
 #define INVERTER_SAFE_FALLBACK_PERCENT 0.0f
+
+/*
+ * DEFERRED WRITE CONFIRMATION WINDOWS (P0-9).
+ *
+ * NOT manufacturer values. No inverter manual consulted for this firmware
+ * specifies how long a setpoint takes to appear in its readback register, so
+ * nothing here is derived from one. These are firmware-side acquisition windows:
+ *
+ *  SETTLE   - a readback that disagrees within this window of the write is
+ *             treated as "not applied yet", not as a mismatch. It only ever
+ *             delays a verdict; it can never turn a mismatch into a success.
+ *  DEADLINE - past this age a write with no matching readback is UNVERIFIED and
+ *             the inverter is driven safe. It bounds how long an unconfirmed
+ *             setpoint may stand.
+ *
+ * Both must be validated per site against real hardware during commissioning.
+ */
+#define INVERTER_CONFIRMATION_SETTLE_MS 500U
+#define INVERTER_CONFIRMATION_DEADLINE_MS 5000U
 
 typedef struct {
     inverter_config_t config;
@@ -57,11 +78,23 @@ static uint8_t s_inverter_count;
 static float s_total_rated_kw;
 static portMUX_TYPE s_capacity_lock = portMUX_INITIALIZER_UNLOCKED;
 static TaskHandle_t s_telemetry_task;
+/* False until init has resolved every configured inverter and its profile. The
+ * commissioning gate must not read an empty fleet as a commissioned one. */
+static bool s_fleet_resolved;
 
 static uint32_t now_ms(void)
 {
     return (uint32_t)(esp_timer_get_time() / 1000ULL);
 }
+
+/* Defined below with the command path; declared here because the background
+ * acquisition task owns the safe-zero that an unconfirmed write demands. */
+static esp_err_t encode_command(const inverter_profile_t *profile, float percent,
+                                uint16_t *words, uint8_t *word_count);
+static esp_err_t write_profile_command(inverter_runtime_t *runtime,
+                                       const inverter_profile_t *profile,
+                                       const uint16_t *words,
+                                       uint8_t word_count);
 
 static uint32_t profile_poll_ms(const inverter_profile_t *profile)
 {
@@ -117,9 +150,14 @@ static void recompute_commandable_capacity(void)
     for (uint8_t i = 0; i < s_inverter_count; ++i) {
         inverter_runtime_t *runtime = &s_inverters[i];
         portENTER_CRITICAL(&runtime->lock);
+        /* An unconfirmed write latches confirmation_fault, which removes this
+         * inverter from the commandable capacity entirely. That is the
+         * structural consequence of P0-9: a machine whose setpoint could not be
+         * verified is not part of the fleet the control engine may command. */
         bool eligible = runtime->config.enabled && runtime->write_allowed &&
                         runtime->data.connection_initialized && runtime->data.online &&
                         runtime->data.telemetry_valid && !runtime->data.telemetry_stale &&
+                        !runtime->data.confirmation_fault &&
                         identity_is_current(runtime, timestamp) &&
                         isfinite(runtime->config.rated_power_kw) &&
                         runtime->config.rated_power_kw > 0.0f;
@@ -254,15 +292,84 @@ static esp_err_t poll_readback(inverter_runtime_t *runtime, uint32_t timestamp)
         runtime->data.readback_percent = readback_percent;
         runtime->data.has_readback = true;
         runtime->data.last_readback_ms = timestamp;
-        bool mismatch = runtime->data.has_command &&
-            !inverter_profile_readback_matches(runtime->data.commanded_percent,
-                                               readback_percent,
-                                               profile->readback_tolerance_percent);
-        runtime->data.command_mismatch = mismatch;
-        if (mismatch) runtime->data.mismatch_count++;
     }
     portEXIT_CRITICAL(&runtime->lock);
     return err;
+}
+
+/*
+ * Deferred write confirmation (P0-9), evaluated in the background acquisition
+ * task from the readback poll_readback() has already taken. The control loop
+ * and every HTTP handler are free of it.
+ *
+ * Returns true when the caller must drive this inverter to its safe fallback.
+ * The decision itself is made by the pure evaluator in
+ * inverter_write_confirmation.c; this function only assembles the evidence and
+ * stores the outcome.
+ */
+static bool evaluate_write_confirmation(inverter_runtime_t *runtime, uint32_t timestamp)
+{
+    const inverter_profile_t *profile = runtime->profile;
+    const bool readback_supported = profile && profile->has_power_limit_readback;
+    const float tolerance = profile ? profile->readback_tolerance_percent : 0.0f;
+
+    inverter_write_evidence_t evidence = {0};
+    portENTER_CRITICAL(&runtime->lock);
+    evidence.readback_supported = readback_supported;
+    evidence.write_issued = runtime->data.write_issued;
+    evidence.write_accepted = runtime->data.last_write_accepted;
+    evidence.readback_valid = runtime->data.has_readback;
+    /* Strictly after: a sample taken at or before the write proves nothing
+     * about that write. */
+    evidence.readback_after_write = runtime->data.has_readback &&
+                                    runtime->data.last_readback_ms > runtime->data.last_write_ms;
+    evidence.commanded_percent = runtime->data.requested_percent;
+    evidence.readback_percent = runtime->data.readback_percent;
+    evidence.tolerance_percent = tolerance;
+    evidence.age_since_write_ms = runtime->data.write_issued
+                                      ? timestamp - runtime->data.last_write_ms
+                                      : 0U;
+    evidence.settle_ms = INVERTER_CONFIRMATION_SETTLE_MS;
+    evidence.deadline_ms = INVERTER_CONFIRMATION_DEADLINE_MS;
+    portEXIT_CRITICAL(&runtime->lock);
+
+    inverter_write_verdict_t verdict = inverter_write_confirmation_evaluate(&evidence);
+
+    portENTER_CRITICAL(&runtime->lock);
+    /* Only a CHANGE of verdict is an event. This function runs on every pass of
+     * the acquisition loop, so counting or restamping on every pass would inflate
+     * the diagnostics and make a single stale command look perpetually fresh.
+     * The safe-zero DEMAND is deliberately not gated on the change: it stands
+     * until issue_safe_zero() actually gets a write accepted, so a failed safe
+     * zero is retried on the next pass rather than dropped. */
+    const bool changed = runtime->data.write_confirmation != (uint8_t)verdict.state;
+    runtime->data.write_confirmation = (uint8_t)verdict.state;
+    const bool safe_zero_required = verdict.settled && verdict.requires_safe_zero &&
+                                    !runtime->data.safe_zero_issued;
+
+    if (changed && verdict.state == INVERTER_WRITE_CONFIRMED) {
+        /* Only here does an issued write become a commanded value. */
+        runtime->data.commanded_percent = runtime->data.requested_percent;
+        runtime->data.commanded_power_kw =
+            runtime->data.rated_power_kw * runtime->data.requested_percent / 100.0f;
+        runtime->data.has_command = true;
+        runtime->data.last_command_ms = timestamp;
+        runtime->data.command_mismatch = false;
+        runtime->data.confirmation_fault = false;
+        runtime->data.confirmed_count++;
+    } else if (verdict.settled && verdict.requires_safe_zero) {
+        if (changed) {
+            if (verdict.state == INVERTER_WRITE_MISMATCHED) {
+                runtime->data.command_mismatch = true;
+                runtime->data.mismatch_count++;
+            } else {
+                runtime->data.unverified_count++;
+            }
+        }
+        runtime->data.confirmation_fault = true;
+    }
+    portEXIT_CRITICAL(&runtime->lock);
+    return safe_zero_required;
 }
 
 /* Collapse the operational state to UNKNOWN. Called for every non-positive
@@ -362,6 +469,58 @@ static void update_stale_state(inverter_runtime_t *runtime, uint32_t timestamp)
     portEXIT_CRITICAL(&runtime->lock);
 }
 
+/* Records a write that has just been issued. The value becomes the thing the
+ * next readback is judged against - it does NOT become a commanded value. Only
+ * evaluate_write_confirmation() may do that, and only on a matching readback. */
+static void note_write_issued(inverter_runtime_t *runtime, float percent,
+                              bool accepted, uint32_t timestamp)
+{
+    portENTER_CRITICAL(&runtime->lock);
+    runtime->data.requested_percent = percent;
+    runtime->data.write_issued = true;
+    runtime->data.last_write_accepted = accepted;
+    runtime->data.last_write_ms = timestamp;
+    runtime->data.write_confirmation = (uint8_t)(accepted ? INVERTER_WRITE_PENDING
+                                                          : INVERTER_WRITE_UNVERIFIED);
+    /* A new write opens a new confirmation window, so a previously issued safe
+     * zero no longer suppresses the next one. issue_safe_zero() re-latches it
+     * immediately afterwards, and only when its own write was accepted. */
+    runtime->data.safe_zero_issued = false;
+    if (accepted) runtime->data.write_successes++;
+    else runtime->data.write_errors++;
+    if (!accepted) runtime->data.confirmation_fault = true;
+    portEXIT_CRITICAL(&runtime->lock);
+}
+
+/*
+ * Drives one inverter to its safe fallback. A single Modbus write: no sleep and
+ * no readback transaction, so it stays cheap wherever it is called from. The
+ * confirmation of the zero rides the ordinary background readback like any
+ * other write.
+ */
+static esp_err_t issue_safe_zero(inverter_runtime_t *runtime)
+{
+    const inverter_profile_t *profile = runtime->profile;
+    uint16_t words[2] = {0};
+    uint8_t word_count = 0;
+    esp_err_t err = encode_command(profile, INVERTER_SAFE_FALLBACK_PERCENT,
+                                   words, &word_count);
+    if (err == ESP_OK) err = write_profile_command(runtime, profile, words, word_count);
+
+    uint32_t timestamp = now_ms();
+    note_write_issued(runtime, INVERTER_SAFE_FALLBACK_PERCENT, err == ESP_OK, timestamp);
+    portENTER_CRITICAL(&runtime->lock);
+    /* Latched until a readback actually confirms the safe value. */
+    runtime->data.confirmation_fault = true;
+    /* Suppress further safe-zero attempts only if this one actually reached the
+     * device. A safe zero the transport rejected must be retried on the next
+     * pass, not silently considered done. */
+    runtime->data.safe_zero_issued = err == ESP_OK;
+    if (err != ESP_OK) runtime->data.last_error = err;
+    portEXIT_CRITICAL(&runtime->lock);
+    return err;
+}
+
 static void inverter_telemetry_task(void *argument)
 {
     (void)argument;
@@ -374,6 +533,23 @@ static void inverter_telemetry_task(void *argument)
                 continue;
             }
             update_stale_state(runtime, timestamp);
+
+            /* Deferred write confirmation (P0-9). Evaluated on every pass of the
+             * acquisition loop rather than only on a poll tick, and before any
+             * gate that can `continue`, so the confirmation deadline still
+             * expires on an inverter that has gone silent or failed its identity
+             * check while holding a setpoint. The evaluation itself is a pure
+             * function over already-acquired state; only the safe zero it may
+             * demand touches Modbus, and that is one write with no sleep. */
+            if (evaluate_write_confirmation(runtime, timestamp)) {
+                esp_err_t zero_err = issue_safe_zero(runtime);
+                ESP_LOGE(TAG,
+                         "inverter %u setpoint could not be confirmed (%s); safe zero %s",
+                         i, inverter_write_state_name(
+                                (inverter_write_state_t)runtime->data.write_confirmation),
+                         zero_err == ESP_OK ? "issued" : esp_err_to_name(zero_err));
+            }
+
             if ((int32_t)(timestamp - runtime->next_poll_ms) < 0) continue;
             runtime->next_poll_ms = timestamp + profile_poll_ms(runtime->profile);
 
@@ -477,6 +653,7 @@ esp_err_t inverter_manager_init(void)
         }
     }
     free(cfg);
+    s_fleet_resolved = true;
 
     if (!s_telemetry_task) {
         BaseType_t created = xTaskCreate(inverter_telemetry_task, "inv_telemetry",
@@ -491,6 +668,32 @@ esp_err_t inverter_manager_init(void)
 uint8_t inverter_manager_get_count(void)
 {
     return s_inverter_count;
+}
+
+void inverter_manager_commissioning_summary(inverter_fleet_commissioning_t *out_summary)
+{
+    if (!out_summary) return;
+    /* Zeroed first, so an early return leaves the caller with known == false and
+     * every count at zero - the fail-closed answer. */
+    memset(out_summary, 0, sizeof(*out_summary));
+    if (!s_fleet_resolved) return;
+
+    for (uint8_t i = 0; i < s_inverter_count; ++i) {
+        inverter_runtime_t *runtime = &s_inverters[i];
+        if (!runtime->config.enabled) continue;
+        out_summary->enabled_count++;
+        const inverter_profile_t *profile = runtime->profile;
+        if (profile && profile->has_power_limit_readback) {
+            out_summary->readback_capable_count++;
+        }
+        if (!inverter_profile_allows_write(profile)) continue;
+        out_summary->write_qualified_count++;
+        if (isfinite(runtime->config.rated_power_kw) &&
+            runtime->config.rated_power_kw > 0.0f) {
+            out_summary->commissioned_capacity_kw += runtime->config.rated_power_kw;
+        }
+    }
+    out_summary->known = true;
 }
 
 float inverter_manager_get_total_rated_kw(void)
@@ -556,88 +759,22 @@ static esp_err_t write_profile_command(inverter_runtime_t *runtime,
     return err;
 }
 
-static esp_err_t read_limit_percent(inverter_runtime_t *runtime,
-                                    const inverter_profile_t *profile,
-                                    float *percent)
-{
-    if (!runtime || !profile || !percent || !profile->has_power_limit_readback ||
-        profile->power_limit_readback_words == 0U ||
-        profile->power_limit_readback_words > INVERTER_PROBE_MAX_REGISTERS) {
-        return ESP_ERR_NOT_SUPPORTED;
-    }
-
-    uint16_t words[INVERTER_PROBE_MAX_REGISTERS] = {0};
-    esp_err_t err = read_profile_block(runtime,
-                                       profile->power_limit_readback_function,
-                                       profile->power_limit_readback_address,
-                                       profile->power_limit_readback_words,
-                                       words);
-    if (err != ESP_OK) return err;
-    err = inverter_profile_decode_value(words, profile->power_limit_readback_words,
-                                        profile->power_limit_readback_type,
-                                        profile->power_limit_readback_word_order,
-                                        profile->power_limit_readback_scale,
-                                        percent);
-    return err == ESP_OK && isfinite(*percent) ? ESP_OK : ESP_ERR_INVALID_RESPONSE;
-}
-
-static void store_attempt_observation(inverter_runtime_t *runtime,
-                                      esp_err_t write_error,
-                                      esp_err_t readback_error,
-                                      float readback_percent,
-                                      bool mismatch)
-{
-    portENTER_CRITICAL(&runtime->lock);
-    runtime->data.last_error = write_error != ESP_OK ? write_error : readback_error;
-    if (write_error == ESP_OK) runtime->data.write_successes++;
-    else runtime->data.write_errors++;
-    if (readback_error == ESP_OK) {
-        runtime->data.readback_percent = readback_percent;
-        runtime->data.has_readback = true;
-        runtime->data.last_readback_ms = now_ms();
-        runtime->data.command_mismatch = mismatch;
-        if (mismatch) runtime->data.mismatch_count++;
-    }
-    portEXIT_CRITICAL(&runtime->lock);
-}
-
+/*
+ * Drives every inverter already written in this fleet plan to its safe
+ * fallback. One Modbus write each, no sleep and no readback transaction: this
+ * runs on the control task's cycle and must not extend it.
+ *
+ * "Safe" here means the safe value was ISSUED and the transport accepted it.
+ * Whether it actually took effect is confirmed later by the background readback
+ * like any other write - which is exactly why issue_safe_zero() latches
+ * confirmation_fault until that confirmation arrives.
+ */
 static bool rollback_targets(command_target_t *targets, uint8_t count)
 {
     bool all_safe = true;
     for (uint8_t index = 0; index < count; ++index) {
         command_target_t *target = &targets[index];
-        uint16_t fallback_words[2] = {0};
-        uint8_t fallback_count = 0;
-        esp_err_t encode_error = encode_command(target->profile,
-                                                INVERTER_SAFE_FALLBACK_PERCENT,
-                                                fallback_words, &fallback_count);
-        esp_err_t write_error = encode_error == ESP_OK
-                                    ? write_profile_command(target->runtime, target->profile,
-                                                            fallback_words, fallback_count)
-                                    : encode_error;
-        float readback = NAN;
-        esp_err_t readback_error = ESP_ERR_INVALID_STATE;
-        if (write_error == ESP_OK) {
-            vTaskDelay(pdMS_TO_TICKS(INVERTER_COMMAND_READBACK_DELAY_MS));
-            readback_error = read_limit_percent(target->runtime, target->profile, &readback);
-        }
-        bool confirmed = write_error == ESP_OK && readback_error == ESP_OK &&
-                         inverter_profile_readback_matches(INVERTER_SAFE_FALLBACK_PERCENT,
-                                                          readback,
-                                                          target->profile->readback_tolerance_percent);
-        store_attempt_observation(target->runtime, write_error, readback_error,
-                                  readback, !confirmed);
-        portENTER_CRITICAL(&target->runtime->lock);
-        if (confirmed) {
-            target->runtime->data.commanded_percent = INVERTER_SAFE_FALLBACK_PERCENT;
-            target->runtime->data.commanded_power_kw = 0.0f;
-            target->runtime->data.has_command = true;
-            target->runtime->data.last_command_ms = now_ms();
-            target->runtime->data.command_mismatch = false;
-            target->runtime->data.last_error = ESP_OK;
-        }
-        portEXIT_CRITICAL(&target->runtime->lock);
-        if (!confirmed) all_safe = false;
+        if (issue_safe_zero(target->runtime) != ESP_OK) all_safe = false;
         invalidate_identity(target->runtime);
     }
     return all_safe;
@@ -658,6 +795,7 @@ esp_err_t inverter_manager_set_total_power_kw(float target_kw)
         bool eligible = runtime->config.enabled && runtime->data.connection_initialized &&
                         runtime->write_allowed && runtime->data.online &&
                         runtime->data.telemetry_valid && !runtime->data.telemetry_stale &&
+                        !runtime->data.confirmation_fault &&
                         identity_is_current(runtime, timestamp) &&
                         isfinite(runtime->config.rated_power_kw) &&
                         runtime->config.rated_power_kw > 0.0f;
@@ -702,72 +840,81 @@ esp_err_t inverter_manager_set_total_power_kw(float target_kw)
         planned_total_kw += commanded_kw;
     }
 
+    /*
+     * ISSUE ONLY. No sleep, no readback transaction, no second round trip.
+     *
+     * This function runs on the control task. Everything it does here is on the
+     * control period, so the only Modbus traffic it may generate is the write
+     * itself. Confirmation of that write is deferred to the background
+     * acquisition task (see evaluate_write_confirmation), which judges the
+     * readback it already polls against the value recorded by
+     * note_write_issued().
+     *
+     * ESP_OK therefore means "the write was issued and the transport accepted
+     * it" - NOT "the setpoint took effect". The caller must read the
+     * confirmation state for that, and until a readback confirms it the value
+     * is reported as pending, never as commanded.
+     */
     for (uint8_t i = 0; i < target_count; ++i) {
         command_target_t *target = &targets[i];
-        bool confirmed = false;
-        esp_err_t final_error = ESP_ERR_INVALID_RESPONSE;
+        esp_err_t write_error = ESP_ERR_INVALID_RESPONSE;
 
+        /* Transport retries only, back to back. A retry costs one round trip;
+         * it never costs a sleep. */
         for (uint8_t attempt = 1; attempt <= INVERTER_COMMAND_MAX_ATTEMPTS; ++attempt) {
-            esp_err_t write_error = write_profile_command(target->runtime,
-                                                          target->profile,
-                                                          target->words,
-                                                          target->word_count);
-            float readback = NAN;
-            esp_err_t readback_error = ESP_ERR_INVALID_STATE;
-            if (write_error == ESP_OK) {
-                vTaskDelay(pdMS_TO_TICKS(INVERTER_COMMAND_READBACK_DELAY_MS));
-                readback_error = read_limit_percent(target->runtime,
-                                                    target->profile,
-                                                    &readback);
-            }
-            bool mismatch = write_error == ESP_OK && readback_error == ESP_OK &&
-                !inverter_profile_readback_matches(target->percent, readback,
-                                                   target->profile->readback_tolerance_percent);
-            store_attempt_observation(target->runtime, write_error, readback_error,
-                                      readback, mismatch);
-
-            inverter_command_evidence_t evidence = {
-                .write_succeeded = write_error == ESP_OK,
-                .readback_supported = target->profile->has_power_limit_readback,
-                .readback_succeeded = readback_error == ESP_OK,
-                .requested_percent = target->percent,
-                .readback_percent = readback,
-                .tolerance_percent = target->profile->readback_tolerance_percent,
-                .attempts_completed = attempt,
-                .maximum_attempts = INVERTER_COMMAND_MAX_ATTEMPTS,
-                .safe_fallback_percent = INVERTER_SAFE_FALLBACK_PERCENT,
-            };
-            inverter_command_decision_t decision = inverter_command_decide(&evidence);
-            if (decision.action == INVERTER_COMMAND_CONFIRMED && decision.confirmed) {
-                portENTER_CRITICAL(&target->runtime->lock);
-                target->runtime->data.commanded_percent = target->percent;
-                target->runtime->data.commanded_power_kw = target->commanded_kw;
-                target->runtime->data.has_command = true;
-                target->runtime->data.last_command_ms = now_ms();
-                target->runtime->data.command_mismatch = false;
-                target->runtime->data.last_error = ESP_OK;
-                portEXIT_CRITICAL(&target->runtime->lock);
-                confirmed = true;
-                break;
-            }
-
-            final_error = write_error != ESP_OK
-                              ? write_error
-                              : readback_error != ESP_OK
-                                    ? readback_error
-                                    : ESP_ERR_INVALID_RESPONSE;
-            if (decision.action != INVERTER_COMMAND_RETRY) break;
+            write_error = write_profile_command(target->runtime, target->profile,
+                                                target->words, target->word_count);
+            if (write_error == ESP_OK) break;
         }
 
-        if (!confirmed) {
-            bool rollback_confirmed = rollback_targets(targets, (uint8_t)(i + 1U));
-            ESP_LOGE(TAG, "%s command was not confirmed; rollback %s",
-                     target->runtime->config.name,
-                     rollback_confirmed ? "confirmed" : "failed");
-            return rollback_confirmed ? final_error : ESP_FAIL;
+        note_write_issued(target->runtime, target->percent, write_error == ESP_OK,
+                          now_ms());
+        portENTER_CRITICAL(&target->runtime->lock);
+        target->runtime->data.last_error = write_error;
+        portEXIT_CRITICAL(&target->runtime->lock);
+
+        if (write_error != ESP_OK) {
+            /* Everything written so far in this plan goes safe immediately, in
+             * this call, so a half-applied fleet never outlives the cycle. */
+            bool rollback_issued = rollback_targets(targets, (uint8_t)(i + 1U));
+            ESP_LOGE(TAG, "%s command write failed: %s; safe zero %s",
+                     target->runtime->config.name, esp_err_to_name(write_error),
+                     rollback_issued ? "issued" : "failed");
+            return rollback_issued ? write_error : ESP_FAIL;
         }
     }
     return ESP_OK;
+}
+
+inverter_write_state_t inverter_manager_fleet_write_confirmation(void)
+{
+    inverter_write_state_t states[APP_MAX_INVERTERS];
+    uint8_t count = 0;
+    for (uint8_t i = 0; i < s_inverter_count && count < APP_MAX_INVERTERS; ++i) {
+        inverter_runtime_t *runtime = &s_inverters[i];
+        portENTER_CRITICAL(&runtime->lock);
+        bool considered = runtime->config.enabled && runtime->write_allowed &&
+                          runtime->data.write_issued;
+        inverter_write_state_t state = (inverter_write_state_t)runtime->data.write_confirmation;
+        portEXIT_CRITICAL(&runtime->lock);
+        if (considered) states[count++] = state;
+    }
+    /* No inverter has ever been written to, so there is nothing outstanding.
+     * This is the one case that is legitimately not a confirmation failure. */
+    if (count == 0U) return INVERTER_WRITE_CONFIRMED;
+    return inverter_write_state_worst(states, count);
+}
+
+bool inverter_manager_write_confirmation_fault(void)
+{
+    for (uint8_t i = 0; i < s_inverter_count; ++i) {
+        inverter_runtime_t *runtime = &s_inverters[i];
+        portENTER_CRITICAL(&runtime->lock);
+        bool fault = runtime->config.enabled && runtime->data.confirmation_fault;
+        portEXIT_CRITICAL(&runtime->lock);
+        if (fault) return true;
+    }
+    return false;
 }
 
 esp_err_t inverter_manager_probe_read_only(uint8_t inverter_index,

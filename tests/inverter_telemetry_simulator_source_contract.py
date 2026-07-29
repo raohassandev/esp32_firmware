@@ -36,8 +36,15 @@ require("update_stale_state" in MANAGER and "telemetry_stale" in MANAGER,
         "stale/offline handling is missing")
 require("recompute_commandable_capacity" in MANAGER,
         "dynamic offline-capacity removal is missing")
-require("inverter_profile_readback_matches" in MANAGER and "mismatch_count" in MANAGER,
-        "command readback mismatch tracking is missing")
+# Readback comparison moved into the pure deferred-confirmation evaluator (P0-9);
+# the manager feeds it evidence and records the verdict. A mismatch must still be
+# counted, and it must still be the background poll that observes the readback.
+require("poll_readback" in MANAGER and "evaluate_write_confirmation" in MANAGER,
+        "background setpoint readback and confirmation are missing")
+require("inverter_write_confirmation_evaluate(&evidence)" in MANAGER,
+        "the readback verdict is not delegated to the pure confirmation evaluator")
+require("mismatch_count" in MANAGER and "unverified_count" in MANAGER,
+        "command readback mismatch/unverified tracking is missing")
 require('"/api/inverter-telemetry"' in API,
         "read-only inverter telemetry API is missing")
 require('"writes_issued", false' in API and '"read_only_endpoint", true' in API,

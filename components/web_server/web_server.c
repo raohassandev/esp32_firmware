@@ -1,4 +1,5 @@
 #include "web_server.h"
+#include "commissioning_gate_api.h"
 #include "device_api.h"
 #include "em500_api.h"
 #include "em500_cache.h"
@@ -132,7 +133,10 @@ esp_err_t web_server_start(void)
     ESP_RETURN_ON_ERROR(em500_cache_init(), "web", "EM500 acquisition cache init failed");
     ESP_RETURN_ON_ERROR(meter_read_jobs_init(), "web", "meter read-job queue init failed");
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 40;
+    /* Raised alongside the commissioning-gate and write-confirmation
+     * endpoints. httpd refuses to register beyond this limit, and a
+     * refused safety endpoint would be a silent loss of visibility. */
+    config.max_uri_handlers = 48;
     config.stack_size = 8192;
     /* The default of 7 leaves only 4 client sockets once httpd takes its 3
      * internal ones, and a browser opens up to 6 keep-alive connections per
@@ -176,7 +180,8 @@ esp_err_t web_server_start(void)
     ESP_RETURN_ON_ERROR(em500_settings_api_register(s_server), "web", "EM500 settings API registration failed");
     ESP_RETURN_ON_ERROR(em500_settings_plan_api_register(s_server), "web", "EM500 settings plan API registration failed");
     ESP_RETURN_ON_ERROR(solar_grid_api_register(s_server), "web", "Solar-Grid configuration API registration failed");
-    return solar_grid_status_api_register(s_server);
+    ESP_RETURN_ON_ERROR(solar_grid_status_api_register(s_server), "web", "Solar-Grid status API registration failed");
+    return commissioning_gate_api_register(s_server);
 }
 
 void web_server_stop(void)
