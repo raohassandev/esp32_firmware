@@ -989,10 +989,21 @@ static esp_err_t alarms_ack_post(httpd_req_t *request)
 
     const uint32_t timestamp = now_ms();
     bool present = false;
+    bool was_outstanding = false;
     portENTER_CRITICAL(&s_lock);
     operational_alarm_t *alarm = &s_alarms[code];
     present = alarm->present;
-    if (present && !alarm->acknowledged) {
+    /* Acknowledgement applies whether or not the condition is still present.
+     *
+     * Restricting it to present conditions made an RTN-unacknowledged alarm
+     * impossible to clear: a fault that appeared and went away while nobody was
+     * watching would stay outstanding for ever, and the operator had no way to
+     * discharge it. That defeats the point of retaining the state at all.
+     * ISA-18.2 has the operator acknowledging exactly this case to move it from
+     * RTN Unacknowledged to Normal, and it is the state that matters most on an
+     * unattended site. */
+    was_outstanding = !alarm->acknowledged && alarm->occurrences > 0U;
+    if (was_outstanding) {
         alarm->acknowledged = true;
         alarm->acknowledged_ms = timestamp;
     }
@@ -1000,13 +1011,16 @@ static esp_err_t alarms_ack_post(httpd_req_t *request)
 
     cJSON *reply = cJSON_CreateObject();
     if (!reply) return httpd_resp_send_500(request);
-    cJSON_AddBoolToObject(reply, "acknowledged", present);
+    cJSON_AddBoolToObject(reply, "acknowledged", was_outstanding);
     cJSON_AddNumberToObject(reply, "code", code);
-    /* Acknowledging something that is no longer present is not an error, but
-     * saying so plainly stops it looking like the condition was dismissed. */
+    cJSON_AddBoolToObject(reply, "present", present);
+    /* Say which of the two acknowledgements this was. They mean different
+     * things: one accepts a live condition, the other discharges a fault that
+     * already came and went. */
     cJSON_AddStringToObject(reply, "note",
-                            present ? "Condition acknowledged; it remains active until the plant clears it."
-                                    : "Condition is no longer present; nothing to acknowledge.");
+        !was_outstanding ? "Nothing outstanding for this alarm; it was already acknowledged."
+        : present        ? "Condition acknowledged; it remains active until the plant clears it."
+                         : "Returned-to-normal condition acknowledged; it is now cleared from the outstanding list.");
     return send_json(request, reply);
 }
 
