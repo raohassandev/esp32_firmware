@@ -130,19 +130,27 @@ static esp_err_t source_detection_get(httpd_req_t *request)
 {
     source_detection_config_t config;
     source_detection_status_t status;
-    app_config_t app_config;
+    /* app_config_t is ~2.5 kB and the httpd task stack is shared by every
+     * handler, so this snapshot goes on the heap rather than the stack. */
+    app_config_t *app_config = calloc(1U, sizeof(*app_config));
+    if (!app_config) return httpd_resp_send_500(request);
     if (source_detection_config_get_snapshot(&config) != ESP_OK ||
         source_detection_get_status(&status) != ESP_OK ||
-        config_manager_get_snapshot(&app_config) != ESP_OK) {
+        config_manager_get_snapshot(app_config) != ESP_OK) {
+        free(app_config);
         return send_json_error(request, "500 Internal Server Error",
                                "Source-detection state is unavailable");
     }
 
     cJSON *root = cJSON_CreateObject();
-    if (!root) return httpd_resp_send_500(request);
+    if (!root) {
+        free(app_config);
+        return httpd_resp_send_500(request);
+    }
     add_config_json(root, &config);
     add_status_json(root, &status);
-    add_meter_options(root, &app_config);
+    add_meter_options(root, app_config);
+    free(app_config);
     cJSON_AddBoolToObject(root, "automatic_control_enabled_by_this_phase", false);
     cJSON_AddStringToObject(root, "preferred_topology", "dual_meter");
 
@@ -181,7 +189,13 @@ static bool read_float(cJSON *object, const char *name, float *value,
         return false;
     }
     *value = (float)item->valuedouble;
-    return isfinite(*value);
+    if (!isfinite(*value)) {
+        /* A finite double can still overflow float. Without this the caller
+         * returned 400 with an empty error string. */
+        snprintf(error, error_size, "%s is outside the supported numeric range", name);
+        return false;
+    }
+    return true;
 }
 
 static bool parse_config(cJSON *root, source_detection_config_t *config,
@@ -323,10 +337,16 @@ static esp_err_t source_detection_post(httpd_req_t *request)
     }
 
     source_detection_config_t config;
-    app_config_t app_config;
-    if (source_detection_config_get_snapshot(&config) != ESP_OK ||
-        config_manager_get_snapshot(&app_config) != ESP_OK) {
+    /* Heap rather than the shared httpd stack; see source_detection_get(). */
+    app_config_t *app_config = calloc(1U, sizeof(*app_config));
+    if (!app_config) {
         cJSON_Delete(root);
+        return httpd_resp_send_500(request);
+    }
+    if (source_detection_config_get_snapshot(&config) != ESP_OK ||
+        config_manager_get_snapshot(app_config) != ESP_OK) {
+        cJSON_Delete(root);
+        free(app_config);
         return send_json_error(request, "500 Internal Server Error",
                                "Current configuration is unavailable");
     }
@@ -335,9 +355,11 @@ static esp_err_t source_detection_post(httpd_req_t *request)
     const bool parsed = parse_config(root, &config,
                                      validation_error, sizeof(validation_error));
     cJSON_Delete(root);
-    if (!parsed || !cross_validate_meters(&config, &app_config,
-                                          validation_error,
-                                          sizeof(validation_error))) {
+    const bool valid = parsed && cross_validate_meters(&config, app_config,
+                                                       validation_error,
+                                                       sizeof(validation_error));
+    free(app_config);
+    if (!valid) {
         return send_json_error(request, "400 Bad Request", validation_error);
     }
 

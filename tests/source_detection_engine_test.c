@@ -133,6 +133,43 @@ static void test_stale_and_non_finite(void)
     assert(result.fail_closed);
 }
 
+/* Absent evidence must be reported as unavailable, not silently treated as a
+ * reading of zero. Named in the phase 1 acceptance criteria. */
+static void test_evidence_unavailable(void)
+{
+    source_detection_policy_t single = single_policy();
+    source_detection_memory_t memory = {0};
+    source_detection_evidence_t evidence = {
+        .single_has_sample = false,
+        .single_raw_value = 0U,
+        .single_age_ms = 0U,
+    };
+
+    source_detection_result_t result = source_detection_step(&memory, &single, &evidence, 0U);
+    assert(result.state == SOURCE_STATE_UNKNOWN);
+    assert(result.reason == SOURCE_REASON_EVIDENCE_UNAVAILABLE);
+    assert(result.fail_closed);
+    assert(result.tariff == SOURCE_TARIFF_NONE);
+
+    /* A raw value matching the configured grid value must still not resolve
+     * while the sample itself is absent. */
+    evidence.single_raw_value = 0U;
+    result = source_detection_step(&memory, &single, &evidence, 100U);
+    assert(result.state == SOURCE_STATE_UNKNOWN);
+    assert(result.reason == SOURCE_REASON_EVIDENCE_UNAVAILABLE);
+
+    source_detection_policy_t dual = dual_policy();
+    source_detection_memory_t dual_memory = {0};
+    source_detection_evidence_t dual_evidence = {
+        .grid_has_sample = false,
+        .generator_has_sample = false,
+    };
+    result = source_detection_step(&dual_memory, &dual, &dual_evidence, 0U);
+    assert(result.state == SOURCE_STATE_UNKNOWN);
+    assert(result.reason == SOURCE_REASON_EVIDENCE_UNAVAILABLE);
+    assert(result.fail_closed);
+}
+
 static void test_flapping_input_never_settles(void)
 {
     source_detection_policy_t policy = single_policy();
@@ -161,6 +198,7 @@ int main(void)
     test_single_grid_generator_unknown();
     test_dual_meter_states();
     test_stale_and_non_finite();
+    test_evidence_unavailable();
     test_flapping_input_never_settles();
     puts("EM500 source detection unit tests passed");
     return 0;

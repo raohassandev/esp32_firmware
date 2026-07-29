@@ -12,6 +12,10 @@
 #include "meter_manager.h"
 #include "meter_types.h"
 
+/* app_config_t is ~2.5 kB. Two of these on a task stack is what caused this
+ * project's original boot loop, so the snapshot lives in static storage and is
+ * only ever touched by source_detection_task. The stack then only has to carry
+ * the status struct and the small evidence/result values. */
 #define SOURCE_DETECTION_TASK_STACK_BYTES 4096U
 #define SOURCE_DETECTION_TASK_PRIORITY 5U
 
@@ -31,6 +35,15 @@ static uint32_t s_single_updated_ms;
 static uint32_t s_successful_reads;
 static uint32_t s_failed_reads;
 static esp_err_t s_last_error;
+
+/* Owned exclusively by source_detection_task; never read from another task. */
+static app_config_t s_app_config;
+static source_detection_config_t s_config;
+/* Only the state and reason of the previous evaluation are needed, to decide
+ * whether the change is worth logging. Reading the whole status struct back
+ * just for that put another 464 bytes on the stack. */
+static source_state_t s_previous_state = SOURCE_STATE_UNKNOWN;
+static source_reason_t s_previous_reason = SOURCE_REASON_NOT_CONFIGURED;
 
 static uint32_t now_ms(void)
 {
@@ -165,9 +178,12 @@ static source_detection_evidence_t collect_evidence(
         }
         evidence.single_has_sample = s_single_has_sample;
         evidence.single_raw_value = s_single_raw_value;
-        evidence.single_age_ms = s_single_updated_ms == 0U
-                                     ? 0U
-                                     : timestamp - s_single_updated_ms;
+        /* Keyed off whether a sample exists, not off the update timestamp being
+         * non-zero: a read landing in the first millisecond after boot would
+         * otherwise pin the age at zero permanently and defeat the stale check. */
+        evidence.single_age_ms = s_single_has_sample
+                                     ? timestamp - s_single_updated_ms
+                                     : 0U;
         return evidence;
     }
 
@@ -217,13 +233,13 @@ static source_reason_t runtime_config_reason(
                : SOURCE_REASON_INVALID_CONFIG;
 }
 
-static void evaluate_once(uint32_t *seen_generation)
+/* Returns the evaluation period for the next cycle, so the caller does not have
+ * to take a second snapshot of the same configuration. */
+static uint32_t evaluate_once(uint32_t *seen_generation)
 {
-    source_detection_config_t config;
-    app_config_t app_config;
-    if (source_detection_config_get_snapshot(&config) != ESP_OK ||
-        config_manager_get_snapshot(&app_config) != ESP_OK) {
-        return;
+    if (source_detection_config_get_snapshot(&s_config) != ESP_OK ||
+        config_manager_get_snapshot(&s_app_config) != ESP_OK) {
+        return 0U;
     }
 
     const uint32_t generation = source_detection_config_generation();
@@ -234,12 +250,12 @@ static void evaluate_once(uint32_t *seen_generation)
     }
 
     const uint32_t timestamp = now_ms();
-    const source_reason_t config_reason = runtime_config_reason(&config, &app_config);
+    const source_reason_t config_reason = runtime_config_reason(&s_config, &s_app_config);
     source_detection_evidence_t evidence = {0};
     source_detection_result_t result = {0};
     if (config_reason == SOURCE_REASON_NONE) {
-        evidence = collect_evidence(&config, &app_config, timestamp);
-        const source_detection_policy_t policy = source_detection_config_policy(&config);
+        evidence = collect_evidence(&s_config, &s_app_config, timestamp);
+        const source_detection_policy_t policy = source_detection_config_policy(&s_config);
         result = source_detection_step(&s_memory, &policy, &evidence, timestamp);
     } else {
         source_detection_reset(&s_memory);
@@ -250,12 +266,9 @@ static void evaluate_once(uint32_t *seen_generation)
         result.fail_closed = true;
     }
 
-    source_detection_status_t previous;
-    source_detection_get_status(&previous);
-
     source_detection_status_t status = {
         .config_generation = generation,
-        .mode = (source_detection_mode_t)config.mode,
+        .mode = (source_detection_mode_t)s_config.mode,
         .state = result.state,
         .candidate_state = result.candidate_state,
         .tariff = result.tariff,
@@ -288,7 +301,9 @@ static void evaluate_once(uint32_t *seen_generation)
     }
     store_status(&status);
 
-    if (previous.state != status.state || previous.reason != status.reason) {
+    if (s_previous_state != status.state || s_previous_reason != status.reason) {
+        s_previous_state = status.state;
+        s_previous_reason = status.reason;
         if (status.state == SOURCE_STATE_UNKNOWN) {
             ESP_LOGW(TAG, "%s", status.reason_text);
         } else {
@@ -296,22 +311,28 @@ static void evaluate_once(uint32_t *seen_generation)
                      source_detection_state_name(status.state), (unsigned)status.tariff);
         }
     }
+
+    return evaluation_period_ms(&s_config, &s_app_config);
 }
 
 static void source_detection_task(void *argument)
 {
     (void)argument;
     uint32_t seen_generation = 0U;
+    bool reported_headroom = false;
     for (;;) {
-        evaluate_once(&seen_generation);
+        const uint32_t period_ms = evaluate_once(&seen_generation);
 
-        source_detection_config_t config;
-        app_config_t app_config;
-        uint32_t period_ms = 0U;
-        if (source_detection_config_get_snapshot(&config) == ESP_OK &&
-            config_manager_get_snapshot(&app_config) == ESP_OK) {
-            period_ms = evaluation_period_ms(&config, &app_config);
+        /* Reported once, after the first full evaluation has exercised the
+         * deepest path, so the margin is a measured fact rather than an
+         * assumption. */
+        if (!reported_headroom) {
+            reported_headroom = true;
+            ESP_LOGI(TAG, "Source detection stack headroom: %u bytes of %u",
+                     (unsigned)(uxTaskGetStackHighWaterMark(NULL) * sizeof(StackType_t)),
+                     (unsigned)SOURCE_DETECTION_TASK_STACK_BYTES);
         }
+
         if (period_ms == 0U) {
             (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
         } else {
