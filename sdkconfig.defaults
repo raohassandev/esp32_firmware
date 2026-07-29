@@ -10,6 +10,18 @@ CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 # of its max_open_sockets, so 12 left nothing spare once the web server was
 # sized for a browser's keep-alive connections.
 CONFIG_LWIP_MAX_SOCKETS=16
+
+# The DevKitC-1 N16R8 carries 8 MB of octal PSRAM that was going unused while
+# minimum free internal heap fell to 40 kB and internal fragmentation reached
+# 29%. That shortage is what makes large JSON responses fail intermittently.
+# Allocations above the threshold go to PSRAM; small and ISR-safe allocations
+# stay internal.
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
 CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
 CONFIG_HTTPD_MAX_URI_LEN=256
 CONFIG_PVDG_DEFAULT_WIFI_SSID="Rao1"
