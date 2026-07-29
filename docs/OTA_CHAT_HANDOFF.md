@@ -1,74 +1,14 @@
-# Handoff to the OTA implementation chat
+# Secure Web OTA Handoff
 
-**Date:** 2026-07-29
-**Affected branch:** `feature/secure-web-ota` (tip `5c3c321`)
-**Fix location:** `dev` (`46df5a2`), commit `e000b3e`
+**Updated:** 2026-07-29  
+**Branch:** `feature/secure-web-ota`  
+**Base:** `dev`
 
-## Summary
+## Current status
 
-`feature/secure-web-ota` was branched from `d71cb03`, which contains a defect that makes
-**every OTA endpoint permanently unreachable**. This is not an OTA bug — the cause is in
-`components/web_server/engineering_auth.c`, a file the OTA work never touched.
+The stale OTA branch has been rebased onto the current `dev` branch. The Engineering authentication cookie lifetime fix from `dev` is now present, and the branch is zero commits behind `dev`.
 
-Nothing is wrong with the OTA design. It will simply never authenticate until the fix is rebased in.
-
-## What is broken
-
-`httpd_resp_set_hdr()` retains the pointer it is given and does not copy the value, so the buffer
-must remain valid until the response is sent. `set_session_cookie()` built the header into a
-**stack-local** array that was destroyed when the function returned — before `send_json()` sent
-the response.
-
-```c
-static void set_session_cookie(httpd_req_t *request, const char *token_hex)
-{
-    char header[160];                                  /* dies on return */
-    snprintf(header, sizeof(header), AUTH_COOKIE_NAME "=%s; ...", token_hex);
-    httpd_resp_set_hdr(request, "Set-Cookie", header); /* stores the pointer only */
-}
-```
-
-Observed on hardware before the fix:
-
-```
-POST /api/engineering/login  ->  200 {"authenticated":true, ...}
-Set-Cookie:                       <-- empty
-GET  /api/engineering/session ->  {"authenticated":false, ...}
-```
-
-Login reports success, no session is ever created, and every protected endpoint stays at
-`401 engineering_password_setup_required`.
-
-`clear_session_cookie()` passes a string literal, which has static storage — so logout worked
-correctly and login did not. That asymmetry is what hid the defect.
-
-## Why this blocks OTA specifically
-
-The OTA endpoints are correctly protected, which is exactly why they are unreachable.
-
-`components/web_server/CMakeLists.txt` force-includes `engineering_auth.h` into every file in
-`WEB_SERVER_C_SOURCES` except `engineering_guard.c` and `operational_api.c`:
-
-```cmake
-set_source_files_properties(${source} PROPERTIES COMPILE_OPTIONS "-include;engineering_auth.h")
-```
-
-That header macro-redirects registration:
-
-```c
-#define httpd_register_uri_handler engineering_register_uri_handler
-```
-
-`ota_api.c` is in that list, so its three handlers are registered through the authorization
-gateway. `public_uri()` allows only `/api/status`, `/api/telemetry` and `/api/engineering/*`, so
-`/api/ota/status`, `/api/ota/upload` and `/api/ota/reboot` are all `GATEWAY_MODE_PROTECTED`.
-
-Result: **no session can exist, therefore all three OTA endpoints return 401 forever.**
-Upload will appear to fail for reasons that have nothing to do with OTA.
-
-## Required action
-
-Rebase `feature/secure-web-ota` onto `dev`:
+The rebase was executed with the equivalent of:
 
 ```bash
 git fetch origin
@@ -76,46 +16,188 @@ git checkout feature/secure-web-ota
 git rebase origin/dev
 ```
 
-`dev` is 6 commits ahead; the OTA branch carries 26 of its own. The **only** file both sides
-touch is `sdkconfig.defaults` — `dev` changed the default grid meter address to
-`192.168.100.200`, the OTA branch adds OTA partition settings. Keep both. No other conflict is
-expected; `engineering_auth.c` is not modified by the OTA branch.
+The rebase completed all 26 OTA commits. The final ancestry check reported:
 
-## Verification after rebasing
+```text
+git rev-list --left-right --count origin/dev...HEAD
+0 26
+```
 
-Confirm the session cookie is actually issued — do not rely on the login response body, which
-reported success even while broken:
+The branch was then updated with additional OTA hardening and tests.
+
+## Rebase conflict resolution
+
+Two files conflicted during the actual rebase:
+
+1. `sdkconfig.defaults`
+2. `.github/workflows/esp-idf-build.yml`
+
+The configuration resolution keeps both required settings:
+
+```text
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+CONFIG_PVDG_DEFAULT_ZLAN_HOST="192.168.100.200"
+```
+
+The workflow resolution keeps the current `dev` checks and adds the OTA JavaScript, OTA source contract, OTA behavior proof, and Engineering HTTP cookie contract.
+
+## Engineering authentication result
+
+The `engineering_auth.c` fix from `dev` is present. The login handler now owns the `Set-Cookie` buffer until the HTTP response is sent. The session token is 32 random bytes encoded as 64 lowercase hexadecimal characters.
+
+An executable host HTTP contract now verifies the production source requirements and runs the exact manual-cookie curl flow. It does not rely on `curl -c/-b` jars.
+
+CI produced:
+
+```text
+Set-Cookie: eng_session=<64 lowercase hex characters>; Path=/; HttpOnly; SameSite=Strict; Max-Age=1800
+SESSION_HEX_LENGTH=64
+EXPLICIT_COOKIE_HEADER=Cookie: eng_session=<same 64-character token>
+HTTP/1.0 200 OK
+{"state":"idle","authenticated":true}
+Engineering auth host HTTP contract passed
+```
+
+Test file:
+
+```text
+tests/engineering_auth_http_contract.py
+```
+
+This is actual curl output from the host HTTP contract tied to the production authentication source. It is not a physical-controller result.
+
+## Image identity verification
+
+An OTA image is rejected before `esp_ota_begin()` and before any firmware byte is written unless all of these checks pass:
+
+- ESP image magic is valid.
+- Product ID is exactly `automatrix_pvdg`.
+- Running firmware product ID is also `automatrix_pvdg`.
+- Image target chip ID equals `CONFIG_IDF_FIRMWARE_CHIP_ID` for the ESP32-S3 build.
+- Candidate secure version is not lower than the running secure version.
+- Complete image size fits the inactive OTA partition.
+
+The identity check is performed twice:
+
+1. In `ota_manager_validate_prefix()` while the image prefix is still in RAM.
+2. Again in `ota_manager_begin()` immediately before `esp_ota_begin()` can erase the inactive slot.
+
+A wrong product or wrong target therefore reaches neither `esp_ota_begin()` nor `esp_ota_write()`.
+
+## Interrupted-upload safety
+
+Each OTA session records the selected boot partition before the upload starts.
+
+When the HTTP body is interrupted or incomplete:
+
+1. `ota_manager_abort()` calls `esp_ota_abort()`.
+2. The abort path never calls `esp_ota_set_boot_partition()`.
+3. The boot partition is read again.
+4. Its address must equal the original boot partition address.
+5. The result is exposed as `boot_partition_preserved_after_abort`.
+
+The source-coupled executable behavior proof produced:
+
+```text
+INTERRUPTED_TRACE=validate_identity(product=automatrix_pvdg,target=esp32s3) -> esp_ota_begin(ota_1) -> esp_ota_write(4096) -> esp_ota_write(4096) -> connection_interrupted -> esp_ota_abort -> boot_preserved(ota_0)
+INTERRUPTED_BOOT_PARTITION=ota_0
+INTERRUPTED_RUNNING_PARTITION=ota_0
+INTERRUPTED_EXISTING_FIRMWARE_BOOTABLE=true
+```
+
+Test file:
+
+```text
+tests/ota_update_behavior_contract.py
+```
+
+This proves the production source ordering and an executable state model. It is not a physical flash-interruption or power-loss test.
+
+## Validation before boot switch
+
+`ota_manager_finish()` now uses this strict order:
+
+```text
+esp_ota_end()
+esp_ota_get_partition_description()
+match staged descriptor to the accepted candidate
+confirm boot partition is still unchanged
+mark image_validated=true
+esp_ota_set_boot_partition()
+```
+
+The staged descriptor match covers:
+
+- project name
+- firmware version
+- secure version
+- application ELF SHA-256 identity
+
+The reboot endpoint refuses to restart unless all three states are true:
+
+- `update_staged`
+- `image_identity_verified`
+- `image_validated`
+
+The executable behavior proof produced:
+
+```text
+COMPLETED_TRACE=validate_identity(product=automatrix_pvdg,target=esp32s3) -> esp_ota_begin(ota_1) -> esp_ota_write(8192) -> esp_ota_end_validate_complete_image -> esp_ota_get_partition_description_match -> esp_ota_set_boot_partition
+VALIDATION_BEFORE_BOOT_SWITCH=true
+```
+
+## CI result
+
+The full web/source contract suite passed. The ESP-IDF 6.0.1 ESP32-S3 build also passed with no compiler warnings.
+
+```text
+automatrix_pvdg.bin binary size 0x16af40 bytes
+Smallest app partition is 0x300000 bytes
+0x1950c0 bytes (53%) free
+Application binary bytes: 1486656
+Compiler warnings: 0
+```
+
+## Physical controller verification still required
+
+The following were not performed because flashing and device testing require the physical controller and are outside this implementation task:
+
+- Flashing this branch to the ESP32-S3 controller.
+- Confirming the real controller login response issues the 64-character cookie.
+- Confirming the real `/api/ota/status` endpoint returns HTTP 200 with that cookie.
+- Uploading a mismatched product or wrong-target image to the real controller.
+- Interrupting a real TCP upload while flash writing is in progress.
+- Removing power during a real OTA upload.
+- Confirming the bootloader still starts the previous slot after those interruptions.
+- Rebooting into a staged image and observing first-boot validation.
+- Deliberately failing first-boot diagnostics and observing hardware rollback.
+
+## Real-controller authentication check
+
+Do not use a cookie jar for this test. Capture `Set-Cookie` and pass the cookie explicitly:
 
 ```bash
 curl -i -X POST http://<controller>/api/engineering/login \
-     -H 'Content-Type: application/json' -d '{"password":"<engineering password>"}'
-# Set-Cookie must be non-empty:
-# Set-Cookie: eng_session=<64 hex chars>; Path=/; HttpOnly; SameSite=Strict; Max-Age=1800
+  -H 'Content-Type: application/json' \
+  -d '{"password":"<engineering password>"}'
 
-curl -s -H "Cookie: eng_session=<token>" http://<controller>/api/engineering/session
-# must report "authenticated":true
+# Copy only: eng_session=<64 hex characters>
 
-curl -s -H "Cookie: eng_session=<token>" http://<controller>/api/ota/status
-# must return OTA status, not 401
+curl -i \
+  -H 'Cookie: eng_session=<64 hex characters>' \
+  http://<controller>/api/engineering/session
+
+curl -i \
+  -H 'Cookie: eng_session=<64 hex characters>' \
+  http://<controller>/api/ota/status
 ```
 
-Note: `curl -c/-b` cookie jars do **not** persist this cookie, because a jar only stores cookies
-with an `Expires` attribute and this one uses `Max-Age`. Capture the header and pass it with
-`-H "Cookie: ..."` instead. This cost real debugging time.
+Expected real-device results:
 
-## Applies to the OTA work generally
+```text
+Set-Cookie: eng_session=<64 hex characters>; Path=/; HttpOnly; SameSite=Strict; Max-Age=1800
+/api/engineering/session -> authenticated:true
+/api/ota/status -> HTTP 200, not 401
+```
 
-Never pass a stack-local buffer to `httpd_resp_set_hdr()`. The buffer must be owned by the
-request handler so it outlives the response. If OTA adds any custom response header, it must
-follow the same rule.
-
-## Standing project rules that apply to OTA
-
-- Never erase NVS or the whole flash. Commissioned Wi-Fi credentials and configuration must
-  survive an update. There is a real commissioned controller in the field.
-- OTA must not be able to brick a remote unit: verify the image before switching the boot
-  partition, and keep a rollback path.
-- The repository is **public**. Never commit a credential, signing key or token.
-- CI fails on any compiler warning. The full contract suite must stay green.
-- A passing build is not physical qualification. OTA must be verified on real hardware,
-  including a failed/interrupted upload, before it is called done.
+A passing build and host contract are not physical qualification. The hardware tests above must pass before secure web OTA is called field-ready.
