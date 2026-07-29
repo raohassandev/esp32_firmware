@@ -107,7 +107,9 @@ bool have_grid = meter_manager_get_data(0, &grid);   /* index 0 IS the grid mete
 The `name` field is never compared anywhere — it is a display label only. Reordering the meter
 array would silently change which physical instrument the control loop regulates against.
 
-**Gap B — generator evidence is hardcoded false.** The policy layer is real, but nothing feeds it:
+**Gap B — generator evidence is hardcoded false.** The policy layer is real, but nothing feeds it.
+Phase 3 closes this from **measured power**, not from breaker indications — see the scope decision
+in Phase 3 and the design assumptions in section 4.4.
 
 ```c
 /* components/control_engine/control_engine.c */
@@ -141,6 +143,28 @@ evidence are not configured` on every boot. That message is correct and honest �
   addresses. State which convention a profile uses, every time.
 
 ---
+
+### 4.4 Design assumptions — confirmed by the system owner, 2026-07-29
+
+The product's purpose is to **control solar power according to the configured scene**. The active
+scene is selected by the detected source (grid or generator), and each scene carries its own
+policy. The controller's only physical action is writing an inverter power-limit percentage.
+
+Two consequences follow, and both must be stated in documentation and in the commissioning UI.
+They are not caveats to be quietly dropped:
+
+1. **This controller is not a protection device.** With power-only evidence, curtailment reduces
+   the *likelihood* of reverse power into a generator. It does not replace the generator's own
+   reverse-power protection relay, which must exist and be commissioned independently. Never
+   describe PV curtailment as protection in code comments, documentation or UI copy.
+
+2. **Response time is bounded by measurement.** Reaction is at best poll interval plus debounce —
+   realistically seconds. That is adequate for load-following and minimum-loading. It is far too
+   slow to be a protective function.
+
+Because the controller only ever *reduces* PV output and never commands a source, closes a
+breaker, or initiates a transfer, power-only evidence is sufficient for its actual job. That is
+the reasoning behind the Phase 3 scope decision — record it, do not silently widen the scope later.
 
 ## 5. Phases
 
@@ -184,42 +208,41 @@ from the current schema, and fail-closed behaviour on an invalid assignment.
 
 **Do not** infer role from the meter name string.
 
-### Phase 3 — Live generator source engine
+### Phase 3 — Power-following generator policy
 
-**Goal:** close Gap B by feeding real evidence into the existing `source_mode` policy layer.
+**Scope decision (2026-07-29):** genset-controller integration is **out of scope**. The controller
+determines the active source from **measured power** and the Phase 1 source input, and its only
+physical action is writing an inverter power-limit percentage. Where a genset controller exists on
+site, it is treated as just another Modbus source of normal power parameters — the same class of
+device as a meter. Do not implement breaker logic, ATS state or synchronisation handshakes.
 
-- Build the plumbing from configured evidence sources into `generator_channel_evidence_t` and on
-  into `source_mode_aggregate_generators()`.
+**Goal:** feed measured power into the existing `source_mode` policy layer.
+
+- Derive generator channel state from measured per-generator power, not from breaker indications.
 - Apply `source_mode_generator_safe_pv_kw()` so PV is curtailed to respect generator minimum
   loading when generators carry the load.
-- Add staleness handling: evidence older than its timeout must be treated as absent, not as `false`.
+- Enforce reverse-power avoidance: falling generator power approaching zero must curtail PV.
+- Treat evidence older than its timeout as **unknown**, never as `false` or zero.
 
-**Critical constraint.** Breaker position and grid/generator synchronisation **cannot be derived
-from a power measurement**. Non-zero kW does not prove a breaker is closed. No combination of
-power readings proves synchronisation. These require real indications — dry contacts, or
-documented registers from the actual genset controller and breaker.
+**Naming honesty.** `source_mode.h` currently declares `generator_breaker_closed` and
+`grid_generator_synchronized`. Measured power does **not** establish either fact. Do not populate
+those fields from power readings. Rename or replace them with what the measurement actually
+supports — for example "carrying load" — so the code never claims knowledge it does not have.
 
-**As of this writing that documentation has not been supplied.** Therefore:
-- Implement the full plumbing, configuration surface and policy wiring.
-- Leave the evidence inputs **fail-closed and clearly reported as unconfigured**.
-- Write down precisely which document and which signal you need.
-- Do **not** invent register addresses or infer breaker state from power. A plausible guess here
-  can close a breaker onto an unsynchronised source.
+### Phase 4 — Source transitions
 
-### Phase 4 — Generator transitions
-
-**Goal:** safe behaviour across source changes: grid→generator, generator→grid, generator start
-and stop, and synchronised operation.
+**Goal:** safe behaviour across source changes: grid→generator, generator→grid, and generator
+load pickup and shed, driven by measured power and the Phase 1 source state.
 
 - Define the state machine explicitly, with a fail-closed state for every unknown or stale input.
-- Enforce dwell/stability timers so a flapping input cannot chatter the PV command.
-- On any transition into an unknown state, command PV to a safe value immediately.
+- Enforce dwell/stability timers so a flapping input or a reading hovering at a threshold cannot
+  chatter the PV command.
+- On any transition into an unknown state, command PV to a safe value **immediately** — do not
+  wait for the next control interval. The changeover window, where meters read stale or zero, is
+  exactly when a stale PV command could reverse-feed a newly connected generator.
 
-**Blocked on Phase 3 evidence.** Until real indications exist, deliver the state machine plus
-exhaustive host-side unit tests against synthetic evidence. Do not enable it on hardware.
-
-**All timing values must come from documentation or the user.** Do not invent dwell times,
-ramp rates or synchronisation windows.
+**Timing values must come from the user or documentation.** Do not invent dwell times or ramp
+rates. Deliver exhaustive host-side unit tests against synthetic evidence.
 
 ### Phase 5 — Simulator and automated tests
 
