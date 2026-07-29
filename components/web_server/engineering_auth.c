@@ -22,6 +22,9 @@
 #define AUTH_HASH_BYTES 32u
 #define AUTH_SESSION_BYTES 32u
 #define AUTH_SESSION_HEX_BYTES (AUTH_SESSION_BYTES * 2u)
+/* Session cookie header buffer, owned by the request handler so that it stays
+ * valid until httpd has sent the response. */
+#define AUTH_COOKIE_HEADER_BYTES 160u
 #define AUTH_PBKDF2_ITERATIONS 20000u
 #define AUTH_SESSION_TIMEOUT_MS (30ULL * 60ULL * 1000ULL)
 #define AUTH_BODY_LIMIT 1024u
@@ -298,10 +301,13 @@ static void invalidate_session(void)
     portEXIT_CRITICAL(&s_lock);
 }
 
-static void set_session_cookie(httpd_req_t *request, const char *token_hex)
+/* httpd_resp_set_hdr() stores the pointer it is given and does not copy the
+ * value, so the buffer must stay alive until the response has been sent. The
+ * caller therefore owns it; a local here would be dangling by send time and the
+ * client would receive an empty Set-Cookie. */
+static void set_session_cookie(httpd_req_t *request, char *header, size_t header_size, const char *token_hex)
 {
-    char header[160];
-    snprintf(header, sizeof(header), AUTH_COOKIE_NAME "=%s; Path=/; HttpOnly; SameSite=Strict; Max-Age=1800",
+    snprintf(header, header_size, AUTH_COOKIE_NAME "=%s; Path=/; HttpOnly; SameSite=Strict; Max-Age=1800",
              token_hex ? token_hex : "");
     httpd_resp_set_hdr(request, "Set-Cookie", header);
 }
@@ -520,8 +526,9 @@ static esp_err_t login_post(httpd_req_t *request)
 
     clear_login_failures();
     char cookie[AUTH_SESSION_HEX_BYTES + 1u];
+    char cookie_header[AUTH_COOKIE_HEADER_BYTES];
     create_session(cookie);
-    set_session_cookie(request, cookie);
+    set_session_cookie(request, cookie_header, sizeof(cookie_header), cookie);
     memset(cookie, 0, sizeof(cookie));
     cJSON *root = cJSON_CreateObject();
     if (!root) return httpd_resp_send_500(request);
@@ -593,8 +600,9 @@ static esp_err_t password_post(httpd_req_t *request)
     memset(&record, 0, sizeof(record));
 
     char cookie[AUTH_SESSION_HEX_BYTES + 1u];
+    char cookie_header[AUTH_COOKIE_HEADER_BYTES];
     create_session(cookie);
-    set_session_cookie(request, cookie);
+    set_session_cookie(request, cookie_header, sizeof(cookie_header), cookie);
     memset(cookie, 0, sizeof(cookie));
     cJSON *root = cJSON_CreateObject();
     if (!root) return httpd_resp_send_500(request);
