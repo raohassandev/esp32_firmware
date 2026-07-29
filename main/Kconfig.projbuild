@@ -39,7 +39,7 @@ config PVDG_WIFI_PROVISION_ID
 
 config PVDG_DEFAULT_ZLAN_HOST
     string "Default ZLAN5143D IP address"
-    default "192.168.0.200"
+    default "192.168.100.200"
 
 config PVDG_DEFAULT_ZLAN_PORT
     int "Default ZLAN5143D Modbus TCP port"
