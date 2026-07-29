@@ -28,6 +28,12 @@
         return `${(milliseconds / 60000).toFixed(1)} min`;
     }
 
+    function hexByte(value) {
+        return Number.isFinite(Number(value))
+            ? `0x${Number(value).toString(16).toUpperCase().padStart(2, '0')}`
+            : '--';
+    }
+
     function groupNamesForTab(tab) {
         if (tab === 'live') return ['instantaneous', 'source_input'];
         if (tab === 'energy') return ['energy'];
@@ -119,6 +125,7 @@
         if (!core || !panel) return null;
         const meter = selectedMeter(payload, core.state.selectedIndex);
         const quality = aggregateQuality(meter, core.state.activeTab);
+        const exception = meter?.last_modbus_exception || null;
         const header = core.node('div', 'panel-header');
         const copy = core.node('div');
         copy.append(
@@ -155,6 +162,14 @@
         );
 
         const notices = [];
+        if (exception?.valid) {
+            const modbusException = core.node('div', 'notice warning');
+            modbusException.append(
+                core.node('strong', '', `Preserved Modbus exception ${hexByte(exception.function)} / code ${hexByte(exception.code)}`),
+                core.node('span', '', `Request function ${hexByte(exception.request_function)} · received ${formatDuration(Number(exception.age_ms))} ago · ${Number(exception.count || 0)} exception response${Number(exception.count || 0) === 1 ? '' : 's'} recorded. Later successful polls do not erase this diagnostic.`)
+            );
+            notices.push(modbusException);
+        }
         if (quality.stale && quality.hasAnyData) {
             const stale = core.node('div', 'notice warning');
             stale.append(
