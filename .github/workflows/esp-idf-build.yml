@@ -59,6 +59,7 @@ jobs:
           node --check web/em500-profiles.js
           node --check web/em500-plan.js
           node --check web/solar-grid.js
+          node --check web/ota.js
           node --check tools/soltrix_modbus_simulator.js
           node --check tools/soltrix_modbus_simulator_test.js
           node web/tests/wifi-utils.test.js
@@ -96,6 +97,8 @@ jobs:
         run: python3 tests/config_import_safety_source_contract.py
       - name: Check persisted Solar-Grid control contract
         run: python3 tests/solar_grid_control_source_contract.py
+      - name: Check rollback-safe OTA contract
+        run: python3 tests/ota_update_source_contract.py
       - name: Check Modbus runtime safety contract
         run: python3 tests/modbus_runtime_safety_source_contract.py
       - name: Check 64-bit energy decoder contract
