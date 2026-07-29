@@ -104,6 +104,62 @@ for this unit.
 
 Mode B (separate grid and generator meters) is unaffected and remains the preferred topology.
 
+## Commissioned scene: Mode A on slave 3
+
+Per site direction, only slave 3 is used and the grid/generator distinction comes from `0x2100`.
+
+Meter:
+
+```
+EM500 slave 3   unit_id 3   function 3   active_power_address 57
+data_type INT32  word_order ABCD  scale 0.00001 kW/raw
+poll 1000 ms     timeout 1500 ms   role = grid
+```
+
+The role is `grid` because that is the input the control engine consumes. In Mode A this single
+meter measures the point of common coupling — whichever source is currently carrying the load —
+and `0x2100` states which source that is. Grid and generator are therefore distinguished by the
+digital input, not by which meter is read.
+
+Source detection:
+
+```
+mode              single_input
+register          8448 (0x2100)   function 3   address_base 0
+grid_value        0     generator_value 1
+debounce_ms       3000            stale_timeout_ms 5000
+```
+
+**The two timing values are commissioning choices, not measurements.** They were set to three and
+five polls of the 1000 ms meter interval. They are recorded here so they can be challenged rather
+than mistaken for verified site data.
+
+Live result with 220 VAC applied to the tariff input:
+
+```
+state              generator
+candidate_state    generator
+tariff             2
+reason             resolved; automatic control remains disabled
+evidence_fresh     true      transition_pending false      conflict false
+single_input       raw_value 1, age 0 ms
+grid_power_kw      323.44
+control_enabled    false
+```
+
+Tariff 2 is selected for generator, matching the specification. Read reliability in steady state
+is 100%: the 13 failures counted are all from startup before the network was ready, and the
+counter stopped advancing once running (61, 69, 77 successes against a static 13).
+
+### Still to verify on site
+
+The **transition** has not been exercised. De-energising and re-energising the input should show
+the state pass through `unknown` with `transition_pending` true for the 3000 ms debounce before
+settling on the new source. Until that is observed, only the steady states are proven.
+
+Mode A remains single-evidence by design: a stuck or miswired input cannot be detected by the
+controller, and the API reports that limitation verbatim.
+
 ## Other confirmed facts
 
 - Both FC03 and FC04 answer at the power registers; address 0 returns exception 0x02 on both.
