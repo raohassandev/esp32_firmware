@@ -1,0 +1,108 @@
+#pragma once
+
+#include <stdbool.h>
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef enum {
+    SOURCE_DETECTION_MODE_DISABLED = 0,
+    SOURCE_DETECTION_MODE_SINGLE_INPUT = 1,
+    SOURCE_DETECTION_MODE_DUAL_METER = 2
+} source_detection_mode_t;
+
+typedef enum {
+    SOURCE_STATE_UNKNOWN = 0,
+    SOURCE_STATE_GRID = 1,
+    SOURCE_STATE_GENERATOR = 2
+} source_state_t;
+
+typedef enum {
+    SOURCE_TARIFF_NONE = 0,
+    SOURCE_TARIFF_1 = 1,
+    SOURCE_TARIFF_2 = 2
+} source_tariff_t;
+
+typedef enum {
+    SOURCE_REASON_NONE = 0,
+    SOURCE_REASON_NOT_CONFIGURED,
+    SOURCE_REASON_INVALID_CONFIG,
+    SOURCE_REASON_EVIDENCE_UNAVAILABLE,
+    SOURCE_REASON_EVIDENCE_STALE,
+    SOURCE_REASON_NON_FINITE,
+    SOURCE_REASON_UNKNOWN_INPUT_VALUE,
+    SOURCE_REASON_CONFLICT,
+    SOURCE_REASON_NO_SOURCE,
+    SOURCE_REASON_DEBOUNCE_PENDING
+} source_reason_t;
+
+typedef struct {
+    source_detection_mode_t mode;
+    uint32_t debounce_ms;
+    uint32_t stale_timeout_ms;
+    uint16_t single_grid_value;
+    uint16_t single_generator_value;
+    float grid_threshold_kw;
+    float generator_threshold_kw;
+} source_detection_policy_t;
+
+typedef struct {
+    bool single_has_sample;
+    uint16_t single_raw_value;
+    uint32_t single_age_ms;
+
+    bool grid_has_sample;
+    float grid_power_kw;
+    uint32_t grid_age_ms;
+
+    bool generator_has_sample;
+    float generator_power_kw;
+    uint32_t generator_age_ms;
+} source_detection_evidence_t;
+
+typedef struct {
+    source_state_t candidate_state;
+    source_reason_t reason;
+    bool evidence_fresh;
+    bool conflict;
+} source_detection_observation_t;
+
+typedef struct {
+    source_state_t stable_state;
+    source_state_t pending_state;
+    uint32_t pending_since_ms;
+    bool pending_active;
+} source_detection_memory_t;
+
+typedef struct {
+    source_state_t state;
+    source_state_t candidate_state;
+    source_tariff_t tariff;
+    source_reason_t reason;
+    bool evidence_fresh;
+    bool transition_pending;
+    bool conflict;
+    bool control_allowed;
+    bool fail_closed;
+} source_detection_result_t;
+
+source_detection_observation_t source_detection_observe(
+    const source_detection_policy_t *policy,
+    const source_detection_evidence_t *evidence);
+
+source_detection_result_t source_detection_step(
+    source_detection_memory_t *memory,
+    const source_detection_policy_t *policy,
+    const source_detection_evidence_t *evidence,
+    uint32_t now_ms);
+
+void source_detection_reset(source_detection_memory_t *memory);
+source_tariff_t source_detection_tariff(source_state_t state);
+const char *source_detection_state_name(source_state_t state);
+const char *source_detection_reason_name(source_reason_t reason);
+
+#ifdef __cplusplus
+}
+#endif
