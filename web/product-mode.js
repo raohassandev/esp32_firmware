@@ -3,6 +3,13 @@
 
     document.documentElement.dataset.access = 'pending';
 
+    /* Development convenience: pre-fills the Engineering sign-in field on the bench.
+     * Kept EMPTY in the repository - this project is public, so a real controller
+     * password committed here would be published permanently. Set it locally while
+     * working on a bench unit and do not commit that change.
+     * tests/production_release_gate.py blocks a production release while it is non-empty. */
+    const DEV_DEFAULT_ENGINEERING_PASSWORD = '';
+
     const PROTECTED_ROUTES = new Set(['wifi', 'control', 'system', 'commissioning']);
     const ENGINEERING_ONLY_SELECTORS = [
         '#em500Workspace',
@@ -167,6 +174,9 @@
             const input = document.getElementById('engineeringPassword');
             const target = document.getElementById('engineeringLoginMessage');
             if (target) target.textContent = message;
+            if (input && !input.value && DEV_DEFAULT_ENGINEERING_PASSWORD) {
+                input.value = DEV_DEFAULT_ENGINEERING_PASSWORD;
+            }
             input?.focus();
         }, 0);
     }

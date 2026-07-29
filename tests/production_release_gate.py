@@ -15,6 +15,7 @@ AUTH = (ROOT / "components/web_server/engineering_auth.c").read_text(encoding="u
 KCONFIG = (ROOT / "main/Kconfig.projbuild").read_text(encoding="utf-8")
 SDKCONFIG = (ROOT / "sdkconfig").read_text(encoding="utf-8") if (ROOT / "sdkconfig").exists() else ""
 PROFILES = (ROOT / "components/inverter_manager/inverter_profiles.c").read_text(encoding="utf-8")
+PRODUCT_MODE = (ROOT / "web/product-mode.js").read_text(encoding="utf-8")
 
 production = os.environ.get("PVDG_PRODUCTION_RELEASE", "0") == "1"
 
@@ -38,8 +39,15 @@ def kconfig_default_for(symbol: str):
 
 blockers = []
 
-if macro_value(AUTH, "AUTH_TEMPORARY_FIELD_BYPASS") != 0:
+# A missing macro means the bypass was removed outright, which is the safe state.
+if macro_value(AUTH, "AUTH_TEMPORARY_FIELD_BYPASS") not in {0, None}:
     blockers.append("temporary Engineering authentication bypass is enabled")
+
+dev_password = re.search(
+    r"^\s*const\s+DEV_DEFAULT_ENGINEERING_PASSWORD\s*=\s*'([^']*)'", PRODUCT_MODE, re.MULTILINE
+)
+if dev_password and dev_password.group(1):
+    blockers.append("web UI pre-fills a development Engineering password")
 
 if kconfig_default_for("PVDG_APPLY_BUILD_WIFI_PROVISIONING") not in {"n", None}:
     blockers.append("build Wi-Fi provisioning defaults to enabled")
