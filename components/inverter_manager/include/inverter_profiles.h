@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "inverter_profile_decode.h"
+#include "inverter_status.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -67,6 +68,14 @@ typedef struct {
     float power_limit_readback_scale;
     float readback_tolerance_percent;
 
+    /*
+     * Optional operational status register. Deliberately left unconfigured for
+     * every shipped profile: no manufacturer status address is hardcoded in
+     * this firmware. Until a commissioning engineer supplies a manual-verified
+     * description, every inverter reports INVERTER_STATE_UNKNOWN.
+     */
+    inverter_status_register_t status_register;
+
     uint32_t telemetry_poll_ms;
     uint32_t telemetry_stale_timeout_ms;
 } inverter_profile_t;
@@ -78,6 +87,7 @@ bool inverter_profile_allows_read(const inverter_profile_t *profile);
 bool inverter_profile_allows_write(const inverter_profile_t *profile);
 const char *inverter_profile_qualification_label(inverter_profile_qualification_t qualification);
 const char *inverter_profile_connection_label(inverter_profile_connection_t connection);
+bool inverter_profile_has_status_register(const inverter_profile_t *profile);
 
 #ifdef __cplusplus
 }

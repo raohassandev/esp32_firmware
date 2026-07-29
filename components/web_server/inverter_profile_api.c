@@ -8,6 +8,7 @@
 #include "inverter_manager.h"
 #include "inverter_profile_store.h"
 #include "inverter_profiles.h"
+#include "inverter_status.h"
 
 #define MAX_ASSIGNMENT_BODY 256U
 #define PROFILE_BODY_DEADLINE_MS 3000U
@@ -59,6 +60,10 @@ static esp_err_t profiles_get(httpd_req_t *request)
         cJSON_AddBoolToObject(item, "active_power_supported", profile->has_active_power);
         cJSON_AddBoolToObject(item, "power_limit_supported", profile->has_power_limit);
         cJSON_AddBoolToObject(item, "power_limit_readback_supported", profile->has_power_limit_readback);
+        cJSON_AddBoolToObject(item, "status_register_supported",
+                              inverter_profile_has_status_register(profile));
+        cJSON_AddBoolToObject(item, "status_register_commissioning_required",
+                              !inverter_profile_has_status_register(profile));
         cJSON_AddNumberToObject(item, "telemetry_poll_ms", profile->telemetry_poll_ms);
         cJSON_AddNumberToObject(item, "telemetry_stale_timeout_ms", profile->telemetry_stale_timeout_ms);
 
@@ -84,6 +89,9 @@ static esp_err_t telemetry_get(httpd_req_t *request)
     uint8_t stale = 0;
     uint8_t identity_verified = 0;
     uint8_t mismatched = 0;
+    uint8_t status_supported = 0;
+    uint8_t status_on_grid = 0;
+    uint8_t status_unknown = 0;
     float measured_total_kw = 0.0f;
 
     cJSON_AddNumberToObject(root, "generated_ms", current_ms);
@@ -104,6 +112,9 @@ static esp_err_t telemetry_get(httpd_req_t *request)
         if (data.telemetry_stale) stale++;
         if (data.identity_verified) identity_verified++;
         if (data.command_mismatch) mismatched++;
+        if (data.status_supported) status_supported++;
+        if (data.status_state == INVERTER_STATE_ON_GRID && !data.status_stale) status_on_grid++;
+        if (data.status_state == INVERTER_STATE_UNKNOWN) status_unknown++;
 
         cJSON *item = cJSON_CreateObject();
         cJSON_AddNumberToObject(item, "index", index);
@@ -129,6 +140,29 @@ static esp_err_t telemetry_get(httpd_req_t *request)
             cJSON_AddNullToObject(item, "readback_percent");
             cJSON_AddNullToObject(item, "readback_age_ms");
         }
+        /* Operational status is served from the background acquisition cache.
+         * This handler performs no Modbus transaction. */
+        cJSON_AddBoolToObject(item, "status_supported", data.status_supported);
+        cJSON_AddStringToObject(item, "status_state", inverter_state_label(data.status_state));
+        cJSON_AddNumberToObject(item, "status_state_code", data.status_state);
+        cJSON_AddBoolToObject(item, "status_stale", data.status_stale);
+        cJSON_AddBoolToObject(item, "status_synchronised",
+                              inverter_state_is_synchronised(data.status_state) &&
+                                  !data.status_stale);
+        if (data.status_raw_valid) {
+            cJSON_AddNumberToObject(item, "status_raw", data.status_raw);
+        } else {
+            cJSON_AddNullToObject(item, "status_raw");
+        }
+        if (data.status_supported && data.last_status_ms != 0U) {
+            cJSON_AddNumberToObject(item, "status_age_ms", current_ms - data.last_status_ms);
+        } else {
+            cJSON_AddNullToObject(item, "status_age_ms");
+        }
+        cJSON_AddNumberToObject(item, "status_read_successes", data.status_read_successes);
+        cJSON_AddNumberToObject(item, "status_read_errors", data.status_read_errors);
+        cJSON_AddStringToObject(item, "status_last_error_name",
+                                esp_err_to_name(data.status_last_error));
         cJSON_AddBoolToObject(item, "has_command", data.has_command);
         cJSON_AddBoolToObject(item, "command_mismatch", data.command_mismatch);
         cJSON_AddNumberToObject(item, "mismatch_count", data.mismatch_count);
@@ -148,6 +182,10 @@ static esp_err_t telemetry_get(httpd_req_t *request)
     cJSON_AddNumberToObject(summary, "command_mismatched", mismatched);
     cJSON_AddNumberToObject(summary, "measured_total_kw", measured_total_kw);
     cJSON_AddNumberToObject(summary, "commandable_rated_kw", inverter_manager_get_total_rated_kw());
+    cJSON_AddNumberToObject(summary, "status_supported", status_supported);
+    cJSON_AddNumberToObject(summary, "status_on_grid", status_on_grid);
+    cJSON_AddNumberToObject(summary, "status_unknown", status_unknown);
+    cJSON_AddBoolToObject(summary, "fleet_synchronised", inverter_manager_fleet_synchronised());
 
     return send_json(request, root);
 }
