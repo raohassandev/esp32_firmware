@@ -17,6 +17,19 @@ html[data-theme="light"] {
     --yellow: #8d6800;
     --red: #b8323b;
     --shadow: 0 14px 36px rgba(31, 55, 78, 0.09);
+
+    /* Light counterparts for the semantic surface tokens declared in app.css.
+       Without these, hardcoded dark hex left var(--text) sitting on a navy
+       surface in light theme (measured 1.17:1 on .button.secondary). */
+    --surface-sunken: #f8fafc;
+    --surface-raised: #e4ecf5;
+    --surface-raised-hover: #d5e1ee;
+    --surface-overlay: #ffffff;
+    --control-track: #eef2f7;
+    --line-strong: #8fa5bb;
+    --action-solid: #1c4a78;
+    --action-solid-hover: #163c63;
+    --action-solid-text: #ffffff;
 }
 
 html[data-theme="light"] body {
@@ -33,7 +46,7 @@ html[data-theme="light"] .topbar {
     background: rgba(244, 247, 251, 0.94);
 }
 
-html[data-theme="light"] .status-strip { background: #f8fafc; }
+html[data-theme="light"] .status-strip { background: var(--surface-sunken); }
 
 html[data-theme="light"] .metric-card,
 html[data-theme="light"] .panel,

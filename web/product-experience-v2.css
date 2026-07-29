@@ -52,7 +52,7 @@ body.product-experience-v2 select { min-height: 44px; }
 .empty-state, .current-attention .empty-state, .solar-empty-state { min-height: 112px; padding: 24px; }
 [data-page="inverters"] .gauge-card { min-height: 220px; }
 [data-page="inverters"] .panel, [data-page="dashboard"] .panel { overflow: hidden; }
-html:not([data-theme="light"]) .readiness-card { background: #10243a !important; border-color: #29445f !important; color: #f4f8fc !important; min-height: 112px !important; padding: 18px 20px !important; }
+html:not([data-theme="light"]) .readiness-card { background: var(--surface-overlay) !important; border-color: var(--line) !important; color: var(--text) !important; min-height: 112px !important; padding: 18px 20px !important; }
 html:not([data-theme="light"]) .readiness-card strong,
 html:not([data-theme="light"]) .readiness-card p,
 html:not([data-theme="light"]) .readiness-card small { color: inherit !important; opacity: 1 !important; }

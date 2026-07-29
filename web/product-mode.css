@@ -157,9 +157,9 @@ html[data-access="engineering"] #engineeringConsole { display: grid; }
 .op-decision-card { border-left: 4px solid var(--orange); }
 
 html[data-theme="light"] .op-card,
-html[data-theme="light"] .op-kpi { background: #fff; }
+html[data-theme="light"] .op-kpi { background: var(--panel); }
 html[data-theme="light"] .op-flow-source,
-html[data-theme="light"] .op-inverter-row { background: #f7f9fc; }
+html[data-theme="light"] .op-inverter-row { background: var(--surface-sunken); }
 html[data-theme="light"] .op-flow-center { background: linear-gradient(145deg, #fff4e8, #edf5ff); }
 
 @media (max-width: 1220px) {

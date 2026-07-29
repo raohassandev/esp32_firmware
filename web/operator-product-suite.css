@@ -349,7 +349,7 @@ html[data-theme="light"] .product-modal,
 html[data-theme="light"] .commissioning-step,
 html[data-theme="light"] .product-mobile-nav {
     background: rgba(255, 255, 255, .96);
-    color: #12253a;
+    color: var(--text);
 }
 
 @media print {

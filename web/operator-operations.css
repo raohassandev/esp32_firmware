@@ -40,7 +40,13 @@
 .op-empty-state.good { color: var(--good); border-color: rgba(65,211,155,.28); background: rgba(65,211,155,.05); }
 html[data-theme="light"] .op-range-selector,
 html[data-theme="light"] .op-history-stat,
-html[data-theme="light"] .op-event-row { background: #f7f9fc; }
+html[data-theme="light"] .op-event-row { background: var(--surface-sunken); }
+/* S6: the range selector measured 105x30 on a phone. Grow the hit area only -
+   font size and the pill design are unchanged. */
+@media (pointer: coarse), (max-width: 760px) {
+    .op-range-button { min-height: 44px; min-width: 44px; padding: 0 14px; }
+}
+
 @media (max-width: 760px) {
     .op-history-head { align-items: stretch; flex-direction: column; }
     .op-range-selector { align-self: stretch; }
