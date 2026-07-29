@@ -4,6 +4,7 @@ import tempfile
 
 root = Path(__file__).resolve().parents[1]
 js = (root / 'web' / 'network-commissioning-fix.js').read_text(encoding='utf-8')
+wifi_js = (root / 'web' / 'wifi.js').read_text(encoding='utf-8')
 server = (root / 'components' / 'web_server' / 'web_server.c').read_text(encoding='utf-8')
 assets = (root / 'components' / 'web_server' / 'web_assets.c').read_text(encoding='utf-8')
 cmake = (root / 'components' / 'web_server' / 'CMakeLists.txt').read_text(encoding='utf-8')
@@ -83,8 +84,31 @@ assert 'vTaskDelay(' not in network_source, 'reconnect backoff must be interrupt
 assert network_source.count('s_retry_count++') == 1, 'retry counter must have one manager-owned mutation path'
 assert network_source.count('s_failed_sweeps++') == 1, 'failed-sweep counter must have one manager-owned mutation path'
 
+# Browser radio-scan polling must have one cancellable request, stop away from
+# the Wi-Fi route, pause in hidden tabs and terminate after a bounded deadline.
+for token in [
+    'SCAN_POLL_DEADLINE_MS = 30000',
+    'scanController: null',
+    'scanSequence: 0',
+    'function isWifiRoute()',
+    'function cancelScanPolling',
+    'state.scanController?.abort()',
+    "document.addEventListener('visibilitychange'",
+    "window.addEventListener('beforeunload'",
+    'if (!isWifiRoute() || document.hidden) return',
+    'Date.now() - state.scanPollStartedAt >= SCAN_POLL_DEADLINE_MS',
+    'credentials: \'same-origin\'',
+    'const controller = new AbortController()',
+    'window.setTimeout(() => controller.abort(), timeoutMs)',
+]:
+    assert token in wifi_js, f'bounded Wi-Fi scan lifecycle missing: {token}'
+assert 'window.setInterval(' not in wifi_js, 'Wi-Fi scan must not use an unbounded interval'
+assert wifi_js.count('state.scanController?.abort()') >= 2, 'route changes and replacement requests must cancel active scan fetches'
+assert "SSID must contain no more than 32 characters." in wifi_js
+assert "Recovery AP SSID must contain no more than 32 characters." in wifi_js
+
 # The module must not write control or inverter commands.
 for forbidden in ['/api/control', '/api/inverter-command', '/api/config/import']:
     assert forbidden not in js, f'network flow must not call {forbidden}'
 
-print('network commissioning, maximum-length Wi-Fi and manager-owned recovery tests: PASS')
+print('network commissioning, fixed-width credentials, manager-owned recovery and bounded browser scan tests: PASS')
