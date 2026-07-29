@@ -20,6 +20,7 @@ static const char *TAG = "control";
 static control_config_t s_config;
 static solar_grid_config_t s_grid_config;
 static control_status_t s_status;
+static bool s_runtime_forced_disabled;
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 
 typedef struct {
@@ -41,6 +42,14 @@ static portMUX_TYPE s_evidence_lock = portMUX_INITIALIZER_UNLOCKED;
 static uint32_t now_ms(void)
 {
     return (uint32_t)(esp_timer_get_time() / 1000ULL);
+}
+
+static bool runtime_control_enabled(void)
+{
+    portENTER_CRITICAL(&s_lock);
+    bool enabled = s_config.enabled && !s_runtime_forced_disabled;
+    portEXIT_CRITICAL(&s_lock);
+    return enabled;
 }
 
 static bool meter_sample_fresh(const meter_data_t *meter, uint32_t timestamp)
@@ -185,6 +194,7 @@ static void control_task(void *argument)
     while (true) {
         uint32_t timestamp = now_ms();
         float interval_seconds = safe_interval_seconds(timestamp, &previous_ms);
+        bool control_enabled = runtime_control_enabled();
 
         meter_data_t grid = {0};
         bool have_grid = meter_manager_get_data(0, &grid);
@@ -243,19 +253,17 @@ static void control_task(void *argument)
         };
 
         power_control_output_t policy = {0};
-        if (s_config.enabled) policy = power_control_step(&input);
+        if (control_enabled) policy = power_control_step(&input);
 
-        if (!s_config.enabled || !policy.valid) {
+        if (!control_enabled || !policy.valid) {
             integral_kw = 0.0f;
             policy.requested_pv_kw = 0.0f;
         } else if (!previous_cycle_valid) {
-            /* A newly stabilized source starts from the retained safe zero and is
-             * then constrained by the configured ramp-up rate. */
             current_target_kw = 0.0f;
         }
         if (policy.valid) integral_kw = policy.next_integral_kw;
 
-        float requested_kw = s_config.enabled && policy.valid
+        float requested_kw = control_enabled && policy.valid
                                  ? policy.requested_pv_kw
                                  : 0.0f;
         float applied_kw = safety_manager_limit_target_kw(requested_kw, &grid, timestamp);
@@ -263,7 +271,7 @@ static void control_task(void *argument)
 
         uint32_t alarm_flags = safety_manager_get_alarm_flags();
         app_mode_t mode = APP_MODE_DISABLED;
-        if (s_config.enabled) {
+        if (control_enabled) {
             mode = policy.valid && alarm_flags == 0U ? APP_MODE_GRID : APP_MODE_FAILSAFE;
             esp_err_t write_result = inverter_manager_set_total_power_kw(applied_kw);
             if (write_result != ESP_OK) {
@@ -284,13 +292,13 @@ static void control_task(void *argument)
             applied_kw = 0.0f;
         }
 
-        previous_cycle_valid = s_config.enabled && policy.valid && alarm_flags == 0U;
+        previous_cycle_valid = control_enabled && policy.valid && alarm_flags == 0U;
         uint32_t evidence_age = evidence.last_update_ms != 0U
                                     ? timestamp - evidence.last_update_ms
                                     : 0U;
 
         control_status_t next = {
-            .enabled = s_config.enabled,
+            .enabled = control_enabled,
             .mode = mode,
             .grid_power_kw = measured_grid_kw,
             .raw_grid_power_kw = raw_grid_kw,
@@ -352,6 +360,7 @@ esp_err_t control_engine_init(void)
     evidence_store(&evidence);
 
     portENTER_CRITICAL(&s_lock);
+    s_runtime_forced_disabled = false;
     s_status = (control_status_t){
         .enabled = s_config.enabled,
         .mode = s_config.enabled ? APP_MODE_FAILSAFE : APP_MODE_DISABLED,
@@ -392,4 +401,15 @@ void control_engine_get_status(control_status_t *out_status)
     portENTER_CRITICAL(&s_lock);
     *out_status = s_status;
     portEXIT_CRITICAL(&s_lock);
+}
+
+void control_engine_force_disable(void)
+{
+    portENTER_CRITICAL(&s_lock);
+    s_runtime_forced_disabled = true;
+    s_status.enabled = false;
+    s_status.mode = APP_MODE_DISABLED;
+    s_status.requested_pv_kw = 0.0f;
+    portEXIT_CRITICAL(&s_lock);
+    ESP_LOGW(TAG, "Runtime control disable latched; safe zero will be applied by the control task");
 }
