@@ -37,4 +37,16 @@ typedef struct {
     uint16_t grid_breaker_raw;
     uint32_t alarm_flags;
     uint32_t last_cycle_ms;
+    /* Control authority, so the interface can state one answer instead of
+     * several scattered phrases. This struct is runtime only - it is never
+     * persisted, so extending it carries no schema consequence.
+     *
+     * command_authority is the single question that matters: is the controller
+     * permitted to write to the inverters right now. inhibit_reason carries the
+     * firmware's own words for why not, so the interface never paraphrases a
+     * safety decision it did not make. */
+    bool command_authority;
+    char inhibit_reason[128];
+    uint32_t last_command_ms;       /* last accepted inverter write, 0 = never */
+    uint32_t last_authority_change_ms;
 } control_status_t;

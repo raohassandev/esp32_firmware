@@ -362,6 +362,9 @@ static void control_task(void *argument)
 
         uint32_t alarm_flags = safety_manager_get_alarm_flags();
         app_mode_t mode = APP_MODE_DISABLED;
+        /* Only an accepted inverter write sets this, so a failed command can
+         * never be reported as a successful one. */
+        bool command_accepted = false;
         if (control_enabled) {
             mode = policy.valid && alarm_flags == 0U ? APP_MODE_GRID : APP_MODE_FAILSAFE;
             esp_err_t write_result = inverter_manager_set_total_power_kw(applied_kw);
@@ -376,6 +379,7 @@ static void control_task(void *argument)
                 mode = APP_MODE_FAILSAFE;
             } else {
                 current_target_kw = applied_kw;
+                command_accepted = true;
             }
         } else if (safe_zero_pending) {
             /* The HTTP/configuration path only sets this latch. The control task
@@ -387,6 +391,7 @@ static void control_task(void *argument)
                 clear_safe_zero_pending();
                 current_target_kw = 0.0f;
                 applied_kw = 0.0f;
+                command_accepted = true;
             } else {
                 applied_kw = current_target_kw;
                 mode = APP_MODE_FAILSAFE;
@@ -431,8 +436,32 @@ static void control_task(void *argument)
             .grid_breaker_raw = evidence.grid_breaker_raw,
             .alarm_flags = alarm_flags,
             .last_cycle_ms = timestamp,
+            .command_authority = control_enabled && policy.valid && alarm_flags == 0U,
         };
+        /* One authoritative answer, in the firmware's own words, rather than the
+         * interface inferring intent from several scattered flags. Ordered most
+         * specific first so the operator is told the thing they can act on. */
+        const char *inhibit =
+            !control_enabled          ? "Automatic control is disabled; engineering authorisation is required."
+            : alarm_flags != 0U       ? "An active safety alarm is blocking commands."
+            : !roles.valid            ? "No single enabled meter is assigned the grid role."
+            : !measurement_fresh      ? "The grid measurement is missing, stale or non-finite."
+            : !fleet_valid            ? "No commissioned inverter capacity is available to command."
+            : !gate.control_allowed   ? "The grid-evidence gate has not confirmed a stable source."
+            : !source.control_allowed ? "The source carrying the plant is not settled."
+            : !policy.valid           ? "The control policy produced no valid command this cycle."
+                                      : "";
+        strlcpy(next.inhibit_reason, inhibit, sizeof(next.inhibit_reason));
+
         portENTER_CRITICAL(&s_lock);
+        if (next.command_authority != s_status.command_authority) {
+            next.last_authority_change_ms = timestamp;
+        } else {
+            next.last_authority_change_ms = s_status.last_authority_change_ms;
+        }
+        /* Only an accepted write advances this; a failed command must not look
+         * like a successful one. */
+        next.last_command_ms = command_accepted ? timestamp : s_status.last_command_ms;
         s_status = next;
         portEXIT_CRITICAL(&s_lock);
 

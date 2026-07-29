@@ -135,6 +135,46 @@ static esp_err_t status_get(httpd_req_t *request)
     cJSON_AddNumberToObject(root, "requested_pv_kw", control.requested_pv_kw);
     cJSON_AddNumberToObject(root, "applied_pv_kw", control.applied_pv_kw);
 
+    /* One authoritative statement of control authority. "Monitoring",
+     * "Monitoring only", "Automatic control locked" and "No commands issued"
+     * were separate phrases in separate places that may or may not have meant
+     * the same thing; an operator of a device that writes inverter power limits
+     * has to be able to read one answer. The inhibit reason is the firmware's
+     * own wording, so the interface never paraphrases a safety decision. */
+    {
+        cJSON *authority = cJSON_AddObjectToObject(root, "control_authority");
+        if (authority) {
+            const bool commanding = control.command_authority;
+            cJSON_AddStringToObject(authority, "mode",
+                                    !control.enabled ? "monitoring_only"
+                                    : commanding     ? "commanding"
+                                                     : "inhibited");
+            cJSON_AddStringToObject(authority, "mode_label",
+                                    !control.enabled ? "Monitoring only"
+                                    : commanding     ? "Commanding"
+                                                     : "Inhibited");
+            cJSON_AddBoolToObject(authority, "control_enabled", control.enabled);
+            cJSON_AddBoolToObject(authority, "command_authority", commanding);
+            cJSON_AddStringToObject(authority, "inhibit_reason", control.inhibit_reason);
+            cJSON_AddNumberToObject(authority, "requested_pv_kw", control.requested_pv_kw);
+            cJSON_AddNumberToObject(authority, "applied_pv_kw", control.applied_pv_kw);
+            /* Null rather than zero when nothing has happened yet: zero would
+             * read as "just now". */
+            if (control.last_command_ms != 0U) {
+                cJSON_AddNumberToObject(authority, "last_command_age_ms",
+                                        (double)(current_ms - control.last_command_ms));
+            } else {
+                cJSON_AddNullToObject(authority, "last_command_age_ms");
+            }
+            if (control.last_authority_change_ms != 0U) {
+                cJSON_AddNumberToObject(authority, "last_change_age_ms",
+                                        (double)(current_ms - control.last_authority_change_ms));
+            } else {
+                cJSON_AddNullToObject(authority, "last_change_age_ms");
+            }
+        }
+    }
+
     uint32_t alarms = safety_manager_get_alarm_flags();
     cJSON_AddNumberToObject(root, "alarms", alarms);
     cJSON *alarm_names = cJSON_AddArrayToObject(root, "alarm_names");
