@@ -4,25 +4,67 @@
     const utils = window.WifiUtils;
     if (!utils) return;
 
+    const SCAN_POLL_INTERVAL_MS = 800;
+    const SCAN_POLL_DEADLINE_MS = 30000;
+    const DEFAULT_API_TIMEOUT_MS = 5000;
+
     const state = {
         initialWifi: null,
         scanPollTimer: null,
+        scanPollStartedAt: 0,
+        scanController: null,
+        scanSequence: 0,
         selected: { primary: null, fallback: null },
         saving: false
     };
 
     const byId = (id) => document.getElementById(id);
 
+    function isWifiRoute() {
+        return window.location.hash.replace(/^#\/?/, '').split(/[?&]/, 1)[0] === 'wifi';
+    }
+
     async function api(path, options = {}) {
-        const response = await fetch(path, { cache: 'no-store', ...options });
-        const text = await response.text();
-        let payload = null;
-        if (text) {
-            try { payload = JSON.parse(text); }
-            catch (error) { payload = { error: text }; }
+        const {
+            timeoutMs = DEFAULT_API_TIMEOUT_MS,
+            signal: externalSignal,
+            ...fetchOptions
+        } = options;
+        const controller = new AbortController();
+        const abort = () => controller.abort();
+        if (externalSignal) {
+            if (externalSignal.aborted) controller.abort();
+            else externalSignal.addEventListener('abort', abort, { once: true });
         }
-        if (!response.ok) throw new Error(payload && payload.error ? payload.error : text || `${response.status} ${response.statusText}`);
-        return payload;
+        const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            const response = await fetch(path, {
+                cache: 'no-store',
+                credentials: 'same-origin',
+                ...fetchOptions,
+                signal: controller.signal
+            });
+            const text = await response.text();
+            let payload = null;
+            if (text) {
+                try { payload = JSON.parse(text); }
+                catch (error) { payload = { error: text }; }
+            }
+            if (!response.ok) {
+                throw new Error(payload && payload.error
+                    ? payload.error
+                    : text || `${response.status} ${response.statusText}`);
+            }
+            return payload;
+        } catch (error) {
+            if (error?.name === 'AbortError') {
+                throw new Error(`Wi-Fi request timed out after ${Math.ceil(timeoutMs / 1000)}s`);
+            }
+            throw error;
+        } finally {
+            window.clearTimeout(timer);
+            externalSignal?.removeEventListener?.('abort', abort);
+        }
     }
 
     function installScanPanel() {
@@ -45,17 +87,17 @@
     }
 
     function setScanMessage(message, tone = '') {
-        const node = byId('wifiScanMessage');
-        if (!node) return;
-        node.textContent = message || '';
-        node.className = `wifi-scan-message${tone ? ` ${tone}` : ''}`;
+        const target = byId('wifiScanMessage');
+        if (!target) return;
+        target.textContent = message || '';
+        target.className = `wifi-scan-message${tone ? ` ${tone}` : ''}`;
     }
 
     function setScanBadge(label, tone = '') {
-        const node = byId('wifiScanState');
-        if (!node) return;
-        node.textContent = label;
-        node.className = `subtle-badge${tone ? ` ${tone}` : ''}`;
+        const target = byId('wifiScanState');
+        if (!target) return;
+        target.textContent = label;
+        target.className = `subtle-badge${tone ? ` ${tone}` : ''}`;
     }
 
     function securityBadge(record) {
@@ -67,10 +109,10 @@
     }
 
     function tag(label, tone = '') {
-        const node = document.createElement('span');
-        node.className = `network-tag${tone ? ` ${tone}` : ''}`;
-        node.textContent = label;
-        return node;
+        const target = document.createElement('span');
+        target.className = `network-tag${tone ? ` ${tone}` : ''}`;
+        target.textContent = label;
+        return target;
     }
 
     function selectNetwork(role, record) {
@@ -100,7 +142,9 @@
         if (networks.length === 0) {
             const empty = document.createElement('div');
             empty.className = 'empty-state';
-            empty.textContent = snapshot.state === 'failed' ? 'The scan failed. Existing connection profiles were not changed.' : 'No visible Wi-Fi networks were found.';
+            empty.textContent = snapshot.state === 'failed'
+                ? 'The scan failed. Existing connection profiles were not changed.'
+                : 'No visible Wi-Fi networks were found.';
             container.appendChild(empty);
             return;
         }
@@ -137,14 +181,16 @@
             const actions = document.createElement('div');
             actions.className = 'wifi-network-actions';
             for (const role of ['primary', 'fallback']) {
-                const button = document.createElement('button');
-                button.type = 'button';
-                button.className = 'button secondary compact-button';
-                button.textContent = role === 'primary' ? 'Use as primary' : 'Use as fallback';
-                button.disabled = !info.supported;
-                if (!info.supported) button.title = 'This security mode is not supported by the current commissioning form.';
-                button.addEventListener('click', () => selectNetwork(role, record));
-                actions.appendChild(button);
+                const action = document.createElement('button');
+                action.type = 'button';
+                action.className = 'button secondary compact-button';
+                action.textContent = role === 'primary' ? 'Use as primary' : 'Use as fallback';
+                action.disabled = !info.supported;
+                if (!info.supported) {
+                    action.title = 'This security mode is not supported by the current commissioning form.';
+                }
+                action.addEventListener('click', () => selectNetwork(role, record));
+                actions.appendChild(action);
             }
 
             row.append(identity, signal, actions);
@@ -156,9 +202,44 @@
         return ['idle', 'running', 'complete', 'failed'][Number(value)] || 'unknown';
     }
 
-    async function loadScanSnapshot() {
+    function cancelScanPolling({ resetDeadline = false } = {}) {
+        window.clearTimeout(state.scanPollTimer);
+        state.scanPollTimer = null;
+        state.scanController?.abort();
+        state.scanController = null;
+        state.scanSequence++;
+        if (resetDeadline) state.scanPollStartedAt = 0;
+    }
+
+    function scheduleScanPoll() {
+        window.clearTimeout(state.scanPollTimer);
+        state.scanPollTimer = null;
+        if (!isWifiRoute() || document.hidden) return;
+        if (!state.scanPollStartedAt) state.scanPollStartedAt = Date.now();
+        if (Date.now() - state.scanPollStartedAt >= SCAN_POLL_DEADLINE_MS) {
+            setScanBadge('Scan delayed', 'warning');
+            setScanMessage('The scan is still running after 30 seconds. Polling stopped; press Scan networks to check again.', 'warning');
+            state.scanPollStartedAt = 0;
+            return;
+        }
+        state.scanPollTimer = window.setTimeout(
+            () => loadScanSnapshot({ automatic: true }),
+            SCAN_POLL_INTERVAL_MS
+        );
+    }
+
+    async function loadScanSnapshot({ automatic = false } = {}) {
+        if (automatic && (!isWifiRoute() || document.hidden)) return;
+        state.scanController?.abort();
+        const controller = new AbortController();
+        state.scanController = controller;
+        const sequence = ++state.scanSequence;
         try {
-            const snapshot = await api('/api/wifi/scan');
+            const snapshot = await api('/api/wifi/scan', {
+                signal: controller.signal,
+                timeoutMs: 4000
+            });
+            if (sequence !== state.scanSequence) return;
             const name = scanStateName(snapshot.state);
             snapshot.state = name;
             renderNetworks(snapshot);
@@ -168,34 +249,40 @@
                 setScanMessage('The controller is surveying nearby access points. The active profile is unchanged.');
                 scheduleScanPoll();
             } else if (name === 'complete') {
+                cancelScanPolling({ resetDeadline: true });
                 setScanBadge(`${snapshot.networks.length} found`, 'good');
-                setScanMessage(`Scan completed. Results are sorted by signal strength.`, 'good');
+                setScanMessage('Scan completed. Results are sorted by signal strength.', 'good');
             } else if (name === 'failed') {
+                cancelScanPolling({ resetDeadline: true });
                 setScanBadge('Scan failed', 'bad');
-                setScanMessage(snapshot.error_name ? `Scan failed: ${snapshot.error_name}` : 'The Wi-Fi scan failed.', 'bad');
+                setScanMessage(snapshot.error_name
+                    ? `Scan failed: ${snapshot.error_name}`
+                    : 'The Wi-Fi scan failed.', 'bad');
             } else {
+                cancelScanPolling({ resetDeadline: true });
                 setScanBadge('Not scanned');
             }
         } catch (error) {
+            if (sequence !== state.scanSequence) return;
             setScanBadge('Unavailable', 'bad');
             setScanMessage(`Unable to load scan results: ${error.message}`, 'bad');
+        } finally {
+            if (sequence === state.scanSequence) state.scanController = null;
         }
-    }
-
-    function scheduleScanPoll() {
-        window.clearTimeout(state.scanPollTimer);
-        state.scanPollTimer = window.setTimeout(loadScanSnapshot, 800);
     }
 
     async function requestScan() {
         const button = byId('wifiScanButton');
         if (button) button.disabled = true;
+        cancelScanPolling({ resetDeadline: true });
+        state.scanPollStartedAt = Date.now();
         setScanBadge('Starting…', 'warning');
         setScanMessage('Requesting a non-disruptive radio scan…');
         try {
-            await api('/api/wifi/scan', { method: 'POST' });
+            await api('/api/wifi/scan', { method: 'POST', timeoutMs: 5000 });
             await loadScanSnapshot();
         } catch (error) {
+            cancelScanPolling({ resetDeadline: true });
             setScanBadge('Not started', 'bad');
             setScanMessage(`Scan request rejected: ${error.message}`, 'bad');
         } finally {
@@ -218,8 +305,8 @@
     }
 
     function clearCommissioningErrors() {
-        document.querySelectorAll('.wifi-commissioning-error').forEach((node) => node.remove());
-        document.querySelectorAll('.wifi-commissioning-invalid').forEach((node) => node.classList.remove('wifi-commissioning-invalid'));
+        document.querySelectorAll('.wifi-commissioning-error').forEach((target) => target.remove());
+        document.querySelectorAll('.wifi-commissioning-invalid').forEach((target) => target.classList.remove('wifi-commissioning-invalid'));
     }
 
     function fieldError(id, message) {
@@ -239,6 +326,10 @@
             fieldError(`${prefix}Ssid`, 'SSID is required when this profile is enabled.');
             valid = false;
         }
+        if (profile.ssid.length > 32) {
+            fieldError(`${prefix}Ssid`, 'SSID must contain no more than 32 characters.');
+            valid = false;
+        }
         if (profile.password && (profile.password.length < 8 || profile.password.length > 64)) {
             fieldError(`${prefix}Password`, 'Wi-Fi passwords must contain 8–64 characters.');
             valid = false;
@@ -250,8 +341,11 @@
         }
 
         const selected = state.selected[prefix];
-        const selectedInfo = selected && selected.ssid === profile.ssid ? utils.authInfo(selected.authMode) : null;
-        if (profile.enabled && selectedInfo && selectedInfo.secure && original && original.ssid !== profile.ssid && !profile.password) {
+        const selectedInfo = selected && selected.ssid === profile.ssid
+            ? utils.authInfo(selected.authMode)
+            : null;
+        if (profile.enabled && selectedInfo && selectedInfo.secure && original &&
+            original.ssid !== profile.ssid && !profile.password) {
             fieldError(`${prefix}Password`, 'Enter the password for the newly selected secured network.');
             valid = false;
         }
@@ -280,6 +374,10 @@
         const recoveryPassword = byId('recoveryPassword').value;
         if (recoveryEnabled && !recoverySsid) {
             fieldError('recoverySsid', 'Recovery AP SSID is required when enabled.');
+            valid = false;
+        }
+        if (recoverySsid.length > 32) {
+            fieldError('recoverySsid', 'Recovery AP SSID must contain no more than 32 characters.');
             valid = false;
         }
         if (recoveryPassword && (recoveryPassword.length < 8 || recoveryPassword.length > 64)) {
@@ -344,7 +442,8 @@
                 throw new Error('No Wi-Fi configuration changes were detected.');
             }
 
-            const primaryChanged = !state.initialWifi || payload.primary.ssid !== (state.initialWifi.primary || {}).ssid;
+            const primaryChanged = !state.initialWifi ||
+                payload.primary.ssid !== (state.initialWifi.primary || {}).ssid;
             const warning = primaryChanged
                 ? `The primary network will change to “${payload.primary.ssid}”. The controller will restart and its IP address may change. Continue?`
                 : 'Save the Wi-Fi configuration and restart the controller now? Its DHCP address may change.';
@@ -356,10 +455,11 @@
             await api('/api/wifi/config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
+                body: JSON.stringify(payload),
+                timeoutMs: 8000
             });
             if (message) message.textContent = 'Saved. Restarting controller…';
-            await api('/api/system/restart', { method: 'POST' });
+            await api('/api/system/restart', { method: 'POST', timeoutMs: 5000 });
             if (message) message.textContent = 'Restart accepted. Rediscover the controller if its IP changes.';
         } catch (error) {
             if (message) message.textContent = error.message;
@@ -377,7 +477,7 @@
 
     async function loadInitialWifi() {
         try {
-            const config = await api('/api/config');
+            const config = await api('/api/config', { timeoutMs: 5000 });
             state.initialWifi = config.wifi || {};
         } catch (error) {
             setScanMessage(`Configuration baseline unavailable: ${error.message}`, 'bad');
@@ -420,12 +520,18 @@
         }
 
         for (const role of ['primary', 'fallback']) {
-            byId(`${role}Ssid`).addEventListener('input', () => { state.selected[role] = null; });
+            byId(`${role}Ssid`)?.addEventListener('input', () => { state.selected[role] = null; });
         }
 
         window.addEventListener('hashchange', () => {
-            if (window.location.hash.includes('/wifi')) loadScanSnapshot();
+            if (isWifiRoute()) loadScanSnapshot();
+            else cancelScanPolling();
         });
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) cancelScanPolling();
+            else if (isWifiRoute()) loadScanSnapshot();
+        });
+        window.addEventListener('beforeunload', () => cancelScanPolling({ resetDeadline: true }));
         window.addEventListener('resize', compactControllerPill);
 
         const pill = byId('controllerPill');
@@ -435,7 +541,9 @@
 
     async function start() {
         bind();
-        await Promise.allSettled([loadInitialWifi(), loadScanSnapshot()]);
+        const tasks = [loadInitialWifi()];
+        if (isWifiRoute() && !document.hidden) tasks.push(loadScanSnapshot());
+        await Promise.allSettled(tasks);
     }
 
     start().catch((error) => setScanMessage(`Wi-Fi commissioning failed to initialize: ${error.message}`, 'bad'));
