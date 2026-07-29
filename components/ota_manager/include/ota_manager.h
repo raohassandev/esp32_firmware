@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "esp_app_desc.h"
+#include "esp_app_format.h"
 #include "esp_err.h"
 #include "esp_ota_ops.h"
 #include "esp_partition.h"
