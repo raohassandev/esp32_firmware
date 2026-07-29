@@ -77,6 +77,14 @@ require("output.loss_confirmed" in GATE,
 require("control_engine_force_disable" in CONTROL_H and
         "s_runtime_forced_disabled = true" in CONTROL,
         "running control disable latch is missing")
+for token in [
+    "s_safe_zero_pending = true",
+    "inverter_manager_set_total_power_kw(0.0f)",
+    "clear_safe_zero_pending();",
+    "applied_kw = current_target_kw",
+]:
+    require(token in CONTROL,
+            f"confirmed safe-zero transition after runtime disable missing: {token}")
 require("control_engine_force_disable();" in API,
         "Solar-Grid writes must disable the already-running control task")
 require("application->control.enabled = false" in API,
