@@ -54,6 +54,7 @@ set(WEB_SERVER_C_SOURCES
     "engineering_guard.c"
     "http_json.c"
     "operational_api.c"
+    "alarm_journal.c"
     "inverter_profile_api.c"
     "inverter_config_api.c"
     "meter_config_api.c"
@@ -89,7 +90,7 @@ set(AUDIT_PERSISTENCE_SOURCES
 idf_component_register(
     SRCS ${WEB_SERVER_C_SOURCES}
     INCLUDE_DIRS "include"
-    REQUIRES esp_http_server esp_system esp_timer esp_hw_support esp_app_format esp_partition app_update spi_flash cjson nvs_flash mbedtls config_manager solar_grid_config source_detection network_manager meter_manager modbus_tcp inverter_manager control_engine safety_manager
+    REQUIRES esp_http_server esp_system esp_timer esp_hw_support esp_app_format esp_partition app_update spi_flash spiffs cjson nvs_flash mbedtls config_manager solar_grid_config source_detection network_manager meter_manager modbus_tcp inverter_manager control_engine safety_manager
     EMBED_TXTFILES
         "${CMAKE_CURRENT_BINARY_DIR}/index.html"
         "${CMAKE_CURRENT_BINARY_DIR}/app.css"
