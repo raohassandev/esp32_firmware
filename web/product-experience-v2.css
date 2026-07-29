@@ -9,7 +9,7 @@ body.product-experience-v2 .experience-legacy-intro,
 body.product-experience-v2 .experience-secondary-control { display: none !important; }
 .experience-masthead { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: start; margin: 0 0 22px; padding: 0 0 18px; border-bottom: 1px solid var(--line-soft); }
 .experience-copy { min-width: 0; }
-.experience-copy h2 { margin: 5px 0 8px; font-size: clamp(25px, 2.35vw, 34px); line-height: 1.08; letter-spacing: -0.025em; }
+.experience-copy h2 { margin: 5px 0 8px; font-size: 26px; line-height: 1.08; letter-spacing: -0.025em; }
 .experience-question { margin: 0; max-width: 780px; color: var(--text); font-size: 15px; font-weight: 730; line-height: 1.45; }
 .experience-guidance { margin: 5px 0 0; max-width: 780px; color: var(--muted); font-size: 12px; line-height: 1.55; }
 .experience-scope { align-self: start; padding: 7px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); background: rgba(8,24,39,.55); font-size: 10px; font-weight: 850; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
@@ -107,4 +107,88 @@ html:not([data-theme="light"]) .readiness-card small { color: inherit !important
   .readiness-grid { grid-template-columns: 1fr !important; }
   html:not([data-theme="light"]) .readiness-card { min-height: 0 !important; }
   .history-chart, .trend-chart { min-height: 110px; }
+}
+
+/* ==========================================================================
+   Responsive density — P1 from docs/UI_VISUAL_AUDIT_2026-07-29.md
+
+   The audit found the application looking materially different at different
+   browser zoom levels, content occupying only part of the available width, and
+   later screens using very small type. Browser zoom is not a layout strategy:
+   it is what a user reaches for when the layout has already failed them.
+
+   Two causes, both fixed here.
+
+   1. Viewport-relative type. Headings and hero numbers were sized with
+      clamp(..., 2.4vw, ...). Zooming changes the CSS viewport width, so the
+      type re-scaled by a different factor than the layout and the page looked
+      like a different design at 80% and at 125%. Type is now fixed px and
+      scales only with the zoom itself.
+
+   2. No maximum width by page type. One 1550px measure was applied to a
+      dashboard read across and to a Wi-Fi form read down a single column. A
+      form at 1550px puts the label at one end of the monitor and its field at
+      the other. web/app.js stamps body[data-page-type] from the route table
+      and each type gets the measure that suits it.
+
+   Placed in this file because it is the last stylesheet in the served bundle
+   (components/web_server/web_server.c css_handler) that applies site-wide; the
+   two after it are scoped to .commissioning-wizard-v2 and .cr-*. Every colour
+   below still resolves through a theme token declared for both themes.
+   ========================================================================== */
+
+/* Beats body.product-experience-v2 .content (0,2,0) on specificity rather than
+   on order, so the measure holds regardless of how the bundle is assembled. */
+.app-shell .workspace .content { max-width: var(--page-max-operational); }
+body[data-page-type="form"] .app-shell .workspace .content { max-width: var(--page-max-form); }
+body[data-page-type="guided"] .app-shell .workspace .content { max-width: var(--page-max-guided); }
+
+/* Body text 14-16px at 100% scale. */
+body { font-size: 15px; line-height: 1.5; }
+.page-intro p:not(.eyebrow),
+.op-card p, .op-event-copy p, .alarm-copy p, .notice { font-size: 14px; line-height: 1.55; }
+
+/* Labels at 12px minimum. .eyebrow is deliberately excluded and left exactly as
+   it is: it renders brand orange at 10px and measures 2.23:1 on light
+   backgrounds, and fixing that means either changing the brand colour in light
+   theme or splitting it into its own text token. That is the product owner's
+   decision, not this change's, and it is recorded as an open issue rather than
+   quietly altered here. */
+.status-label, .breadcrumb, .metric-foot, .field, .field-error, .switch,
+.action-message, .sidebar-version, .asset-card dt, .asset-card dd,
+.mode-panel span, .flow-node span, .flow-node small, .flow-kind,
+.flow-secondary span, .flow-secondary small, .flow-line small,
+.connection-overview small, .asset-card .asset-state,
+.op-kpi-label, .op-kpi-detail, .op-flow-kind, .op-flow-provenance,
+.op-state-pill, .op-event-meta small, .op-event-copy small,
+.alarm-severity-pill, .alarm-state-meaning, .alarm-action,
+.alarm-meta-item span, .alarm-meta-item strong,
+.shell-status-row span, .shell-status-row strong, .shell-page-context,
+.experience-guidance, .experience-scope, .prelab-nav-state { font-size: 12px; }
+
+/* Primary numeric values 24-32px, fixed rather than viewport-scaled. */
+.metric-value, .op-kpi-value, .op-gauge-copy strong { font-size: 28px; letter-spacing: -0.02em; }
+.metric-value.compact { font-size: 24px; }
+.page-intro h2, .experience-copy h2 { font-size: 26px; }
+.page-heading h1, body.product-shell-v2 .page-heading h1 { font-size: 20px; }
+
+/* Touch targets. The four persistent header controls measured 40x40 and 40x42,
+   and the range selector 105x30 - the worst offender, and the control an
+   operator uses most on a phone. Applied wherever touch is the pointer, not
+   only at narrow widths: a wall-mounted panel is wide AND touched. */
+@media (pointer: coarse), (max-width: 900px) {
+    .topbar .topbar-actions button,
+    .topbar .icon-button,
+    .topbar .menu-button,
+    .app-shell .nav-link,
+    body.product-experience-v2 .button,
+    .engineering-session-banner .esb-action { min-height: 44px; min-width: 44px; }
+    .op-range-selector .op-range-button { min-height: 44px; min-width: 44px; }
+    .product-mobile-nav .product-mobile-link { min-height: 48px; }
+}
+
+@media (max-width: 650px) {
+    .esb-timer strong { font-size: 24px; }
+    .metric-value, .op-kpi-value, .op-gauge-copy strong { font-size: 25px; }
+    .page-intro h2, .experience-copy h2 { font-size: 22px; }
 }

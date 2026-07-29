@@ -196,6 +196,8 @@ jobs:
         run: python3 tests/alarm_ui_source_contract.py
       - name: Check site power-flow model
         run: python3 tests/power_flow_model_source_contract.py
+      - name: Check information architecture, state taxonomy and trends
+        run: python3 tests/ia_taxonomy_source_contract.py
       - name: Enforce production release gate
         env:
           PVDG_PRODUCTION_RELEASE: ${{ inputs.production_release && '1' || '0' }}

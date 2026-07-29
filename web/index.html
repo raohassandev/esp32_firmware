@@ -15,13 +15,32 @@
                 <div class="brand-mark" aria-hidden="true">A</div>
                 <div><div class="brand-name">AUTOMATRIX</div><div class="brand-product">PV-DG Controller</div></div>
             </div>
-            <nav class="nav-list">
-                <a class="nav-link" href="#/dashboard" data-route="dashboard"><span aria-hidden="true">⌂</span><span>Dashboard</span></a>
-                <a class="nav-link" href="#/wifi" data-route="wifi"><span aria-hidden="true">⌁</span><span>Wi-Fi</span></a>
-                <a class="nav-link" href="#/meters" data-route="meters"><span aria-hidden="true">▤</span><span>Meters</span></a>
-                <a class="nav-link" href="#/inverters" data-route="inverters"><span aria-hidden="true">◇</span><span>Inverters</span></a>
-                <a class="nav-link" href="#/control" data-route="control"><span aria-hidden="true">⇄</span><span>PV-DG Control</span></a>
-                <a class="nav-link" href="#/system" data-route="system"><span aria-hidden="true">⚙</span><span>System</span></a>
+            <!-- Navigation is grouped by what a page is FOR: Operate / Commission /
+                 Maintain / Access. web/app.js owns the grouping, the ordering and the
+                 one durable name per page, and re-applies all three whenever another
+                 module changes the sidebar. Authorisation is unchanged and still
+                 belongs entirely to web/product-mode.js.
+
+                 data-shell-grouped tells web/product-shell-v2.js that ordering has
+                 already been decided; its own flat ordering pass is idempotent and
+                 skips when the flag is present. The two empty experience-nav-label
+                 elements below hold the matching latch in web/product-experience-v2.js,
+                 which re-inserts its own two-group labels whenever the sidebar does
+                 not have exactly two of them. Both modules are owned elsewhere; this
+                 satisfies their contracts rather than editing them. -->
+            <nav class="nav-list" data-shell-grouped="true">
+                <span class="experience-nav-label nav-group-latch" hidden aria-hidden="true"></span>
+                <span class="experience-nav-label nav-group-latch" hidden aria-hidden="true"></span>
+                <p class="nav-group-title" data-nav-group="operate" title="Watching a running plant">Operate</p>
+                <a class="nav-link" href="#/dashboard" data-route="dashboard" aria-label="Plant overview"><span aria-hidden="true">⌂</span><span>Plant overview</span></a>
+                <a class="nav-link" href="#/meters" data-route="meters" aria-label="Grid power"><span aria-hidden="true">▤</span><span>Grid power</span></a>
+                <a class="nav-link" href="#/inverters" data-route="inverters" aria-label="Solar inverters"><span aria-hidden="true">◇</span><span>Solar inverters</span></a>
+                <p class="nav-group-title" data-nav-group="commission" title="Bringing the site into service">Commission</p>
+                <a class="nav-link" href="#/wifi" data-route="wifi" aria-label="Network setup"><span aria-hidden="true">⌁</span><span>Network setup</span></a>
+                <p class="nav-group-title" data-nav-group="maintain" title="Servicing an installed controller">Maintain</p>
+                <a class="nav-link" href="#/control" data-route="control" aria-label="PV-DG control"><span aria-hidden="true">⇄</span><span>PV-DG control</span></a>
+                <a class="nav-link" href="#/system" data-route="system" aria-label="Controller"><span aria-hidden="true">⚙</span><span>Controller</span></a>
+                <p class="nav-group-title" data-nav-group="access" title="Engineering session">Access</p>
             </nav>
             <div class="sidebar-footer"><div class="sidebar-state" id="sidebarState">Connecting to controller…</div><div class="sidebar-version" id="sidebarVersion">Firmware configuration loading</div></div>
         </aside>
@@ -32,6 +51,24 @@
                 <div class="page-heading"><div class="breadcrumb">Controller / <span id="breadcrumbCurrent">Dashboard</span></div><h1 id="pageTitle">Dashboard</h1></div>
                 <div class="topbar-actions"><span class="live-pill neutral" id="controllerPill">Connecting…</span><button class="icon-button" id="refreshButton" type="button" aria-label="Refresh controller data">↻</button></div>
             </header>
+
+            <!-- Engineering is a session, not a page. While it is unlocked this
+                 banner is present on every route and states how long is left, so
+                 an engineer cannot be dropped mid-write with no warning. The
+                 countdown and the actions are driven by web/product-mode.js. -->
+            <aside class="engineering-session-banner" id="engineeringSessionBanner" role="status" aria-live="polite" hidden>
+                <span class="esb-mark" aria-hidden="true">🔓</span>
+                <div class="esb-copy">
+                    <strong id="engineeringSessionTitle">Engineering session active</strong>
+                    <span id="engineeringSessionDetail">Protected settings can be written from this browser.</span>
+                </div>
+                <div class="esb-timer">
+                    <span class="esb-timer-label">Session time remaining</span>
+                    <strong id="engineeringSessionRemaining" data-session-remaining>--:--</strong>
+                </div>
+                <button class="button secondary esb-action" id="engineeringSessionExtend" type="button">Extend session</button>
+                <button class="button secondary esb-action" id="engineeringSessionLock" type="button">Lock engineering</button>
+            </aside>
 
             <section class="status-strip" aria-label="Controller status">
                 <div class="status-item"><span class="status-label">Controller</span><strong id="statusController">Checking</strong></div>

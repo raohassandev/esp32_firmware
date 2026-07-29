@@ -1,23 +1,118 @@
 (() => {
     'use strict';
 
+    /* ------------------------------------------------------ information architecture
+     *
+     * One durable name per page. The audit found the same screen called
+     * "Dashboard" in the sidebar and "Plant overview" in its own heading,
+     * "System" and "Controller", "Wi-Fi" and "Network setup", "Alarm center"
+     * and "Alarms and events". An operator who is told over the phone to open
+     * "Network setup" must be able to find it in the sidebar.
+     *
+     * `name` is that single name: it is the navigation label, the page title,
+     * the breadcrumb and document.title. They cannot drift apart because there
+     * is only one string. Route, title and selected navigation item have
+     * disagreed here before - a route missing from this table fell back to
+     * 'dashboard' and stamped that into document.title while rendering a
+     * different section - so every route the product can reach has an entry,
+     * including the ones later modules inject.
+     *
+     * `group` answers the question the audit said the interface could not:
+     * whether Engineering is a role, a mode, a page or a menu group. It is a
+     * session (Access); the pages that need it live in the group that matches
+     * what they are FOR, not in a separate locked wing.
+     *
+     *   Operate    - watching a running plant
+     *   Commission - bringing the site into service
+     *   Maintain   - servicing and tuning an installed controller
+     *   Access     - who you are signed in as
+     *
+     * Grouping is presentation only. Authorisation is still decided solely by
+     * PROTECTED_ROUTES and the scope predicate in web/product-mode.js. */
+    const NAV_GROUPS = [
+        { id: 'operate', label: 'Operate', hint: 'Watching a running plant' },
+        { id: 'commission', label: 'Commission', hint: 'Bringing the site into service' },
+        { id: 'maintain', label: 'Maintain', hint: 'Servicing an installed controller' },
+        { id: 'access', label: 'Access', hint: 'Engineering session' }
+    ];
+
     const ROUTES = {
-        dashboard: { title: 'Dashboard', breadcrumb: 'Dashboard' },
-        wifi: { title: 'Wi-Fi', breadcrumb: 'Wi-Fi connection' },
-        meters: { title: 'Meters', breadcrumb: 'Grid meters' },
-        inverters: { title: 'Inverters', breadcrumb: 'Inverters' },
-        control: { title: 'PV-DG Control', breadcrumb: 'PV-DG control' },
-        system: { title: 'System', breadcrumb: 'System' },
-        /* Routes owned by later modules still need an entry here. Without one,
-         * routeFromHash() fell back to 'dashboard' and stamped that into
-         * document.title, so #/alarms reported itself as "Dashboard" while
-         * correctly rendering the alarms section - the route, the title and the
-         * selected navigation item disagreed. */
-        alarms: { title: 'Alarms', breadcrumb: 'Alarms and events' },
-        readiness: { title: 'Pre-Lab Readiness', breadcrumb: 'Readiness' },
-        commissioning: { title: 'Commissioning', breadcrumb: 'Commissioning' },
-        engineering: { title: 'Engineering', breadcrumb: 'Engineering' }
+        dashboard: { name: 'Plant overview', group: 'operate', icon: '⌂' },
+        meters: { name: 'Grid power', group: 'operate', icon: '▤' },
+        inverters: { name: 'Solar inverters', group: 'operate', icon: '◇' },
+        alarms: { name: 'Alarms and events', group: 'operate', icon: '△' },
+        commissioning: { name: 'Commissioning', group: 'commission', icon: '✓' },
+        readiness: { name: 'Pre-lab readiness', group: 'commission', icon: '⌾' },
+        wifi: { name: 'Network setup', group: 'commission', icon: '⌁' },
+        control: { name: 'PV-DG control', group: 'maintain', icon: '⇄' },
+        system: { name: 'Controller', group: 'maintain', icon: '⚙' },
+        engineering: { name: 'Engineering access', group: 'access', icon: '▣' }
     };
+
+    /* Page type drives the maximum measure. Operational screens are read across
+     * and want the width; a form or a guided workflow is read down one column
+     * and gets worse, not better, when the label ends up on one side of a
+     * monitor and its field on the other. See the density block in
+     * web/product-experience-v2.css. */
+    const PAGE_TYPES = {
+        dashboard: 'operational', meters: 'operational', inverters: 'operational',
+        alarms: 'operational',
+        wifi: 'form', control: 'form', system: 'form',
+        commissioning: 'guided', readiness: 'guided', engineering: 'guided'
+    };
+
+    const ROUTE_ORDER = Object.keys(ROUTES);
+
+    function routeName(route) {
+        const meta = ROUTES[route];
+        return meta ? meta.name : 'Controller';
+    }
+
+    /* ------------------------------------------------------------ state taxonomy
+     *
+     * Sixteen words were in use for six concepts - Online, Healthy, Ready,
+     * Review, Monitoring, Monitoring only, Safely disabled, Disabled, Clear,
+     * Normal, Not commissioned, Not monitored, Active, Cleared, Pass, Warning -
+     * with "Review" standing in almost everywhere. On a controller that writes
+     * inverter power limits, two words for one state is two states as far as
+     * the reader is concerned.
+     *
+     * Six families, each closed. A screen picks the family that matches the
+     * question it is answering and uses only that family's words.
+     *
+     * VERBATIM is the rule that keeps this honest. Where the firmware already
+     * publishes a state - control_authority.mode_label, its inhibit_reason, the
+     * alarm condition names, the grid measurement quality - that string is
+     * displayed exactly as received. The interface must not paraphrase a safety
+     * decision it did not make, and must not translate an inhibit reason into a
+     * friendlier word than the controller chose. */
+    const STATES = Object.freeze({
+        dataQuality: Object.freeze({
+            good: 'Good', stale: 'Stale', invalid: 'Invalid', unavailable: 'Unavailable'
+        }),
+        communication: Object.freeze({
+            online: 'Online', degraded: 'Degraded', offline: 'Offline'
+        }),
+        commissioning: Object.freeze({
+            notConfigured: 'Not configured', configured: 'Configured',
+            qualified: 'Qualified', failed: 'Failed'
+        }),
+        control: Object.freeze({
+            active: 'Active', standby: 'Standby', inhibited: 'Inhibited', faulted: 'Faulted'
+        }),
+        alarm: Object.freeze({ normal: 'Normal', warning: 'Warning', critical: 'Critical' }),
+        workflow: Object.freeze({
+            notStarted: 'Not started', inProgress: 'In progress',
+            complete: 'Complete', blocked: 'Blocked'
+        })
+    });
+
+    /* Returns the firmware's own wording untouched, and says plainly when the
+     * firmware supplied nothing rather than inventing a state on its behalf. */
+    function verbatim(value, absent = STATES.dataQuality.unavailable) {
+        const text = typeof value === 'string' ? value.trim() : '';
+        return text || absent;
+    }
 
     const WIFI_STATES = ['Idle', 'Scanning', 'Connecting primary', 'Connecting fallback', 'Connected', 'Setup AP', 'Disconnected'];
     const CONTROL_MODES = ['Disabled', 'Grid', 'Generator', 'Manual', 'Failsafe', 'Emergency'];
@@ -141,15 +236,131 @@
         return ROUTES[route] ? route : 'dashboard';
     }
 
+    /* ------------------------------------------------- navigation hierarchy
+     *
+     * Several modules add, relabel or reorder sidebar entries after this one
+     * runs: the alarm centre inserts its own link, the readiness and
+     * commissioning modules insert theirs, the operator suite renames five of
+     * them on every route change and moves the alarm link next to Controller.
+     * Those modules are owned elsewhere. Rather than fight them one by one,
+     * this function is the single place that decides where a route sits and
+     * what it is called, and it is re-run whenever the sidebar changes.
+     *
+     * It is idempotent by construction: it only writes when the DOM already
+     * disagrees with the table, so re-running it on its own mutations settles
+     * immediately instead of looping. */
+    let navPassRunning = false;
+
+    function navGroupHeading(group) {
+        const nav = document.querySelector('.nav-list');
+        if (!nav) return null;
+        let heading = nav.querySelector(`[data-nav-group="${group.id}"]`);
+        if (!heading) {
+            heading = document.createElement('p');
+            heading.className = 'nav-group-title';
+            heading.dataset.navGroup = group.id;
+            heading.textContent = group.label;
+            heading.title = group.hint;
+            nav.append(heading);
+        }
+        return heading;
+    }
+
+    function ensureNavigationHierarchy() {
+        const nav = document.querySelector('.nav-list');
+        if (!nav || navPassRunning) return;
+        navPassRunning = true;
+        try {
+            const wanted = [];
+            NAV_GROUPS.forEach((group) => {
+                const heading = navGroupHeading(group);
+                if (!heading) return;
+                wanted.push(heading);
+                ROUTE_ORDER.filter((route) => ROUTES[route].group === group.id).forEach((route) => {
+                    const link = nav.querySelector(`.nav-link[data-route="${route}"]`);
+                    if (!link) return;
+                    /* One durable name, applied after any module that renamed it. */
+                    const spans = link.querySelectorAll('span');
+                    if (spans[0] && spans[0].textContent !== ROUTES[route].icon) {
+                        spans[0].textContent = ROUTES[route].icon;
+                    }
+                    if (spans[1] && spans[1].textContent !== ROUTES[route].name) {
+                        spans[1].textContent = ROUTES[route].name;
+                    }
+                    if (link.getAttribute('aria-label') !== ROUTES[route].name) {
+                        link.setAttribute('aria-label', ROUTES[route].name);
+                    }
+                    wanted.push(link);
+                });
+            });
+            /* Anything this table does not know about keeps its current place at
+             * the end rather than being deleted: an unknown link is a module
+             * this file has not been told about, not rubbish. */
+            const known = new Set(wanted);
+            Array.from(nav.children).forEach((child) => {
+                if (!known.has(child) && child.classList.contains('nav-link')) wanted.push(child);
+            });
+            let cursor = null;
+            wanted.forEach((element) => {
+                const expected = cursor ? cursor.nextElementSibling : nav.firstElementChild;
+                if (expected !== element) nav.insertBefore(element, expected);
+                cursor = element;
+            });
+            /* A group whose every route is hidden must not leave a heading over
+             * nothing. Engineering hides its own links when locked. */
+            NAV_GROUPS.forEach((group) => {
+                const heading = nav.querySelector(`[data-nav-group="${group.id}"]`);
+                if (!heading) return;
+                const visible = ROUTE_ORDER
+                    .filter((route) => ROUTES[route].group === group.id)
+                    .some((route) => {
+                        const link = nav.querySelector(`.nav-link[data-route="${route}"]`);
+                        return link && !link.hidden;
+                    });
+                if (heading.hidden !== !visible) heading.hidden = !visible;
+            });
+        } finally {
+            navPassRunning = false;
+        }
+    }
+
+    /* Title, breadcrumb, document title and the selected navigation item all
+     * come from the one name, in one place, so they cannot disagree. Other
+     * modules call this rather than writing their own three strings. */
+    function applyRouteChrome(route = routeFromHash()) {
+        const name = routeName(route);
+        setText('pageTitle', name);
+        setText('breadcrumbCurrent', name);
+        document.title = `${name} · Automatrix PV-DG`;
+        all('.nav-link').forEach((link) => link.classList.toggle('active', link.dataset.route === route));
+        const pageType = PAGE_TYPES[route] || 'operational';
+        if (document.body && document.body.dataset.pageType !== pageType) {
+            document.body.dataset.pageType = pageType;
+        }
+    }
+
     function navigate() {
         state.route = routeFromHash();
         all('.page').forEach((page) => page.classList.toggle('active', page.dataset.page === state.route));
-        all('.nav-link').forEach((link) => link.classList.toggle('active', link.dataset.route === state.route));
-        const meta = ROUTES[state.route];
-        setText('pageTitle', meta.title);
-        setText('breadcrumbCurrent', meta.breadcrumb);
-        document.title = `${meta.title} · Automatrix PV-DG`;
+        ensureNavigationHierarchy();
+        applyRouteChrome(state.route);
         closeMenu();
+    }
+
+    function watchNavigation() {
+        const nav = document.querySelector('.nav-list');
+        if (!nav) return;
+        /* The sidebar is ten links; watching its text as well as its children is
+         * what lets one durable name survive a module that renames five of them
+         * on every route change. */
+        new MutationObserver(() => {
+            ensureNavigationHierarchy();
+            applyRouteChrome();
+        }).observe(nav, { childList: true, subtree: true, characterData: true });
+        window.addEventListener('amx-access-change', () => {
+            ensureNavigationHierarchy();
+            applyRouteChrome();
+        });
     }
 
     function openMenu() {
@@ -787,9 +998,23 @@
         });
     }
 
+    /* Published before start() so every later module in the bundle - the access
+     * layer, the operator views, the alarm centre - reads one route table, one
+     * state vocabulary and one verbatim rule instead of keeping its own. */
+    window.AutomatrixUi = Object.freeze({
+        ROUTES,
+        NAV_GROUPS,
+        STATES,
+        routeName,
+        verbatim,
+        applyRouteChrome,
+        ensureNavigationHierarchy
+    });
+
     async function start() {
         bindEvents();
         bindSiteTelemetry();
+        watchNavigation();
         if (!window.location.hash) window.location.hash = '#/dashboard';
         navigate();
         await Promise.allSettled([loadConfig(), refreshStatus()]);
