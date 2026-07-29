@@ -3,6 +3,7 @@
 #include "inverter_profile_store.h"
 #include "inverter_profiles.h"
 #include "inverter_profile_decode.h"
+#include "inverter_status.h"
 #include "esp_check.h"
 
 #include <math.h>
@@ -264,6 +265,74 @@ static esp_err_t poll_readback(inverter_runtime_t *runtime, uint32_t timestamp)
     return err;
 }
 
+/* Collapse the operational state to UNKNOWN. Called for every non-positive
+ * outcome: unconfigured register, failed read, unmapped raw value, stale
+ * sample, or a telemetry failure that invalidates the whole inverter. */
+static void mark_status_unknown(inverter_runtime_t *runtime, bool stale)
+{
+    runtime->data.status_state = INVERTER_STATE_UNKNOWN;
+    runtime->data.status_raw_valid = false;
+    runtime->data.status_stale = stale;
+}
+
+/* Operational status acquisition. This runs ONLY inside the background
+ * telemetry task; HTTP handlers must never perform blocking Modbus
+ * transactions. It is strictly read-only: function codes 3 and 4 only, and it
+ * never issues a write of any kind. */
+static esp_err_t poll_status(inverter_runtime_t *runtime, uint32_t timestamp)
+{
+    const inverter_profile_t *profile = runtime->profile;
+    if (!profile || !inverter_status_register_is_configured(&profile->status_register)) {
+        portENTER_CRITICAL(&runtime->lock);
+        runtime->data.status_supported = false;
+        mark_status_unknown(runtime, false);
+        portEXIT_CRITICAL(&runtime->lock);
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    const inverter_status_register_t *status_register = &profile->status_register;
+    if (!inverter_status_function_is_read_only(status_register->function)) {
+        portENTER_CRITICAL(&runtime->lock);
+        runtime->data.status_supported = true;
+        runtime->data.status_last_error = ESP_ERR_NOT_SUPPORTED;
+        mark_status_unknown(runtime, true);
+        portEXIT_CRITICAL(&runtime->lock);
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    uint16_t words[INVERTER_STATUS_MAX_WORDS] = {0};
+    esp_err_t err = read_profile_block(runtime, status_register->function,
+                                       status_register->address,
+                                       status_register->words, words);
+    uint32_t raw = 0;
+    bool decoded = err == ESP_OK &&
+                   inverter_status_decode_raw(status_register, words,
+                                              status_register->words, &raw);
+    if (err == ESP_OK && !decoded) err = ESP_ERR_INVALID_RESPONSE;
+
+    /* A fresh successful read has age zero; evaluate() still applies the
+     * mapping table and returns UNKNOWN for any unmapped raw value. */
+    inverter_state_t state = inverter_status_evaluate(status_register, err == ESP_OK, raw, 0U,
+                                                      profile_stale_ms(profile));
+
+    portENTER_CRITICAL(&runtime->lock);
+    runtime->data.status_supported = true;
+    runtime->data.status_last_error = err;
+    if (err == ESP_OK) {
+        runtime->data.status_state = state;
+        runtime->data.status_raw = raw;
+        runtime->data.status_raw_valid = true;
+        runtime->data.status_stale = false;
+        runtime->data.last_status_ms = timestamp;
+        runtime->data.status_read_successes++;
+    } else {
+        runtime->data.status_read_errors++;
+        mark_status_unknown(runtime, true);
+    }
+    portEXIT_CRITICAL(&runtime->lock);
+    return err;
+}
+
 static void update_stale_state(inverter_runtime_t *runtime, uint32_t timestamp)
 {
     portENTER_CRITICAL(&runtime->lock);
@@ -276,7 +345,19 @@ static void update_stale_state(inverter_runtime_t *runtime, uint32_t timestamp)
             runtime->identity_checked = false;
             runtime->last_identity_ms = 0U;
             if (runtime->data.identity_supported) runtime->data.identity_verified = false;
+            mark_status_unknown(runtime, true);
         }
+    }
+    /* Status ages out independently: a sample older than the profile stale
+     * timeout is not evidence of anything and must read UNKNOWN. */
+    if (runtime->data.status_supported) {
+        uint32_t status_age = timestamp - runtime->data.last_status_ms;
+        if (runtime->data.last_status_ms == 0U ||
+            status_age > profile_stale_ms(runtime->profile)) {
+            mark_status_unknown(runtime, true);
+        }
+    } else {
+        mark_status_unknown(runtime, false);
     }
     portEXIT_CRITICAL(&runtime->lock);
 }
@@ -301,6 +382,7 @@ static void inverter_telemetry_task(void *argument)
                 runtime->data.online = false;
                 runtime->data.telemetry_valid = false;
                 runtime->data.telemetry_stale = true;
+                mark_status_unknown(runtime, true);
                 portEXIT_CRITICAL(&runtime->lock);
                 continue;
             }
@@ -308,6 +390,13 @@ static void inverter_telemetry_task(void *argument)
             esp_err_t telemetry_err = poll_active_power(runtime, timestamp);
             if (telemetry_err == ESP_OK && runtime->profile->has_power_limit_readback) {
                 (void)poll_readback(runtime, timestamp);
+            }
+            if (telemetry_err == ESP_OK) {
+                (void)poll_status(runtime, timestamp);
+            } else {
+                portENTER_CRITICAL(&runtime->lock);
+                mark_status_unknown(runtime, true);
+                portEXIT_CRITICAL(&runtime->lock);
             }
         }
         recompute_commandable_capacity();
@@ -353,6 +442,10 @@ esp_err_t inverter_manager_init(void)
         runtime->write_allowed = inverter_profile_allows_write(runtime->profile);
         runtime->data.identity_supported = runtime->profile && runtime->profile->has_identity_probe;
         runtime->data.telemetry_supported = runtime->profile && runtime->profile->has_active_power;
+        runtime->data.status_supported = inverter_profile_has_status_register(runtime->profile);
+        runtime->data.status_state = INVERTER_STATE_UNKNOWN;
+        runtime->data.status_raw_valid = false;
+        runtime->data.status_stale = runtime->data.status_supported;
         runtime->next_poll_ms = now_ms();
 
         if (!runtime->config.enabled) continue;
@@ -744,4 +837,39 @@ bool inverter_manager_get_data(uint8_t index, inverter_data_t *out_data)
     *out_data = runtime->data;
     portEXIT_CRITICAL(&runtime->lock);
     return true;
+}
+
+/*
+ * Fleet synchronisation predicate for the control engine.
+ *
+ * Returns true ONLY when at least one inverter is enabled and every enabled
+ * inverter reports INVERTER_STATE_ON_GRID from a sample that is neither stale
+ * nor missing. Absent status configuration, a failed read, an unmapped raw
+ * value and a stale sample all present as UNKNOWN and therefore return false.
+ * This is a read of already-acquired state; it performs no Modbus I/O and is
+ * safe to call from any task.
+ */
+bool inverter_manager_fleet_synchronised(void)
+{
+    inverter_status_sample_t samples[APP_MAX_INVERTERS] = {0};
+    uint32_t timestamp = now_ms();
+    uint8_t count = 0;
+
+    for (uint8_t i = 0; i < s_inverter_count && count < APP_MAX_INVERTERS; ++i) {
+        inverter_runtime_t *runtime = &s_inverters[i];
+        uint32_t stale_ms = profile_stale_ms(runtime->profile);
+        portENTER_CRITICAL(&runtime->lock);
+        bool enabled = runtime->config.enabled;
+        bool fresh = runtime->data.status_supported && !runtime->data.status_stale &&
+                     runtime->data.last_status_ms != 0U &&
+                     (timestamp - runtime->data.last_status_ms) <= stale_ms;
+        inverter_state_t state = fresh ? runtime->data.status_state : INVERTER_STATE_UNKNOWN;
+        portEXIT_CRITICAL(&runtime->lock);
+        samples[count++] = (inverter_status_sample_t){
+            .enabled = enabled,
+            .sample_fresh = fresh,
+            .state = state,
+        };
+    }
+    return inverter_status_fleet_synchronised(samples, count);
 }

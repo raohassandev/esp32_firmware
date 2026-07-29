@@ -2,6 +2,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "inverter_status.h"
+
 typedef struct {
     float rated_power_kw;
     float measured_power_kw;
@@ -28,4 +30,16 @@ typedef struct {
     uint32_t write_errors;
     uint32_t mismatch_count;
     int32_t last_error;
+
+    /* Operational status, read-only and independent of the command path.
+     * status_state defaults to INVERTER_STATE_UNKNOWN (0). */
+    inverter_state_t status_state;
+    bool status_supported;
+    bool status_raw_valid;
+    bool status_stale;
+    uint32_t status_raw;
+    uint32_t last_status_ms;
+    uint32_t status_read_successes;
+    uint32_t status_read_errors;
+    int32_t status_last_error;
 } inverter_data_t;

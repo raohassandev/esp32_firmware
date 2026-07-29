@@ -10,6 +10,14 @@
  * and physical command/readback evidence exist. The SolTrix entries below are
  * simulator-only contracts. Their addresses must never be reused as production
  * manufacturer evidence.
+ *
+ * No profile below configures `status_register`. Operational status addresses
+ * are NOT guessed: the Huawei, Solis and FoxESS/Knox manuals are not present in
+ * this tree, and a plausible-looking wrong address could report "on grid" while
+ * an inverter is still checking or faulted, which would let the controller
+ * command full output directly. Every profile therefore leaves the status
+ * register unconfigured and every inverter reports INVERTER_STATE_UNKNOWN until
+ * a commissioning engineer supplies a verified description.
  */
 static const inverter_profile_t PROFILES[] = {
     {
@@ -240,6 +248,11 @@ const char *inverter_profile_qualification_label(inverter_profile_qualification_
     return qualification <= INVERTER_PROFILE_QUALIFICATION_PRODUCTION_APPROVED
         ? LABELS[qualification]
         : "Unknown";
+}
+
+bool inverter_profile_has_status_register(const inverter_profile_t *profile)
+{
+    return profile && inverter_status_register_is_configured(&profile->status_register);
 }
 
 const char *inverter_profile_connection_label(inverter_profile_connection_t connection)
