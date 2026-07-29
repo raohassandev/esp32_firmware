@@ -5,6 +5,7 @@
 
 #include "cJSON.h"
 #include "config_manager.h"
+#include "control_engine.h"
 #include "esp_check.h"
 #include "http_json.h"
 #include "solar_grid_config.h"
@@ -225,6 +226,11 @@ static esp_err_t config_post(httpd_req_t *request)
         return send_error(request, "500 Internal Server Error",
                           "Automatic control could not be safely disabled");
     }
+
+    /* Latch the already-running control task disabled before changing its
+     * persisted source model. This call performs no Modbus or inverter I/O in
+     * the HTTP handler; the control task applies safe zero on its next cycle. */
+    control_engine_force_disable();
 
     error = solar_grid_config_save(&next);
     if (error != ESP_OK) {
