@@ -51,6 +51,7 @@ write_api_paths = [
     "components/web_server/inverter_config_api.c",
     "components/web_server/inverter_profile_api.c",
     "components/web_server/em500_settings_plan_api.c",
+    "components/web_server/solar_grid_api.c",
 ]
 for relative in write_api_paths:
     source = (ROOT / relative).read_text(encoding="utf-8")
@@ -67,16 +68,21 @@ assert "meter.last_update_ms != 0 && isfinite(meter.active_power_kw)" in web_api
 for token in [
     '#include "power_control_policy.h"',
     "power_control_step(&input)",
-    ".policy = GRID_POLICY_MINIMUM_IMPORT",
-    ".source_mode = SOURCE_MODE_GRID_ONLY",
+    ".policy = (grid_policy_t)s_grid_config.policy",
+    ".source_mode = source.mode",
+    "source_mode_evaluate(&source_evidence)",
+    "grid_control_gate_step",
+    "gate.control_allowed",
     "meter_sample_fresh",
-    "defines a grid-import target",
-    "Generator and transfer modes remain blocked",
+    "oriented_grid_power",
     "safety_manager_limit_target_kw",
     "inverter_manager_set_total_power_kw",
-    ".grid_power_kw = measurement_fresh ? grid.active_power_kw : NAN",
+    ".grid_power_kw = measured_grid_kw",
+    "control_engine_force_disable",
 ]:
     assert token in CONTROL_ENGINE, f"live grid control policy wiring missing: {token}"
+assert ".source_mode = SOURCE_MODE_GRID_ONLY" not in CONTROL_ENGINE, \
+    "live Grid Only mode must be proven by explicit source evidence, not assumed from meter freshness"
 assert "SOURCE_MODE_GENERATOR_ONLY" not in CONTROL_ENGINE, \
     "live generator operation must not be inferred before real run/breaker/ATS evidence exists"
 
@@ -91,4 +97,4 @@ with tempfile.TemporaryDirectory() as directory:
     ], check=True)
     subprocess.run([str(binary)], check=True)
 
-print("configuration migration, bounded HTTP JSON, truthful status, and live grid-control policy tests passed")
+print("configuration migration, bounded HTTP JSON, truthful status, and persisted grid-control policy tests passed")
