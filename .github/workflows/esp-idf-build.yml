@@ -82,6 +82,24 @@ jobs:
             components/source_detection/source_detection_engine.c \
             -lm -o /tmp/source_detection_engine_test
           /tmp/source_detection_engine_test
+      - name: Run commissioning gate unit tests
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -Wall -Wextra -Werror \
+            -Icomponents/commissioning_gate/include \
+            tests/commissioning_gate_test.c \
+            components/commissioning_gate/commissioning_gate.c \
+            -lm -o /tmp/commissioning_gate_test
+          /tmp/commissioning_gate_test
+      - name: Run inverter write confirmation unit tests
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -Wall -Wextra -Werror \
+            -Icomponents/inverter_manager/include \
+            tests/inverter_write_confirmation_test.c \
+            components/inverter_manager/inverter_write_confirmation.c \
+            -lm -o /tmp/inverter_write_confirmation_test
+          /tmp/inverter_write_confirmation_test
       - name: Run Solar-Grid integration tests
         run: |
           set -euo pipefail
@@ -142,6 +160,10 @@ jobs:
         run: python3 tests/inverter_profile_picker_source_contract.py
       - name: Check runtime inverter write gate
         run: python3 tests/inverter_runtime_write_gate_source_contract.py
+      - name: Check commissioning gate contract
+        run: python3 tests/commissioning_gate_source_contract.py
+      - name: Check inverter write confirmation and readback contract
+        run: python3 tests/inverter_write_readback_source_contract.py
       - name: Check inverter read-only probe contract
         run: python3 tests/inverter_read_probe_source_contract.py
       - name: Check inverter decoder contract

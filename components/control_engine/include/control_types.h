@@ -49,4 +49,17 @@ typedef struct {
     char inhibit_reason[128];
     uint32_t last_command_ms;       /* last accepted inverter write, 0 = never */
     uint32_t last_authority_change_ms;
+
+    /* Commissioning gate (P0-6), summarised. The full per-prerequisite detail
+     * is read with control_engine_get_commissioning(); these fields exist so a
+     * single status poll can say whether the plant is commissioned at all. */
+    bool commissioned;
+    uint8_t commissioning_unmet_count;
+    uint8_t commissioning_first_unmet;  /* commissioning_prereq_t */
+
+    /* Write confirmation (P0-9). write_confirmation is an
+     * inverter_write_state_t rolled up worst-first across the fleet, so it is
+     * never a silently optimistic answer. */
+    uint8_t write_confirmation;
+    bool write_confirmation_fault;
 } control_status_t;

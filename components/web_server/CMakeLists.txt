@@ -69,6 +69,7 @@ set(WEB_SERVER_C_SOURCES
     "em500_settings_plan_api.c"
     "solar_grid_api.c"
     "solar_grid_status_api.c"
+    "commissioning_gate_api.c"
     "system_resource_api.c"
     "audit_log_core.c"
     "audit_log.c"
@@ -90,7 +91,7 @@ set(AUDIT_PERSISTENCE_SOURCES
 idf_component_register(
     SRCS ${WEB_SERVER_C_SOURCES}
     INCLUDE_DIRS "include"
-    REQUIRES esp_http_server esp_system esp_timer esp_hw_support esp_app_format esp_partition app_update spi_flash spiffs cjson nvs_flash mbedtls config_manager solar_grid_config source_detection network_manager meter_manager modbus_tcp inverter_manager control_engine safety_manager
+    REQUIRES commissioning_gate esp_http_server esp_system esp_timer esp_hw_support esp_app_format esp_partition app_update spi_flash spiffs cjson nvs_flash mbedtls config_manager solar_grid_config source_detection network_manager meter_manager modbus_tcp inverter_manager control_engine safety_manager
     EMBED_TXTFILES
         "${CMAKE_CURRENT_BINARY_DIR}/index.html"
         "${CMAKE_CURRENT_BINARY_DIR}/app.css"

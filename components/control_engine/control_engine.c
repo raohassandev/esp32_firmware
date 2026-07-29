@@ -3,6 +3,7 @@
 #include <math.h>
 #include <stdlib.h>
 
+#include "commissioning_gate.h"
 #include "config_manager.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -40,6 +41,45 @@ typedef struct {
 
 static grid_evidence_runtime_t s_evidence;
 static meter_role_assignment_t s_roles;
+
+/*
+ * COMMISSIONING GATE (P0-6).
+ *
+ * s_commissioning_inputs holds the parts of the evidence that come from
+ * persisted configuration. They are resolved once in control_engine_init(),
+ * because meter and inverter configuration changes already require a restart
+ * and an app_config_t must never go on the control task's 4 kB stack.
+ *
+ * It is deliberately NOT pre-initialised to anything permissive. Until init
+ * fills it in, every `known` flag is false and the gate evaluates to "not
+ * commissioned" with reason "state unreadable", which is the correct answer for
+ * a controller that has not yet read its own configuration. If init returns
+ * early on an error, it STAYS that way and automatic control cannot engage.
+ */
+static commissioning_inputs_t s_commissioning_inputs;
+static commissioning_status_t s_commissioning;
+static bool s_commissioning_valid;
+static portMUX_TYPE s_commissioning_lock = portMUX_INITIALIZER_UNLOCKED;
+
+static void store_commissioning(const commissioning_status_t *status)
+{
+    portENTER_CRITICAL(&s_commissioning_lock);
+    s_commissioning = *status;
+    s_commissioning_valid = true;
+    portEXIT_CRITICAL(&s_commissioning_lock);
+}
+
+/* Completes the evidence with the parts that can change while running, then
+ * evaluates. Called every control cycle; the evaluation is a pure function over
+ * already-acquired state and performs no I/O. */
+static commissioning_status_t evaluate_commissioning(bool source_detection_configured)
+{
+    commissioning_inputs_t inputs = s_commissioning_inputs;
+    if (inputs.source_detection_known) {
+        inputs.source_detection_configured = source_detection_configured;
+    }
+    return commissioning_gate_evaluate(&inputs);
+}
 
 _Static_assert(APP_MAX_GENERATORS == SOURCE_MAX_GENERATORS,
                "meter generator slots and source-mode generator channels must agree");
@@ -262,6 +302,7 @@ static void control_task(void *argument)
          * identity, which says only which source is carrying load - it never
          * claims a breaker position or that two sources are synchronised. */
         source_mode_result_t source;
+        bool detection_configured = false;
         if (evidence.configured) {
             source_evidence_t source_evidence = {
                 .evidence_fresh = evidence_fresh,
@@ -280,6 +321,7 @@ static void control_task(void *argument)
             if (source_detection_get_status(&detection) == ESP_OK) {
                 measured_fresh = detection.configured && detection.evidence_fresh &&
                                  !detection.fail_closed && !detection.transition_pending;
+                detection_configured = detection.configured;
                 if (detection.state == SOURCE_STATE_GRID) measured = MEASURED_SOURCE_GRID;
                 else if (detection.state == SOURCE_STATE_GENERATOR) measured = MEASURED_SOURCE_GENERATOR;
             }
@@ -296,6 +338,25 @@ static void control_task(void *argument)
             .recovery_stable_ms = s_grid_config.grid_recovery_stable_ms,
         };
         grid_gate_output_t gate = grid_control_gate_step(&gate_memory, &gate_input);
+
+        /* THE COMMISSIONING GATE (P0-6).
+         *
+         * Applied to the control task's own enable, not merely reported: while
+         * the gate is closed the policy is never stepped, so there is no
+         * command to clamp and no path by which automatic control can engage.
+         * Unknown or unreadable configuration evaluates to "not commissioned",
+         * so this fails closed rather than open. */
+        const commissioning_status_t commissioning =
+            evaluate_commissioning(detection_configured);
+        store_commissioning(&commissioning);
+        if (!commissioning.commissioned) control_enabled = false;
+
+        /* P0-9: a setpoint that could not be confirmed by readback latches its
+         * inverter out of the commandable fleet, which is what actually stops
+         * the command. This is the operator-facing statement of that fact. */
+        const bool confirmation_fault = inverter_manager_write_confirmation_fault();
+        const inverter_write_state_t fleet_confirmation =
+            inverter_manager_fleet_write_confirmation();
 
         /* While a generator carries the plant, PV must leave enough load on the
          * machine to satisfy its minimum loading and stay clear of reverse
@@ -436,14 +497,24 @@ static void control_task(void *argument)
             .grid_breaker_raw = evidence.grid_breaker_raw,
             .alarm_flags = alarm_flags,
             .last_cycle_ms = timestamp,
-            .command_authority = control_enabled && policy.valid && alarm_flags == 0U,
+            /* Commissioning is part of the authority answer, not a footnote to
+             * it: an uncommissioned controller has no authority to command. */
+            .command_authority = commissioning.commissioned && control_enabled &&
+                                 policy.valid && alarm_flags == 0U && !confirmation_fault,
+            .commissioned = commissioning.commissioned,
+            .commissioning_unmet_count = commissioning.unmet_count,
+            .commissioning_first_unmet = commissioning.first_unmet,
+            .write_confirmation = (uint8_t)fleet_confirmation,
+            .write_confirmation_fault = confirmation_fault,
         };
         /* One authoritative answer, in the firmware's own words, rather than the
          * interface inferring intent from several scattered flags. Ordered most
          * specific first so the operator is told the thing they can act on. */
         const char *inhibit =
-            !control_enabled          ? "Automatic control is disabled; engineering authorisation is required."
+            !commissioning.commissioned ? commissioning_gate_summary(&commissioning)
+            : !control_enabled        ? "Automatic control is disabled; engineering authorisation is required."
             : alarm_flags != 0U       ? "An active safety alarm is blocking commands."
+            : confirmation_fault      ? "An inverter setpoint could not be confirmed by readback; that inverter is held at zero and excluded from the fleet."
             : !roles.valid            ? "No single enabled meter is assigned the grid role."
             : !measurement_fresh      ? "The grid measurement is missing, stale or non-finite."
             : !fleet_valid            ? "No commissioned inverter capacity is available to command."
@@ -489,7 +560,43 @@ esp_err_t control_engine_init(void)
     portENTER_CRITICAL(&s_lock);
     s_roles = roles;
     portEXIT_CRITICAL(&s_lock);
+
+    /* Commissioning evidence from persisted configuration. Each `known` flag is
+     * set only now that the corresponding state has actually been read. */
+    s_commissioning_inputs.meter_roles_known = true;
+    s_commissioning_inputs.meter_roles_valid = roles.valid;
+    s_commissioning_inputs.grid_meter_count = roles.grid_count;
+    s_commissioning_inputs.duplicate_generator_slot = roles.duplicate_generator;
+
+    s_commissioning_inputs.ramp_policy_known = true;
+    s_commissioning_inputs.generator_ramp_enabled = s_config.generator_ramp.enabled;
+    s_commissioning_inputs.generator_ramp_up_percent_per_second =
+        s_config.generator_ramp.up_percent_per_second;
+    s_commissioning_inputs.generator_ramp_down_percent_per_second =
+        s_config.generator_ramp.down_percent_per_second;
+
+    s_commissioning_inputs.control_tuning_known = true;
+    s_commissioning_inputs.kp = s_config.kp;
+    s_commissioning_inputs.ki = s_config.ki;
+    s_commissioning_inputs.deadband_kw = s_config.deadband_kw;
+    s_commissioning_inputs.interval_ms = s_config.interval_ms;
+    s_commissioning_inputs.meter_stale_timeout_ms = s_config.meter_stale_timeout_ms;
     free(config);
+
+    inverter_fleet_commissioning_t fleet = {0};
+    inverter_manager_commissioning_summary(&fleet);
+    s_commissioning_inputs.inverter_fleet_known = fleet.known;
+    s_commissioning_inputs.enabled_inverter_count = fleet.enabled_count;
+    s_commissioning_inputs.write_qualified_inverter_count = fleet.write_qualified_count;
+    s_commissioning_inputs.readback_capable_inverter_count = fleet.readback_capable_count;
+    s_commissioning_inputs.commissioned_capacity_kw = fleet.commissioned_capacity_kw;
+
+    /* Publish the fail-closed evaluation immediately. If any step below returns
+     * early, this is what the API and the control task will keep seeing. */
+    {
+        const commissioning_status_t initial = commissioning_gate_evaluate(&s_commissioning_inputs);
+        store_commissioning(&initial);
+    }
 
     if (!roles.valid) {
         ESP_LOGW(TAG, "Automatic Solar-Grid control remains fail-closed: %s",
@@ -501,6 +608,36 @@ esp_err_t control_engine_init(void)
     }
 
     error = solar_grid_config_get_snapshot(&s_grid_config);
+    /* The snapshot was read, so this part of the state is now KNOWN even when it
+     * turns out to be invalid - that is a specific, reportable failure rather
+     * than an unreadable one. A failed read leaves the flag false. */
+    s_commissioning_inputs.grid_policy_known = error == ESP_OK;
+    s_commissioning_inputs.grid_policy_valid =
+        error == ESP_OK && solar_grid_config_valid(&s_grid_config);
+    s_commissioning_inputs.generator_limits_known = error == ESP_OK;
+    s_commissioning_inputs.generator_rated_kw =
+        error == ESP_OK ? s_grid_config.generator_rated_kw : 0.0f;
+    s_commissioning_inputs.generator_minimum_loading_percent =
+        error == ESP_OK ? s_grid_config.generator_minimum_loading_percent : 0.0f;
+    s_commissioning_inputs.source_detection_known = true;
+    s_commissioning_inputs.grid_evidence_configured =
+        error == ESP_OK && solar_grid_config_evidence_complete(&s_grid_config);
+    /* The whole collection succeeded, so the gate may now distinguish a specific
+     * unmet prerequisite from "unreadable". */
+    s_commissioning_inputs.state_readable = true;
+    {
+        const commissioning_status_t collected =
+            commissioning_gate_evaluate(&s_commissioning_inputs);
+        store_commissioning(&collected);
+        if (!collected.commissioned) {
+            ESP_LOGW(TAG,
+                     "Automatic control remains gated: %u of %u commissioning prerequisites unmet, first is '%s' - %s",
+                     (unsigned)collected.unmet_count,
+                     (unsigned)COMMISSIONING_PREREQ_COUNT,
+                     commissioning_prereq_id(collected.first_unmet),
+                     commissioning_gate_summary(&collected));
+        }
+    }
     if (error != ESP_OK || !solar_grid_config_valid(&s_grid_config)) {
         ESP_LOGE(TAG, "Solar-Grid configuration unavailable or invalid");
         return error == ESP_OK ? ESP_ERR_INVALID_STATE : error;
@@ -555,6 +692,21 @@ void control_engine_get_status(control_status_t *out_status)
     portENTER_CRITICAL(&s_lock);
     *out_status = s_status;
     portEXIT_CRITICAL(&s_lock);
+}
+
+void control_engine_get_commissioning(commissioning_status_t *out_status)
+{
+    if (!out_status) return;
+    commissioning_status_t snapshot;
+    bool valid;
+    portENTER_CRITICAL(&s_commissioning_lock);
+    snapshot = s_commissioning;
+    valid = s_commissioning_valid;
+    portEXIT_CRITICAL(&s_commissioning_lock);
+    /* Nothing has been evaluated yet, so report the fully fail-closed answer
+     * rather than a zeroed struct that would read as "no unmet prerequisites". */
+    if (!valid) snapshot = commissioning_gate_evaluate(NULL);
+    *out_status = snapshot;
 }
 
 void control_engine_force_disable(void)

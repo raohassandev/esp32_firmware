@@ -4,8 +4,10 @@
 #include <stdlib.h>
 
 #include "cJSON.h"
+#include "commissioning_gate.h"
 #include "control_engine.h"
 #include "grid_control_gate.h"
+#include "inverter_write_confirmation.h"
 #include "solar_grid_config.h"
 #include "source_mode.h"
 
@@ -70,6 +72,23 @@ static esp_err_t status_get(httpd_req_t *request)
     add_finite(root, "requested_pv_kw", status.requested_pv_kw);
     add_finite(root, "applied_pv_kw", status.applied_pv_kw);
     cJSON_AddNumberToObject(root, "last_cycle_ms", status.last_cycle_ms);
+    /* Commissioning gate and write confirmation, so a single status poll never
+     * has to guess why control is inhibited. The per-prerequisite detail lives
+     * at /api/commissioning/gate. */
+    cJSON_AddBoolToObject(root, "commissioned", status.commissioned);
+    cJSON_AddNumberToObject(root, "commissioning_unmet_count",
+                            status.commissioning_unmet_count);
+    cJSON_AddStringToObject(root, "commissioning_first_unmet",
+                            status.commissioned
+                                ? ""
+                                : commissioning_prereq_id(status.commissioning_first_unmet));
+    cJSON_AddBoolToObject(root, "command_authority", status.command_authority);
+    cJSON_AddStringToObject(root, "inhibit_reason", status.inhibit_reason);
+    cJSON_AddStringToObject(root, "write_confirmation",
+                            inverter_write_state_name(
+                                (inverter_write_state_t)status.write_confirmation));
+    cJSON_AddBoolToObject(root, "write_confirmation_fault",
+                          status.write_confirmation_fault);
 
     char *json = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
