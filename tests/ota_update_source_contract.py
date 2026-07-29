@@ -19,6 +19,20 @@ def require(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
+def function_body(source: str, signature: str) -> str:
+    start = source.index(signature)
+    opening = source.index("{", start)
+    depth = 0
+    for index in range(opening, len(source)):
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return source[opening:index + 1]
+    raise AssertionError(f"unterminated function: {signature}")
+
+
 for token in ["otadata", "ota_0", "ota_1", "0x300000"]:
     require(token in PARTITIONS, f"OTA partition table missing: {token}")
 require("CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y" in SDKCONFIG,
@@ -29,13 +43,16 @@ for token in [
     "esp_ota_begin",
     "esp_ota_write",
     "esp_ota_end",
+    "esp_ota_get_partition_description",
     "esp_ota_set_boot_partition",
     "esp_ota_mark_app_valid_cancel_rollback",
     "esp_ota_mark_app_invalid_rollback_and_reboot",
     "ESP_IMAGE_HEADER_MAGIC",
     "ESP_APP_DESC_MAGIC_WORD",
-    "candidate.project_name",
-    "candidate.secure_version < running->secure_version",
+    "CONFIG_IDF_FIRMWARE_CHIP_ID",
+    "OTA_MANAGER_PRODUCT_ID \"automatrix_pvdg\"",
+    "image_header->chip_id == (esp_chip_id_t)CONFIG_IDF_FIRMWARE_CHIP_ID",
+    "candidate->secure_version >= running->secure_version",
     "complete_image_size > partition->size",
     "s_upload_claimed",
     "OTA_MANAGER_PREFIX_BYTES",
@@ -45,6 +62,10 @@ for token in [
     "!pending_verify_for(running)",
     "running->address == boot->address",
     "if (!upload_admission_open()) return ESP_ERR_INVALID_STATE",
+    "boot_partition_before",
+    "boot_partition_preserved_after_abort",
+    "image_identity_verified",
+    "image_validated",
 ]:
     require(token in MANAGER or token in MANAGER_H,
             f"OTA manager safeguard missing: {token}")
@@ -54,6 +75,31 @@ require("refresh_partition_status_locked" not in MANAGER,
         "flash/partition APIs must not run inside an interrupt-disabled critical section")
 require(MANAGER.index("if (!upload_admission_open())") < MANAGER.index("s_upload_claimed = true"),
         "pending/staged image admission must be checked before claiming or erasing the OTA slot")
+
+validate_body = function_body(MANAGER, "esp_err_t ota_manager_validate_prefix")
+begin_body = function_body(MANAGER, "esp_err_t ota_manager_begin")
+finish_body = function_body(MANAGER, "esp_err_t ota_manager_finish")
+abort_body = function_body(MANAGER, "void ota_manager_abort")
+
+require(validate_body.index("image_identity_valid") < validate_body.index("*out_candidate = candidate"),
+        "product/target identity must be accepted before a candidate can leave prefix validation")
+require(begin_body.index("image_identity_valid") < begin_body.index("esp_ota_begin"),
+        "product/target identity must be rechecked before esp_ota_begin can erase the inactive slot")
+require("esp_ota_write" not in validate_body and "esp_ota_write" not in begin_body,
+        "identity validation and session admission must not write firmware bytes")
+
+finish_end = finish_body.index("esp_ota_end")
+finish_description = finish_body.index("esp_ota_get_partition_description")
+finish_validated = finish_body.index("session->image_validated = true")
+finish_boot = finish_body.index("esp_ota_set_boot_partition")
+require(finish_end < finish_description < finish_validated < finish_boot,
+        "whole-image validation and staged descriptor identity must complete before boot selection changes")
+require("esp_ota_set_boot_partition" not in abort_body,
+        "interrupted/aborted uploads must never change the boot partition")
+require(abort_body.index("esp_ota_abort") < abort_body.index("esp_ota_get_boot_partition"),
+        "abort must close the OTA handle before confirming the original boot selection")
+require("boot_before->address == boot_after->address" in abort_body,
+        "abort path must verify the original boot partition is still selected")
 
 for forbidden in ["nvs_flash_erase", "erase_flash", "erase-flash"]:
     require(forbidden not in MANAGER and forbidden not in API,
@@ -80,24 +126,29 @@ for token in [
     "control_engine_force_disable()",
     "OTA_SAFE_ZERO_TOLERANCE_KW",
     "ota_manager_validate_prefix",
-    "ota_manager_begin",
+    "ota_manager_begin(image_size, image_header, &candidate, &session)",
     "ota_manager_write",
     "ota_manager_finish",
+    "ota_manager_abort",
     "update_staged",
+    "image_identity_verified",
+    "image_validated",
+    "boot_partition_preserved_after_abort",
     '"automatic_reboot", false',
     '"nvs_erase_required", false',
 ]:
     require(token in API, f"OTA API safeguard missing: {token}")
-require(API.index("ota_manager_validate_prefix") < API.index("ota_manager_begin"),
-        "image identity must be validated before erasing the inactive OTA slot")
-require(API.index("wait_for_safe_zero()") < API.index("ota_manager_begin"),
-        "safe zero must be confirmed before OTA flash writing begins")
+require(API.index("ota_manager_validate_prefix") < API.index("wait_for_safe_zero()") <
+        API.index("ota_manager_begin") < API.index("ota_manager_write"),
+        "identity and safe-zero checks must complete before the first OTA byte is written")
 require("malloc(OTA_UPLOAD_CHUNK_BYTES)" in API,
         "OTA API must use one bounded streaming buffer")
 require("malloc(image_size)" not in API and "malloc(request->content_len)" not in API,
         "OTA API must never buffer the complete firmware image in RAM")
 require("esp_restart()" not in API[:API.index("static void delayed_restart_task")],
         "upload handler must never reboot automatically")
+require("if (session.active) ota_manager_abort" in API,
+        "interrupted HTTP uploads must abort the OTA handle")
 
 for token in [
     '"ota_api.c"',
