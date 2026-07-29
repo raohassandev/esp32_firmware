@@ -10,6 +10,8 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "engineering_auth.h"
+#include "http_json.h"
 #include "inverter_manager.h"
 #include "meter_manager.h"
 #include "network_manager.h"
@@ -82,6 +84,58 @@ static uint32_t now_ms(void)
     return (uint32_t)(esp_timer_get_time() / 1000ULL);
 }
 
+/* Defined below, next to the code-to-text mapping they belong with. */
+static bool event_is_alarm_condition(uint8_t code);
+static bool event_condition_present(uint8_t code, uint8_t raw_active);
+
+/* An alarm is a condition with a lifecycle; an event is a record that something
+ * happened. The ring above is the record. This table is the condition state, one
+ * row per alarm code, which is what an operator actually works from: what is
+ * wrong now, since when, how often it has recurred, and whether anyone has taken
+ * responsibility for it.
+ *
+ * Acknowledgement is tracked separately from clearing on purpose. A condition
+ * that clears itself was never acknowledged by anyone, and an acknowledged
+ * condition that is still present must not disappear from view. */
+typedef struct {
+    bool present;
+    bool acknowledged;
+    uint8_t severity;
+    uint16_t occurrences;
+    uint32_t first_raised_ms;
+    uint32_t last_raised_ms;
+    uint32_t cleared_ms;
+    uint32_t acknowledged_ms;
+} operational_alarm_t;
+
+static operational_alarm_t s_alarms[EVENT_METER_STALE_ALARM + 1U];
+
+/* Caller holds s_lock. */
+static void update_alarm_locked(operational_event_code_t code, bool present,
+                                uint8_t severity, uint32_t timestamp)
+{
+    if ((size_t)code >= sizeof(s_alarms) / sizeof(s_alarms[0])) return;
+    operational_alarm_t *alarm = &s_alarms[code];
+    alarm->severity = severity;
+    if (present) {
+        if (!alarm->present) {
+            if (alarm->first_raised_ms == 0U) alarm->first_raised_ms = timestamp;
+            alarm->last_raised_ms = timestamp;
+            if (alarm->occurrences < UINT16_MAX) alarm->occurrences++;
+            /* A fresh occurrence demands fresh attention: a previous
+             * acknowledgement does not carry over to a condition that went away
+             * and came back. */
+            alarm->acknowledged = false;
+            alarm->acknowledged_ms = 0U;
+        }
+        alarm->present = true;
+        alarm->cleared_ms = 0U;
+    } else if (alarm->present) {
+        alarm->present = false;
+        alarm->cleared_ms = timestamp;
+    }
+}
+
 static void append_event(operational_event_code_t code, bool active, uint8_t severity, int32_t value, uint32_t timestamp)
 {
     portENTER_CRITICAL(&s_lock);
@@ -94,6 +148,12 @@ static void append_event(operational_event_code_t code, bool active, uint8_t sev
     event->severity = severity;
     s_event_head = (uint16_t)((s_event_head + 1U) % EVENT_COUNT);
     if (s_event_count < EVENT_COUNT) s_event_count++;
+    /* Same lock, same instant: the condition table can never disagree with the
+     * record that produced it. */
+    if (event_is_alarm_condition((uint8_t)code)) {
+        update_alarm_locked(code, event_condition_present((uint8_t)code, active ? 1U : 0U),
+                            severity, timestamp);
+    }
     portEXIT_CRITICAL(&s_lock);
 }
 
@@ -156,6 +216,23 @@ static void detect_events(const observed_state_t *next, uint32_t timestamp)
 {
     if (!s_observed.initialized) {
         append_event(EVENT_CONTROLLER_STARTED, true, 0, 0, timestamp);
+        /* A condition already present at the first sample never produced a
+         * transition, so recording only changes meant a controller that booted
+         * straight into a fault reported no alarm at all - the plant was
+         * offline and the alarm list was empty. Anything already wrong at
+         * startup is raised here, once. */
+        if (!next->network_online) {
+            append_event(EVENT_NETWORK_STATE, false, 2, 0, timestamp);
+        }
+        if (!next->meter_online) {
+            append_event(EVENT_METER_STATE, false, 2, 0, timestamp);
+        }
+        if ((next->alarm_flags & SAFETY_ALARM_METER_OFFLINE) != 0U) {
+            append_event(EVENT_METER_OFFLINE_ALARM, true, 2, 0, timestamp);
+        }
+        if ((next->alarm_flags & SAFETY_ALARM_METER_STALE) != 0U) {
+            append_event(EVENT_METER_STALE_ALARM, true, 1, 0, timestamp);
+        }
         s_observed = *next;
         s_observed.initialized = true;
         return;
@@ -202,6 +279,21 @@ static void operational_task(void *argument)
         portEXIT_CRITICAL(&s_lock);
         vTaskDelay(pdMS_TO_TICKS(SAMPLE_INTERVAL_MS));
     }
+}
+
+/* Same envelope as send_json, with an explicit status line for error replies. */
+static esp_err_t send_json_status(httpd_req_t *request, const char *status, cJSON *root)
+{
+    char *text = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (!text) return httpd_resp_send_500(request);
+    httpd_resp_set_status(request, status);
+    httpd_resp_set_type(request, "application/json");
+    httpd_resp_set_hdr(request, "Cache-Control", "no-store");
+    httpd_resp_set_hdr(request, "X-Content-Type-Options", "nosniff");
+    esp_err_t err = httpd_resp_sendstr(request, text);
+    free(text);
+    return err;
 }
 
 static esp_err_t send_json(httpd_req_t *request, cJSON *root)
@@ -469,6 +561,158 @@ static esp_err_t events_get(httpd_req_t *request)
     return send_json(request, root);
 }
 
+static const char *alarm_code_id(uint8_t code)
+{
+    switch ((operational_event_code_t)code) {
+    case EVENT_NETWORK_STATE:        return "NET-001";
+    case EVENT_METER_STATE:          return "MTR-001";
+    case EVENT_METER_OFFLINE_ALARM:  return "MTR-002";
+    case EVENT_METER_STALE_ALARM:    return "MTR-003";
+    default:                         return "GEN-000";
+    }
+}
+
+/* The alarm condition table: what is wrong now, since when, how often, and
+ * whether anyone has taken responsibility. Cleared-but-unacknowledged rows are
+ * still returned, because an operator needs to see that something happened
+ * while they were not looking. */
+static esp_err_t alarms_get(httpd_req_t *request)
+{
+    operational_alarm_t snapshot[sizeof(s_alarms) / sizeof(s_alarms[0])];
+    portENTER_CRITICAL(&s_lock);
+    memcpy(snapshot, s_alarms, sizeof(snapshot));
+    portEXIT_CRITICAL(&s_lock);
+
+    const uint32_t current = now_ms();
+    cJSON *root = cJSON_CreateObject();
+    if (!root) return httpd_resp_send_500(request);
+    cJSON_AddNumberToObject(root, "generated_ms", current);
+    cJSON *items = cJSON_AddArrayToObject(root, "alarms");
+    uint16_t active = 0, unacknowledged = 0;
+
+    for (size_t code = 0; code < sizeof(snapshot) / sizeof(snapshot[0]); ++code) {
+        const operational_alarm_t *a = &snapshot[code];
+        if (!event_is_alarm_condition((uint8_t)code)) continue;
+        if (a->occurrences == 0U) continue;          /* never seen: nothing to report */
+
+        const operational_event_t probe = {
+            .code = (uint8_t)code,
+            /* Ask for the wording of whichever side the condition is on now. */
+            .active = event_condition_present((uint8_t)code, 1U) == a->present ? 1U : 0U,
+        };
+        const char *title, *detail, *action;
+        event_text(&probe, &title, &detail, &action);
+
+        cJSON *item = cJSON_CreateObject();
+        if (!item) continue;
+        cJSON_AddStringToObject(item, "id", alarm_code_id((uint8_t)code));
+        cJSON_AddNumberToObject(item, "code", (double)code);
+        cJSON_AddStringToObject(item, "title", title);
+        cJSON_AddStringToObject(item, "detail", detail);
+        cJSON_AddStringToObject(item, "recommended_action", action);
+        cJSON_AddStringToObject(item, "severity", severity_label(a->severity));
+        cJSON_AddStringToObject(item, "state",
+                                a->present ? (a->acknowledged ? "acknowledged" : "active")
+                                           : "cleared");
+        cJSON_AddBoolToObject(item, "present", a->present);
+        cJSON_AddBoolToObject(item, "acknowledged", a->acknowledged);
+        cJSON_AddNumberToObject(item, "occurrences", a->occurrences);
+        cJSON_AddNumberToObject(item, "first_raised_age_ms",
+                                (double)(current - a->first_raised_ms));
+        cJSON_AddNumberToObject(item, "last_raised_age_ms",
+                                (double)(current - a->last_raised_ms));
+        /* Duration is measured to the clear for a finished condition and to now
+         * for one still standing, so a live alarm's age keeps growing. */
+        cJSON_AddNumberToObject(item, "duration_ms",
+                                (double)((a->present ? current : a->cleared_ms) - a->last_raised_ms));
+        if (a->acknowledged) {
+            cJSON_AddNumberToObject(item, "acknowledged_age_ms",
+                                    (double)(current - a->acknowledged_ms));
+        } else {
+            cJSON_AddNullToObject(item, "acknowledged_age_ms");
+        }
+        cJSON_AddItemToArray(items, item);
+
+        if (a->present) active++;
+        if (a->present && !a->acknowledged) unacknowledged++;
+    }
+
+    cJSON *summary = cJSON_AddObjectToObject(root, "summary");
+    cJSON_AddNumberToObject(summary, "active", active);
+    cJSON_AddNumberToObject(summary, "unacknowledged", unacknowledged);
+    return send_json(request, root);
+}
+
+/* Acknowledgement is a deliberate act, so it names the condition rather than
+ * offering a blanket "clear all": acknowledging something an operator has not
+ * looked at is exactly what this is meant to prevent. It never clears the
+ * condition - only the plant can do that. */
+static esp_err_t alarms_ack_post(httpd_req_t *request)
+{
+    /* This translation unit is deliberately outside the authorization gateway so
+     * operator history and events stay readable without a session. That makes
+     * this POST the one mutating endpoint here, and it must not be anonymous:
+     * an unattributable acknowledgement is a way to make an active condition
+     * look attended to. The check is therefore explicit rather than inherited.
+     *
+     * Note the controller has no operator identity model, so an acknowledgement
+     * records that an authenticated engineering session did it, not which
+     * person. Reporting a name would be inventing one. */
+    if (!engineering_auth_is_authorized(request)) {
+        cJSON *err = cJSON_CreateObject();
+        if (!err) return httpd_resp_send_500(request);
+        cJSON_AddStringToObject(err, "error", "engineering_authentication_required");
+        cJSON_AddStringToObject(err, "message",
+                                "Acknowledging an alarm requires an authenticated engineering session.");
+        return send_json_status(request, "401 Unauthorized", err);
+    }
+
+    cJSON *root = NULL;
+    const esp_err_t read_error = http_json_parse_bounded(request, 256U, 3000ULL, 4U, &root);
+    if (read_error != ESP_OK) {
+        cJSON *err = cJSON_CreateObject();
+        if (!err) return httpd_resp_send_500(request);
+        cJSON_AddStringToObject(err, "error", "Acknowledgement body must be valid bounded JSON");
+        return send_json_status(request, "400 Bad Request", err);
+    }
+
+    const cJSON *code_item = cJSON_GetObjectItemCaseSensitive(root, "code");
+    const bool have_code = cJSON_IsNumber(code_item);
+    const int code = have_code ? code_item->valueint : -1;
+    cJSON_Delete(root);
+
+    if (!have_code || code < 0 ||
+        (size_t)code >= sizeof(s_alarms) / sizeof(s_alarms[0]) ||
+        !event_is_alarm_condition((uint8_t)code)) {
+        cJSON *err = cJSON_CreateObject();
+        if (!err) return httpd_resp_send_500(request);
+        cJSON_AddStringToObject(err, "error", "A known alarm code is required");
+        return send_json_status(request, "400 Bad Request", err);
+    }
+
+    const uint32_t timestamp = now_ms();
+    bool present = false;
+    portENTER_CRITICAL(&s_lock);
+    operational_alarm_t *alarm = &s_alarms[code];
+    present = alarm->present;
+    if (present && !alarm->acknowledged) {
+        alarm->acknowledged = true;
+        alarm->acknowledged_ms = timestamp;
+    }
+    portEXIT_CRITICAL(&s_lock);
+
+    cJSON *reply = cJSON_CreateObject();
+    if (!reply) return httpd_resp_send_500(request);
+    cJSON_AddBoolToObject(reply, "acknowledged", present);
+    cJSON_AddNumberToObject(reply, "code", code);
+    /* Acknowledging something that is no longer present is not an error, but
+     * saying so plainly stops it looking like the condition was dismissed. */
+    cJSON_AddStringToObject(reply, "note",
+                            present ? "Condition acknowledged; it remains active until the plant clears it."
+                                    : "Condition is no longer present; nothing to acknowledge.");
+    return send_json(request, reply);
+}
+
 esp_err_t operational_api_register(httpd_handle_t server)
 {
     if (!s_task) {
@@ -478,6 +722,8 @@ esp_err_t operational_api_register(httpd_handle_t server)
     const httpd_uri_t handlers[] = {
         {.uri = "/api/operator/history", .method = HTTP_GET, .handler = history_get},
         {.uri = "/api/operator/events", .method = HTTP_GET, .handler = events_get},
+        {.uri = "/api/operator/alarms", .method = HTTP_GET, .handler = alarms_get},
+        {.uri = "/api/operator/alarms/ack", .method = HTTP_POST, .handler = alarms_ack_post},
     };
     for (size_t i = 0; i < sizeof(handlers) / sizeof(handlers[0]); ++i) {
         ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &handlers[i]), "operational_api", "handler registration failed");
