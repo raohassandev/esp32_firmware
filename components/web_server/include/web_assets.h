@@ -43,5 +43,6 @@ const char *web_assets_inverter_config_js(size_t *length);
 const char *web_assets_inverter_telemetry_js(size_t *length);
 const char *web_assets_em500_utils_js(size_t *length);
 const char *web_assets_em500_core_js(size_t *length);
+const char *web_assets_em500_quality_js(size_t *length);
 const char *web_assets_em500_profiles_js(size_t *length);
 const char *web_assets_em500_plan_js(size_t *length);
