@@ -223,6 +223,10 @@ static esp_err_t exchange(modbus_connection_t *c, const uint8_t *request, size_t
                           uint8_t expected_function, uint8_t *pdu, size_t pdu_capacity,
                           size_t *pdu_length)
 {
+    c->last_exception_valid = false;
+    c->last_exception_function = 0;
+    c->last_exception_code = 0;
+
     int64_t deadline_us = now_us() + (int64_t)c->endpoint.timeout_ms * 1000LL;
     esp_err_t err = ensure_connected(c, deadline_us);
     if (err != ESP_OK) return err;
@@ -243,7 +247,15 @@ static esp_err_t exchange(modbus_connection_t *c, const uint8_t *request, size_t
     if (body_len > pdu_capacity) return ESP_ERR_INVALID_SIZE;
     err = recv_all(c->socket_fd, pdu, body_len, deadline_us);
     if (err != ESP_OK) return err;
-    if (pdu[0] == (expected_function | 0x80)) return ESP_ERR_INVALID_RESPONSE;
+    if (pdu[0] == (expected_function | 0x80U)) {
+        if (body_len != 2U) return ESP_ERR_INVALID_RESPONSE;
+        c->last_exception_valid = true;
+        c->last_exception_function = pdu[0];
+        c->last_exception_code = pdu[1];
+        c->exception_count++;
+        c->last_response_ms = (uint32_t)(now_us() / 1000LL);
+        return ESP_ERR_INVALID_RESPONSE;
+    }
     if (pdu[0] != expected_function) return ESP_ERR_INVALID_RESPONSE;
     *pdu_length = body_len;
     c->success_count++;
@@ -330,4 +342,21 @@ esp_err_t modbus_tcp_write_multiple(modbus_connection_t *c, uint16_t address,
     finish_transaction(c, err);
     xSemaphoreGive(c->lock);
     return err;
+}
+
+bool modbus_tcp_get_last_exception(modbus_connection_t *c,
+                                   uint8_t *function_code,
+                                   uint8_t *exception_code,
+                                   uint32_t *exception_count)
+{
+    if (!c || !c->lock) return false;
+    if (xSemaphoreTake(c->lock, pdMS_TO_TICKS(c->endpoint.timeout_ms + 100U)) != pdTRUE) {
+        return false;
+    }
+    bool valid = c->last_exception_valid;
+    if (function_code) *function_code = valid ? c->last_exception_function : 0U;
+    if (exception_code) *exception_code = valid ? c->last_exception_code : 0U;
+    if (exception_count) *exception_count = c->exception_count;
+    xSemaphoreGive(c->lock);
+    return valid;
 }
