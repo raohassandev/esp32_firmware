@@ -75,6 +75,14 @@ html[data-theme="light"] {
     --gate-met: #14663f;
     --gate-unmet: #7a5800;
     --gate-boundary: #6c8299;
+
+    /* Light counterparts for the prerequisite enable register. Measured against
+       --confirm-surface: confirmed 6.56:1, unconfirmed 6.37:1,
+       unverifiable 7.50:1. Three distinct values, as in the dark theme:
+       transient and permanent must not look alike. */
+    --prereq-confirmed: #14663f;
+    --prereq-unconfirmed: #8a4b00;
+    --prereq-unverifiable: #8a2a6b;
 }
 
 html[data-theme="light"] body {

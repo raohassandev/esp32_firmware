@@ -158,6 +158,21 @@
                     <article class="panel confirm-panel" id="writeConfirmationPanel">
                         <div class="panel-header"><div><p class="eyebrow">Setpoint confirmation</p><h3>Requested against confirmed</h3></div><span class="subtle-badge" id="confirmFleetBadge">Unavailable</span></div>
                         <p class="confirm-lead" id="confirmFleetDetail" role="status">Reading setpoint confirmation…</p>
+                        <!-- Prerequisite enable register. Shown here permanently,
+                             not only when it is faulted, because it is the reason
+                             a setpoint state on this panel is not by itself proof
+                             that a limit is in force. Three of the four documented
+                             brands ignore the setpoint until a separate register
+                             holds a value first, and the setpoint register still
+                             accepts and echoes the write regardless. -->
+                        <div class="prereq-notice" id="prereqNotice">
+                            <strong>A setpoint can read back perfectly and still be ignored.</strong>
+                            <span>Solis, Sungrow and Chint ignore an active-power setpoint until a separate enable register holds the value their manual specifies. The setpoint register still accepts the write and still echoes it back, so the readback above matches while the inverter keeps generating at full output. An enable register that is not confirmed by a read is therefore a different fault from a setpoint that read back wrong, and it has a different remedy.</span>
+                            <span id="prereqFleetState" role="status">Reading the enable-register state…</span>
+                            <span id="prereqNoticeDetail" hidden></span>
+                        </div>
+                        <div class="prereq-counts" id="prereqCounts"></div>
+                        <div class="confirm-legend" id="prereqLegend"></div>
                         <div class="confirm-legend" id="confirmLegend"></div>
                         <div class="confirm-list" id="confirmList"></div>
                         <p class="confirm-message" id="confirmMessage" role="status"></p>
@@ -208,6 +223,20 @@
                             <div class="gate-authority-row"><span>Inhibit reason</span><strong id="gateInhibitReason">Unavailable</strong></div>
                             <div class="gate-authority-row"><span>Commissioning scope</span><strong id="gateScope">Unavailable</strong></div>
                             <div class="gate-authority-row"><span>Prerequisites satisfied</span><strong id="gateSatisfied">Unavailable</strong></div>
+                            <div class="gate-authority-row"><span>Setpoint confirmation</span><strong id="gateWriteConfirmation">Unavailable</strong></div>
+                            <div class="gate-authority-row"><span>Enable register (prerequisite)</span><strong id="gatePrerequisite">Unavailable</strong></div>
+                        </div>
+                        <!-- The two faults are reported as two rows deliberately.
+                             Both end with an inverter out of the commandable
+                             fleet, so they look identical from outside, and the
+                             enable-register one is the more dangerous because the
+                             setpoint readback looks perfect while the limit is
+                             ignored. -->
+                        <div class="prereq-notice" id="gatePrereqNotice">
+                            <strong>An unconfirmed enable register is not a setpoint fault.</strong>
+                            <span>A setpoint that read back wrong is reported as a setpoint fault. An enable register that is not confirmed produces no setpoint fault at all: the setpoint is accepted, echoed back and ignored, so it reads as confirmed while the inverter runs unlimited. Unconfirmed is transient and the controller keeps retrying it. Unverifiable is permanent, means no writable and readable register can be described for that model, and needs a manual citation rather than more time.</span>
+                            <span id="gatePrereqCounts" role="status">Reading the enable-register state…</span>
+                            <span id="gatePrereqDetail" hidden></span>
                         </div>
                         <p class="gate-summary" id="gateSummary" role="status">Reading the commissioning gate…</p>
                         <ol class="gate-checklist" id="gateChecklist"></ol>

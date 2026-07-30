@@ -1061,6 +1061,53 @@
         return WRITE_CONFIRMATION_STATES[String(name || '').trim()] || null;
     }
 
+    /* The prerequisite enable register, as a SECOND and separate vocabulary.
+     *
+     * It is not folded into the four states above, and none of its labels or
+     * glyphs are reused from them, because the two answers are independent and
+     * the dangerous combination is precisely "setpoint Confirmed" next to "enable
+     * not confirmed": three of the four documented brands ignore the active-power
+     * setpoint until a separate register holds the value their manual specifies,
+     * and the setpoint register accepts and echoes the write anyway. A reader who
+     * saw one merged severity would have no way to tell a setpoint that read back
+     * wrong from a setpoint that read back perfectly and was ignored.
+     *
+     * Every sentence below states what the firmware actually does. Unconfirmed
+     * and unverifiable are kept apart because they demand different actions: the
+     * first resolves itself, the second needs a human with a manual. */
+    const PREREQUISITE_STATE_ORDER = ['confirmed', 'unconfirmed', 'unverifiable', 'not_required'];
+
+    const PREREQUISITE_STATES = Object.freeze({
+        confirmed: Object.freeze({
+            label: 'Enable confirmed',
+            mark: '▣',
+            transient: false,
+            meaning: 'A read of the enable register found the value the manufacturer manual specifies. Only a read produces this state. An accepted write never does, because a write proves only that the transport took it.'
+        }),
+        unconfirmed: Object.freeze({
+            label: 'Enable not confirmed',
+            mark: '▢',
+            transient: true,
+            meaning: 'The enable register is not confirmed to hold. A setpoint state of Confirmed above does not contradict this: the setpoint register accepts the write and echoes it back whether or not the limit is armed, so the readback matches while the inverter keeps generating at full output. This is transient. The controller keeps reading and rewriting the register, and the inverter stays out of the commandable fleet until a read confirms it.'
+        }),
+        unverifiable: Object.freeze({
+            label: 'Enable unverifiable',
+            mark: '⨯',
+            transient: false,
+            meaning: 'This device needs an enable register and its assigned profile cannot describe one that is both writable and readable. That is permanent: no amount of polling will resolve it, and the inverter is refused write authority outright rather than retried. The remedy is a manual citation for the register address and its readback, not more time.'
+        }),
+        not_required: Object.freeze({
+            label: 'No enable register',
+            mark: '–',
+            transient: false,
+            meaning: 'The assigned profile states that this device honours an active-power setpoint with no separate enable register, so there is nothing to arm and the setpoint states above stand on their own.'
+        })
+    });
+
+    function prerequisiteStateMeta(name) {
+        return PREREQUISITE_STATES[String(name || '').trim()] || null;
+    }
+
     /* Percent values arrive as null whenever the controller has nothing to
      * report. Null must stay null: rendering 0% for "no write has been issued"
      * would state a setpoint the device never received. */
@@ -1182,6 +1229,10 @@
          * both are the controller's own strings. */
         setTextIfChanged('gateModeLabel', verbatim(authority?.mode_label));
         setTextIfChanged('gateInhibitReason', verbatim(authority?.inhibit_reason, 'None reported'));
+        /* Called before the early return below, so the two fault rows are cleared
+         * to Unavailable rather than left showing the last good answer when the
+         * gate read fails. */
+        renderGatePrerequisite(gate);
 
         if (!gate) {
             setTextIfChanged('gateScope', STATES.dataQuality.unavailable);
@@ -1229,6 +1280,45 @@
         }
     }
 
+    /* The two faults, as two rows, on the panel that explains why automatic
+     * control is inhibited.
+     *
+     * They are reported separately because they are indistinguishable in their
+     * effect and unrelated in their remedy. A setpoint fault means the setpoint
+     * register read back the wrong value. A prerequisite fault produces no
+     * setpoint fault at all: the setpoint is accepted, echoed back and ignored,
+     * so it reads as confirmed while the inverter runs unlimited. An engineer
+     * shown only the first would go and check a register that is working. */
+    function renderGatePrerequisite(gate) {
+        if (!gate) {
+            setTextIfChanged('gateWriteConfirmation', STATES.dataQuality.unavailable);
+            setTextIfChanged('gatePrerequisite', STATES.dataQuality.unavailable);
+            setTextIfChanged('gatePrereqCounts',
+                'The controller has not reported an enable-register state. Unknown is not confirmed.');
+            setNoticeLine('gatePrereqDetail', '');
+            return;
+        }
+        setTextIfChanged('gateWriteConfirmation', gate.write_confirmation_fault === true
+            ? 'Faulted: a setpoint did not read back the commanded value'
+            : gate.write_confirmation_fault === false
+                ? 'No setpoint fault latched'
+                : STATES.dataQuality.unavailable);
+
+        const unverifiable = Number(gate.prerequisite_unverifiable_count);
+        setTextIfChanged('gatePrerequisite', gate.prerequisite_enable_fault === true
+            ? (Number.isFinite(unverifiable) && unverifiable > 0
+                ? 'Unverifiable: an enable register cannot be read back at all (permanent)'
+                : 'Not confirmed: a setpoint would read back correctly and be ignored')
+            : gate.prerequisite_enable_fault === false
+                ? 'Every required enable register is confirmed by a read'
+                : STATES.dataQuality.unavailable);
+
+        setTextIfChanged('gatePrereqCounts',
+            prerequisiteCountLine(gate) || STATES.dataQuality.unavailable);
+        /* The controller's own sentence, verbatim. */
+        setNoticeLine('gatePrereqDetail', gate.prerequisite_notice);
+    }
+
     /* ------------------------------------------------ setpoint write confirmation */
 
     function confirmStatePill(name) {
@@ -1241,6 +1331,24 @@
         const label = document.createElement('span');
         /* An unrecognised state is shown as the controller spelled it rather than
          * silently mapped onto one of the four this build knows about. */
+        label.textContent = meta ? meta.label : verbatim(name);
+        pill.append(mark, label);
+        return pill;
+    }
+
+    /* Built the same way as the setpoint pill so the two read as peers, with its
+     * own word and its own glyph so they can never be mistaken for one another.
+     * An unrecognised slug falls back to the unconfirmed TREATMENT and is labelled
+     * with whatever the controller sent, which is the fail-closed choice: an
+     * enable register this build cannot interpret has not been confirmed. */
+    function prerequisitePill(name) {
+        const meta = prerequisiteStateMeta(name);
+        const pill = document.createElement('span');
+        pill.className = `prereq-state-pill prereq-state-${meta ? name : 'unconfirmed'}`;
+        const mark = document.createElement('span');
+        mark.setAttribute('aria-hidden', 'true');
+        mark.textContent = meta ? meta.mark : '▢';
+        const label = document.createElement('span');
         label.textContent = meta ? meta.label : verbatim(name);
         pill.append(mark, label);
         return pill;
@@ -1312,8 +1420,69 @@
             counters.append(item);
         });
 
-        row.append(head, meaning, values, counters);
+        row.append(head, meaning, values, counters, prerequisiteBlock(entry));
+        /* An unarmed enable register re-rules the whole row. A reader scanning
+         * state pills must not be able to see "Confirmed" on the setpoint and
+         * miss that the limit is not armed. */
+        const prereqName = String(entry.prerequisite?.state || '').trim();
+        if (prereqName === 'unverifiable') row.classList.add('prereq-unverifiable');
+        else if (prereqName !== 'confirmed' && prereqName !== 'not_required') {
+            row.classList.add('prereq-unconfirmed');
+        }
         return row;
+    }
+
+    /* The enable register, per inverter, immediately under the setpoint figures it
+     * silently invalidates. Rendered for every inverter including the ones that
+     * need no enable register, because "this model needs none" is itself an answer
+     * an engineer needs, and an absent block would be indistinguishable from a
+     * controller that did not report. */
+    function prerequisiteBlock(entry) {
+        const prerequisite = entry.prerequisite || null;
+        const block = document.createElement('div');
+        block.className = 'prereq-block';
+
+        const head = document.createElement('div');
+        head.className = 'prereq-block-head';
+        const title = document.createElement('span');
+        title.className = 'prereq-block-title';
+        title.textContent = 'Enable register';
+        /* No prerequisite object at all means this controller did not report one.
+         * That is not "not required": it is unknown, and unknown is not armed. */
+        const name = prerequisite ? String(prerequisite.state || '').trim() : '';
+        head.append(title, prerequisitePill(name));
+        block.append(head);
+
+        const meaning = document.createElement('p');
+        meaning.className = 'prereq-block-meaning';
+        const meta = prerequisiteStateMeta(name);
+        meaning.textContent = !prerequisite
+            ? 'The controller did not report an enable-register state for this inverter. Unknown is not confirmed: a setpoint could read back correctly here and still be ignored.'
+            : meta ? meta.meaning
+            : 'The controller reported an enable-register state this interface does not recognise. It is shown above exactly as received and is treated as not confirmed.';
+        block.append(meaning);
+
+        if (prerequisite) {
+            const detail = document.createElement('p');
+            detail.className = 'prereq-block-detail';
+            const raw = Number(prerequisite.raw);
+            const lost = Number(prerequisite.lost_count);
+            const parts = [
+                `Last read valid: ${prerequisite.read_valid === true ? 'yes' : 'no'}`,
+                `Register holds required value: ${prerequisite.holds === true ? 'yes' : 'no'}`,
+                `Last raw value: ${Number.isFinite(raw) ? raw : '--'}`,
+                `Confirmed reads: ${Number.isFinite(Number(prerequisite.confirmed_count)) ? Number(prerequisite.confirmed_count) : '--'}`,
+                `Enable writes: ${Number.isFinite(Number(prerequisite.write_count)) ? Number(prerequisite.write_count) : '--'}`,
+                /* Non-zero means the limit was armed and then switched off
+                 * underneath this controller. For Solis that returns the machine
+                 * to 100 %, so it is reported rather than averaged away. */
+                `Times lost after being armed: ${Number.isFinite(lost) ? lost : '--'}`,
+                `Last error: ${verbatim(prerequisite.last_error_name, 'Not reported')}`
+            ];
+            detail.textContent = parts.join(' · ');
+            block.append(detail);
+        }
+        return block;
     }
 
     function renderConfirmLegend() {
@@ -1330,11 +1499,65 @@
         }));
     }
 
+    /* Fleet roll-up for the enable register, stated alongside the fleet setpoint
+     * state rather than instead of it. The three counts are never summed: the
+     * unverifiable ones are the only ones that will not resolve on their own, so
+     * merging them into a single "problem" figure would hide the only number that
+     * needs a person. */
+    function prerequisiteCountLine(payload) {
+        const required = Number(payload?.prerequisite_required_count);
+        const unconfirmed = Number(payload?.prerequisite_unconfirmed_count);
+        const unverifiable = Number(payload?.prerequisite_unverifiable_count);
+        if (![required, unconfirmed, unverifiable].every(Number.isFinite)) return null;
+        return `Need an enable register: ${required}`
+            + ` · Not confirmed right now (transient, retried): ${unconfirmed}`
+            + ` · Unverifiable (permanent, needs a manual citation): ${unverifiable}`;
+    }
+
+    /* All four enable-register states are explained once, next to the four
+     * setpoint states, so an engineer can see that they are two independent
+     * answers rather than one scale. Built once; these sentences never change. */
+    function renderPrerequisiteLegend() {
+        const legend = byId('prereqLegend');
+        if (!legend || legend.childElementCount) return;
+        legend.replaceChildren(...PREREQUISITE_STATE_ORDER.map((name) => {
+            const item = document.createElement('div');
+            item.className = 'confirm-legend-item';
+            item.append(prerequisitePill(name));
+            const text = document.createElement('small');
+            text.textContent = PREREQUISITE_STATES[name].meaning;
+            item.append(text);
+            return item;
+        }));
+    }
+
+    function renderPrerequisiteFleet(payload) {
+        renderPrerequisiteLegend();
+        const counts = prerequisiteCountLine(payload);
+        setTextIfChanged('prereqCounts', counts || STATES.dataQuality.unavailable);
+        if (!payload) {
+            setTextIfChanged('prereqFleetState',
+                'The controller has not reported an enable-register state. Unknown is not confirmed: nothing on this panel proves a limit is armed.');
+            setNoticeLine('prereqNoticeDetail', '');
+            return;
+        }
+        const faulted = payload.prerequisite_enable_fault === true;
+        const unverifiable = Number(payload.prerequisite_unverifiable_count);
+        setTextIfChanged('prereqFleetState', faulted
+            ? (Number.isFinite(unverifiable) && unverifiable > 0
+                ? 'At least one inverter needs an enable register that cannot be read back at all. It is refused write authority permanently and no amount of polling will change that; cite the register and its readback in its profile.'
+                : 'At least one inverter has an enable register that is not confirmed to hold. Its setpoint would read back correctly and still be ignored, and it is excluded from the commandable fleet until a read confirms the register.')
+            : 'Every inverter that needs an enable register is confirmed to hold it by a read of that register.');
+        /* The controller's own wording, written as received. */
+        setNoticeLine('prereqNoticeDetail', payload.prerequisite_notice);
+    }
+
     function renderWriteConfirmation() {
         const list = byId('confirmList');
         if (!list) return;
         renderConfirmLegend();
         const payload = state.writeConfirmation;
+        renderPrerequisiteFleet(payload);
         if (!payload) {
             setBadgeIfChanged('confirmFleetBadge', STATES.dataQuality.unavailable, '');
             if (state.confirmSignature !== '') {

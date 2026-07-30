@@ -130,6 +130,19 @@
     --gate-unmet: #f6cf6a;
     --gate-boundary: #5b7ea6;
 
+    /* Prerequisite enable register. Three colours, not two, because "not
+       confirmed yet" and "can never be confirmed" need different actions: the
+       first resolves itself, the second needs a human with a manual. Painting
+       them the same is how a permanent fault gets waited out.
+       Kept off the setpoint-confirmation hues on purpose - a prerequisite fault
+       is invisible in the setpoint readback, so it must not borrow that
+       vocabulary's colours.
+       Measured against --confirm-surface: confirmed 9.42:1, unconfirmed 9.43:1,
+       unverifiable 8.72:1. */
+    --prereq-confirmed: #4ddb96;
+    --prereq-unconfirmed: #ffb454;
+    --prereq-unverifiable: #ff9ecb;
+
     /* Page widths by page type, set from the route table in app.js. Operational
        screens are read across; forms and guided workflows are read down a
        column and get worse, not better, when stretched to 1550px. */
@@ -612,6 +625,80 @@ input:disabled, select:disabled, textarea:disabled {
 .confirm-value strong { color: var(--text); font-size: 16px; font-variant-numeric: tabular-nums; }
 .confirm-value small { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; line-height: 1.45; }
 .confirm-counters { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+
+/* ------------------------------------------- prerequisite enable register
+ *
+ * Shown everywhere setpoint confirmation is shown, because the two faults are
+ * indistinguishable from outside and only one of them is visible in the setpoint
+ * readback. A prerequisite that is not confirmed lets the setpoint be accepted,
+ * echoed back and then ignored, so a CONFIRMED setpoint on a machine with an
+ * unarmed enable register is a false statement about a plant running at full
+ * output. That danger is stated in words here, not implied by a colour.
+ *
+ * The notice takes the fault rule so it reads as loudly as the lab-target
+ * consequence block does. Every colour resolves through a token declared in both
+ * themes; the measured ratios are recorded beside the declarations. */
+.prereq-notice {
+    display: grid;
+    gap: 5px;
+    margin: 13px 0 0;
+    padding: 11px 13px;
+    border: 1px solid var(--confirm-mismatched);
+    border-left-width: 4px;
+    border-radius: 11px;
+}
+.prereq-notice strong { color: var(--text); font-size: 12px; font-weight: 800; line-height: 1.45; }
+.prereq-notice span { color: var(--muted); font-size: 11px; line-height: 1.55; }
+/* Counts. Required, unconfirmed and unverifiable are three separate figures and
+ * are never summed into one "problem" number: the last of the three is the only
+ * one that will not resolve on its own. */
+.prereq-counts { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 9px; color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+/* Per-inverter block inside a confirmation row, ruled off from the setpoint
+ * figures above it so it cannot be read as one of them. */
+.prereq-block { margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--gate-boundary); }
+.prereq-block-head { display: flex; flex-wrap: wrap; gap: 9px; justify-content: space-between; align-items: center; }
+.prereq-block-title { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: 0.07em; text-transform: uppercase; }
+.prereq-block-meaning { margin: 8px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.prereq-block-detail { margin: 6px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+/* Same pill construction as the setpoint states, but a different word and a
+ * different glyph in every case, so the two vocabularies cannot be confused at a
+ * glance. The pill's own colour is its border and its text on --confirm-surface,
+ * which is the pairing the measured ratios apply to. */
+.prereq-state-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 30px;
+    padding: 0 11px;
+    border: 1px solid var(--gate-boundary);
+    border-radius: 999px;
+    background: transparent;
+    font-size: 12px;
+    font-weight: 850;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+}
+.prereq-state-confirmed { color: var(--prereq-confirmed); border-color: var(--prereq-confirmed); }
+/* Transient. The background task is still reading, so this is amber work in
+ * progress and not a fault to be dispatched. */
+.prereq-state-unconfirmed { color: var(--prereq-unconfirmed); border-color: var(--prereq-unconfirmed); border-left-width: 4px; }
+/* Permanent. A heavier rule than the transient state on every side, because no
+ * amount of waiting resolves it and it must not be left to settle. */
+.prereq-state-unverifiable { color: var(--prereq-unverifiable); border-color: var(--prereq-unverifiable); border-width: 2px; }
+/* The device needs no enable register at all. Neutral, and dashed like every
+ * other "nothing measured here" in this application. */
+.prereq-state-not_required { color: var(--muted); border-color: var(--gate-boundary); border-style: dashed; }
+/* An unarmed enable register is a property of the whole row, not a footnote in
+ * it: a reader scanning states must not be able to miss it while the setpoint
+ * pill beside it says Confirmed.
+ *
+ * Drawn as an OUTLINE rather than a border on purpose. The row's border already
+ * carries the setpoint state, and a mismatched setpoint and an unarmed enable
+ * register can be true at the same time; overwriting the border would delete one
+ * of two simultaneous faults. An outline is an independent channel, so both are
+ * visible together. */
+.confirm-row.prereq-unconfirmed { outline: 2px solid var(--prereq-unconfirmed); outline-offset: 2px; }
+.confirm-row.prereq-unverifiable { outline: 3px solid var(--prereq-unverifiable); outline-offset: 2px; }
 
 /* -------------------------------------------------------- lab target control */
 .lab-consequence { border-color: var(--confirm-mismatched); }

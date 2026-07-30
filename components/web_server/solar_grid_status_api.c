@@ -105,6 +105,39 @@ static esp_err_t status_get(httpd_req_t *request)
                                 (inverter_write_state_t)status.write_confirmation));
     cJSON_AddBoolToObject(root, "write_confirmation_fault",
                           status.write_confirmation_fault);
+    /* PREREQUISITE ENABLE REGISTERS. A separate fault from write confirmation
+     * above, published unconditionally next to it for the same reason
+     * commissioning_scope is published unconditionally: a client that can read
+     * one of these must be able to read the other, or an inverter disappears
+     * from the commandable fleet with no reason given.
+     *
+     * write_confirmation_fault  - the SETPOINT register read back wrong.
+     * prerequisite_enable_fault - the ENABLE register is not confirmed to hold,
+     *                             so the setpoint reads back PERFECTLY and is
+     *                             ignored. This is the more dangerous of the two
+     *                             and is never merged into the other.
+     *
+     * The counts are the control engine's own snapshot; this handler performs no
+     * Modbus I/O. */
+    cJSON_AddBoolToObject(root, "prerequisite_enable_fault",
+                          status.prerequisite_enable_fault);
+    cJSON_AddNumberToObject(root, "prerequisite_required_count",
+                            status.prerequisite_required_count);
+    /* Transient: not confirmed by a read right now, and retried. */
+    cJSON_AddNumberToObject(root, "prerequisite_unconfirmed_count",
+                            status.prerequisite_unconfirmed_count);
+    /* Permanent: no writable and readable prerequisite can be described, so no
+     * amount of polling resolves it. The remedy is a manual citation. */
+    cJSON_AddNumberToObject(root, "prerequisite_unverifiable_count",
+                            status.prerequisite_unverifiable_count);
+    if (status.prerequisite_enable_fault) {
+        cJSON_AddStringToObject(root, "prerequisite_enable_notice",
+                                "An inverter enable register is not confirmed to hold. Its "
+                                "setpoint would be accepted, echoed back and then ignored, so "
+                                "the setpoint readback reads as a perfect match while the "
+                                "inverter keeps generating at full output. This is not a "
+                                "setpoint fault and will not appear as one.");
+    }
 
     char *json = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
