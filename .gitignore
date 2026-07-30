@@ -39,3 +39,6 @@ evidence/ui-baseline/shots/*.png
 !evidence/ui-baseline/shots/meters-1440x900-light-operator.png
 !evidence/ui-baseline/shots/inverters-1440x900-light-operator.png
 !evidence/ui-baseline/shots/control-1440x900-light-operator.png
+
+# Partial after-audit screenshots (run interrupted when the AP dropped)
+evidence/ui-after/shots/*.png

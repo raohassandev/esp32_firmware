@@ -3,7 +3,11 @@
  * Extends evidence/ui-audit-2026-07-29/summarize.js. */
 const fs = require('fs');
 const path = require('path');
-const r = JSON.parse(fs.readFileSync(path.join(__dirname, 'report.json'), 'utf8'));
+/* OUT_DIR / METRICS_NAME let the 2026-07-31 "after" run summarise
+ * evidence/ui-after/report.json with this identical code. */
+const DIR = process.env.OUT_DIR || __dirname;
+const METRICS_NAME = process.env.METRICS_NAME || 'baseline-metrics.json';
+const r = JSON.parse(fs.readFileSync(path.join(DIR, process.env.REPORT_NAME || 'report.json'), 'utf8'));
 
 const runs = r.runs.filter((x) => !x.error);
 const errs = r.runs.filter((x) => x.error);
@@ -160,7 +164,7 @@ for (const run of runs.filter((x) => x.viewport === '1440x900' && x.theme === 'l
         console.log(`  ${run.route}: ${c.selector} ${c.w}x${c.h} @(${c.x},${c.y}) fill ${c.fillPct}%`));
 }
 
-fs.writeFileSync(path.join(__dirname, 'baseline-metrics.json'),
+fs.writeFileSync(path.join(DIR, METRICS_NAME),
     JSON.stringify({ generated: r.generated, base: r.base, method: 'see metrics.js header', rows: table,
                      network: [...net.values()].sort((a, b) => b.count - a.count) }, null, 2));
-console.log('\nwrote baseline-metrics.json');
+console.log('\nwrote ' + METRICS_NAME);

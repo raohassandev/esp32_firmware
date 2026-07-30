@@ -15,7 +15,9 @@ const path = require('path');
 
 const BASE = process.env.TARGET || 'http://192.168.100.14';
 const PASSWORD = process.env.ENG_PASSWORD || '';        /* not available: see report */
-const OUT = __dirname;
+/* OUT_DIR lets the 2026-07-31 "after" run write into evidence/ui-after/ while
+ * executing this identical harness (checks.js + metrics.js unchanged). */
+const OUT = process.env.OUT_DIR || __dirname;
 const SHOTS = path.join(OUT, 'shots');
 const ONLY = process.env.ONLY_ROUTE ? process.env.ONLY_ROUTE.split(',') : null;
 const REPORT = process.env.REPORT_NAME || 'report.json';
