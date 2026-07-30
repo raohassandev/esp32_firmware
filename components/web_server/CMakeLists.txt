@@ -13,6 +13,7 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/commissioning-release-v3.css
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/wifi.css" "${CMAKE_CURRENT_BINARY_DIR}/wifi.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/devices.css" "${CMAKE_CURRENT_BINARY_DIR}/devices.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500.css" "${CMAKE_CURRENT_BINARY_DIR}/em500.css" COPYONLY)
+configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/industrial-operator-ui.css" "${CMAKE_CURRENT_BINARY_DIR}/industrial-operator-ui.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/app.js" "${CMAKE_CURRENT_BINARY_DIR}/app.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/theme.js" "${CMAKE_CURRENT_BINARY_DIR}/theme.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/engineering-session-resilience.js" "${CMAKE_CURRENT_BINARY_DIR}/engineering-session-resilience.js" COPYONLY)
@@ -45,6 +46,7 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500-profiles.js" "${CMAKE_
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500-plan.js" "${CMAKE_CURRENT_BINARY_DIR}/em500-plan.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/source-detection.js" "${CMAKE_CURRENT_BINARY_DIR}/source-detection.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/solar-grid.js" "${CMAKE_CURRENT_BINARY_DIR}/solar-grid.js" COPYONLY)
+configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/industrial-operator-ui.js" "${CMAKE_CURRENT_BINARY_DIR}/industrial-operator-ui.js" COPYONLY)
 
 set(WEB_SERVER_C_SOURCES
     "web_server.c"
@@ -115,6 +117,7 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/wifi.css"
         "${CMAKE_CURRENT_BINARY_DIR}/devices.css"
         "${CMAKE_CURRENT_BINARY_DIR}/em500.css"
+        "${CMAKE_CURRENT_BINARY_DIR}/industrial-operator-ui.css"
         "${CMAKE_CURRENT_BINARY_DIR}/app.js"
         "${CMAKE_CURRENT_BINARY_DIR}/theme.js"
         "${CMAKE_CURRENT_BINARY_DIR}/engineering-session-resilience.js"
@@ -147,6 +150,7 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/em500-plan.js"
         "${CMAKE_CURRENT_BINARY_DIR}/source-detection.js"
         "${CMAKE_CURRENT_BINARY_DIR}/solar-grid.js"
+        "${CMAKE_CURRENT_BINARY_DIR}/industrial-operator-ui.js"
 )
 
 foreach(source IN LISTS WEB_SERVER_C_SOURCES)
