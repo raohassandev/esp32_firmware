@@ -40,6 +40,7 @@ require("40125" in SOURCE and "10.0f" in SOURCE and "0.1f" in SOURCE,
 
 for profile_id in [
     "huawei.sun2000.pending",
+    "huawei.smartlogger.plant",
     "goodwe.commercial.pending",
     "solis.commercial.pending",
     "foxess.commercial.pending",

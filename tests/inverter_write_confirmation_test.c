@@ -276,6 +276,426 @@ static void test_command_rate_limit(void)
     assert(!inverter_command_rate_limited(1000, true, 5000, 50.0f, NAN, 5001));
 }
 
+/* ------------------------------------------------------------------------- */
+/* Measured-power confirmation.                                              */
+/*                                                                           */
+/* The property under test is the one that decides whether this feature is    */
+/* safe or dangerous: measured output BELOW a commanded limit is equally      */
+/* consistent with the limit being honoured and with the sun going in, so it  */
+/* must NEVER read as confirmed. Only a fall from ABOVE the new limit to      */
+/* at-or-below it demonstrates a limit.                                      */
+/* ------------------------------------------------------------------------- */
+
+/* A plant on the Huawei SmartLogger plant interface: 100 kW of inverters,
+ * commanded to 60 %, so the limit is 60 kW with a 2 %-of-capacity (2 kW) band.
+ * The setpoint readback agrees, which for this interface is ACCEPTANCE only. */
+static inverter_write_evidence_t measured_evidence(void)
+{
+    inverter_write_evidence_t e = good_evidence();
+    e.commanded_percent = 60.0f;
+    e.readback_percent = 60.0f;
+    e.tolerance_percent = 1.0f;
+    e.settle_ms = 1000;
+    e.deadline_ms = 5000;
+    e.age_since_write_ms = 1500;
+
+    e.measured_mode = INVERTER_MEASURED_CONFIRM_REQUIRED;
+    e.capacity_kw = 100.0f;
+    e.measured_tolerance_percent_of_capacity = 2.0f;
+    e.measured_valid = true;
+    e.measured_after_write = true;
+    e.measured_kw = 59.0f;      /* at the limit, having come down */
+    e.baseline_valid = true;
+    e.baseline_before_write = true;
+    e.baseline_kw = 88.0f;      /* was well above the new limit */
+    return e;
+}
+
+static void test_measured_power_demonstrates_a_limit(void)
+{
+    inverter_write_evidence_t e = measured_evidence();
+    inverter_write_verdict_t v = inverter_write_confirmation_evaluate(&e);
+    assert(v.state == INVERTER_WRITE_CONFIRMED);
+    assert(v.limit_demonstrated);
+    assert(v.proof == INVERTER_WRITE_PROOF_MEASURED_POWER);
+    assert(!v.requires_safe_zero);
+    assert(v.settled);
+
+    /* Exactly on the upper edge of the band still counts as at-or-below. */
+    e.measured_kw = 62.0f; /* limit 60 + band 2 */
+    v = inverter_write_confirmation_evaluate(&e);
+    assert(v.state == INVERTER_WRITE_CONFIRMED);
+    assert(v.limit_demonstrated);
+
+    /* And the baseline must clear the band too, not merely the limit. */
+    e.measured_kw = 59.0f;
+    e.baseline_kw = 62.0f; /* == limit + band, not ABOVE it */
+    v = inverter_write_confirmation_evaluate(&e);
+    assert(v.state == INVERTER_WRITE_UNVERIFIED);
+    assert(!v.limit_demonstrated);
+    e.baseline_kw = 62.01f;
+    assert(inverter_write_confirmation_evaluate(&e).state == INVERTER_WRITE_CONFIRMED);
+}
+
+/* THE CRUX. Falling irradiance must not read as a confirmed limit.
+ *
+ * The plant was already below the commanded limit when the command went out, so
+ * a subsequent measurement below the limit is exactly what a cloud produces. The
+ * limit may well be in force -- but this evidence cannot show it, and the honest
+ * verdict is UNVERIFIED. */
+static void test_falling_irradiance_is_not_a_confirmed_limit(void)
+{
+    inverter_write_evidence_t e = measured_evidence();
+
+    /* Cloud: 30 kW before the command, 22 kW after, limit 60 kW. Nothing about
+     * this sequence demonstrates a 60 kW limit. */
+    e.baseline_kw = 30.0f;
+    e.measured_kw = 22.0f;
+    inverter_write_verdict_t v = inverter_write_confirmation_evaluate(&e);
+    assert(v.state == INVERTER_WRITE_UNVERIFIED);
+    assert(!v.limit_demonstrated);
+    assert(v.proof == INVERTER_WRITE_PROOF_AMBIGUOUS_HEADROOM);
+    /* And it must NOT demand a safe zero: driving PV to zero every time
+     * irradiance falls below the commanded limit is worse than the ambiguity. */
+    assert(!v.requires_safe_zero);
+    assert(v.settled);
+
+    /* A perfectly matching setpoint readback cannot rescue it. That echo is the
+     * value the logger STORED; it is acceptance, not application. */
+    e.readback_percent = e.commanded_percent;
+    v = inverter_write_confirmation_evaluate(&e);
+    assert(v.state == INVERTER_WRITE_UNVERIFIED);
+    assert(v.proof == INVERTER_WRITE_PROOF_AMBIGUOUS_HEADROOM);
+
+    /* Nor can time. Waiting past the deadline does not create evidence. */
+    for (uint32_t age = 1000; age <= 120000; age += 20000) {
+        e.age_since_write_ms = age;
+        v = inverter_write_confirmation_evaluate(&e);
+        assert(v.state != INVERTER_WRITE_CONFIRMED);
+        assert(!v.limit_demonstrated);
+    }
+
+    /* A baseline exactly at the limit is still ambiguity, not demonstration. */
+    e = measured_evidence();
+    e.baseline_kw = 60.0f;
+    e.measured_kw = 60.0f;
+    assert(inverter_write_confirmation_evaluate(&e).state == INVERTER_WRITE_UNVERIFIED);
+
+    /* Missing baseline: same answer. This is the state after a restart, and it
+     * must not silently confirm. */
+    e = measured_evidence();
+    e.baseline_valid = false;
+    v = inverter_write_confirmation_evaluate(&e);
+    assert(v.state == INVERTER_WRITE_UNVERIFIED);
+    assert(v.proof == INVERTER_WRITE_PROOF_AMBIGUOUS_HEADROOM);
+
+    /* A "baseline" sampled after the write has already been affected by it. */
+    e = measured_evidence();
+    e.baseline_before_write = false;
+    assert(inverter_write_confirmation_evaluate(&e).state == INVERTER_WRITE_UNVERIFIED);
+
+    /* A non-finite baseline is not a baseline. */
+    e = measured_evidence();
+    e.baseline_kw = NAN;
+    assert(inverter_write_confirmation_evaluate(&e).state == INVERTER_WRITE_UNVERIFIED);
+}
+
+/* A command of 100 % can never be demonstrated by measurement, because the
+ * baseline can never be above capacity. Permanently ambiguous, and correctly so:
+ * "no limit" is not a limit to demonstrate. */
+static void test_full_output_command_is_never_demonstrated(void)
+{
+    inverter_write_evidence_t e = measured_evidence();
+    e.commanded_percent = 100.0f;
+    e.readback_percent = 100.0f;
+    e.baseline_kw = 99.0f;
+    e.measured_kw = 97.0f;
+    inverter_write_verdict_t v = inverter_write_confirmation_evaluate(&e);
+    assert(v.state == INVERTER_WRITE_UNVERIFIED);
+    assert(!v.limit_demonstrated);
+    assert(v.proof == INVERTER_WRITE_PROOF_AMBIGUOUS_HEADROOM);
+    assert(!v.requires_safe_zero);
+}
+
+/* The direction that IS unambiguous, and the direction that protects the
+ * generator: no change in irradiance can lift a plant ABOVE a limit in force. */
+static void test_output_above_the_limit_is_a_mismatch(void)
+{
+    inverter_write_evidence_t e = measured_evidence();
+    e.measured_kw = 80.0f; /* limit 60, band 2 */
+
+    /* Inside the settle window the plant is still allowed to be ramping down. */
+    e.age_since_write_ms = 900;
+    inverter_write_verdict_t v = inverter_write_confirmation_evaluate(&e);
+    assert(v.state == INVERTER_WRITE_PENDING);
+    assert(!v.requires_safe_zero);
+
+    /* Past it, the limit is demonstrably NOT being honoured. */
+    e.age_since_write_ms = 1001;
+    v = inverter_write_confirmation_evaluate(&e);
+    assert(v.state == INVERTER_WRITE_MISMATCHED);
+    assert(v.requires_safe_zero);
+    assert(v.settled);
+
+    /* This is the escalation path out of the ambiguous verdict: the sun comes
+     * back, output climbs past the limit, and the fault appears. Note the
+     * baseline is irrelevant here -- above the limit needs no baseline. */
+    e.baseline_valid = false;
+    assert(inverter_write_confirmation_evaluate(&e).state == INVERTER_WRITE_MISMATCHED);
+}
+
+/* No measurement yet is transient, then unknown. Never confirmed, and unlike the
+ * ambiguous verdict this one DOES demand the safe fallback: the plant's output is
+ * not known at all. */
+static void test_missing_measurement_is_pending_then_unverified(void)
+{
+    inverter_write_evidence_t e = measured_evidence();
+    e.measured_valid = false;
+    e.age_since_write_ms = 2000;
+    inverter_write_verdict_t v = inverter_write_confirmation_evaluate(&e);
+    assert(v.state == INVERTER_WRITE_PENDING);
+    assert(!v.requires_safe_zero);
+
+    e.age_since_write_ms = 5001;
+    v = inverter_write_confirmation_evaluate(&e);
+    assert(v.state == INVERTER_WRITE_UNVERIFIED);
+    assert(v.requires_safe_zero);
+    assert(v.settled);
+
+    /* A measurement older than the write proves nothing about the write. */
+    e = measured_evidence();
+    e.measured_after_write = false;
+    e.age_since_write_ms = 5001;
+    v = inverter_write_confirmation_evaluate(&e);
+    assert(v.state == INVERTER_WRITE_UNVERIFIED);
+    assert(v.requires_safe_zero);
+
+    /* A non-finite measurement is an unusable sample, not a fault. */
+    e = measured_evidence();
+    e.measured_kw = NAN;
+    assert(inverter_write_confirmation_evaluate(&e).state == INVERTER_WRITE_PENDING);
+}
+
+/* Incompletely described measured evidence is REFUSED, never quietly reverted to
+ * confirming on the setpoint echo. A transcription slip must not turn into the
+ * exact false confirmation this mode exists to prevent. */
+static void test_incomplete_measured_description_fails_closed(void)
+{
+    /* No capacity: the commanded limit in kW cannot be derived at all. */
+    inverter_write_evidence_t e = measured_evidence();
+    e.capacity_kw = 0.0f;
+    inverter_write_verdict_t v = inverter_write_confirmation_evaluate(&e);
+    assert(v.state == INVERTER_WRITE_UNVERIFIED);
+    assert(v.requires_safe_zero);
+
+    const float bad_capacities[] = {-1.0f, NAN, INFINITY};
+    for (size_t i = 0; i < sizeof(bad_capacities) / sizeof(bad_capacities[0]); ++i) {
+        e = measured_evidence();
+        e.capacity_kw = bad_capacities[i];
+        v = inverter_write_confirmation_evaluate(&e);
+        assert(v.state == INVERTER_WRITE_UNVERIFIED);
+        assert(v.requires_safe_zero);
+    }
+
+    /* No stated tolerance at all. A zero band on a physical measurement is not a
+     * tolerance, it is a bug, and it must not be treated as "exact". */
+    e = measured_evidence();
+    e.measured_tolerance_percent_of_capacity = 0.0f;
+    e.measured_tolerance_kw = 0.0f;
+    v = inverter_write_confirmation_evaluate(&e);
+    assert(v.state == INVERTER_WRITE_UNVERIFIED);
+    assert(v.requires_safe_zero);
+
+    e = measured_evidence();
+    e.measured_tolerance_percent_of_capacity = 0.0f;
+    e.measured_tolerance_kw = -1.0f;
+    assert(inverter_write_confirmation_evaluate(&e).state == INVERTER_WRITE_UNVERIFIED);
+
+    /* An absolute kW band alone is sufficient. */
+    e = measured_evidence();
+    e.measured_tolerance_percent_of_capacity = 0.0f;
+    e.measured_tolerance_kw = 2.0f;
+    assert(inverter_write_confirmation_evaluate(&e).state == INVERTER_WRITE_CONFIRMED);
+
+    /* With both stated the WIDER band is used. A 10 kW absolute band against a
+     * 2 kW relative one must let 69 kW pass as at-or-below a 60 kW limit. */
+    e.measured_tolerance_percent_of_capacity = 2.0f;
+    e.measured_tolerance_kw = 10.0f;
+    e.measured_kw = 69.0f;
+    e.baseline_kw = 95.0f;
+    assert(inverter_write_confirmation_evaluate(&e).state == INVERTER_WRITE_CONFIRMED);
+    /* ...and it must widen the baseline requirement in the same step: a baseline
+     * of 69 kW no longer clears a 60 + 10 kW threshold. */
+    e.baseline_kw = 69.0f;
+    assert(inverter_write_confirmation_evaluate(&e).state == INVERTER_WRITE_UNVERIFIED);
+}
+
+/* Measured confirmation may be used INSTEAD of a setpoint readback: for a target
+ * whose command register cannot be read back at all, measurement is the stronger
+ * witness, not a weaker substitute. It still may not confirm on ambiguity. */
+static void test_measured_required_without_any_readback(void)
+{
+    inverter_write_evidence_t e = measured_evidence();
+    e.readback_supported = false;
+    e.readback_valid = false;
+    e.readback_percent = 0.0f;
+    inverter_write_verdict_t v = inverter_write_confirmation_evaluate(&e);
+    assert(v.state == INVERTER_WRITE_CONFIRMED);
+    assert(v.limit_demonstrated);
+    assert(v.proof == INVERTER_WRITE_PROOF_MEASURED_POWER);
+
+    e.baseline_kw = 10.0f; /* already below the limit */
+    v = inverter_write_confirmation_evaluate(&e);
+    assert(v.state == INVERTER_WRITE_UNVERIFIED);
+    assert(v.proof == INVERTER_WRITE_PROOF_AMBIGUOUS_HEADROOM);
+
+    /* Without a readback AND without a required measured mode there is no
+     * confirmation source at all, which stays unverified forever. */
+    e = measured_evidence();
+    e.readback_supported = false;
+    e.measured_mode = INVERTER_MEASURED_CONFIRM_NONE;
+    v = inverter_write_confirmation_evaluate(&e);
+    assert(v.state == INVERTER_WRITE_UNVERIFIED);
+    assert(v.requires_safe_zero);
+}
+
+/* A setpoint readback that DISAGREES is a real fault even when confirmation
+ * closes on measurement: whatever the meter says, the device did not take the
+ * value that was sent. */
+static void test_disagreeing_readback_still_faults_in_measured_mode(void)
+{
+    inverter_write_evidence_t e = measured_evidence();
+    e.readback_percent = 100.0f; /* the logger stored something else */
+    e.age_since_write_ms = 900;  /* inside settle: timing, not a fault */
+    assert(inverter_write_confirmation_evaluate(&e).state == INVERTER_WRITE_PENDING);
+
+    e.age_since_write_ms = 1001;
+    inverter_write_verdict_t v = inverter_write_confirmation_evaluate(&e);
+    assert(v.state == INVERTER_WRITE_MISMATCHED);
+    assert(v.requires_safe_zero);
+}
+
+/* CORROBORATING mode: measurement is preferred, but a matching readback may
+ * still confirm when measurement cannot demonstrate anything. The distinction is
+ * visible in limit_demonstrated, so a caller can never confuse the two. */
+static void test_corroborating_mode_falls_back_to_the_readback(void)
+{
+    inverter_write_evidence_t e = measured_evidence();
+    e.measured_mode = INVERTER_MEASURED_CONFIRM_CORROBORATING;
+
+    /* Demonstrated by measurement: the stronger proof is the one reported. */
+    inverter_write_verdict_t v = inverter_write_confirmation_evaluate(&e);
+    assert(v.state == INVERTER_WRITE_CONFIRMED);
+    assert(v.limit_demonstrated);
+    assert(v.proof == INVERTER_WRITE_PROOF_MEASURED_POWER);
+
+    /* Ambiguous measurement, matching readback: confirmed, but explicitly NOT
+     * demonstrated. */
+    e.baseline_kw = 20.0f;
+    e.measured_kw = 15.0f;
+    v = inverter_write_confirmation_evaluate(&e);
+    assert(v.state == INVERTER_WRITE_CONFIRMED);
+    assert(!v.limit_demonstrated);
+    assert(v.proof == INVERTER_WRITE_PROOF_SETPOINT_READBACK);
+
+    /* Output above the limit still outranks a matching readback. */
+    e.measured_kw = 80.0f;
+    v = inverter_write_confirmation_evaluate(&e);
+    assert(v.state == INVERTER_WRITE_MISMATCHED);
+    assert(v.requires_safe_zero);
+
+    /* And in REQUIRED mode the same ambiguous case may not confirm. */
+    e.measured_mode = INVERTER_MEASURED_CONFIRM_REQUIRED;
+    e.measured_kw = 15.0f;
+    assert(inverter_write_confirmation_evaluate(&e).state == INVERTER_WRITE_UNVERIFIED);
+}
+
+/* The scheduling-authority assertion: after our own command the target must name
+ * this controller's channel. Anything else means another master owns the plant.
+ *
+ * On the SmartLogger the register is 40737 "Active power control mode" and the
+ * expected value is 4 "Remote scheduling". It is checked only AFTER a write,
+ * because the logger is documented to adopt that mode on RECEIPT of a scheduling
+ * command -- gating a command on it beforehand would deadlock. */
+static void test_scheduling_authority_contention(void)
+{
+    inverter_write_evidence_t e = measured_evidence();
+    e.authority_checked = true;
+    e.authority_valid = true;
+    e.authority_after_write = true;
+    e.authority_holds = true;
+
+    inverter_write_verdict_t v = inverter_write_confirmation_evaluate(&e);
+    assert(v.state == INVERTER_WRITE_CONFIRMED);
+    assert(v.limit_demonstrated);
+
+    /* Another authority owns the plant. Inside the settle window the equipment
+     * is still allowed to be adopting our mode. */
+    e.authority_holds = false;
+    e.age_since_write_ms = 900;
+    assert(inverter_write_confirmation_evaluate(&e).state == INVERTER_WRITE_PENDING);
+
+    /* Past it, this is contention and the safe fallback is demanded -- even
+     * though the measurement on its own would have confirmed. */
+    e.age_since_write_ms = 1001;
+    v = inverter_write_confirmation_evaluate(&e);
+    assert(v.state == INVERTER_WRITE_MISMATCHED);
+    assert(v.requires_safe_zero);
+    assert(!v.limit_demonstrated);
+
+    /* Not read yet: transient, then unknown. A perfect measurement must not
+     * confirm while it is unknown who owns the plant. */
+    e.authority_holds = true;
+    e.authority_valid = false;
+    e.age_since_write_ms = 2000;
+    assert(inverter_write_confirmation_evaluate(&e).state == INVERTER_WRITE_PENDING);
+    e.age_since_write_ms = 5001;
+    v = inverter_write_confirmation_evaluate(&e);
+    assert(v.state == INVERTER_WRITE_UNVERIFIED);
+    assert(v.requires_safe_zero);
+
+    /* An authority reading taken before our write says nothing about it. */
+    e.authority_valid = true;
+    e.authority_after_write = false;
+    e.age_since_write_ms = 5001;
+    assert(inverter_write_confirmation_evaluate(&e).state == INVERTER_WRITE_UNVERIFIED);
+
+    /* A profile that does not describe the register is unaffected. */
+    e = measured_evidence();
+    e.authority_checked = false;
+    e.authority_holds = false;
+    assert(inverter_write_confirmation_evaluate(&e).state == INVERTER_WRITE_CONFIRMED);
+}
+
+/* Zeroed state must never read as confirmed, and must never read as a
+ * demonstrated limit. UNVERIFIED is 0 and PROOF_NONE is 0. */
+static void test_zeroed_state_is_never_confirmed(void)
+{
+    assert(INVERTER_WRITE_UNVERIFIED == 0);
+    assert(INVERTER_MEASURED_CONFIRM_NONE == 0);
+    assert(INVERTER_WRITE_PROOF_NONE == 0);
+
+    inverter_write_evidence_t zeroed;
+    memset(&zeroed, 0, sizeof(zeroed));
+    inverter_write_verdict_t v = inverter_write_confirmation_evaluate(&zeroed);
+    assert(v.state == INVERTER_WRITE_UNVERIFIED);
+    assert(!v.limit_demonstrated);
+    assert(v.proof == INVERTER_WRITE_PROOF_NONE);
+}
+
+static void test_proof_names(void)
+{
+    assert(strcmp(inverter_write_proof_name(INVERTER_WRITE_PROOF_NONE), "none") == 0);
+    assert(strcmp(inverter_write_proof_name(INVERTER_WRITE_PROOF_SETPOINT_READBACK),
+                  "setpoint_readback") == 0);
+    assert(strcmp(inverter_write_proof_name(INVERTER_WRITE_PROOF_MEASURED_POWER),
+                  "measured_power") == 0);
+    assert(strcmp(inverter_write_proof_name(INVERTER_WRITE_PROOF_AMBIGUOUS_HEADROOM),
+                  "ambiguous_headroom") == 0);
+    /* An out-of-range value must claim the least. */
+    assert(strcmp(inverter_write_proof_name((inverter_write_proof_t)77), "none") == 0);
+}
+
 static void test_fleet_rollup(void)
 {
     /* An empty fleet is unverified, never confirmed. */
@@ -326,6 +746,18 @@ int main(void)
     test_null_and_nonsense_inputs_fail_closed();
     test_deferred_apply_device_is_pending_not_mismatched();
     test_command_rate_limit();
+    test_measured_power_demonstrates_a_limit();
+    test_falling_irradiance_is_not_a_confirmed_limit();
+    test_full_output_command_is_never_demonstrated();
+    test_output_above_the_limit_is_a_mismatch();
+    test_missing_measurement_is_pending_then_unverified();
+    test_incomplete_measured_description_fails_closed();
+    test_measured_required_without_any_readback();
+    test_disagreeing_readback_still_faults_in_measured_mode();
+    test_corroborating_mode_falls_back_to_the_readback();
+    test_scheduling_authority_contention();
+    test_zeroed_state_is_never_confirmed();
+    test_proof_names();
     test_fleet_rollup();
     test_state_names();
     printf("inverter write confirmation unit tests passed\n");

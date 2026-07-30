@@ -36,9 +36,24 @@ if "INVERTER_WRITE_UNVERIFIED = 0" not in CONF_H:
 
 # A manufacturer whose readback register this firmware does not have must report
 # unverified. It must never be promoted to confirmed.
-if "if (!evidence->readback_supported)" not in CONF_C:
+# The rule now has a second, stronger arm: a profile may confirm on an
+# independent MEASURED quantity instead of a setpoint readback, because for a
+# command target whose readback is an echo of a stored command the measurement is
+# the stronger witness and the echo is worth nothing. What must not change is that
+# a target with NEITHER source can never report confirmed.
+if "if (!evidence->readback_supported && !measured_required)" not in CONF_C:
     raise SystemExit("a profile without a readback register must be handled explicitly")
-UNSUPPORTED = CONF_C[CONF_C.index("if (!evidence->readback_supported)"):]
+if "INVERTER_MEASURED_CONFIRM_REQUIRED" not in CONF_H:
+    raise SystemExit("measured-power confirmation must be expressible, or a stored "
+                     "command echo is the only evidence a logger-level write can have")
+# Measured power below a limit is equally consistent with the limit being honoured
+# and with the sun going in. Only a fall from ABOVE the limit demonstrates one, and
+# the ambiguous case must be reported as proving nothing.
+if "INVERTER_WRITE_PROOF_AMBIGUOUS_HEADROOM" not in CONF_H:
+    raise SystemExit("the ambiguous measured case must have its own reported reason")
+if "limit_demonstrated" not in CONF_H:
+    raise SystemExit("a demonstrated limit must be distinguishable from a consistent one")
+UNSUPPORTED = CONF_C[CONF_C.index("if (!evidence->readback_supported && !measured_required)"):]
 if "verdict(INVERTER_WRITE_UNVERIFIED, true, true)" not in UNSUPPORTED.split("}")[0] + "}":
     raise SystemExit("a profile without a readback register must report unverified and go safe")
 if "if (!evidence) return verdict(INVERTER_WRITE_UNVERIFIED, true, true);" not in CONF_C:
