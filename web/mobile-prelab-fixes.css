@@ -66,6 +66,12 @@ input, select, textarea, button { max-width: 100%; }
     .icon-button, #menuButton, #refreshButton { width: 44px; height: 44px; }
     .op-range-button { min-height: 44px; min-width: 44px; }
     .button { min-height: 44px; }
+    /* Disclosure drawers from the operator content rewrite. <summary> is a real
+       interactive control - it takes focus and toggles on Enter/Space - so it
+       gets the same 44px floor as every other primary control. Extended here
+       rather than duplicated in operator-operations.css so there is one place
+       that defines what a coarse-pointer hit area is. */
+    .op-more-summary { min-height: 44px; padding-block: 10px; }
 }
 
 @media (max-width: 380px) {

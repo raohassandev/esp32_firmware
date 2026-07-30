@@ -38,9 +38,14 @@ body.product-shell-v2 .shell-page-context { color: var(--muted); font-size: 11px
 html[data-theme="dark"] body.product-shell-v2 .shell-page-context { color: var(--muted); }
 body.product-shell-v2 .topbar-actions { gap: 8px; }
 body.product-shell-v2 .topbar-actions > * { flex: 0 0 auto; }
+/* !important removed. body.product-shell-v2 .product-tool-button is (0,2,1)
+   and the two id selectors are (1,1,1); the only other rules touching these
+   elements (.product-tool-button in operator-product-suite.css,
+   .theme-toggle-button in theme.css) are (0,1,0) and set no display at all.
+   Nothing was being out-shouted. */
 body.product-shell-v2 .product-tool-button,
 body.product-shell-v2 #themeToggle,
-body.product-shell-v2 #engineeringAccessButton { display: none !important; }
+body.product-shell-v2 #engineeringAccessButton { display: none; }
 body.product-shell-v2 #controllerPill { display: none; }
 
 .shell-health-button,
@@ -143,39 +148,40 @@ body.product-shell-v2 [data-page="dashboard"] .experience-section { min-width: 0
 /* P0-7 changed this from a five-cell strip to three columns (supply,
    controller, demand). The override still forces full width, but it must not
    reimpose the old five-column track list. */
+/* !important removed throughout this block. Every selector here is
+   body.product-shell-v2 [data-page="dashboard"] X, which is (0,3,1); the rules
+   it needs to beat are .power-flow (0,1,0) in app.css and theme.css and
+   .button.primary (0,2,0) in app.css. Specificity already decided all of them
+   and no later stylesheet reaches (0,3,1) on these elements, so the !important
+   flags were only beating each other. The 650px override below is the same
+   (0,3,1) and later in the file, so it still wins without a flag. */
 body.product-shell-v2 [data-page="dashboard"] .power-flow {
     width: 100%;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 0.95fr) minmax(0, 1fr) !important;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 0.95fr) minmax(0, 1fr);
     align-items: start;
-    gap: 10px !important;
+    gap: 12px;
 }
-body.product-shell-v2 [data-page="dashboard"] .panel,
-body.product-shell-v2 [data-page="dashboard"] .op-card,
-body.product-shell-v2 [data-page="dashboard"] .metric-card { min-height: 0 !important; }
-body.product-shell-v2 [data-page="dashboard"] .status-badge,
+/* The min-height: 0 !important rule that used to sit here is gone with the
+   fixed card heights it existed to cancel. */
 body.product-shell-v2 [data-page="dashboard"] .subtle-badge {
-    position: static !important;
+    position: static;
     align-self: flex-start;
     justify-self: end;
 }
-body.product-shell-v2 [data-page="dashboard"] .system-readiness,
-body.product-shell-v2 [data-page="dashboard"] .readiness-panel,
-body.product-shell-v2 [data-page="dashboard"] .op-readiness-card { padding: 18px 22px !important; }
-body.product-shell-v2 [data-page="dashboard"] .readiness-row,
-body.product-shell-v2 [data-page="dashboard"] .system-readiness-row {
-    min-height: 52px !important;
-    padding-block: 9px !important;
-}
+/* .system-readiness, .readiness-panel, .readiness-row and .system-readiness-row
+   were dropped: no JS or HTML in this repository emits any of them. Only
+   .op-readiness-card is real (operator-view.js). */
+body.product-shell-v2 [data-page="dashboard"] .op-readiness-card { padding: 16px 24px; }
 body.product-shell-v2 #refreshButton,
 body.product-shell-v2 .page-intro .button,
 body.product-shell-v2 .experience-masthead .button {
-    color: var(--action-solid-text) !important;
-    background: var(--action-solid) !important;
-    border-color: var(--action-solid-hover) !important;
+    color: var(--action-solid-text);
+    background: var(--action-solid);
+    border-color: var(--action-solid-hover);
 }
 body.product-shell-v2 #refreshButton:hover,
 body.product-shell-v2 .page-intro .button:hover,
-body.product-shell-v2 .experience-masthead .button:hover { background: var(--action-solid-hover) !important; }
+body.product-shell-v2 .experience-masthead .button:hover { background: var(--action-solid-hover); }
 
 html[data-access="engineering"] body.product-shell-v2 .engineering-link::after {
     content: 'DEV';
@@ -208,5 +214,5 @@ html[data-access="engineering"] body.product-shell-v2 .engineering-link::after {
     body.product-shell-v2 .content { padding-top: 14px; }
     .shell-popover-backdrop { place-items: end stretch; padding: 0; background: rgba(0,0,0,.48); }
     .shell-popover { width: 100%; max-height: 82vh; border-radius: 18px 18px 0 0; padding-bottom: env(safe-area-inset-bottom); }
-    body.product-shell-v2 [data-page="dashboard"] .power-flow { grid-template-columns: 1fr !important; }
+    body.product-shell-v2 [data-page="dashboard"] .power-flow { grid-template-columns: 1fr; }
 }

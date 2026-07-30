@@ -45,7 +45,7 @@ html[data-access="engineering"] #engineeringConsole { display: grid; }
 .engineering-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .engineering-tile { display: grid; gap: 8px; min-height: 150px; padding: 20px; color: inherit; text-decoration: none; transition: transform 140ms ease, border-color 140ms ease; }
 .engineering-tile:hover { transform: translateY(-2px); border-color: rgba(242,138,43,.45); }
-.engineering-tile span { color: var(--orange); font-size: 10px; font-weight: 850; text-transform: uppercase; letter-spacing: .09em; }
+.engineering-tile span { color: var(--accent-text); font-size: 10px; font-weight: 850; text-transform: uppercase; letter-spacing: .09em; }
 .engineering-tile strong { font-size: 18px; }
 .engineering-tile small { color: var(--muted); line-height: 1.55; }
 .password-panel { display: grid; gap: 16px; }
@@ -57,15 +57,21 @@ html[data-access="engineering"] #engineeringConsole { display: grid; }
 .op-section-head { display: flex; align-items: end; justify-content: space-between; gap: 24px; padding: 4px 2px 2px; }
 .op-section-head h3 { margin: 3px 0 6px; font-size: clamp(22px, 2.2vw, 30px); letter-spacing: -.02em; }
 .op-section-head p:last-child { margin: 0; max-width: 760px; color: var(--muted); line-height: 1.55; }
-.op-card { min-width: 0; padding: 20px; border: 1px solid var(--line-soft); border-radius: 18px; background: var(--panel); box-shadow: var(--shadow); }
+.op-card { min-width: 0; padding: 16px; border: 1px solid var(--line-soft); border-radius: var(--radius); background: var(--panel); box-shadow: var(--shadow); }
 .op-card-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .op-card-headline, .op-card-title { margin-bottom: 14px; font-size: 15px; font-weight: 850; letter-spacing: -.01em; }
-.op-icon { width: 38px; height: 38px; display: inline-grid; place-items: center; flex: 0 0 auto; border-radius: 12px; color: var(--orange); background: rgba(242, 138, 43, .11); }
+.op-icon { width: 38px; height: 38px; display: inline-grid; place-items: center; flex: 0 0 auto; border-radius: 10px; color: var(--accent-text); background: var(--orange-soft); }
 .op-icon svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.op-state-pill { display: inline-flex; align-items: center; justify-content: center; min-height: 30px; padding: 0 12px; border: 1px solid var(--line-soft); border-radius: 999px; color: var(--muted); font-size: 11px; font-weight: 850; white-space: nowrap; }
-.op-state-pill.good { color: var(--good); border-color: rgba(65, 211, 155, .35); background: rgba(65, 211, 155, .08); }
-.op-state-pill.warning { color: var(--warning); border-color: rgba(255, 184, 77, .38); background: rgba(255, 184, 77, .08); }
-.op-state-pill.bad { color: var(--bad); border-color: rgba(255, 107, 116, .35); background: rgba(255, 107, 116, .08); }
+/* Colour is reserved for conditions that need somebody to do something.
+ * Equipment that is running normally is deliberately quiet: the pill still
+ * says "Online", but in the neutral tone, so a screen full of healthy plant
+ * has no colour on it at all and a single alarm is the only coloured thing in
+ * the room. Every pill carries its state as a word, so none of these depend on
+ * hue. Weight escalates with severity as a second, non-colour channel. */
+.op-state-pill { display: inline-flex; align-items: center; justify-content: center; min-height: 28px; padding: 0 12px; border: 1px solid var(--line-soft); border-radius: 999px; color: var(--muted); font-size: 11px; font-weight: 800; white-space: nowrap; }
+.op-state-pill.good { color: var(--muted); border-color: var(--line-soft); }
+.op-state-pill.warning { color: var(--warning); border-color: var(--warning); font-weight: 850; }
+.op-state-pill.bad { color: var(--bad); border-color: var(--bad); border-width: 2px; font-weight: 900; }
 
 .op-hero-grid { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(320px, .8fr); gap: 16px; }
 /* P0-7: the operator energy model. Supply column (utility grid, generator,
@@ -88,7 +94,7 @@ html[data-access="engineering"] #engineeringConsole { display: grid; }
 .op-flow-source.op-flow-unmeasured .op-flow-kind { border-color: var(--line-strong); }
 .op-flow-provenance { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .op-flow-note { padding-top: 6px; border-top: 1px solid var(--line-soft); }
-.op-flow-arrow { display: grid; gap: 2px; justify-items: center; color: var(--orange); font-size: 24px; text-align: center; }
+.op-flow-arrow { display: grid; gap: 2px; justify-items: center; color: var(--accent-text); font-size: 22px; text-align: center; }
 .op-flow-arrow small { color: var(--muted-2); font-size: 9px; letter-spacing: .05em; text-transform: uppercase; }
 .op-flow-arrow-unknown { color: var(--muted-2); }
 .op-health-card { display: grid; align-content: start; }
@@ -102,16 +108,22 @@ html[data-access="engineering"] #engineeringConsole { display: grid; }
 .op-status-copy { display: grid; gap: 3px; min-width: 0; }
 .op-status-copy strong { font-size: 13px; }
 .op-status-copy small { color: var(--muted); line-height: 1.4; overflow-wrap: anywhere; }
-.op-status-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted-2); box-shadow: 0 0 0 4px rgba(120,140,160,.10); }
-.op-status-row.good .op-status-dot { background: var(--good); box-shadow: 0 0 0 4px rgba(65,211,155,.12); }
-.op-status-row.warning .op-status-dot { background: var(--warning); box-shadow: 0 0 0 4px rgba(255,184,77,.12); }
-.op-status-row.bad .op-status-dot { background: var(--bad); box-shadow: 0 0 0 4px rgba(255,107,116,.12); }
+/* Same shape vocabulary as .dot in app.css: hollow ring for normal, filled
+   square for warning, filled circle for alarm. The glow halos are gone. */
+.op-status-dot { width: 10px; height: 10px; border: 2px solid var(--muted-2); border-radius: 50%; background: transparent; }
+.op-status-row.good .op-status-dot { border-color: var(--good); }
+.op-status-row.warning .op-status-dot { border-color: var(--warning); border-radius: 2px; background: var(--warning); }
+.op-status-row.bad .op-status-dot { border-color: var(--bad); background: var(--bad); }
 
 .op-kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-.op-kpi { min-width: 0; min-height: 142px; display: grid; align-content: center; padding: 18px; border: 1px solid var(--line-soft); border-radius: 16px; background: var(--panel); box-shadow: var(--shadow); }
-.op-kpi.good { border-color: rgba(65,211,155,.32); }
-.op-kpi.warning { border-color: rgba(255,184,77,.38); }
-.op-kpi.bad { border-color: rgba(255,107,116,.36); }
+/* No min-height: a KPI whose detail line is omitted (the common case now that
+   normal tiles print no status sentence) was leaving half its box empty. */
+.op-kpi { min-width: 0; display: grid; align-content: center; gap: 4px; padding: 16px; border: 1px solid var(--line-soft); border-radius: var(--radius); background: var(--panel); box-shadow: var(--shadow); }
+/* A normal KPI keeps the ordinary card boundary. Only an abnormal one gains a
+   coloured rule down its leading edge, and an alarm's is thicker than a
+   warning's, so severity is legible from the rule weight alone. */
+.op-kpi.warning { border-left: 4px solid var(--warning); }
+.op-kpi.bad { border-left: 5px solid var(--bad); border-color: var(--bad); }
 .op-kpi-head { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 11px; font-weight: 850; text-transform: uppercase; letter-spacing: .07em; }
 .op-kpi-head .op-icon { width: 30px; height: 30px; border-radius: 9px; }
 .op-kpi-head .op-icon svg { width: 17px; height: 17px; }
@@ -137,10 +149,10 @@ html[data-access="engineering"] #engineeringConsole { display: grid; }
 .op-direction { margin-top: -10px; font-size: 16px; }
 .op-gauge-card > small { margin-top: 7px; color: var(--muted); }
 
-.op-trend-card { display: grid; align-content: start; min-height: 220px; }
+.op-trend-card { display: grid; align-content: start; }
 .op-sparkline { min-height: 88px; display: grid; align-items: center; }
 .op-sparkline svg { width: 100%; height: 92px; overflow: visible; }
-.op-spark-line { fill: none; stroke: var(--orange); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.op-spark-line { fill: none; stroke: var(--accent-text); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
 .op-spark-area { fill: rgba(242,138,43,.10); stroke: none; }
 .op-chart-note { margin-top: 8px; color: var(--muted); line-height: 1.45; }
 .op-empty-inline { color: var(--muted); text-align: center; }
@@ -156,20 +168,22 @@ html[data-access="engineering"] #engineeringConsole { display: grid; }
 .op-bar-fill.warning { background: var(--warning); }
 .op-equipment-bar small { color: var(--muted); }
 .op-inverter-row { display: grid; grid-template-columns: minmax(220px, .9fr) minmax(260px, 1.4fr) auto; gap: 18px; align-items: center; padding: 16px; border: 1px solid var(--line-soft); border-radius: 14px; background: var(--panel-strong); }
-.op-inverter-row.good { border-color: rgba(65,211,155,.28); }
-.op-inverter-row.warning { border-color: rgba(255,184,77,.34); }
+.op-inverter-row.warning { border-left: 4px solid var(--warning); }
 .op-inverter-name { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .op-inverter-name > div { display: grid; gap: 4px; }
 .op-inverter-name small, .op-output-bar small { color: var(--muted); }
 .op-output-bar { display: grid; gap: 7px; }
 .op-empty-state { min-height: 110px; display: grid; place-items: center; padding: 20px; border: 1px dashed var(--line-soft); border-radius: 14px; color: var(--muted); text-align: center; }
 
-.op-control-hero { display: flex; align-items: center; gap: 18px; min-height: 150px; border-left: 5px solid var(--good); }
-.op-control-hero.warning { border-left-color: var(--warning); }
+/* The normal control hero has no coloured edge at all; only an inhibited or
+   degraded one does. Green on a control screen that is behaving is exactly the
+   colour noise that makes a real alarm easy to miss. */
+.op-control-hero { display: flex; align-items: center; gap: 16px; border-left: 1px solid var(--line-soft); }
+.op-control-hero.warning { border-left: 5px solid var(--warning); }
 .op-control-hero h3, .op-support-card h3, .op-error-state h3 { margin: 3px 0 7px; }
 .op-control-hero p:last-child, .op-support-card p, .op-error-state p, .op-decision-card p { margin: 0; color: var(--muted); line-height: 1.55; }
 .op-support-card, .op-error-state { display: flex; align-items: flex-start; gap: 16px; }
-.op-decision-card { border-left: 4px solid var(--orange); }
+.op-decision-card { border-left: 4px solid var(--accent-text); }
 
 html[data-theme="light"] .op-card,
 html[data-theme="light"] .op-kpi { background: var(--panel); }

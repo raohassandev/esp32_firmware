@@ -6,7 +6,10 @@
 .wifi-scan-message.good { color: var(--green); }
 .wifi-scan-message.warning { color: var(--yellow); }
 .wifi-scan-message.bad { color: var(--red); }
-.wifi-network-list { display: grid; border: 1px solid var(--line-soft); border-radius: 13px; overflow: hidden; background: rgba(7, 22, 37, 0.58); }
+/* Was rgba(7, 22, 37, 0.58): a hardcoded dark literal in an unthemed rule.
+   In light theme it painted a #6F7881 slab, leaving the SSID at 3.48:1 and
+   the signal caption at 1.30:1. The token is theme-aware. */
+.wifi-network-list { display: grid; border: 1px solid var(--line-soft); border-radius: 10px; overflow: hidden; background: var(--surface-sunken); }
 .wifi-network-row { display: grid; grid-template-columns: minmax(190px, 1fr) 96px minmax(250px, auto); gap: 16px; align-items: center; min-height: 82px; padding: 14px 16px; border-bottom: 1px solid var(--line-soft); }
 .wifi-network-row:last-child { border-bottom: 0; }
 .wifi-network-row:hover { background: rgba(76, 167, 255, 0.035); }
@@ -14,7 +17,7 @@
 .wifi-network-identity > strong { display: block; overflow: hidden; color: var(--text); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .wifi-network-meta { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; margin-top: 6px; color: var(--muted-2); font-size: 10px; }
 .wifi-network-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
-.network-security, .network-tag { display: inline-flex; align-items: center; min-height: 20px; padding: 0 7px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); background: rgba(255, 255, 255, 0.035); font-size: 9px; font-weight: 800; }
+.network-security, .network-tag { display: inline-flex; align-items: center; min-height: 20px; padding: 0 7px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); background: var(--panel); font-size: 10px; font-weight: 800; }
 .network-security.unsupported { color: var(--red); border-color: rgba(255, 107, 116, 0.28); }
 .network-tag.good { color: var(--green); border-color: rgba(67, 209, 139, 0.3); background: rgba(67, 209, 139, 0.07); }
 .wifi-network-signal { display: grid; justify-items: center; gap: 4px; color: var(--muted); }

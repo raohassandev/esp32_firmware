@@ -347,11 +347,27 @@ require("min-height: 44px; min-width: 44px;" in DENSITY_CSS,
 require("@media (pointer: coarse), (max-width: 900px)" in DENSITY_CSS,
         "touch sizing must apply wherever touch is the pointer, not only on narrow screens")
 
-# The known open issue is left exactly as it is, and left documented.
-require(".eyebrow { margin: 0; color: var(--orange); font-size: 10px;" in APP_CSS,
-        "the .eyebrow rule was changed; its AA failure is an unresolved brand decision")
-require("2.23:1" in DENSITY_CSS,
-        "the unresolved .eyebrow contrast failure is not recorded where it was left alone")
+# The .eyebrow AA failure recorded above is now resolved, by the second of the
+# two options that change named: the accent was split into a fill token
+# (--orange, unchanged, still the brand swatch that .button.primary and
+# .brand-mark are contrast-matched to) and a text token (--accent-text). These
+# assertions replace the earlier "leave it exactly as it is" pin with the
+# stronger property that the pin was holding a place for.
+require(".eyebrow { margin: 0; color: var(--accent-text);" in APP_CSS,
+        "the .eyebrow accent must resolve through the theme-aware text token, "
+        "not through the fill swatch")
+require("--accent-text:" in APP_CSS and "--accent-text:" in THEME_CSS,
+        "--accent-text must be defined in BOTH the dark base and the light theme; "
+        "a token defined in only one theme is the defect class this file guards")
+# The fill token must NOT be redefined per theme: the two foregrounds painted on
+# it are chosen for that exact swatch, so a light-theme override breaks them.
+require("--orange: #f28a2b;" in APP_CSS and "--orange:" not in THEME_CSS,
+        "--orange is the fill swatch and must stay identical in both themes")
+# No accent glyph, caption, rule or stroke may go back to the fill token.
+require("color: var(--orange)" not in APP_CSS,
+        "accent text/icon colour must use --accent-text, not the fill swatch")
+require("5.21:1" in DENSITY_CSS,
+        "the resolved .eyebrow contrast is not recorded where the open issue was")
 
 
 # ------------------------------------------------------------ CI registration

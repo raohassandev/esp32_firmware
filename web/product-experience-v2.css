@@ -5,8 +5,10 @@ body.product-experience-v2 {
   --experience-section-gap: 22px;
 }
 body.product-experience-v2 .content { max-width: var(--experience-content-max); padding: 24px 26px 48px; }
+/* !important removed: (0,2,1) against .page-intro (0,1,0) in app.css, which is
+   the only other rule setting display on these elements. */
 body.product-experience-v2 .experience-legacy-intro,
-body.product-experience-v2 .experience-secondary-control { display: none !important; }
+body.product-experience-v2 .experience-secondary-control { display: none; }
 .experience-masthead { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: start; margin: 0 0 22px; padding: 0 0 18px; border-bottom: 1px solid var(--line-soft); }
 .experience-copy { min-width: 0; }
 .experience-copy h2 { margin: 5px 0 8px; font-size: 26px; line-height: 1.08; letter-spacing: -0.025em; }
@@ -14,7 +16,7 @@ body.product-experience-v2 .experience-secondary-control { display: none !import
 .experience-guidance { margin: 5px 0 0; max-width: 780px; color: var(--muted); font-size: 12px; line-height: 1.55; }
 .experience-scope { align-self: start; padding: 7px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); background: rgba(8,24,39,.55); font-size: 10px; font-weight: 850; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
 .experience-scope.operator { border-color: rgba(76,167,255,.28); color: var(--blue); }
-.experience-scope.engineering { border-color: rgba(242,138,43,.32); color: var(--orange); }
+.experience-scope.engineering { border-color: var(--accent-text); color: var(--accent-text); }
 body.product-experience-v2 .experience-section { margin-top: var(--experience-section-gap); }
 body.product-experience-v2 .experience-masthead + .experience-section { margin-top: 0; }
 body.product-experience-v2 .metric-grid,
@@ -31,12 +33,15 @@ body.product-experience-v2 .asset-card,
 body.product-experience-v2 .prelab-check { border-color: rgba(39,65,95,.72); box-shadow: 0 10px 28px rgba(0,0,0,.16); }
 body.product-experience-v2 .panel-header { margin-bottom: 14px; }
 body.product-experience-v2 .panel-header h3 { font-size: 16px; line-height: 1.3; }
-body.product-experience-v2 .metric-card { min-height: 138px; }
+/* min-height: 138px removed. It forced every metric card to the height of the
+   tallest possible card, which on the dashboard is mostly empty box, and it
+   was the only reason product-shell-v2.css carried a min-height: 0 !important
+   override for the same elements. Both are gone. */
 body.product-experience-v2 .metric-value { margin-top: 15px; }
 .experience-nav-label { margin: 18px 11px 7px; color: var(--muted-2); font-size: 9px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
 .experience-nav-label:first-child { margin-top: 4px; }
 body.product-experience-v2 .nav-link { position: relative; min-height: 46px; }
-body.product-experience-v2 .nav-link.active::after { content: ''; position: absolute; inset: 9px auto 9px -14px; width: 3px; border-radius: 2px; background: var(--orange); }
+body.product-experience-v2 .nav-link.active::after { content: ''; position: absolute; inset: 9px auto 9px -14px; width: 3px; border-radius: 2px; background: var(--accent-text); }
 body.product-experience-v2 .experience-engineering-page > .experience-section { border-left: 2px solid rgba(242,138,43,.18); }
 body.product-experience-v2 .experience-operator-page > .experience-section { border-left: 2px solid transparent; }
 body.product-experience-v2 .action-bar,
@@ -51,8 +56,10 @@ body.product-experience-v2 select { min-height: 44px; }
    DOM emits the "op-" prefixed names (op-readiness-card, op-history-chart,
    op-gauge-card, op-trend-card in operator-view.js / operator-operations.js),
    so the unprefixed selectors matched nothing. */
+/* !important removed: (0,2,0) and (0,3,0) against .page-intro (0,1,0) in
+   app.css and its 650px/620px variants, which are also (0,1,0). */
 .page-intro + .page-intro,
-[data-page="readiness"] > .page-intro:first-child { display: none !important; }
+[data-page="readiness"] > .page-intro:first-child { display: none; }
 .empty-state { min-height: 112px; padding: 24px; }
 [data-page="inverters"] .panel, [data-page="dashboard"] .panel { overflow: hidden; }
 .engineering-login { max-width: 760px; padding: 26px; }
@@ -143,12 +150,23 @@ body { font-size: 15px; line-height: 1.5; }
 .page-intro p:not(.eyebrow),
 .op-card p, .op-event-copy p, .alarm-copy p, .notice { font-size: 14px; line-height: 1.55; }
 
-/* Labels at 12px minimum. .eyebrow is deliberately excluded and left exactly as
-   it is: it renders brand orange at 10px and measures 2.23:1 on light
-   backgrounds, and fixing that means either changing the brand colour in light
-   theme or splitting it into its own text token. That is the product owner's
-   decision, not this change's, and it is recorded as an open issue rather than
-   quietly altered here. */
+/* Labels at 12px minimum. .eyebrow stays excluded from that floor because it is
+   uppercase at 850 weight with 0.13em tracking, which reads larger than its
+   nominal size; it is set at 11px, the bottom of the type scale.
+
+   The open issue recorded here previously - brand orange at 2.23:1 on light
+   backgrounds - is now RESOLVED, by the second of the two options that were
+   named: the accent was split into a fill token and a text token.
+     --orange      fill only. Unchanged and deliberately identical in both
+                   themes, because .button.primary (#171b20 on it, 6.96:1) and
+                   .brand-mark (#111821 on it, 7.18:1) are contrast-matched to
+                   that exact swatch. The brand colour was not altered.
+     --accent-text every accent glyph, caption, rule, border and chart stroke.
+                   #f28a2b dark, #9a5300 light.
+   Worst-case measured ratio for .eyebrow across the surfaces it appears on
+   (--bg, --panel, --panel-strong): 5.21:1 light, 5.93:1 dark. Both clear AA
+   for normal text, and every other accent glyph clears the 3:1 required of
+   meaningful non-text with the same token. */
 .status-label, .breadcrumb, .metric-foot, .field, .field-error, .switch,
 .action-message, .sidebar-version, .asset-card dt, .asset-card dd,
 .mode-panel span, .flow-node span, .flow-node small, .flow-kind,
