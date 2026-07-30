@@ -25,7 +25,10 @@
 #define EVENT_COUNT 96
 #define SAMPLE_INTERVAL_MS 5000U
 #define MINUTE_INTERVAL_MS 60000U
-#define METER_FRESH_MS 5000U
+/* Staleness is NOT defined here. It comes from safety_manager, which owns the one
+ * configured definition -- see safety_manager_meter_stale_timeout_ms(). A local
+ * constant here is what produced a window where control was inhibited for staleness
+ * while this alarm path still considered the sample fresh. */
 
 /* --- A4: nuisance-alarm suppression -------------------------------------
  * ISA-18.2 and EEMUA 191 both require time delays on alarm conditions so a
@@ -686,7 +689,7 @@ static void collect_sample(operational_sample_t *sample, observed_state_t *state
     bool meter_has_data = meter.last_update_ms != 0;
     uint32_t meter_age = meter_has_data ? sample->timestamp_ms - meter.last_update_ms : UINT32_MAX;
     state->network_online = network.network_ready;
-    state->meter_online = meter.online && meter_has_data && meter_age <= METER_FRESH_MS &&
+    state->meter_online = meter.online && meter_has_data && meter_age <= safety_manager_meter_stale_timeout_ms() &&
                           isfinite(meter.active_power_kw);
     state->control_enabled = control.enabled;
     state->alarm_flags = safety_manager_get_alarm_flags();

@@ -17,7 +17,9 @@
 #include "network_manager.h"
 #include "safety_manager.h"
 
-#define METER_STALE_AFTER_MS 5000U
+/* Staleness is NOT defined here either. One definition, owned by safety_manager,
+ * so the dashboard's quality word cannot say "good" while control is inhibited for
+ * staleness -- which a local 5000 ms constant against a configured 1000 ms did. */
 #define MASKED_PASSWORD "********"
 #define WIFI_CONFIG_MAX_BODY 4096U
 #define CONFIG_MAX_BODY 16384U
@@ -74,7 +76,7 @@ static esp_err_t status_get(httpd_req_t *request)
     uint32_t meter_age_ms = meter_has_data ? current_ms - meter.last_update_ms : 0;
     cJSON_AddBoolToObject(root, "meter_online", meter.online);
     cJSON_AddBoolToObject(root, "meter_has_data", meter_has_data);
-    cJSON_AddBoolToObject(root, "meter_stale", !meter_has_data || meter_age_ms > METER_STALE_AFTER_MS);
+    cJSON_AddBoolToObject(root, "meter_stale", !meter_has_data || meter_age_ms > safety_manager_meter_stale_timeout_ms());
     if (meter_has_data) {
         cJSON_AddNumberToObject(root, "meter_age_ms", (double)meter_age_ms);
         cJSON_AddNumberToObject(root, "grid_power_kw", meter.active_power_kw);
@@ -96,7 +98,7 @@ static esp_err_t status_get(httpd_req_t *request)
             const char *quality = !meter.online      ? "unavailable"
                                   : !meter_has_data  ? "unavailable"
                                   : meter.degraded   ? "degraded"
-                                  : meter_age_ms > METER_STALE_AFTER_MS ? "stale"
+                                  : meter_age_ms > safety_manager_meter_stale_timeout_ms() ? "stale"
                                                                         : "good";
             cJSON_AddStringToObject(m, "quantity", "Grid active power");
             cJSON_AddStringToObject(m, "unit", "kW");
