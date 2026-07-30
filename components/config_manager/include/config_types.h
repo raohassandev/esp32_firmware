@@ -6,6 +6,23 @@
 
 #define APP_CONFIG_MAGIC 0x50564447u
 #define APP_CONFIG_VERSION 5u
+/* Core reserved for deterministic work: the control loop and the meter
+ * acquisition tasks are pinned here, leaving the other core for the Wi-Fi stack,
+ * lwIP and the HTTP server.
+ *
+ * Priorities alone already make control preempt acquisition, but priority does
+ * not help when the delay comes from the network stack rather than from a task
+ * queue. Pinning makes "control is never delayed by the web interface"
+ * structural instead of probabilistic: on ESP-IDF the Wi-Fi and TCP/IP tasks
+ * default to core 0, so control on core 1 cannot queue behind them.
+ *
+ * On a single-core build there is nothing to choose, so fall back to core 0. */
+#if defined(CONFIG_FREERTOS_UNICORE)
+#define PVDG_CONTROL_CORE 0
+#else
+#define PVDG_CONTROL_CORE 1
+#endif
+
 #define APP_MAX_METERS 4
 #define APP_MAX_INVERTERS 12
 /* Must equal SOURCE_MAX_GENERATORS in control_engine/source_mode.h. Defined

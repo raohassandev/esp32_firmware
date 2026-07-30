@@ -284,8 +284,34 @@ static void test_control_tuning(void)
     assert(prereq_reason(&status, COMMISSIONING_PREREQ_CONTROL_TUNING) ==
            COMMISSIONING_REASON_CONTROL_TUNING_INVALID);
 
+    /* The control period bound is 10 ms, matching the 1 ms scheduler tick. A fast
+     * loop is the product requirement -- a real meter answers in under 40 ms, so a
+     * 100 ms floor discarded most of that responsiveness. Below the bound is a
+     * configuration error, not a faster loop. */
     in = good_inputs();
-    in.interval_ms = 50; /* faster than the loop can honour */
+    in.interval_ms = 9;
+    status = commissioning_gate_evaluate(&in);
+    assert(!prereq_satisfied(&status, COMMISSIONING_PREREQ_CONTROL_TUNING));
+
+    in = good_inputs();
+    in.interval_ms = 0; /* not a period at all */
+    status = commissioning_gate_evaluate(&in);
+    assert(!prereq_satisfied(&status, COMMISSIONING_PREREQ_CONTROL_TUNING));
+
+    /* 10 ms and a genuinely fast 20 ms must both be accepted. */
+    in = good_inputs();
+    in.interval_ms = 10;
+    status = commissioning_gate_evaluate(&in);
+    assert(prereq_satisfied(&status, COMMISSIONING_PREREQ_CONTROL_TUNING));
+
+    in = good_inputs();
+    in.interval_ms = 20;
+    status = commissioning_gate_evaluate(&in);
+    assert(prereq_satisfied(&status, COMMISSIONING_PREREQ_CONTROL_TUNING));
+
+    /* Still bounded above. */
+    in = good_inputs();
+    in.interval_ms = 10001;
     status = commissioning_gate_evaluate(&in);
     assert(!prereq_satisfied(&status, COMMISSIONING_PREREQ_CONTROL_TUNING));
 

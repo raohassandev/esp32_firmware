@@ -84,6 +84,23 @@ static commissioning_status_t evaluate_commissioning(bool source_detection_confi
 _Static_assert(APP_MAX_GENERATORS == SOURCE_MAX_GENERATORS,
                "meter generator slots and source-mode generator channels must agree");
 
+/* Smallest increase worth a Modbus write, in kW. Below this a re-command carries
+ * no information the inverter can act on, and at a fast control period it is pure
+ * traffic. Decreases bypass this entirely -- reducing PV protects the generator
+ * and must never be withheld for being small.
+ *
+ * Deliberately coarse relative to a 100 kW machine: the readback tolerance in the
+ * profiles is 0.2 % (0.2 kW at 100 kW), so a threshold below that would command
+ * changes finer than the device can be confirmed to have applied. */
+#define CONTROL_COMMAND_EPSILON_KW 0.05f
+
+/* How often an UNCHANGED setpoint is refreshed. A commanded limit can expire on
+ * its own: the SmartLogger's schedule-validity period (register 42019) drops it
+ * after a configured time and PV rises again with nothing reported. This is
+ * comfortably inside any such window while staying far above the documented
+ * one-second minimum between adjustments. */
+#define CONTROL_COMMAND_KEEPALIVE_MS 2000U
+
 /* Converts a ramp profile into the kW/s the policy layer expects.
  *
  * A disabled ramp must let the command step straight to the allowed target in a
@@ -290,6 +307,11 @@ static void control_task(void *argument)
     uint32_t previous_ms = now_ms();
     bool previous_cycle_valid = false;
     grid_gate_memory_t gate_memory = {0};
+    /* Command-issue bookkeeping. The loop recomputes every cycle but only writes
+     * on a change or when the keepalive falls due; see the write site below. */
+    float last_commanded_kw = 0.0f;
+    uint32_t last_command_issued_ms = 0U;
+    bool command_ever_issued = false;
 
     while (true) {
         uint32_t timestamp = now_ms();
@@ -451,7 +473,42 @@ static void control_task(void *argument)
         bool command_accepted = false;
         if (control_enabled) {
             mode = policy.valid && alarm_flags == 0U ? APP_MODE_GRID : APP_MODE_FAILSAFE;
-            esp_err_t write_result = inverter_manager_set_total_power_kw(applied_kw);
+            /* Issue a command when the setpoint has actually moved, or when the
+             * keepalive is due -- not on every cycle.
+             *
+             * Every cycle was survivable at a 250 ms period. It is not once the
+             * loop runs at the rate measurements arrive: a 20 ms period would push
+             * 50 writes per second at equipment for which no manual sanctions any
+             * rate, and the Huawei SmartLogger explicitly documents a minimum of
+             * one second between adjustments. Recomputing fast and commanding only
+             * on change keeps the fast reaction while removing traffic that carries
+             * no information.
+             *
+             * The keepalive is not decoration. A commanded limit can EXPIRE: the
+             * SmartLogger's schedule-validity period (register 42019) drops it
+             * after a configured time, and PV rises again with nothing reported.
+             * Refreshing an unchanged setpoint periodically is what keeps a
+             * standing limit standing.
+             *
+             * A change of any size in the REDUCING direction always writes
+             * immediately, because that is the direction that protects the
+             * generator. The threshold only suppresses insignificant increases. */
+            const bool first_command = !command_ever_issued;
+            const float delta_kw = applied_kw - last_commanded_kw;
+            const bool keepalive_due =
+                timestamp - last_command_issued_ms >= CONTROL_COMMAND_KEEPALIVE_MS;
+            const bool changed = delta_kw < 0.0f
+                                     ? true
+                                     : delta_kw > CONTROL_COMMAND_EPSILON_KW;
+            esp_err_t write_result = ESP_OK;
+            if (first_command || changed || keepalive_due) {
+                write_result = inverter_manager_set_total_power_kw(applied_kw);
+                if (write_result == ESP_OK) {
+                    last_commanded_kw = applied_kw;
+                    last_command_issued_ms = timestamp;
+                    command_ever_issued = true;
+                }
+            }
             if (write_result != ESP_OK) {
                 if (applied_kw > 0.0f) {
                     ESP_LOGW(TAG, "inverter fleet command failed: %s",
@@ -695,10 +752,12 @@ esp_err_t control_engine_init(void)
     portEXIT_CRITICAL(&s_lock);
 
     if (evidence.configured &&
-        xTaskCreate(grid_evidence_task, "grid_evidence", 4096, NULL, 9, NULL) != pdPASS) {
+        xTaskCreatePinnedToCore(grid_evidence_task, "grid_evidence", 4096, NULL, 9, NULL,
+                                PVDG_CONTROL_CORE) != pdPASS) {
         return ESP_ERR_NO_MEM;
     }
-    if (xTaskCreate(control_task, "pvdg_control", 4096, NULL, 10, NULL) != pdPASS) {
+    if (xTaskCreatePinnedToCore(control_task, "pvdg_control", 4096, NULL, 10, NULL,
+                            PVDG_CONTROL_CORE) != pdPASS) {
         return ESP_ERR_NO_MEM;
     }
 

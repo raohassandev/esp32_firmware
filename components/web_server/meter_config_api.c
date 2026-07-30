@@ -15,7 +15,10 @@
 #define METER_CONFIG_JSON_MAX_DEPTH 8U
 #define METER_TIMEOUT_MIN_MS 100U
 #define METER_TIMEOUT_MAX_MS 60000U
-#define METER_POLL_MIN_MS 100U
+/* Zero means "issue the next read as soon as the previous transaction completes".
+ * The engineer keeps the choice: any value above zero is honoured as a delay
+ * inserted after each completed transaction. */
+#define METER_POLL_MIN_MS 0U
 #define METER_POLL_MAX_MS 60000U
 
 static esp_err_t send_json_text(httpd_req_t *request, const char *status,

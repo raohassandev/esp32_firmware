@@ -161,7 +161,12 @@ static commissioning_prereq_result_t evaluate_tuning(const commissioning_inputs_
     if (!isfinite(in->deadband_kw) || in->deadband_kw < 0.0f) {
         return unmet(COMMISSIONING_REASON_CONTROL_TUNING_INVALID);
     }
-    if (in->interval_ms < 100U || in->interval_ms > 10000U) {
+    /* Lower bound is 10 ms, not 100 ms. The scheduler tick is 1 ms, and the
+     * product requirement is that control reacts as fast as measurements arrive
+     * -- a real meter answers in under 40 ms, so a 100 ms floor threw away most
+     * of that. It stays bounded because a control period below the scheduler
+     * quantum would be a configuration error rather than a faster loop. */
+    if (in->interval_ms < 10U || in->interval_ms > 10000U) {
         return unmet(COMMISSIONING_REASON_CONTROL_TUNING_INVALID);
     }
     if (in->meter_stale_timeout_ms < in->interval_ms) {

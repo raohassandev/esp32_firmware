@@ -26,3 +26,11 @@ CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
 CONFIG_HTTPD_MAX_URI_LEN=256
 CONFIG_PVDG_DEFAULT_WIFI_SSID="Rao1"
 CONFIG_PVDG_DEFAULT_ZLAN_HOST="192.168.100.200"
+
+# Scheduler granularity. The default 100 Hz gives a 10 ms tick, which quantises
+# every vTaskDelay and puts a 10 ms floor under the control period and under any
+# poll delay an engineer configures. Acquisition is meant to run at the speed the
+# device answers (tens of milliseconds), so a 10 ms quantum is the same order as
+# the work being scheduled. 1 kHz gives a 1 ms tick at the cost of more frequent
+# tick interrupts.
+CONFIG_FREERTOS_HZ=1000

@@ -196,6 +196,11 @@ jobs:
         run: python3 tests/release_doc_catalogue_source_contract.py
       - name: Check lab-simulator write gate cannot reach production authority
         run: python3 tests/lab_target_write_gate_source_contract.py
+      - name: Run meter poll schedule unit tests
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -Wall -Wextra -Werror \n            -Icomponents/meter_manager/include \n            tests/meter_poll_schedule_test.c \n            components/meter_manager/meter_poll_schedule.c \n            -lm -o /tmp/meter_poll_schedule_test
+          /tmp/meter_poll_schedule_test
       - name: Run inverter write permission unit tests
         run: |
           set -euo pipefail

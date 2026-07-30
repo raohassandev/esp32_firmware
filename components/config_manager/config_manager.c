@@ -177,10 +177,11 @@ static void defaults(app_config_t *c)
     m->active_power_type = MODBUS_DATA_INT32;
     m->active_power_order = MODBUS_ORDER_ABCD;
     m->active_power_scale = 0.00001f;
-    /* The control loop runs every 250 ms. Polling slower than that made it act
-     * on the same sample repeatedly, so the default matches the loop and the
-     * measured link, which sustains a transaction in about 28 ms. */
-    m->poll_interval_ms = 250;
+    /* Zero: issue the next read as soon as the previous transaction completes, so
+     * the sample rate is set by the device and the network rather than by an
+     * arbitrary period. An engineer can set any positive value to slow a bus or a
+     * gateway that cannot sustain the rate. */
+    m->poll_interval_ms = 0;
 
     c->inverter_count = 1;
     inverter_config_t *i = &c->inverters[0];
@@ -212,7 +213,13 @@ static void defaults(app_config_t *c)
     c->control.generator_ramp.enabled = true;
     c->control.generator_ramp.up_percent_per_second = 5.0f;
     c->control.generator_ramp.down_percent_per_second = 20.0f;
-    c->control.interval_ms = 250;
+    /* Fast but FIXED. A measured EM500 answers in under 40 ms, so 250 ms threw
+     * most of the available responsiveness away. Deliberately not
+     * poll-on-completion like acquisition: a control loop with a jittering period
+     * has a jittering integral term, and determinism is worth more here than the
+     * last few milliseconds. Commands are issued on change plus a keepalive, so a
+     * fast loop does not mean fast Modbus writes. */
+    c->control.interval_ms = 20;
     /* Four missed polls at the 250 ms default. Tightened from 3000 ms because
      * the measurement is now much fresher: a stale gate far longer than the
      * poll interval lets control keep acting on an old sample. Shorter is the
@@ -285,7 +292,12 @@ static bool meter_valid(const meter_config_t *m)
     return endpoint_valid(&m->endpoint) && (m->function_code == 3 || m->function_code == 4) &&
            m->active_power_type <= MODBUS_DATA_FLOAT32 && m->active_power_order <= MODBUS_ORDER_DCBA &&
            isfinite(m->active_power_scale) && m->active_power_scale != 0.0f &&
-           m->poll_interval_ms >= 100U;
+           /* Zero is legal and means "poll again as soon as the previous
+            * transaction completes", so acquisition runs at the rate the device
+            * answers rather than at an arbitrary period. The old 100 ms floor made
+            * that unconfigurable. The upper bound is a sanity limit, not policy:
+            * an hour between polls is a typo, not an intention. */
+           m->poll_interval_ms <= 3600000U;
 }
 
 /* Deliberately NOT part of valid(): a configuration that fails the role rules is
