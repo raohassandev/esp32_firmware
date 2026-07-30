@@ -131,7 +131,20 @@
         sourceDetection: null,
         refreshing: false,
         saving: false,
-        lastUpdatedAt: null
+        lastUpdatedAt: null,
+        /* Lab-simulator / commissioning-gate / write-confirmation reads. Each is
+         * null until the corresponding endpoint has actually answered, so
+         * "unknown" is never rendered as "fine". */
+        commissioningGate: null,
+        solarGridStatus: null,
+        writeConfirmation: null,
+        labProfiles: [],
+        labTargetSending: false,
+        /* Rebuild guards. web/product-mode.js keeps an unguarded MutationObserver
+         * on #mainContent, so replacing these lists on every poll would re-run
+         * its DOM enforcement pass several times a minute for no change at all. */
+        gateSignature: '',
+        confirmSignature: ''
     };
 
     const byId = (id) => document.getElementById(id);
@@ -222,7 +235,15 @@
     async function api(path, options = {}) {
         const response = await fetch(path, { cache: 'no-store', ...options });
         const text = await response.text();
-        if (!response.ok) throw new Error(text || `${response.status} ${response.statusText}`);
+        if (!response.ok) {
+            const error = new Error(text || `${response.status} ${response.statusText}`);
+            /* The status is carried on the error because 401 is not a failure the
+             * user needs to see as one - it means "sign in", and a screen that
+             * cannot tell 401 from 500 either shows a broken page or hides a real
+             * fault. */
+            error.status = response.status;
+            throw error;
+        }
         if (!text) return null;
         try {
             return JSON.parse(text);
@@ -605,6 +626,11 @@
 
         setText('systemIp', status.ip || 'Unavailable');
         setText('systemSsid', status.ssid || 'Unavailable');
+
+        /* control_authority.mode_label and inhibit_reason ride the public status
+         * poll, so the gate panel's two verbatim rows stay current even while the
+         * engineering-guarded gate read is unavailable. */
+        renderCommissioningGate();
     }
 
     async function refreshStatus() {
@@ -971,6 +997,658 @@
         window.setTimeout(() => node.remove(), 4200);
     }
 
+    /* ================================================== lab simulator authority
+     *
+     * The firmware can have a specific inverter endpoint DECLARED a Modbus
+     * simulator. Doing so grants LAB-only command authority through a profile
+     * that has not been qualified on physical equipment, and the commissioning
+     * gate then reports scope "lab_simulator_only" instead of "production".
+     *
+     * Three rules hold everywhere in this section.
+     *
+     *  1. VERBATIM. Where the controller publishes wording - lab_simulator_notice,
+     *     scope_notice, control_authority.mode_label, inhibit_reason, a
+     *     prerequisite title, a reason code and its sentence - that string is
+     *     rendered exactly as received. This interface must not paraphrase a
+     *     safety decision it did not make, and must not invent a register
+     *     number, an inverter command or a timing value.
+     *
+     *  2. UNKNOWN IS NOT FINE. Every one of these endpoints requires an
+     *     authenticated engineering session. Until one has answered, the state is
+     *     null and the interface says it does not know. It never renders
+     *     "production", and it never renders a hidden banner as evidence that
+     *     the plant is not a simulator.
+     *
+     *  3. NO GUARANTEED 401s. The controller serves a small client socket pool,
+     *     so a request that can only answer 401 is not free. Every read below is
+     *     asked for only when the shared scope predicate says it can succeed.
+     *
+     * KNOWN LIMITATION, deliberately not worked around: no PUBLIC endpoint
+     * publishes lab_simulator_mode. /api/status does not carry the commissioning
+     * scope. An operator with no engineering session therefore cannot be shown
+     * the lab banner at all. Surfacing the scope on /api/status is a firmware
+     * change and is not made here. */
+
+    /* The four write-confirmation states, worst last, matching the firmware's own
+     * severity order in inverter_write_confirmation.c. Every sentence below
+     * describes what the firmware actually does; none of it is inferred. */
+    const WRITE_CONFIRMATION_ORDER = ['confirmed', 'pending', 'unverified', 'mismatched'];
+
+    const WRITE_CONFIRMATION_STATES = Object.freeze({
+        confirmed: Object.freeze({
+            label: 'Confirmed',
+            mark: '✓',
+            meaning: 'A readback taken after the write matched the requested setpoint within the profile tolerance. This is the only state in which the controller records a confirmed value.'
+        }),
+        pending: Object.freeze({
+            label: 'Pending',
+            mark: '⋯',
+            meaning: 'The write was accepted by the transport and no readback has confirmed it yet. This is not success. A real inverter can take longer than a second to apply a setpoint, so the controller waits rather than claiming the value took effect.'
+        }),
+        unverified: Object.freeze({
+            label: 'Unverified',
+            mark: '?',
+            meaning: 'Confirmation is impossible or has failed to arrive: the assigned profile carries no manual-verified readback register, the write did not reach the device, or the confirmation deadline passed with no usable post-write sample. This is neither success nor failure.'
+        }),
+        mismatched: Object.freeze({
+            label: 'Mismatched',
+            mark: '!',
+            meaning: 'A readback taken after the write disagreed with the requested setpoint. The controller treats this as a fault: it drives the inverter to its safe fallback and keeps the fault latched until a readback confirms that safe value.'
+        })
+    });
+
+    function writeStateMeta(name) {
+        return WRITE_CONFIRMATION_STATES[String(name || '').trim()] || null;
+    }
+
+    /* Percent values arrive as null whenever the controller has nothing to
+     * report. Null must stay null: rendering 0% for "no write has been issued"
+     * would state a setpoint the device never received. */
+    function formatPercent(value, absent = 'Not reported') {
+        const number = Number(value);
+        return value == null || !Number.isFinite(number) ? absent : `${number.toFixed(1)} %`;
+    }
+
+    /* Writes only when the value actually changed. The lab banner is role="alert",
+     * so rewriting identical text on every poll would re-announce it to a screen
+     * reader several times a minute. */
+    function setTextIfChanged(id, value) {
+        const node = byId(id);
+        if (!node) return;
+        const text = value == null || value === '' ? '--' : String(value);
+        if (node.textContent !== text) node.textContent = text;
+    }
+
+    /* Same reasoning as setTextIfChanged: these badges are refreshed on the 2 s
+     * status poll, and web/product-mode.js watches #mainContent for childList
+     * changes, so writing an unchanged label is a DOM mutation for nothing. */
+    function setBadgeIfChanged(id, label, tone) {
+        const node = byId(id);
+        if (!node) return;
+        if (node.textContent !== label) node.textContent = label;
+        const className = `subtle-badge${tone ? ` ${tone}` : ''}`;
+        if (node.className !== className) node.className = className;
+    }
+
+    /* setMessage() rewrites className outright, which would drop the panel's own
+     * message class. These panels keep their base class and add only the tone. */
+    function setStateMessage(id, baseClass, message, tone) {
+        const node = byId(id);
+        if (!node) return;
+        const text = message || '';
+        if (node.textContent !== text) node.textContent = text;
+        const className = `${baseClass}${tone ? ` ${tone}` : ''}`;
+        if (node.className !== className) node.className = className;
+    }
+
+    function setNoticeLine(id, value) {
+        const node = byId(id);
+        if (!node) return;
+        const text = typeof value === 'string' ? value.trim() : '';
+        if (node.textContent !== text) node.textContent = text;
+        if (node.hidden !== !text) node.hidden = !text;
+    }
+
+    /* ------------------------------------------------------------- the banner */
+
+    function renderLabBanner() {
+        const banner = byId('labSimulatorBanner');
+        if (!banner) return;
+        const gate = state.commissioningGate;
+        const solar = state.solarGridStatus;
+        /* Either publisher is sufficient. Neither answering means the scope is
+         * unknown, and an unknown scope must not be presented as production. */
+        const lab = gate?.lab_simulator_mode === true || solar?.lab_simulator_mode === true;
+        if (banner.hidden !== !lab) banner.hidden = !lab;
+        if (!lab) return;
+        /* The controller's own scope slug, not a friendlier word of ours. */
+        setTextIfChanged('labSimulatorScope', verbatim(gate?.scope || solar?.commissioning_scope));
+        setNoticeLine('labSimulatorNotice', solar?.lab_simulator_notice);
+        setNoticeLine('labSimulatorScopeNotice', gate?.scope_notice);
+    }
+
+    /* ------------------------------------------------- the commissioning gate */
+
+    function gateItemElement(item) {
+        const satisfied = item.satisfied === true;
+        const row = document.createElement('li');
+        row.className = `gate-item ${satisfied ? 'met' : 'unmet'}`;
+        row.dataset.prereq = String(item.id || '');
+
+        const mark = document.createElement('span');
+        mark.className = 'gate-item-mark';
+        mark.setAttribute('aria-hidden', 'true');
+        mark.textContent = satisfied ? '✓' : '!';
+
+        const title = document.createElement('span');
+        title.className = 'gate-item-title';
+        title.textContent = verbatim(item.title, 'Unnamed prerequisite');
+
+        const word = document.createElement('span');
+        word.className = 'gate-item-state';
+        /* Workflow vocabulary: an unmet prerequisite is outstanding commissioning
+         * work, not a fault that can be acknowledged. */
+        word.textContent = satisfied ? STATES.workflow.complete : STATES.workflow.blocked;
+
+        row.append(mark, title, word);
+
+        /* The firmware's explanatory sentence, and its machine reason code so a
+         * report or a support call can quote something stable. Both are shown
+         * only for an unmet prerequisite: the satisfied sentence is empty. */
+        const detailText = typeof item.detail === 'string' ? item.detail.trim() : '';
+        if (!satisfied && detailText) {
+            const detail = document.createElement('span');
+            detail.className = 'gate-item-detail';
+            detail.textContent = detailText;
+            row.append(detail);
+        }
+        if (!satisfied) {
+            const reason = document.createElement('span');
+            reason.className = 'gate-item-reason';
+            reason.textContent = `Reason code: ${verbatim(item.reason, 'unknown')}`;
+            row.append(reason);
+        }
+        return row;
+    }
+
+    function renderCommissioningGate() {
+        const list = byId('gateChecklist');
+        if (!list) return;
+        const gate = state.commissioningGate;
+        const authority = state.status?.control_authority || null;
+
+        /* control_authority is published by the PUBLIC /api/status, so these two
+         * rows are populated whether or not an engineering session exists, and
+         * both are the controller's own strings. */
+        setTextIfChanged('gateModeLabel', verbatim(authority?.mode_label));
+        setTextIfChanged('gateInhibitReason', verbatim(authority?.inhibit_reason, 'None reported'));
+
+        if (!gate) {
+            setTextIfChanged('gateScope', STATES.dataQuality.unavailable);
+            setTextIfChanged('gateSatisfied', STATES.dataQuality.unavailable);
+            setBadgeIfChanged('gateScopeBadge', STATES.dataQuality.unavailable, '');
+            if (state.gateSignature !== '') {
+                state.gateSignature = '';
+                list.replaceChildren();
+            }
+            return;
+        }
+
+        setTextIfChanged('gateScope', verbatim(gate.scope));
+        const total = Number(gate.prerequisite_count);
+        const satisfied = Number(gate.satisfied_count);
+        setTextIfChanged('gateSatisfied',
+            Number.isFinite(total) && Number.isFinite(satisfied)
+                ? `${satisfied} of ${total}` : STATES.dataQuality.unavailable);
+
+        /* Commissioned and production-qualified are different answers, and the
+         * badge must not collapse them. A lab-only gate is Configured, not
+         * Qualified. */
+        if (gate.production_qualified === true) {
+            setBadgeIfChanged('gateScopeBadge', STATES.commissioning.qualified, 'good');
+        } else if (gate.lab_simulator_mode === true) {
+            setBadgeIfChanged('gateScopeBadge', STATES.commissioning.configured, 'warning');
+        } else if (gate.commissioned === true) {
+            setBadgeIfChanged('gateScopeBadge', STATES.commissioning.configured, 'warning');
+        } else {
+            setBadgeIfChanged('gateScopeBadge', STATES.commissioning.notConfigured, 'bad');
+        }
+
+        /* The gate summary is the firmware's own sentence and is empty once the
+         * gate is satisfied. Nothing is substituted for it. */
+        const summary = typeof gate.summary === 'string' ? gate.summary.trim() : '';
+        setTextIfChanged('gateSummary', summary || (gate.commissioned === true
+            ? 'Every prerequisite is satisfied. Read the commissioning scope above for what that authorises.'
+            : STATES.dataQuality.unavailable));
+
+        const items = Array.isArray(gate.prerequisites) ? gate.prerequisites : [];
+        const signature = JSON.stringify(items);
+        if (state.gateSignature !== signature) {
+            state.gateSignature = signature;
+            list.replaceChildren(...items.map(gateItemElement));
+        }
+    }
+
+    /* ------------------------------------------------ setpoint write confirmation */
+
+    function confirmStatePill(name) {
+        const meta = writeStateMeta(name);
+        const pill = document.createElement('span');
+        pill.className = `confirm-state-pill confirm-state-${meta ? name : 'unverified'}`;
+        const mark = document.createElement('span');
+        mark.setAttribute('aria-hidden', 'true');
+        mark.textContent = meta ? meta.mark : '?';
+        const label = document.createElement('span');
+        /* An unrecognised state is shown as the controller spelled it rather than
+         * silently mapped onto one of the four this build knows about. */
+        label.textContent = meta ? meta.label : verbatim(name);
+        pill.append(mark, label);
+        return pill;
+    }
+
+    function confirmValue(label, value, note) {
+        const cell = document.createElement('div');
+        cell.className = 'confirm-value';
+        const term = document.createElement('span');
+        term.textContent = label;
+        const figure = document.createElement('strong');
+        figure.textContent = value;
+        cell.append(term, figure);
+        if (note) {
+            const small = document.createElement('small');
+            small.textContent = note;
+            cell.append(small);
+        }
+        return cell;
+    }
+
+    function confirmRowElement(entry) {
+        const name = String(entry.state || '').trim();
+        const meta = writeStateMeta(name);
+        const row = document.createElement('article');
+        row.className = `confirm-row state-${meta ? name : 'unverified'}`;
+        row.dataset.inverterIndex = String(entry.index);
+
+        const head = document.createElement('div');
+        head.className = 'confirm-row-head';
+        const title = document.createElement('span');
+        title.className = 'confirm-row-title';
+        title.textContent = `Inverter ${Number(entry.index) + 1}`;
+        head.append(title, confirmStatePill(name));
+
+        const meaning = document.createElement('p');
+        meaning.className = 'confirm-row-meaning';
+        meaning.textContent = entry.write_issued === false
+            ? 'No write has been issued to this inverter, so there is nothing to confirm.'
+            : meta ? meta.meaning
+            : 'The controller reported a confirmation state this interface does not recognise. It is shown above exactly as received.';
+
+        /* Requested and confirmed are separate figures with separate labels.
+         * readback_percent is shown as a third figure because it is the raw
+         * observation the verdict was made from, and it is not the same claim as
+         * "confirmed". */
+        const values = document.createElement('div');
+        values.className = 'confirm-values';
+        values.append(
+            confirmValue('Requested', formatPercent(entry.requested_percent, 'No write issued'),
+                'What the controller wrote.'),
+            confirmValue('Confirmed', formatPercent(entry.confirmed_percent, 'Not confirmed'),
+                'Only set when a readback matched.'),
+            confirmValue('Last readback', formatPercent(entry.readback_percent, 'No readback'),
+                'The raw observation, not a verdict.')
+        );
+
+        const counters = document.createElement('div');
+        counters.className = 'confirm-counters';
+        [
+            ['Confirmed', entry.confirmed_count],
+            ['Unverified', entry.unverified_count],
+            ['Mismatched', entry.mismatch_count],
+            ['Write successes', entry.write_successes],
+            ['Write errors', entry.write_errors]
+        ].forEach(([label, value]) => {
+            const item = document.createElement('span');
+            item.textContent = `${label}: ${Number.isFinite(Number(value)) ? Number(value) : '--'}`;
+            counters.append(item);
+        });
+
+        row.append(head, meaning, values, counters);
+        return row;
+    }
+
+    function renderConfirmLegend() {
+        const legend = byId('confirmLegend');
+        if (!legend || legend.childElementCount) return;
+        legend.replaceChildren(...WRITE_CONFIRMATION_ORDER.map((name) => {
+            const item = document.createElement('div');
+            item.className = 'confirm-legend-item';
+            item.append(confirmStatePill(name));
+            const text = document.createElement('small');
+            text.textContent = WRITE_CONFIRMATION_STATES[name].meaning;
+            item.append(text);
+            return item;
+        }));
+    }
+
+    function renderWriteConfirmation() {
+        const list = byId('confirmList');
+        if (!list) return;
+        renderConfirmLegend();
+        const payload = state.writeConfirmation;
+        if (!payload) {
+            setBadgeIfChanged('confirmFleetBadge', STATES.dataQuality.unavailable, '');
+            if (state.confirmSignature !== '') {
+                state.confirmSignature = '';
+                list.replaceChildren();
+            }
+            return;
+        }
+
+        const fleet = String(payload.fleet_state || '').trim();
+        const meta = writeStateMeta(fleet);
+        setBadgeIfChanged('confirmFleetBadge', `Fleet: ${meta ? meta.label : verbatim(fleet)}`,
+            fleet === 'confirmed' ? 'good' : fleet === 'mismatched' ? 'bad'
+            : fleet === 'pending' ? 'warning' : '');
+        setTextIfChanged('confirmFleetDetail',
+            `${meta ? meta.meaning : 'The controller reported a fleet confirmation state this interface does not recognise.'}`
+            + ` The fleet takes its least trustworthy member's state.`
+            + (payload.confirmation_fault === true
+                ? ' A confirmation fault is latched on at least one inverter.'
+                : ' No confirmation fault is latched.'));
+
+        const items = Array.isArray(payload.inverters) ? payload.inverters : [];
+        const signature = JSON.stringify(items);
+        if (state.confirmSignature === signature) return;
+        state.confirmSignature = signature;
+        if (items.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'empty-state';
+            empty.textContent = 'The controller reports no inverters, so there are no setpoints to confirm. An empty fleet is reported unverified, never confirmed.';
+            list.replaceChildren(empty);
+            return;
+        }
+        list.replaceChildren(...items.map(confirmRowElement));
+    }
+
+    /* ------------------------------------------------------- lab target control */
+
+    function labTargetSelections() {
+        const index = Number(byId('labTargetInverter')?.value);
+        const profileId = byId('labTargetProfile')?.value || '';
+        const declare = byId('labTargetDeclaration')?.value === 'true';
+        return {
+            index: Number.isInteger(index) && index >= 0 ? index : null,
+            profileId,
+            declare
+        };
+    }
+
+    function renderLabTargetReadiness() {
+        const button = byId('labTargetApply');
+        const badge = byId('labTargetBadge');
+        if (!button) return;
+        const access = window.AutomatrixEngineeringAccess;
+        const authorized = Boolean(access && access.isAuthenticated());
+        const acknowledged = Boolean(byId('labTargetAcknowledge')?.checked);
+        const { index, profileId } = labTargetSelections();
+        button.disabled = state.labTargetSending || !authorized || !acknowledged
+            || index === null || !profileId;
+        if (badge) {
+            if (!authorized) setBadge('labTargetBadge', 'Sign in to declare a lab target', '');
+            else if (!state.labProfiles.length) setBadge('labTargetBadge', 'Profile catalogue unavailable', 'bad');
+            else if (!acknowledged) setBadge('labTargetBadge', 'Acknowledgement required', 'warning');
+            else setBadge('labTargetBadge', 'Ready to send', 'warning');
+        }
+    }
+
+    function renderLabProfileOptions() {
+        const select = byId('labTargetProfile');
+        if (!select) return;
+        const previous = select.value;
+        select.replaceChildren();
+        state.labProfiles.forEach((profile) => {
+            const option = document.createElement('option');
+            option.value = profile.id;
+            /* The profile's own qualification word is part of the label: choosing
+             * a simulator-only profile and choosing to declare the endpoint a
+             * simulator are two separate decisions and must both be visible. */
+            option.textContent = `${profile.manufacturer || 'Unknown'} ${profile.model_family || ''}`.trim()
+                + ` · ${verbatim(profile.qualification, 'qualification unknown')}`
+                + (profile.simulator_only === true ? ' · simulator-only profile' : '');
+            select.append(option);
+        });
+        if (previous && [...select.options].some((option) => option.value === previous)) {
+            select.value = previous;
+        }
+        renderLabTargetReadiness();
+    }
+
+    function ensureLabInverterOptions() {
+        const select = byId('labTargetInverter');
+        if (!select || select.childElementCount) return;
+        /* Twelve is APP_MAX_INVERTERS, the same bound the profile picker uses.
+         * The controller rejects an index outside it. */
+        for (let index = 0; index < 12; index += 1) {
+            const option = document.createElement('option');
+            option.value = String(index);
+            option.textContent = `Inverter ${index + 1}`;
+            select.append(option);
+        }
+    }
+
+    function renderLabTargetResult(payload) {
+        const list = byId('labTargetResult');
+        if (!list) return;
+        list.replaceChildren();
+        if (!payload) {
+            list.hidden = true;
+            return;
+        }
+        const rows = [
+            ['Lab target stored', payload.lab_target === true ? 'Yes' : 'No'],
+            ['Write permission after restart', verbatim(payload.write_permission_after_restart)],
+            ['Profile assigned', verbatim(payload.profile_id)],
+            ['Restart required', payload.restart_required === true ? 'Yes' : 'No'],
+            ['Automatic control', payload.automatic_control_disabled === true
+                ? 'Disabled by the controller as a result of this change'
+                : 'Not reported']
+        ];
+        const notice = typeof payload.lab_target_notice === 'string'
+            ? payload.lab_target_notice.trim() : '';
+        if (notice) rows.push(['Controller notice', notice]);
+        rows.forEach(([term, value]) => {
+            const dt = document.createElement('dt');
+            const dd = document.createElement('dd');
+            dt.textContent = term;
+            dd.textContent = value;
+            list.append(dt, dd);
+        });
+        list.hidden = false;
+    }
+
+    async function applyLabTarget() {
+        const { index, profileId, declare } = labTargetSelections();
+        if (index === null || !profileId || state.labTargetSending) return;
+        const profile = state.labProfiles.find((entry) => entry.id === profileId) || null;
+
+        /* The consequences are restated at the moment of the decision, not only
+         * in the panel above it. Nothing here names a register, a command or a
+         * timing value. */
+        const consequences = declare
+            ? [
+                `Declare Inverter ${index + 1} a Modbus simulator and assign profile ${profileId}.`,
+                '',
+                'This grants command authority through a profile that has not been qualified on physical equipment.',
+                'It disables automatic control; the firmware does this deliberately whenever a profile assignment changes.',
+                'Commissioning will report lab_simulator_only, never production, while this declaration stands.',
+                'The controller must be restarted before the new write permission takes effect.'
+            ].join('\n')
+            : [
+                `Revoke the simulator declaration on Inverter ${index + 1} and assign profile ${profileId}.`,
+                '',
+                'Command authority then depends only on whether the assigned profile is qualified for production writes.',
+                'It disables automatic control; the firmware does this deliberately whenever a profile assignment changes.',
+                'The controller must be restarted before the new write permission takes effect.'
+            ].join('\n');
+        if (!window.confirm(consequences)) return;
+
+        state.labTargetSending = true;
+        renderLabTargetReadiness();
+        setMessage('labTargetMessage', 'Sending declaration…');
+        renderLabTargetResult(null);
+        try {
+            const payload = await api('/api/inverter-profile-assignment', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    inverter_index: index,
+                    profile_id: profileId,
+                    lab_target: declare
+                })
+            });
+            renderLabTargetResult(payload);
+            /* The stored declaration is reported, not the requested one, so the
+             * message repeats what came back rather than what was asked for. */
+            setMessage('labTargetMessage', payload?.lab_target === true
+                ? 'Saved. This inverter is now a declared lab simulator target. Restart the controller to apply the write permission below.'
+                : 'Saved. No lab simulator declaration is stored for this inverter. Restart the controller to apply the write permission below.',
+                payload?.lab_target === true ? 'bad' : 'good');
+            setBadge('labTargetBadge', 'Sent · restart required', 'warning');
+            /* The scope may have changed, so re-read the gate rather than leaving
+             * the banner describing the previous state. */
+            refreshCommissioningGate();
+        } catch (error) {
+            if (error.status === 401) {
+                setMessage('labTargetMessage',
+                    'Declaring a lab target requires an authenticated engineering session. Nothing was changed.',
+                    'bad');
+            } else {
+                setMessage('labTargetMessage',
+                    `Declaration failed: ${error.message} Nothing was changed.`, 'bad');
+            }
+            setBadge('labTargetBadge', 'Send failed', 'bad');
+        } finally {
+            state.labTargetSending = false;
+            renderLabTargetReadiness();
+        }
+        if (profile && profile.simulator_only === true) {
+            /* Worth saying out loud: the profile itself is simulator-only, which
+             * is a separate fact from the endpoint declaration. */
+            toast('The assigned profile is itself marked simulator-only.', 'warning');
+        }
+    }
+
+    /* --------------------------------------------------------------- the reads */
+
+    function engineeringAuthorized() {
+        const access = window.AutomatrixEngineeringAccess;
+        return Boolean(access && access.isAuthenticated());
+    }
+
+    function gateAccessNote() {
+        return engineeringAuthorized()
+            ? ''
+            : 'The commissioning gate and the setpoint confirmation table require an authenticated engineering session. Until one exists this controller has not told this browser whether its commanded inverters are real equipment or declared simulators, so no scope is shown above.';
+    }
+
+    async function refreshCommissioningGate() {
+        /* Wanted on every route, because the lab banner lives in the shell. Gated
+         * on the session only: the endpoint is engineering-guarded and answering
+         * 401 on every route would be exactly the socket waste the operator
+         * screens were cleaned up to avoid. */
+        if (!engineeringAuthorized()) {
+            state.commissioningGate = null;
+            setStateMessage('gateMessage', 'gate-message', gateAccessNote(), '');
+            renderCommissioningGate();
+            renderLabBanner();
+            return;
+        }
+        try {
+            state.commissioningGate = await api('/api/commissioning/gate');
+            setStateMessage('gateMessage', 'gate-message', '', '');
+        } catch (error) {
+            state.commissioningGate = null;
+            setStateMessage('gateMessage', 'gate-message', error.status === 401
+                ? 'The engineering session ended. Sign in again to read the commissioning gate.'
+                : `The commissioning gate could not be read: ${error.message}`, 'bad');
+        }
+        renderCommissioningGate();
+        renderLabBanner();
+    }
+
+    async function refreshSolarGridStatus() {
+        /* Engineering-scoped to the control and commissioning routes by the
+         * shared table in web/product-mode.js. Asked for only where it is
+         * permitted; its lab_simulator_notice is additional to the gate's
+         * scope_notice, never a replacement for it. */
+        const access = window.AutomatrixEngineeringAccess;
+        if (!access || !access.mayRequest('/api/solar-grid/status')) {
+            state.solarGridStatus = null;
+            renderLabBanner();
+            return;
+        }
+        try {
+            state.solarGridStatus = await api('/api/solar-grid/status');
+        } catch (error) {
+            state.solarGridStatus = null;
+        }
+        renderLabBanner();
+    }
+
+    async function refreshWriteConfirmation() {
+        const access = window.AutomatrixEngineeringAccess;
+        if (!access || !access.mayUseEngineering('inverters', 'control', 'commissioning')) {
+            state.writeConfirmation = null;
+            setStateMessage('confirmMessage', 'confirm-message', gateAccessNote(), '');
+            renderWriteConfirmation();
+            return;
+        }
+        try {
+            state.writeConfirmation = await api('/api/inverters/write-confirmation');
+            setStateMessage('confirmMessage', 'confirm-message', '', '');
+        } catch (error) {
+            state.writeConfirmation = null;
+            setStateMessage('confirmMessage', 'confirm-message', error.status === 401
+                ? 'The engineering session ended. Sign in again to read setpoint confirmation.'
+                : `Setpoint confirmation could not be read: ${error.message}`, 'bad');
+        }
+        renderWriteConfirmation();
+    }
+
+    async function refreshLabProfiles() {
+        const access = window.AutomatrixEngineeringAccess;
+        ensureLabInverterOptions();
+        if (!access || !access.mayRequest('/api/inverter-profiles')) {
+            state.labProfiles = [];
+            renderLabProfileOptions();
+            return;
+        }
+        try {
+            const payload = await api('/api/inverter-profiles');
+            state.labProfiles = Array.isArray(payload?.profiles) ? payload.profiles : [];
+        } catch (error) {
+            state.labProfiles = [];
+        }
+        renderLabProfileOptions();
+    }
+
+    function refreshLabControl() {
+        refreshCommissioningGate();
+        refreshSolarGridStatus();
+        refreshWriteConfirmation();
+        refreshLabProfiles();
+    }
+
+    function bindLabControl() {
+        ensureLabInverterOptions();
+        byId('labTargetAcknowledge')?.addEventListener('change', renderLabTargetReadiness);
+        byId('labTargetInverter')?.addEventListener('change', renderLabTargetReadiness);
+        byId('labTargetProfile')?.addEventListener('change', renderLabTargetReadiness);
+        byId('labTargetDeclaration')?.addEventListener('change', renderLabTargetReadiness);
+        byId('labTargetApply')?.addEventListener('click', applyLabTarget);
+        renderLabTargetReadiness();
+    }
+
     function bindEvents() {
         window.addEventListener('hashchange', navigate);
         byId('menuButton').addEventListener('click', () => document.body.classList.contains('menu-open') ? closeMenu() : openMenu());
@@ -1014,6 +1692,7 @@
     async function start() {
         bindEvents();
         bindSiteTelemetry();
+        bindLabControl();
         watchNavigation();
         if (!window.location.hash) window.location.hash = '#/dashboard';
         navigate();
@@ -1021,6 +1700,17 @@
         window.setInterval(refreshStatus, 2000);
         window.AutomatrixEngineeringAccess?.onScopeChange(refreshSourceDetection);
         refreshSourceDetection();
+        /* Signing in, signing out and changing route are the three events that
+         * change what these reads may ask for, so all three re-run them. */
+        window.AutomatrixEngineeringAccess?.onScopeChange(refreshLabControl);
+        refreshLabControl();
+        /* Deliberately slower than the 2 s status poll. A pending setpoint is
+         * resolved in seconds, not milliseconds, and the controller's client
+         * socket pool is small; polling these three engineering endpoints hard
+         * would cost an operator their own page. */
+        window.setInterval(refreshCommissioningGate, 10000);
+        window.setInterval(refreshSolarGridStatus, 10000);
+        window.setInterval(refreshWriteConfirmation, 5000);
     }
 
     start().catch((error) => {

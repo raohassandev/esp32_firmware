@@ -52,6 +52,34 @@
                 <div class="topbar-actions"><span class="live-pill neutral" id="controllerPill">Connecting…</span><button class="icon-button" id="refreshButton" type="button" aria-label="Refresh controller data">↻</button></div>
             </header>
 
+            <!-- Lab simulator mode. The firmware can have an inverter endpoint
+                 DECLARED a Modbus simulator, which grants command authority
+                 through a profile that has not been qualified on physical
+                 equipment. That state must never be mistakable for production
+                 control, so it is announced here - in the shell, above the routed
+                 content - and is therefore present on every route rather than
+                 buried on one page.
+
+                 The wording the controller publishes (lab_simulator_notice from
+                 /api/solar-grid/status, scope_notice from
+                 /api/commissioning/gate) is rendered verbatim by web/app.js. The
+                 three static sentences below are the interface's own framing of a
+                 state it did not decide; they name no register, no command and no
+                 timing value. -->
+            <aside class="lab-simulator-banner" id="labSimulatorBanner" role="alert" hidden>
+                <span class="lsb-mark" aria-hidden="true">⚗</span>
+                <div class="lsb-copy">
+                    <strong>Lab simulator mode — this is not production control</strong>
+                    <span>Commands are being issued to a declared Modbus simulator. Physical qualification on real equipment has not been performed, and nothing observed here is evidence about physical equipment.</span>
+                    <span class="lsb-notice" id="labSimulatorNotice" hidden></span>
+                    <span class="lsb-notice" id="labSimulatorScopeNotice" hidden></span>
+                </div>
+                <div class="lsb-scope">
+                    <span class="lsb-scope-label">Commissioning scope</span>
+                    <strong id="labSimulatorScope">lab_simulator_only</strong>
+                </div>
+            </aside>
+
             <!-- Engineering is a session, not a page. While it is unlocked this
                  banner is present on every route and states how long is left, so
                  an engineer cannot be dropped mid-write with no warning. The
@@ -118,9 +146,73 @@
                     <div class="dashboard-grid"><article class="panel"><div class="panel-header"><div><p class="eyebrow">Live status</p><h3 id="meterNameHeading">Grid meter</h3></div><span class="subtle-badge" id="meterPageBadge">Checking</span></div><div class="health-list"><div class="health-row"><span>Grid power</span><strong id="meterPagePower">Unavailable</strong></div><div class="health-row"><span>Data age</span><strong id="meterPageAge">Unavailable</strong></div><div class="health-row"><span>Response errors</span><strong id="meterPageErrors">--</strong></div></div></article><article class="panel form-panel"><div class="panel-header"><div><p class="eyebrow">Acquisition</p><h3>Meter configuration</h3></div></div><div class="field-grid"><label class="field"><span>Host</span><input id="meterHost"></label><label class="field"><span>Port</span><input id="meterPort" type="number" min="1" max="65535"></label><label class="field"><span>Unit ID</span><input id="meterUnit" type="number" min="1" max="247"></label><label class="field"><span>Modbus PDU address</span><input id="meterAddress" type="number" min="0" max="65535"></label><label class="field"><span>Scale to kW</span><input id="meterScale" type="number" step="0.00001"></label><label class="field"><span>Poll interval (ms)</span><input id="meterPoll" type="number" min="100" disabled title="Read-only in this milestone"></label><label class="field"><span>Timeout (ms)</span><input id="meterTimeout" type="number" min="100" disabled title="Read-only in this milestone"></label></div><div class="panel-actions"><button class="button primary" id="meterSaveButton" type="button">Save meter settings</button><span id="meterMessage" class="action-message" role="status"></span></div></article></div>
                 </section>
 
-                <section class="page" data-page="inverters" aria-labelledby="invertersTitle"><div class="page-intro"><div><p class="eyebrow">Generation assets</p><h2 id="invertersTitle">Inverters</h2><p>Configured inverter endpoints and command-safety state.</p></div></div><div class="notice safe"><strong>Automatic inverter control remains disabled by default.</strong><span>This page does not enable control or issue commands.</span></div><div class="asset-grid" id="inverterList"></div></section>
+                <section class="page" data-page="inverters" aria-labelledby="invertersTitle"><div class="page-intro"><div><p class="eyebrow">Generation assets</p><h2 id="invertersTitle">Inverters</h2><p>Configured inverter endpoints and command-safety state.</p></div></div><div class="notice safe"><strong>Automatic inverter control remains disabled by default.</strong><span>This page does not enable control or issue commands.</span></div>
+                    <!-- Setpoint write confirmation (GET /api/inverters/write-confirmation).
+                         Four states, all shown, all distinguishable: confirmed (a
+                         post-write readback matched), mismatched (a readback
+                         disagreed - a fault), pending (accepted, not yet
+                         confirmed - deliberately not styled as success) and
+                         unverified (confirmation is impossible - neither success
+                         nor failure). Requested and confirmed percent are separate
+                         values and are never merged into one number. -->
+                    <article class="panel confirm-panel" id="writeConfirmationPanel">
+                        <div class="panel-header"><div><p class="eyebrow">Setpoint confirmation</p><h3>Requested against confirmed</h3></div><span class="subtle-badge" id="confirmFleetBadge">Unavailable</span></div>
+                        <p class="confirm-lead" id="confirmFleetDetail" role="status">Reading setpoint confirmation…</p>
+                        <div class="confirm-legend" id="confirmLegend"></div>
+                        <div class="confirm-list" id="confirmList"></div>
+                        <p class="confirm-message" id="confirmMessage" role="status"></p>
+                    </article>
+                    <!-- Lab simulator target declaration (POST /api/inverter-profile-assignment
+                         with lab_target). The consequences are stated before the
+                         engineer confirms, because declaring a lab target grants
+                         command authority through a profile that has not been
+                         qualified on hardware AND disables automatic control - the
+                         firmware does the second thing deliberately. -->
+                    <article class="panel form-panel lab-target-panel" id="labTargetPanel">
+                        <div class="panel-header"><div><p class="eyebrow">Lab validation</p><h3>Declare or revoke a lab simulator target</h3></div><span class="subtle-badge" id="labTargetBadge">Locked</span></div>
+                        <div class="notice danger lab-consequence">
+                            <strong>Declaring a lab target changes what the controller may command.</strong>
+                            <span>
+                                <span class="lab-consequence-item">It grants command authority through a profile that has not been qualified on physical equipment.</span>
+                                <span class="lab-consequence-item">It disables automatic control. The firmware does this deliberately whenever a profile assignment changes.</span>
+                                <span class="lab-consequence-item">The controller must be restarted before the returned write permission takes effect.</span>
+                                <span class="lab-consequence-item">While any commanded inverter is a declared simulator, commissioning can only ever report lab_simulator_only, never production.</span>
+                            </span>
+                        </div>
+                        <div class="field-grid">
+                            <label class="field"><span>Inverter</span><select id="labTargetInverter"></select></label>
+                            <label class="field"><span>Profile to assign</span><select id="labTargetProfile"></select></label>
+                            <label class="field"><span>Lab target declaration</span><select id="labTargetDeclaration"><option value="true">Declare this endpoint a Modbus simulator</option><option value="false">Revoke the simulator declaration</option></select></label>
+                        </div>
+                        <label class="switch field-switch lab-target-ack"><input id="labTargetAcknowledge" type="checkbox"><span></span><b>I understand this is lab validation and not production control</b></label>
+                        <p class="lab-target-caveat">The controller does not publish the lab-target declaration it currently holds, so this panel cannot show the present state. Only the values returned by the last request below are reported.</p>
+                        <div class="panel-actions"><button class="button danger-button" id="labTargetApply" type="button" disabled>Send declaration</button><span class="action-message" id="labTargetMessage" role="status"></span></div>
+                        <dl class="lab-target-result" id="labTargetResult" hidden></dl>
+                    </article>
+                    <div class="asset-grid" id="inverterList"></div></section>
 
-                <section class="page" data-page="control" aria-labelledby="controlTitle"><div class="page-intro"><div><p class="eyebrow">Safe commissioning</p><h2 id="controlTitle">PV-DG control</h2><p>Review control targets and timing without enabling automatic inverter commands.</p></div></div><div class="notice danger"><strong id="controlSafetyTitle">Automatic control disabled</strong><span id="controlSafetyDetail">No inverter commands are issued while control is disabled.</span></div><div class="dashboard-grid"><article class="panel"><div class="panel-header"><div><p class="eyebrow">Runtime</p><h3>Control status</h3></div></div><div class="health-list"><div class="health-row"><span>Mode</span><strong id="controlPageMode">Unavailable</strong></div><div class="health-row"><span>Requested PV</span><strong id="controlPageRequested">Unavailable</strong></div><div class="health-row"><span>Applied PV</span><strong id="controlPageApplied">Unavailable</strong></div><div class="health-row"><span>Meter interlock</span><strong id="controlPageMeter">Checking</strong></div></div></article><article class="panel form-panel"><div class="panel-header"><div><p class="eyebrow">Parameters</p><h3>Control configuration</h3></div></div><div class="field-grid"><label class="field"><span>Grid import target (kW)</span><input id="controlTarget" type="number" step="0.1"></label><label class="field"><span>Deadband (kW)</span><input id="controlDeadband" type="number" step="0.1" min="0"></label><label class="field"><span>Control interval (ms)</span><input id="controlInterval" type="number" min="100"></label><label class="field"><span>Meter stale timeout (ms)</span><input id="controlStaleTimeout" type="number" min="500" disabled title="Read-only in this milestone"></label></div><div class="panel-actions"><button class="button primary" id="controlSaveButton" type="button">Save parameters</button><span id="controlMessage" class="action-message" role="status"></span></div></article></div></section>
+                <section class="page" data-page="control" aria-labelledby="controlTitle"><div class="page-intro"><div><p class="eyebrow">Safe commissioning</p><h2 id="controlTitle">PV-DG control</h2><p>Review control targets and timing without enabling automatic inverter commands.</p></div></div><div class="notice danger"><strong id="controlSafetyTitle">Automatic control disabled</strong><span id="controlSafetyDetail">No inverter commands are issued while control is disabled.</span></div>
+                    <!-- Commissioning gate. The nine prerequisites come from
+                         GET /api/commissioning/gate, each with the firmware's own
+                         title, reason code and explanatory sentence, so an
+                         engineer can see WHICH one is unmet and WHY without
+                         reading a serial log. control_authority.mode_label and
+                         inhibit_reason are shown exactly as the controller
+                         publishes them; this interface does not paraphrase a
+                         safety decision it did not make. -->
+                    <article class="panel gate-panel" id="commissioningGatePanel">
+                        <div class="panel-header"><div><p class="eyebrow">Commissioning gate</p><h3>Prerequisites for automatic control</h3></div><span class="subtle-badge" id="gateScopeBadge">Unavailable</span></div>
+                        <div class="gate-authority">
+                            <div class="gate-authority-row"><span>Control authority</span><strong id="gateModeLabel">Unavailable</strong></div>
+                            <div class="gate-authority-row"><span>Inhibit reason</span><strong id="gateInhibitReason">Unavailable</strong></div>
+                            <div class="gate-authority-row"><span>Commissioning scope</span><strong id="gateScope">Unavailable</strong></div>
+                            <div class="gate-authority-row"><span>Prerequisites satisfied</span><strong id="gateSatisfied">Unavailable</strong></div>
+                        </div>
+                        <p class="gate-summary" id="gateSummary" role="status">Reading the commissioning gate…</p>
+                        <ol class="gate-checklist" id="gateChecklist"></ol>
+                        <p class="gate-message" id="gateMessage" role="status"></p>
+                    </article>
+                    <div class="dashboard-grid"><article class="panel"><div class="panel-header"><div><p class="eyebrow">Runtime</p><h3>Control status</h3></div></div><div class="health-list"><div class="health-row"><span>Mode</span><strong id="controlPageMode">Unavailable</strong></div><div class="health-row"><span>Requested PV</span><strong id="controlPageRequested">Unavailable</strong></div><div class="health-row"><span>Applied PV</span><strong id="controlPageApplied">Unavailable</strong></div><div class="health-row"><span>Meter interlock</span><strong id="controlPageMeter">Checking</strong></div></div></article><article class="panel form-panel"><div class="panel-header"><div><p class="eyebrow">Parameters</p><h3>Control configuration</h3></div></div><div class="field-grid"><label class="field"><span>Grid import target (kW)</span><input id="controlTarget" type="number" step="0.1"></label><label class="field"><span>Deadband (kW)</span><input id="controlDeadband" type="number" step="0.1" min="0"></label><label class="field"><span>Control interval (ms)</span><input id="controlInterval" type="number" min="100"></label><label class="field"><span>Meter stale timeout (ms)</span><input id="controlStaleTimeout" type="number" min="500" disabled title="Read-only in this milestone"></label></div><div class="panel-actions"><button class="button primary" id="controlSaveButton" type="button">Save parameters</button><span id="controlMessage" class="action-message" role="status"></span></div></article></div></section>
 
                 <section class="page" data-page="system" aria-labelledby="systemTitle"><div class="page-intro"><div><p class="eyebrow">Maintenance</p><h2 id="systemTitle">System</h2><p>Controller identity, configuration backup and controlled restart.</p></div></div><div class="dashboard-grid"><article class="panel"><div class="panel-header"><div><p class="eyebrow">Controller</p><h3>System information</h3></div></div><div class="health-list"><div class="health-row"><span>Device name</span><strong id="systemDeviceName">--</strong></div><div class="health-row"><span>Configuration schema</span><strong id="systemSchema">--</strong></div><div class="health-row"><span>Current IP</span><strong id="systemIp">--</strong></div><div class="health-row"><span>Connected SSID</span><strong id="systemSsid">--</strong></div></div><div class="panel-actions"><button class="button secondary" id="exportButton" type="button">Export configuration</button><button class="button danger-button" id="restartButton" type="button">Restart controller</button></div></article><article class="panel"><div class="panel-header"><div><p class="eyebrow">Advanced</p><h3>Configuration JSON</h3></div><span class="subtle-badge">Passwords masked</span></div><textarea id="advancedJson" class="json-editor" spellcheck="false" aria-label="Advanced configuration JSON" readonly></textarea><div class="panel-actions"><button class="button secondary" id="reloadConfigButton" type="button">Reload</button><button class="button primary" id="saveJsonButton" type="button" disabled title="Advanced JSON write support is scheduled for a later milestone">Read-only</button><span id="systemMessage" class="action-message" role="status">Advanced JSON is read-only in this milestone.</span></div></article></div></section>
             </main>
