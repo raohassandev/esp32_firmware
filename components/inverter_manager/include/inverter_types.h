@@ -57,6 +57,43 @@ typedef struct {
     uint32_t confirmed_count;
     uint32_t unverified_count;
 
+    /* Measured-power confirmation.
+     *
+     * baseline_power_kw is the plant's measured output IMMEDIATELY BEFORE the last
+     * write. It is captured at write time because after the command there is no
+     * way to recover it, and without it a measured value below the commanded limit
+     * cannot be distinguished from the sun going in -- which is the whole
+     * difference between a demonstrated limit and a guess.
+     *
+     * write_proof is an inverter_write_proof_t saying what the verdict rests on,
+     * so "confirmed" is never read without knowing what confirmed it, and an
+     * unverified verdict can be told apart from an unknown one.
+     * limit_demonstrated is true only for a limit proved by measurement. */
+    float baseline_power_kw;
+    bool baseline_valid;
+    uint32_t baseline_sample_ms;
+    uint8_t write_proof;
+    bool limit_demonstrated;
+    /* Verdicts that were UNVERIFIED because the measurement could not distinguish
+     * an honoured limit from falling irradiance. Counted separately: it is not a
+     * fault and it does not demand the safe fallback, but it must be visible,
+     * because it means the limit in force is not known. */
+    uint32_t ambiguous_count;
+
+    /* Post-command scheduling-authority assertion (contention detector). A read
+     * of a read-only register naming which authority owns scheduling of this
+     * target; nothing here is ever written.
+     *
+     * authority_lost_count is the one to look at: non-zero means another master
+     * took the target over after this controller commanded it. */
+    bool authority_supported;
+    bool authority_read_valid;
+    bool authority_holds;
+    uint16_t authority_raw;
+    uint32_t last_authority_read_ms;
+    uint32_t authority_lost_count;
+    int32_t authority_last_error;
+
     /* Prerequisite enable register (Solis tag 3070, Sungrow tag 5007, Chint/CPS
      * 0x2602). Reported separately from the setpoint confirmation above, because
      * "the enable register is not confirmed" and "the setpoint read back the

@@ -7,6 +7,7 @@
 #include "inverter_prerequisite.h"
 #include "inverter_profile_decode.h"
 #include "inverter_status.h"
+#include "inverter_write_confirmation.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -89,6 +90,58 @@ typedef struct {
     inverter_word_order_t power_limit_readback_word_order;
     float power_limit_readback_scale;
     float readback_tolerance_percent;
+
+    /* Confirmation on MEASURED power instead of, or in addition to, the setpoint
+     * readback above.
+     *
+     * Why this exists: some command targets cannot be confirmed by reading the
+     * command back, because the readback is an echo of a stored command rather
+     * than an applied state. The Huawei SmartLogger plant interface is the case
+     * this was written for -- the logger STORES the percentage and forwards it,
+     * and an undocumented "Adjustment coefficient" may scale it on the way, so a
+     * readback of the command register would report a limit that is not in force.
+     * That is the same false confirmation that already required refusing four
+     * brands, reached by a different door.
+     *
+     * The measured quantity is the profile's own active-power register: the
+     * plant's measured output. A profile declaring a measured mode must therefore
+     * also declare has_active_power, and the confirmation evaluator refuses the
+     * evidence outright if the description is incomplete -- it does NOT quietly
+     * fall back to the echo.
+     *
+     * READ THE CONFIRMATION HEADER BEFORE CHANGING THIS. Measured power is a weak
+     * witness in one direction: output below a limit is equally consistent with
+     * the limit being honoured and with the sun going in. A limit is only ever
+     * demonstrated when output was ABOVE the new limit before the command and at
+     * or below it after; anything else is UNVERIFIED, never confirmed.
+     *
+     * The tolerance is stated in kW, or as a percentage of the rated capacity the
+     * command refers to, or both. At least one must be positive: a zero band on a
+     * physical measurement is not a tolerance. The capacity itself comes from the
+     * inverter's configured rating at runtime, which for a plant-level endpoint
+     * MUST be the plant's total rated capacity -- a wrong capacity makes every
+     * measured verdict wrong, so it is a commissioning value and not a default. */
+    inverter_measured_confirm_mode_t measured_power_confirm;
+    float measured_tolerance_kw;
+    float measured_tolerance_percent_of_capacity;
+
+    /* Post-command scheduling-authority assertion: a READ-ONLY register naming
+     * which authority currently owns scheduling of this command target.
+     *
+     * It is checked AFTER a command, never as a precondition. A precondition
+     * would deadlock on equipment that only adopts remote scheduling once it has
+     * received a command: the controller would refuse to command until the mode
+     * changed, and the mode would not change until it commanded.
+     *
+     * A value other than the expected one after our own command means a different
+     * master owns the target and will fight this controller, so the verdict is
+     * MISMATCHED and the safe fallback is demanded. The function code must be
+     * read-only; nothing in this group is ever written. */
+    bool has_command_authority_check;
+    uint8_t command_authority_function; /* 0x03 holding, 0x04 input */
+    uint16_t command_authority_address;
+    uint16_t command_authority_expected;
+    uint16_t command_authority_mask; /* zero means the whole register */
 
     /* How long this device may take before an accepted setpoint appears in its
      * readback register. Zero means "use the firmware default".
@@ -258,6 +311,45 @@ static inline uint16_t inverter_profile_prerequisite_mask(const inverter_profile
 {
     if (!profile || profile->prerequisite_readback_mask == 0U) return 0xFFFFU;
     return profile->prerequisite_readback_mask;
+}
+
+/* True when this profile describes measured-power confirmation completely enough
+ * to evaluate: a mode other than NONE, an active-power register to measure with,
+ * and at least one positive tolerance band.
+ *
+ * Deliberately NOT used to downgrade the mode to NONE when it returns false. A
+ * profile that asks for measured confirmation and describes it badly must be
+ * refused, not silently reverted to confirming on a setpoint echo -- that would
+ * turn a transcription slip into the exact false confirmation the mode exists to
+ * prevent. It is here so a contract test can execute the rule. */
+static inline bool inverter_profile_measured_confirmation_described(
+    const inverter_profile_t *profile)
+{
+    if (!profile) return false;
+    if (profile->measured_power_confirm == INVERTER_MEASURED_CONFIRM_NONE) return false;
+    if (!profile->has_active_power) return false;
+    return profile->measured_tolerance_kw > 0.0f ||
+           profile->measured_tolerance_percent_of_capacity > 0.0f;
+}
+
+/* True when the scheduling-authority assertion is described and READ-ONLY. A
+ * write function code here would mean the controller mutating the register that
+ * tells it who is in charge, so it is rejected rather than corrected. */
+static inline bool inverter_profile_command_authority_described(
+    const inverter_profile_t *profile)
+{
+    return profile && profile->has_command_authority_check &&
+           inverter_prerequisite_read_function_supported(profile->command_authority_function);
+}
+
+/* Mask for the scheduling-authority comparison. Zero in the profile means "the
+ * whole register", never a literal zero mask: a zero mask would compare every
+ * possible reading equal and assert authority unconditionally. */
+static inline uint16_t inverter_profile_command_authority_mask(
+    const inverter_profile_t *profile)
+{
+    if (!profile || profile->command_authority_mask == 0U) return 0xFFFFU;
+    return profile->command_authority_mask;
 }
 
 size_t inverter_profiles_count(void);

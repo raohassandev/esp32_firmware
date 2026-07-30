@@ -359,6 +359,56 @@ static esp_err_t poll_readback(inverter_runtime_t *runtime, uint32_t timestamp)
     return err;
 }
 
+/* Reads the scheduling-authority register: which authority currently owns
+ * scheduling of this command target. Strictly read-only -- the function code is
+ * checked to be a read code by inverter_profile_command_authority_described(),
+ * and this never issues a write of any kind.
+ *
+ * It is a CONTENTION DETECTOR, not a precondition. The decision about what a
+ * foreign value means belongs to the pure confirmation evaluator, which only
+ * consults it after a write; see the profile comment for why gating a command on
+ * it would deadlock. */
+static esp_err_t poll_command_authority(inverter_runtime_t *runtime, uint32_t timestamp)
+{
+    const inverter_profile_t *profile = runtime->profile;
+    if (!inverter_profile_command_authority_described(profile)) {
+        portENTER_CRITICAL(&runtime->lock);
+        runtime->data.authority_supported = false;
+        portEXIT_CRITICAL(&runtime->lock);
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    uint16_t word = 0;
+    esp_err_t err = read_profile_block(runtime, profile->command_authority_function,
+                                       profile->command_authority_address, 1U, &word);
+    const uint16_t mask = inverter_profile_command_authority_mask(profile);
+    const bool holds = err == ESP_OK &&
+                       (uint16_t)(word & mask) ==
+                           (uint16_t)(profile->command_authority_expected & mask);
+
+    portENTER_CRITICAL(&runtime->lock);
+    const bool was_holding = runtime->data.authority_read_valid &&
+                             runtime->data.authority_holds;
+    /* A target we owned and no longer own is the failure this poll exists to
+     * catch: another master took the plant over underneath us. Counted whether
+     * the transition came from a foreign value or from the read failing, because
+     * both mean we can no longer show that we are the authority. */
+    if (was_holding && !holds) runtime->data.authority_lost_count++;
+    runtime->data.authority_supported = true;
+    runtime->data.authority_last_error = err;
+    if (err == ESP_OK) {
+        runtime->data.authority_read_valid = true;
+        runtime->data.authority_holds = holds;
+        runtime->data.authority_raw = word;
+        runtime->data.last_authority_read_ms = timestamp;
+    } else {
+        /* A failed read is not evidence that we still own the target. */
+        runtime->data.authority_holds = false;
+    }
+    portEXIT_CRITICAL(&runtime->lock);
+    return err;
+}
+
 /* Writes one register. Used only for the prerequisite enable register, and it
  * refuses any function code that is not a documented write code, so a
  * mis-transcribed profile cannot turn into a blind write to an unknown
@@ -579,6 +629,44 @@ static bool evaluate_write_confirmation(inverter_runtime_t *runtime, uint32_t ti
     }
     evidence.settle_ms = settle_ms;
     evidence.deadline_ms = INVERTER_CONFIRMATION_DEADLINE_MS;
+
+    /* Measured-power confirmation. The measured quantity IS the profile's
+     * active-power telemetry, so no extra transaction is introduced: the
+     * background poll that already runs is the confirmation source.
+     *
+     * The mode is taken from the profile AS DECLARED and is never downgraded to
+     * NONE when the description is incomplete. A downgrade would silently fall
+     * back to confirming on the setpoint readback, which for a stored-command
+     * echo is the false confirmation the mode exists to prevent; the pure
+     * evaluator refuses incomplete measured evidence instead. */
+    evidence.measured_mode = profile ? profile->measured_power_confirm
+                                     : INVERTER_MEASURED_CONFIRM_NONE;
+    evidence.measured_valid = runtime->data.telemetry_valid && !runtime->data.telemetry_stale;
+    /* Strictly after: a measurement taken at or before the write describes a
+     * plant the write has since acted on. */
+    evidence.measured_after_write = runtime->data.write_issued &&
+                                    runtime->data.last_telemetry_ms > runtime->data.last_write_ms;
+    evidence.measured_kw = runtime->data.measured_power_kw;
+    evidence.baseline_valid = runtime->data.baseline_valid;
+    evidence.baseline_before_write =
+        runtime->data.baseline_valid &&
+        runtime->data.baseline_sample_ms < runtime->data.last_write_ms;
+    evidence.baseline_kw = runtime->data.baseline_power_kw;
+    /* The capacity the commanded percentage refers to. For a plant-level endpoint
+     * this configured rating MUST be the plant total; a wrong value makes every
+     * measured verdict wrong, which is why it is a commissioning value. */
+    evidence.capacity_kw = runtime->data.rated_power_kw;
+    evidence.measured_tolerance_kw = profile ? profile->measured_tolerance_kw : 0.0f;
+    evidence.measured_tolerance_percent_of_capacity =
+        profile ? profile->measured_tolerance_percent_of_capacity : 0.0f;
+
+    /* Scheduling-authority assertion, consulted only after a write. */
+    evidence.authority_checked = inverter_profile_command_authority_described(profile);
+    evidence.authority_valid = runtime->data.authority_read_valid;
+    evidence.authority_after_write =
+        runtime->data.write_issued &&
+        runtime->data.last_authority_read_ms > runtime->data.last_write_ms;
+    evidence.authority_holds = runtime->data.authority_holds;
     portEXIT_CRITICAL(&runtime->lock);
 
     inverter_write_verdict_t verdict = inverter_write_confirmation_evaluate(&evidence);
@@ -592,6 +680,19 @@ static bool evaluate_write_confirmation(inverter_runtime_t *runtime, uint32_t ti
      * zero is retried on the next pass rather than dropped. */
     const bool changed = runtime->data.write_confirmation != (uint8_t)verdict.state;
     runtime->data.write_confirmation = (uint8_t)verdict.state;
+    /* What the verdict rests on, so "confirmed" is never reported without it. */
+    runtime->data.write_proof = (uint8_t)verdict.proof;
+    runtime->data.limit_demonstrated = verdict.limit_demonstrated;
+    if (verdict.proof == INVERTER_WRITE_PROOF_AMBIGUOUS_HEADROOM && changed) {
+        /* Measured output is below the commanded limit but was already below it
+         * before the command, so the evidence cannot tell an honoured limit from
+         * falling irradiance. Counted and reported; deliberately NOT a fault and
+         * deliberately NOT a safe-zero, because driving PV to zero every time
+         * irradiance dips below the commanded limit would be worse than the
+         * ambiguity. If output ever rises ABOVE the limit the next pass returns
+         * MISMATCHED and the safe fallback is demanded then. */
+        runtime->data.ambiguous_count++;
+    }
     const bool safe_zero_required = verdict.settled && verdict.requires_safe_zero &&
                                     !runtime->data.safe_zero_issued;
 
@@ -760,12 +861,32 @@ static void note_write_issued(inverter_runtime_t *runtime, float percent,
                               bool accepted, uint32_t timestamp)
 {
     portENTER_CRITICAL(&runtime->lock);
+    /* Capture the pre-command measured output BEFORE anything else, because after
+     * this write there is no way to recover it, and for a profile confirming on
+     * measured power it is the difference between demonstrating a limit and
+     * guessing: a measurement below the commanded limit is equally consistent
+     * with the limit being honoured and with the sun going in. Only a fall from
+     * ABOVE the new limit to at-or-below it proves anything.
+     *
+     * Only a live, non-stale telemetry sample counts, and its own timestamp is
+     * kept rather than this write's, so the evaluator can insist the baseline
+     * genuinely predates the command. */
+    runtime->data.baseline_valid = runtime->data.telemetry_valid &&
+                                   !runtime->data.telemetry_stale &&
+                                   runtime->data.last_telemetry_ms != 0U &&
+                                   runtime->data.last_telemetry_ms < timestamp;
+    runtime->data.baseline_power_kw = runtime->data.measured_power_kw;
+    runtime->data.baseline_sample_ms = runtime->data.last_telemetry_ms;
     runtime->data.requested_percent = percent;
     runtime->data.write_issued = true;
     runtime->data.last_write_accepted = accepted;
     runtime->data.last_write_ms = timestamp;
     runtime->data.write_confirmation = (uint8_t)(accepted ? INVERTER_WRITE_PENDING
                                                           : INVERTER_WRITE_UNVERIFIED);
+    /* A new command has proved nothing yet, so no proof from the previous one may
+     * carry over into it. */
+    runtime->data.write_proof = (uint8_t)INVERTER_WRITE_PROOF_NONE;
+    runtime->data.limit_demonstrated = false;
     /* A new write opens a new confirmation window, so a previously issued safe
      * zero no longer suppresses the next one. issue_safe_zero() re-latches it
      * immediately afterwards, and only when its own write was accepted. */
@@ -859,6 +980,15 @@ static void inverter_telemetry_task(void *argument)
             esp_err_t telemetry_err = poll_active_power(runtime, timestamp);
             if (telemetry_err == ESP_OK && runtime->profile->has_power_limit_readback) {
                 (void)poll_readback(runtime, timestamp);
+            }
+            /* Who owns scheduling of this target. Read-only, and only for a
+             * profile that describes it, so no existing profile gains a
+             * transaction. It rides the ordinary telemetry cadence like every
+             * other read: the confirmation evaluator needs a sample taken after
+             * the write, not a synchronous one. */
+            if (telemetry_err == ESP_OK &&
+                inverter_profile_command_authority_described(runtime->profile)) {
+                (void)poll_command_authority(runtime, timestamp);
             }
             if (telemetry_err == ESP_OK) {
                 (void)poll_status(runtime, timestamp);

@@ -1650,6 +1650,264 @@ static const inverter_profile_t PROFILES[] = {
         .telemetry_poll_ms = 1000,
         .telemetry_stale_timeout_ms = 5000,
     },
+    {
+        .id = "huawei.smartlogger.plant",
+        .manufacturer = "Huawei",
+        .model_family = "SmartLogger (plant-level power interface)",
+        .protocol = "Modbus TCP",
+        .connection = INVERTER_PROFILE_CONNECTION_LOGGER_GATEWAY,
+        /* DOCUMENTED, not qualified. Nothing below has been exercised against a
+         * physical SmartLogger. It is commandable only against an endpoint an
+         * engineer has declared a simulator.
+         *
+         * WHAT THIS PROFILE IS
+         * --------------------
+         * This commands the PLANT at the SmartLogger, not an inverter through it.
+         * The endpoint's unit id must be the SmartLogger's own address (0 by
+         * default, configurable, and able to collide with a device address --
+         * alarm 1105 "Device Address Conflict"), NOT an RS485 device address. It
+         * is deliberately a separate profile from huawei.sun2000.pending because
+         * the two have different unit ids, different scales and different failure
+         * modes, and folding them together is how a plant command gets sent to one
+         * inverter or an inverter register gets written at the logger's unit id.
+         *
+         * Source: "SmartLogger ModBus Interface Definitions", Issue 35
+         * (2020-02-20), cited below as SL-MB with PDF page and, in parentheses,
+         * the printed page. Supporting parameter semantics from "SmartLogger3000
+         * User Manual", Issue 03 (2020-01-10), cited as SL3000. Full evidence,
+         * every quotation and the site-verification checklist:
+         * docs/SMARTLOGGER_PATH_ANALYSIS.md.
+         *
+         * ADDRESSING: SL-MB's decimal addresses are the raw wire addresses. It
+         * settles this by worked example -- "a Power-On instruction (register
+         * address: 40200/0X9D08)" with the frame "... 00 06 9D 08 00 00", and
+         * 0x9D08 == 40200 (SL-MB PDF p.43 (35), s4.3.4.4). No offset. 32-bit
+         * values are high word first: "Modbus uses a big-Endian to represent
+         * addresses and data" (SL-MB PDF p.37 (29), s4.2.3).
+         *
+         * COMMAND: "Active power adjustment by percentage", RW, FC 03/06/10,
+         * address 40428, 1 register, U16, unit %, gain 10, "The percentage range
+         * is 0-100%", reference value "the sum of the rated power of all
+         * inverters" (SL-MB PDF p.13 (5) SN18, and s3.3 PDF p.33 (25)). Gain 10
+         * means raw 10 per percent.
+         *
+         * DANGEROUS AND EASY MIX-UP, stated here because the two registers carry
+         * the same physical quantity at different scales: the WRITABLE 40428 is
+         * percent x 10 (U16, gain 10, 1 register), while the read-only status
+         * 40802 "Active scheduling percentage" is U32 over 2 registers with gain
+         * 1 -- percent x 1, not x 10 (SL-MB PDF p.18 (10) SN59). Reusing one scale
+         * factor for both understates or overstates the plant limit by a factor of
+         * ten. They are configured separately below and must stay that way.
+         *
+         * WHY THE READBACK ALONE CANNOT CONFIRM ANYTHING
+         * ---------------------------------------------
+         * SL-MB says of this interface: "This interface stores data and the
+         * adjustment value should be issued at intervals of not less than 1
+         * seconds" (SL-MB PDF p.32 (24), Table 3-1), and "After the SmartLogger
+         * receives the instruction value, it synchronizes the value in percentage
+         * to all connected inverters" (SL-MB PDF p.33 (25), s3.3). An accepted
+         * write therefore proves only that the LOGGER STORED the value. On top of
+         * that, under Remote Communication Scheduling the logger's own allocation
+         * policy may multiply the commanded percentage by an "Adjustment
+         * coefficient" before delivering it -- "the power value will be sent to
+         * the solar inverter after being multiplied by the preset coefficient"
+         * (SL3000 PDF p.130 (122)) -- and that coefficient has NO register and is
+         * invisible to a Modbus client. A commanded 80 % need not deliver 80 %.
+         *
+         * So confirmation here closes on MEASURED plant power, not on a readback
+         * of the command. The setpoint readback below is retained because it is
+         * still worth having -- a readback that DISAGREES proves the logger did
+         * not store what was sent -- but a readback that agrees is ACCEPTANCE and
+         * the confirmation mode is REQUIRED so that it can never, by itself,
+         * report a limit as confirmed. Read the top of
+         * inverter_write_confirmation.h for what measured power can and cannot
+         * prove; the short version is that output below a limit is equally
+         * consistent with the limit being honoured and with the sun going in, so
+         * only a fall from above the limit to at-or-below it demonstrates a limit.
+         *
+         * MEASURED QUANTITY: "Plant active power", RO, FC 03, address 40525, 2
+         * registers, I32, unit kW, gain 1000 -- so the raw value is watts and the
+         * scale to kW is 0.001. "Equals the total active output power of all
+         * inverters." (SL-MB PDF p.13 (5) SN23.)
+         *
+         * CAPACITY: the percentage's own reference is "the sum of the rated power
+         * of all inverters", published read-only as "Total rated capacity of
+         * grid-connected inverters", FC 03, 41938, 2 registers, U32, kW, gain 1000
+         * (SL-MB PDF p.19 (11) SN63). This firmware takes the capacity from the
+         * endpoint's CONFIGURED rating rather than from that register, so for this
+         * profile the configured rating MUST be the plant total and MUST be
+         * cross-checked against 41938 at commissioning. A wrong capacity makes
+         * every measured verdict wrong. 40697 "Max. active adjustment" (RO, U32,
+         * kW, gain 10, SL-MB PDF p.16 (8) SN46) is the live figure to compare with
+         * on site, since it reflects only the inverters currently in parallel.
+         *
+         * MEASURED TOLERANCE -- NOT A MANUAL VALUE. No manual read for this
+         * project states a control accuracy, a settling band or a deadband default
+         * for this interface; SL3000 lists "Adjustment deadband" as a configurable
+         * parameter and prints no default and no range (SL3000 PDF p.131 (123)).
+         * The band below is therefore a controller engineering choice with a
+         * documented floor, not a transcription: the plant's own reported
+         * scheduling percentage (40802) is quantised to 1 % of capacity by its
+         * gain of 1, so no band narrower than 1 % of capacity can be justified,
+         * and one further step of margin is allowed for measurement noise and for
+         * the allocation policy's own deadband. It MUST be replaced by a measured
+         * value from the site write test.
+         *
+         * SETTLE WINDOW -- A DOCUMENTED FLOOR, NOT A MEASUREMENT. The manuals do
+         * not state the time between the logger storing a value and the plant
+         * having applied it; docs/SMARTLOGGER_PATH_ANALYSIS.md lists it as unknown
+         * item 9. What IS documented is that this interface may not be commanded
+         * more often than once per second, so the plant cannot have settled faster
+         * than the interface may be re-commanded: 1000 ms is a lower bound derived
+         * from that sentence and is used as the settle window because the firmware
+         * default of 500 ms is certainly shorter than the truth, and a settle
+         * window shorter than the truth turns a plant that is still ramping down
+         * into a MISMATCHED verdict and a safe-zero on healthy equipment. The
+         * confirmation deadline still bounds an unconfirmed setpoint. Timestamping
+         * the real settle time is the site checklist's write test.
+         *
+         * COMMAND INTERVAL: "the adjustment value should be issued at intervals of
+         * not less than 1 seconds. The adjustment value that is beyond the range
+         * is discarded." (SL-MB PDF p.32 (24), Table 3-1, stated for 40420/40422,
+         * 40424/40426 and 40428/40429.) Hence 1000 ms. A protective reduction is
+         * never delayed by it; see min_command_interval_ms in the header.
+         *
+         * CONTENTION DETECTOR: "Active power control mode", RO, FC 03, address
+         * 40737, 1 register, U16, gain 1, enumerating 0 No limit, 1 DI active
+         * scheduling, 3 Percentage fixed-value limitation, 4 Remote scheduling,
+         * 6 Export Limitation(kW), 200 Remote output control, 65533 Slave
+         * SmartLogger, 65534 no scheduling (SL-MB PDF p.17 (9) SN54). Anything
+         * other than remote scheduling AFTER we have commanded means some other
+         * authority owns plant scheduling and will fight this controller: the
+         * logger has scheduling authorities of its own (DI ripple control,
+         * time-of-day percentage limitation, meter-based export limitation, utility
+         * remote output control, a master-logger cascade -- SL3000 PDF pp.128-133
+         * (120-125)), and up to five northbound Modbus TCP clients may be connected
+         * at once (SL3000 PDF p.87 (79)), any of which can take the plant over:
+         * "the SmartLogger automatically changes Active power control mode to
+         * Remote communication scheduling after receiving a scheduling command
+         * from the upper-layer management system" (SL3000 PDF p.130 (122)).
+         *
+         * That same sentence is why 40737 is asserted AFTER a command and never as
+         * a precondition. Requiring mode 4 before commanding would deadlock: the
+         * mode becomes 4 only in response to a scheduling command, and no command
+         * would be issued until the mode was already 4. As a post-command
+         * assertion it is deadlock-free and it also catches the case where the
+         * logger is configured to ignore us altogether -- "Disable: The
+         * SmartLogger controls the solar inverter to work at full load and will
+         * not receive scheduling commands sent by the management system" (SL3000
+         * PDF p.130 (122)), under which the mode will not become 4 and the verdict
+         * becomes MISMATCHED rather than a silent success.
+         *
+         * WHAT THE ASSERTION STILL CANNOT SEE, and the operator must check by
+         * hand, from the SL3000 pages above and the checklist in
+         * docs/SMARTLOGGER_PATH_ANALYSIS.md:
+         *   - Mode 0 "No limit" before our first command is NORMAL, not a fault.
+         *     A single equality test cannot express "0 or 4", so the pre-command
+         *     state of 40737 must be RECORDED at commissioning; a value that is
+         *     neither 0 nor 4 before we command means the plant was already owned.
+         *   - The `Percentage(%)` allocation strategy and any `Adjustment
+         *     coefficient`, neither of which has a register.
+         *   - How many of the five northbound Modbus TCP slots are already used,
+         *     and by whom.
+         *   - Per inverter, `Remote power schedule` = Enable (SL3000 PDF p.102
+         *     (94), p.128 (120)) and `Schedule instruction valid duration`, which
+         *     makes a commanded limit self-expire when non-zero.
+         *
+         * NO PREREQUISITE WRITE, deliberately. The logger-level mode gate resolves
+         * itself on receipt of a command (SL3000 PDF p.130 (122)) and 40737 is
+         * read-only, so there is nothing for this controller to write; the
+         * per-inverter `Remote power schedule` is a logger MENU setting with no
+         * register documented in the manuals available, so it is a human
+         * commissioning step, exactly as for huawei.sun2000.pending.
+         *
+         * IDENTITY PROBE: left unconfigured. No register with a
+         * deployment-independent expected value is documented for the logger --
+         * 40713 is the unit's own ESN and 41938/41934 are site capacities -- so
+         * there is nothing to compare against without inventing a value. The
+         * enum-valued 40737 read below is the closest available check that the
+         * unit id and the addressing convention are right, and confirming that
+         * 41938 reads a plausible plant capacity is the first step of the site
+         * checklist.
+         *
+         * NO OPERATING-STATE DESCRIPTION is configured. The logger publishes
+         * plant-level state words (40543, 40566, 40567) but SL-MB marks each of
+         * them as used by one specific Chinese province, and 40699 "Locked" is a
+         * two-value plant interlock with inverted polarity (0 = Locked). None of
+         * those is an inverter operating state, so every endpoint on this profile
+         * reports the unknown state rather than a guessed one.
+         *
+         * NEVER PROBED BY THIS PROFILE, because they are write-only actions rather
+         * than settings: 40200/40201/40202/40203 plant power on/off (40203 has the
+         * OPPOSITE polarity to 40202), 40204 transfer trip (latches a fault outage
+         * that "does not respond to the startup request"), 40723 system reset ("The
+         * data domain is not checked"), 40724 fast device access (reassigns device
+         * addresses), 40725 device operation (deletes inverters). None appears
+         * anywhere in this profile. */
+        .qualification = INVERTER_PROFILE_QUALIFICATION_DOCUMENTED,
+        .manual_reference = "SmartLogger ModBus Interface Definitions Issue 35 "
+                            "(2020-02-20) Table 2-1 and Table 3-1; SmartLogger3000 "
+                            "User Manual Issue 03; not qualified on hardware",
+        /* Measured plant active power. SL-MB PDF p.13 (5) SN23: RO, I32, kW,
+         * gain 1000 -> raw watts, scale 0.001. High word first per s4.2.3. */
+        .has_active_power = true,
+        .active_power_function = 3,
+        .active_power_address = 40525,
+        .active_power_words = 2,
+        .active_power_type = INVERTER_VALUE_S32,
+        .active_power_word_order = INVERTER_WORD_ORDER_AB,
+        .active_power_scale = 0.001f,
+        /* Plant active-power percentage command. SL-MB PDF p.13 (5) SN18. */
+        .has_power_limit = true,
+        .power_limit_function = 6,
+        .power_limit_address = 40428,
+        .power_limit_words = 1,
+        .power_limit_type = INVERTER_VALUE_U16,
+        .power_limit_word_order = INVERTER_WORD_ORDER_AB,
+        .raw_units_per_percent = 10.0f, /* gain 10: percent x 10 */
+        .minimum_percent = 0.0f,
+        .maximum_percent = 100.0f, /* "The percentage range is 0-100%." */
+        /* Acceptance readback, NOT confirmation. Active scheduling percentage,
+         * SL-MB PDF p.18 (10) SN59: RO, U32 over 2 registers, gain 1. Note the
+         * scale is 1.0 here against the command's 10 -- see the mix-up warning. */
+        .has_power_limit_readback = true,
+        .power_limit_readback_function = 3,
+        .power_limit_readback_address = 40802,
+        .power_limit_readback_words = 2,
+        .power_limit_readback_type = INVERTER_VALUE_U32,
+        .power_limit_readback_word_order = INVERTER_WORD_ORDER_AB,
+        .power_limit_readback_scale = 1.0f,
+        /* A gain of 1 quantises this register to whole percent, so a band tighter
+         * than one count would fault on the register's own resolution. */
+        .readback_tolerance_percent = 1.0f,
+        /* Confirmation closes on measured power, and the setpoint readback above
+         * can never confirm on its own. */
+        .measured_power_confirm = INVERTER_MEASURED_CONFIRM_REQUIRED,
+        .measured_tolerance_percent_of_capacity = 2.0f, /* engineering choice; see above */
+        /* Post-command scheduling-authority assertion on 40737 == 4 (Remote
+         * scheduling). SL-MB PDF p.17 (9) SN54. Read-only, never written. */
+        .has_command_authority_check = true,
+        .command_authority_function = 3,
+        .command_authority_address = 40737,
+        .command_authority_expected = 4,
+        .command_authority_mask = 0xFFFF,
+        /* Documented floor, not a measured settle time. See above. */
+        .power_limit_settle_ms = 1000,
+        /* "the adjustment value should be issued at intervals of not less than 1
+         * seconds" -- SL-MB PDF p.32 (24), Table 3-1. */
+        .min_command_interval_ms = 1000,
+        /* No polling interval for a third-party client is documented anywhere in
+         * these manuals, and the logger's southbound RS485 refresh budget for the
+         * actual inverter count and baud rate is unknown, so it bounds how fresh
+         * any of these reads can be. 1000 ms matches the fastest cadence the
+         * equipment documents for this interface; asking faster would be asking
+         * for data that cannot be fresher. The stale timeout is tied to the only
+         * timing convention the protocol does state -- "If the master node does
+         * not receive any response from the slave node in 5s, the communication
+         * process is regarded as timed out" (SL-MB PDF p.37 (29), s4.2.4). */
+        .telemetry_poll_ms = 1000,
+        .telemetry_stale_timeout_ms = 5000,
+    },
 };
 
 size_t inverter_profiles_count(void)

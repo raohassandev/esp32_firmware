@@ -196,6 +196,8 @@ jobs:
         run: python3 tests/commissioning_gate_source_contract.py
       - name: Check inverter write confirmation and readback contract
         run: python3 tests/inverter_write_readback_source_contract.py
+      - name: Check plant-level logger control and measured-power confirmation
+        run: python3 tests/logger_plant_control_source_contract.py
       - name: Check inverter prerequisite enable sequencing contract
         run: python3 tests/inverter_prerequisite_enable_source_contract.py
       - name: Check inverter read-only probe contract
