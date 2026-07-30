@@ -1,6 +1,8 @@
 #include "config_manager.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include "esp_mac.h"
+#include "esp_random.h"
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -149,8 +151,24 @@ static void defaults(app_config_t *c)
 
     c->wifi.scan_before_connect = true;
     c->wifi.fallback_ap_enabled = true;
-    strlcpy(c->wifi.fallback_ap_ssid, "Automatrix-PVDG-Setup", sizeof(c->wifi.fallback_ap_ssid));
-    strlcpy(c->wifi.fallback_ap_password, "automatrix123", sizeof(c->wifi.fallback_ap_password));
+    /* Recovery access point.
+     *
+     * The password is deliberately left EMPTY here and generated per device on
+     * first use (see ensure_recovery_ap_secret). It used to be a literal shared by
+     * every unit, committed to a public repository -- which meant anyone who read
+     * the repository could join the setup network of any controller in the field.
+     * A default credential is not a default: it is a published one.
+     *
+     * The SSID carries the last three bytes of the station MAC so that units are
+     * distinguishable on site. That is an identifier, not a secret, and it is safe
+     * to derive from the MAC; the password is not, precisely because the
+     * derivation would be public. */
+    uint8_t mac[6] = {0};
+    if (esp_read_mac(mac, ESP_MAC_WIFI_STA) != ESP_OK) memset(mac, 0, sizeof(mac));
+    snprintf(c->wifi.fallback_ap_ssid, sizeof(c->wifi.fallback_ap_ssid),
+             "Automatrix-PVDG-%02X%02X%02X", mac[3], mac[4], mac[5]);
+    strlcpy(c->wifi.fallback_ap_password, CONFIG_PVDG_RECOVERY_AP_PASSWORD,
+            sizeof(c->wifi.fallback_ap_password));
     c->wifi.max_retries_per_profile = 5;
     c->wifi.reconnect_backoff_ms = 2000;
 
@@ -485,6 +503,75 @@ static void set_active(const app_config_t *c)
     portEXIT_CRITICAL(&s_lock);
 }
 
+/* Gives this unit its own recovery-AP password if it does not have one.
+ *
+ * Generated randomly, per device, on first use -- NOT derived from the MAC or any
+ * other published value, because the derivation would itself be in this public
+ * repository and a computable password is not a password.
+ *
+ * It is logged once, at the moment of generation, and never again. That is a
+ * deliberate exception to "never log a credential": the operator has to learn it
+ * somehow, and the serial console is the same physical-presence channel the
+ * one-time Engineering setup code already uses. Reading it costs physical access to
+ * the board.
+ *
+ * Returns true if the configuration was changed and needs saving. */
+/* FNV-1a 64 of the recovery-AP password this firmware used to ship with, which was
+ * identical on every unit and published in a public repository.
+ *
+ * Held as a hash rather than the string so the retired credential is not printed in
+ * this source again, while a unit already carrying it can still recognise and rotate
+ * it. Without this a commissioned unit would keep the published password forever,
+ * because it is stored and therefore not empty -- fixing the default alone fixes
+ * only units that have never been commissioned. */
+#define RETIRED_RECOVERY_AP_PASSWORD_FNV1A64 0x70D9019AAA1F69DDULL
+
+static uint64_t fnv1a64(const char *text)
+{
+    uint64_t hash = 0xcbf29ce484222325ULL;
+    for (const unsigned char *p = (const unsigned char *)text; *p; ++p) {
+        hash ^= (uint64_t)*p;
+        hash *= 0x100000001b3ULL;
+    }
+    return hash;
+}
+
+static bool ensure_recovery_ap_secret(app_config_t *c)
+{
+    if (!c->wifi.fallback_ap_enabled) return false;
+
+    const bool absent = c->wifi.fallback_ap_password[0] == '\0';
+    const bool retired = !absent &&
+                         fnv1a64(c->wifi.fallback_ap_password) ==
+                             RETIRED_RECOVERY_AP_PASSWORD_FNV1A64;
+    if (retired) {
+        ESP_LOGW(TAG, "This unit is using the retired shared recovery-AP password, which "
+                      "was published. Rotating it to one unique to this unit.");
+    }
+    if (!absent && !retired) return false;
+
+    /* Character set excludes look-alikes (0/O, 1/l/I) because this gets read off a
+     * console and typed into a phone. */
+    static const char alphabet[] = "abcdefghijkmnpqrstuvwxyzACDEFGHJKLMNPQRSTUVWXYZ23456789";
+    char secret[17];
+    uint8_t random_bytes[sizeof(secret) - 1];
+    esp_fill_random(random_bytes, sizeof(random_bytes));
+    for (size_t i = 0; i < sizeof(secret) - 1U; ++i) {
+        secret[i] = alphabet[random_bytes[i] % (sizeof(alphabet) - 1U)];
+    }
+    secret[sizeof(secret) - 1U] = '\0';
+    strlcpy(c->wifi.fallback_ap_password, secret, sizeof(c->wifi.fallback_ap_password));
+
+    ESP_LOGW(TAG, "Recovery access point '%s' had no password. Generated one unique to "
+                  "this unit and stored it. Record it now -- it is printed only once:",
+             c->wifi.fallback_ap_ssid);
+    ESP_LOGW(TAG, "    recovery AP password: %s", secret);
+    ESP_LOGW(TAG, "It can be changed through the Wi-Fi configuration page at any time.");
+    memset(secret, 0, sizeof(secret));
+    memset(random_bytes, 0, sizeof(random_bytes));
+    return true;
+}
+
 esp_err_t config_manager_init(void)
 {
     esp_err_t err = nvs_flash_init();
@@ -619,6 +706,11 @@ esp_err_t config_manager_init(void)
     } else if (apply_build_provisioning(loaded)) {
         stored_matches = false;
     }
+
+    /* Applies to a freshly defaulted unit AND to a commissioned one carrying the
+     * old shared password, so an existing unit in the field stops using the
+     * published credential the first time it runs this firmware. */
+    if (ensure_recovery_ap_secret(loaded)) stored_matches = false;
 
     set_active(loaded);
     if (!stored_matches) {

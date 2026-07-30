@@ -31,14 +31,14 @@ can ever obtain today.
 | SolTrix Simulator | `soltrix.sim.goodwe.v1` | Simulator verified | lab only | — |
 | SolTrix Simulator | `soltrix.sim.solis.v1` | Simulator verified | lab only | — |
 | **Huawei** | `huawei.sun2000.pending` | Documented | **lab only** | commandable in lab; see §1.2 |
-| GoodWe | `goodwe.commercial.pending` | Documented | forbidden | command/readback at 42407 transcribed, but the register is **flash-backed** with no documented write rate (see 1.4) |
+| GoodWe | `goodwe.commercial.pending` | Documented | forbidden | command/readback at 42407 transcribed, but the register is **flash-backed** with no documented write rate (see §1.2) |
 | Solis | `solis.commercial.pending` | Documented | lab only | prerequisite enable at PDU 3069 is now described and **verified by readback** before any command (§1.2) |
 | Growatt | `growatt.tl3x.documented` | Documented | forbidden | power-on write lock (§1.2) |
 | Growatt | `growatt.tlx.documented` | Documented | forbidden | power-on write lock (§1.2) |
 | Sungrow | `sungrow.string.documented` | Documented | lab only | prerequisite enable at PDU 5006 is now described and **verified by readback** before any command (§1.2) |
 | Chint / CPS | `chint.cps.sch100_125ktl.documented` | Documented | forbidden | needs prerequisite enable (§1.2) |
 | SolarEdge | `solaredge.terramax.documented` | Documented | lab only | best-evidenced manual of any brand (documents a settle time AND a command interval), but **inert at runtime**: no active-power register, so it never becomes eligible to command — and the manual contradicts itself on Float32 vs integer (see §1.6) |
-| FoxESS | `foxess.commercial.pending` | Documented | lab only | command/readback at 49007 from the FoxESS commercial manual; addressing convention **deduced, not proven** (see 1.5) |
+| FoxESS | `foxess.commercial.pending` | Documented | lab only | command/readback at 49007 from the FoxESS commercial manual; addressing convention **deduced, not proven** (see §1.5 below) |
 | AISWEI (Knox / Solplanet ASW) | `knox.aiswei.asw.documented` | Documented | forbidden | printed 44001 must enable active-power control before printed 45403 takes effect, and 45403 echoes either way |
 
 Write-qualified or production-approved profiles: **0**.
@@ -62,10 +62,20 @@ generating.
 
 That is worse than a mismatch and worse than a timeout, because the readback stops
 being evidence and every layer above it — including the operator — is told the
-plant is limited when it is not. This firmware cannot sequence and verify a
-prerequisite write, so those profiles are refused write authority outright, in lab
-mode as well as production. Being unable to command is recoverable; being told a
-limit is in force when it is not is not.
+plant is limited when it is not.
+
+**The firmware now sequences and verifies a prerequisite**, so this section no
+longer describes a blanket refusal. Authority depends on whether the profile can
+describe an enable register that is both writable and *readable*: it writes it,
+then RE-READS to confirm, and never trusts its own write. Solis (PDU 3069) and
+Sungrow (PDU 5006) carry verifiable descriptions and are lab-commandable.
+
+Two are still refused, for different reasons. **Chint/CPS** has a citation for
+writing `0x2602` but none establishing it can be READ — an enable written blind is
+an assertion the controller cannot check, which reaches the same false-confirmation
+trap by another door. **Knox/AISWEI** is the same case at printed 44001. Being
+unable to command is recoverable; being told a limit is in force when it is not is
+not.
 
 **Growatt** is refused for a related reason: it locks network power control after
 power-on, the manual's unlock password is **redacted**, and it **auto-relocks
@@ -223,7 +233,7 @@ close ancestor.
 | Root-cause grouping | `active 2` reduced to `primary_active 1` (gap A5) |
 | Nuisance suppression | `suppressed_transitions 1` — on/off delay absorbing chatter (gap A4) |
 | Shelving authorisation | Unauthenticated shelve returns **401** |
-| Engineering gateway | Commissioning gate, write-confirmation, identity, audit-log all **401** unauthenticated |
+| Engineering gateway | Commissioning gate, write-confirmation, identity and audit-log return **401** unauthenticated. **Not a blanket 401:** `engineering_guard.c` deliberately routes `GET /api/config`, `/api/meters`, `/api/inverters` and `/api/inverter-telemetry` to reduced *safe* payloads with HTTP 200, with credentials and SSIDs stripped. The property that matters is that no unauthenticated response carries a secret and every mutating route is refused — not that every route answers 401. |
 | Operator history | 200 with 24.8 KB payload (PSRAM-dependent; previously failed with 500) |
 | **Alarm journal durability (gap A2)** | Storage partition provisioned on first boot (`storage partition provisioned; the alarm journal is now durable`), then **survived a hard reset**: `stored` 8 → 12, `next_sequence` continued 9 → 13 rather than resetting, sequences 1–12 all readable and ordered, 0 unreadable, 0 write failures. Provisioning did **not** repeat on the second boot. |
 

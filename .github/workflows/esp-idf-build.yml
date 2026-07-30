@@ -216,6 +216,8 @@ jobs:
         run: python3 tests/alarm_journal_shelving_source_contract.py
       - name: Check HTTP route capacity leads the registered routes
         run: python3 tests/uri_handler_capacity_source_contract.py
+      - name: Check no credential is shared across units
+        run: python3 tests/no_shared_credentials_source_contract.py
       - name: Check the shipped configuration samples
         run: python3 tests/config_samples_source_contract.py
       - name: Check the release document matches the compiled profile catalogue
