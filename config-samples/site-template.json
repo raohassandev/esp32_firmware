@@ -1,0 +1,187 @@
+{
+  "_comment": [
+    "SITE COMMISSIONING TEMPLATE -- Automatrix PV-DG Controller.",
+    "",
+    "Deliberately NOT ready to apply. Every value written as null must be measured",
+    "or supplied at the plant; the firmware will reject an incomplete configuration",
+    "rather than run on a plausible-looking guess, and that is the intended",
+    "behaviour, not an obstacle.",
+    "",
+    "Work through docs/SITE_COMMISSIONING_RUNBOOK.md while filling this in. Nothing",
+    "here should be copied from config-samples/lab-simulator.json: those are values",
+    "for a simulated plant and several of them would be actively wrong on real",
+    "equipment.",
+    "",
+    "The controller reports commissioning_scope = production only when every",
+    "commanded inverter has passed physical readback qualification. On this commit",
+    "no profile has, so a correctly filled template still yields a monitoring and",
+    "protection installation until qualification is done on site."
+  ],
+
+  "meters": {
+    "_endpoint": "POST /api/meters/config",
+    "_notes": [
+      "One meter per source. A grid meter is mandatory; a generator meter is needed",
+      "for generator-mode control. Confirm every address READ-ONLY with mbpoll",
+      "before writing anything (runbook section 2).",
+      "",
+      "data_type: 0 uint16, 1 int16, 2 uint32, 3 int32, 4 float32.",
+      "Grid active power MUST be signed -- it goes negative when exporting, and an",
+      "unsigned type decodes export as a large import, which is the wrong sign at",
+      "the exact moment the controller must reduce PV.",
+      "",
+      "word_order: 0 ABCD (high word first), 1 CDAB, 2 BADC, 3 DCBA. Prove it with",
+      "a known non-zero power rather than assuming; a wrong order can read plausibly",
+      "at some values and absurdly at others.",
+      "",
+      "poll_ms: 0 means poll again as soon as the previous transaction completes.",
+      "Measure the gateway first (runbook) -- one site gateway sustained only about",
+      "11 requests per second with a ~300 ms stall on a quarter of transactions.",
+      "",
+      "timeout_ms: must clear the MEASURED worst-case response, not the typical one.",
+      "A timeout inside the tail records healthy responses as failures, which feeds",
+      "the quality window that blocks control input."
+    ],
+    "meters": [
+      {
+        "enabled": true,
+        "name": "Grid Meter",
+        "host": null,
+        "port": 502,
+        "unit_id": null,
+        "role": 1,
+        "function": null,
+        "active_power_address": null,
+        "data_type": null,
+        "word_order": null,
+        "scale": null,
+        "poll_ms": 0,
+        "timeout_ms": null
+      },
+      {
+        "_comment": "Delete this entry if the site has no separate generator meter.",
+        "enabled": false,
+        "name": "Generator Meter",
+        "host": null,
+        "port": 502,
+        "unit_id": null,
+        "role": 2,
+        "generator_index": 0,
+        "function": null,
+        "active_power_address": null,
+        "data_type": null,
+        "word_order": null,
+        "scale": null,
+        "poll_ms": 0,
+        "timeout_ms": null
+      }
+    ]
+  },
+
+  "inverters": {
+    "_endpoint": "POST /api/inverters/config",
+    "_notes": [
+      "rated_kw is the nameplate rating and sets the fleet capacity the ramp rates",
+      "are a percentage of. Getting it wrong scales every ramp.",
+      "",
+      "If a SmartLogger or any other gateway is in the Modbus path, unit_id is the",
+      "LOGGER's id for that inverter and need not match anything printed on the",
+      "machine. Confirm it by reading the model string back."
+    ],
+    "inverters": [
+      {
+        "enabled": true,
+        "name": null,
+        "host": null,
+        "port": 502,
+        "unit_id": null,
+        "rated_kw": null,
+        "timeout_ms": null
+      }
+    ]
+  },
+
+  "profile_assignment": {
+    "_endpoint": "POST /api/inverter-profile-assignment",
+    "_notes": [
+      "Choose the profile matching the ACTUAL manufacturer and model. Check",
+      "GET /api/inverter-profiles first: several profiles are refused by design and",
+      "the response states each one's write permission and why.",
+      "",
+      "lab_target MUST be false for real equipment. Setting it true against a real",
+      "inverter is a false statement about physical reality, and it is the one thing",
+      "the design cannot defend against.",
+      "",
+      "Known refusals at the time of writing -- read the live API rather than trusting",
+      "this list: GoodWe (command register is flash-backed with no documented write",
+      "rate, so commanding it would destroy the inverter's memory), Growatt (power-on",
+      "write lock, password redacted in the manual, re-arms after five minutes),",
+      "Chint/CPS and Knox/AISWEI (prerequisite enable register whose readability is",
+      "not established by any citation)."
+    ],
+    "inverter_index": 0,
+    "profile_id": null,
+    "lab_target": false
+  },
+
+  "solar_grid": {
+    "_endpoint": "POST /api/solar-grid/config",
+    "_notes": [
+      "These are the generator-protection numbers and they cannot be guessed. Take",
+      "them from the genset nameplate and its controller settings, and record who",
+      "supplied them.",
+      "",
+      "minimum_loading_percent protects the engine from wet stacking; reserve_kw and",
+      "reverse_power_margin_kw keep PV below the point where the genset sees reverse",
+      "power. The genset's OWN reverse-power trip setting and delay must be read and",
+      "recorded too -- the controller must act before that trip, not after it.",
+      "",
+      "KNOWN MODELLING GAP: this structure holds ONE generator rating and one",
+      "minimum-loading figure. If the site can run a variable number of engines in",
+      "parallel, the commissioned value is correct for one case only. Raise it with",
+      "the product owner before commissioning a multi-engine plant."
+    ],
+    "enabled": true,
+    "minimum_import_kw": null,
+    "export_limit_kw": null,
+    "generator_rated_kw": null,
+    "generator_minimum_loading_percent": null,
+    "generator_reserve_kw": null,
+    "generator_reverse_power_margin_kw": null
+  },
+
+  "control": {
+    "_endpoint": "POST /api/config (control object)",
+    "_notes": [
+      "Leave enabled false until the commissioning gate reports satisfied AND you",
+      "have read its scope. A satisfied gate with scope lab_simulator_only is not a",
+      "production release.",
+      "",
+      "interval_ms: 10..10000. Fixed, not poll-on-completion -- a jittering period",
+      "gives a jittering integral term. 20 ms suits a link answering in tens of",
+      "milliseconds; slow it if the measured gateway cannot keep up.",
+      "",
+      "meter_stale_timeout_ms must be >= interval_ms and should exceed the measured",
+      "worst-case acquisition latency, or fresh data will intermittently be judged",
+      "stale and control will be inhibited for no real reason.",
+      "",
+      "grid_ramp disabled = step straight to the allowed target after",
+      "synchronisation, which is the grid-mode requirement. generator_ramp enabled",
+      "with down_pct_s GREATER than up_pct_s: give power away slowly, take it back",
+      "quickly.",
+      "",
+      "kp/ki are plant-specific. Start conservative and observe for oscillation;",
+      "passing the gate's tuning check only proves the values are in range, not that",
+      "the loop is stable."
+    ],
+    "enabled": false,
+    "grid_import_target_kw": null,
+    "deadband_kw": null,
+    "kp": null,
+    "ki": null,
+    "interval_ms": 20,
+    "meter_stale_timeout_ms": null,
+    "grid_ramp": { "enabled": false, "up_pct_s": 0.0, "down_pct_s": 0.0 },
+    "generator_ramp": { "enabled": true, "up_pct_s": null, "down_pct_s": null }
+  }
+}
