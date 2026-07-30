@@ -147,6 +147,15 @@ every address in §3 and §4.
   - [ ] Read the active power control mode (register `40737`). `4` is remote
         scheduling. Any other value means something else owns plant scheduling and
         will contend with this controller. Value: `____`
+- [ ] **If the inverter documents a comms-loss fall-back limit, READ IT before
+      trusting the word "fail-safe".** SolarEdge documents a command timeout
+      (`0xF310`) and a fall-back active power limit (`0xF312`) but states **no
+      default for either**. If the fall-back is 100 %, losing this controller
+      **raises** the plant's limit instead of holding or lowering it — the opposite
+      of safe from the generator's point of view.
+      Timeout value: `____`   Fall-back limit: `____`
+      If the fall-back is above the generator's safe ceiling, resolve it with the
+      product owner before enabling control. Record the decision: `____`
 - [ ] Is anything else already writing to these inverters — a plant SCADA, an
       energy-management system, the logger's own export limitation, a grid-code
       curtailment function? List: `____`

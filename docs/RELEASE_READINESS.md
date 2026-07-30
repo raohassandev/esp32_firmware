@@ -1,6 +1,7 @@
 # Release readiness — Automatrix PV-DG Controller
 
-**Commit:** `6dd862c` on `phase1-fix`
+**Commit:** see `git log`; last substantive update covered the acquisition
+performance work, prerequisite enable sequencing and Float32 support
 **Assessed:** 2026-07-30 (updated the same day; the hardware evidence in section 2
 was gathered at `1282af8` and has not been re-run since)
 **Target hardware:** ESP32-S3-DevKitC-1 N16R8 (16 MB flash, 8 MB octal PSRAM), ESP-IDF v6.0.1
@@ -36,6 +37,7 @@ can ever obtain today.
 | Growatt | `growatt.tlx.documented` | Documented | forbidden | power-on write lock (§1.2) |
 | Sungrow | `sungrow.string.documented` | Documented | lab only | prerequisite enable at PDU 5006 is now described and **verified by readback** before any command (§1.2) |
 | Chint / CPS | `chint.cps.sch100_125ktl.documented` | Documented | forbidden | needs prerequisite enable (§1.2) |
+| SolarEdge | `solaredge.terramax.documented` | Documented | lab only | best-evidenced manual of any brand (documents a settle time AND a command interval), but **inert at runtime**: no active-power register, so it never becomes eligible to command — and the manual contradicts itself on Float32 vs integer (see §1.6) |
 | FoxESS | `foxess.commercial.pending` | Documented | lab only | command/readback at 49007 from the FoxESS commercial manual; addressing convention **deduced, not proven** (see 1.5) |
 | AISWEI (Knox / Solplanet ASW) | `knox.aiswei.asw.documented` | Documented | forbidden | printed 44001 must enable active-power control before printed 45403 takes effect, and 45403 echoes either way |
 
@@ -96,6 +98,43 @@ first needs confirmation to close on **measured** plant power (`40525`), which t
 profile structure cannot currently express.
 
 Full evidence and citations: `docs/SMARTLOGGER_PATH_ANALYSIS.md`.
+
+### 1.6 SolarEdge: the best-documented manual, and two reasons it is still inert
+
+The SolarEdge TerraMax technical note is the strongest evidence obtained for any
+brand. It is the **only** manual read for this project that documents both a
+setpoint reaction time ("< 1 s") and a data-transfer interval ("< 0.1 s"), and it
+proves its addressing convention with four worked frames. Float32 support and
+per-profile command word order were added to the firmware specifically so it could
+be expressed — before that, writing 50 % into its Float32 register as an integer
+would have produced the float ~7e-44, effectively zero, and the readback would have
+decoded the same garbage the same wrong way and **confirmed** it.
+
+It is nonetheless not commandable, for two independent reasons.
+
+**It is inert at runtime.** The profile carries no active-power register, because
+SolarEdge reports AC power as an int16 with a *runtime* scale factor in a separate
+register, which the profile structure cannot express. Without telemetry an inverter
+never becomes eligible for a command, so nothing is issued. Same condition as the
+Knox/AISWEI entry. Fixing it needs runtime scale-factor support.
+
+**The manual contradicts itself on the data type.** Its type tables state Float32
+three times; Appendix A's worked examples treat the same registers as integers — a
+read response decoding to `0x00000032` (integer 50) and a write of `0x64` rather
+than `0x42C80000`. The type tables were taken as normative, because they are stated
+three times and the appendix self-contradicts internally, but **the entire command
+path rests on that choice until one read is performed on real hardware.** A single
+read-only transaction on `0xF304` settles both the type and the word order at once
+and is the first thing to do on site.
+
+**A third item is a genuine safety consideration, not a blocker.** SolarEdge
+documents a comms-loss fail-safe: a command timeout (`0xF310`) and a fall-back
+active power limit (`0xF312`). The manual states **no default for either**. If the
+fallback is 100 %, then losing the controller *raises* the plant's limit rather than
+holding or lowering it — the opposite of fail-safe from a generator's point of
+view. Both registers must be read and recorded during commissioning. The firmware
+does not write them.
+
 
 "Documented" means the register map was transcribed from a manual and has never
 been exercised against the physical equipment. Promoting a profile requires the

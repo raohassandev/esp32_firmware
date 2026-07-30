@@ -600,7 +600,17 @@ static void control_task(void *argument)
              * rather than more leniently: while it holds, this controller cannot
              * know that a limit it writes will be honoured, and reporting
              * authority in that state is the false-confirmation trap the
-             * prerequisite sequencing exists to prevent. */
+             * prerequisite sequencing exists to prevent.
+             *
+             * Worth being explicit, because it looks alarming on a MIXED fleet:
+             * this field is a REPORT, not a gate. Nothing gates a command on it.
+             * Commanding is gated by control_enabled above, and which inverters
+             * get commanded is decided per inverter inside inverter_manager,
+             * where an unverified prerequisite excludes only that machine. So one
+             * unconfirmed Solis does not stop a healthy Huawei being reduced --
+             * which matters, because withholding a REDUCTION is the harm this
+             * product exists to prevent, and it would be an unacceptable price
+             * for a tidier status field. */
             .command_authority = commissioning.commissioned && control_enabled &&
                                  policy.valid && alarm_flags == 0U &&
                                  !confirmation_fault && !prerequisite_fault,
