@@ -1,3 +1,61 @@
+# ---------------------------------------------------------------------------
+# Web assets and the CSS cascade
+#
+# index.html links exactly one stylesheet, /app.css, and one script, /app.js.
+# Every other file below is bundled at request time: `css_handler` in
+# web_server.c concatenates the embedded CSS blobs and serves them as /app.css.
+#
+# IMPORTANT: the order of the lists in THIS file does NOT determine the
+# cascade. Only the `assets[]` array in `css_handler` (web_server.c) does.
+# The two orders are deliberately different - do not "align" them, and do not
+# assume that moving a line here changes what the browser sees.
+#
+# Cascade order as served (later layers win at equal specificity):
+#
+#   1  app.css                     Base design system: :root tokens (dark is the
+#                                  default theme), reset, shell, panels, buttons,
+#                                  forms. Also holds the compatibility aliases
+#                                  (--panel-bg, --surface, --border, --input-bg,
+#                                  --good/--warning/--bad ...) that make legacy
+#                                  `var(--x, <literal>)` call sites theme-aware.
+#   2  wifi.css                    \
+#   3  devices.css                  } Per-feature component styles. These sit
+#   4  em500.css                   /  BEFORE theme.css on purpose.
+#   5  theme.css                   Light-theme token overrides
+#                                  (html[data-theme="light"]) plus desktop
+#                                  density and the shared responsive
+#                                  breakpoints. MUST stay after the feature
+#                                  sheets above so light theme can correct them;
+#                                  tests/ui_runtime_consistency_source_contract.py
+#                                  asserts this ordering in web_server.c.
+#   6  product-mode.css            Operator vs engineering mode gating.
+#   7  operator-operations.css     Alarms, events, history/trend widgets.
+#   8  operator-product-suite.css  Operator product surfaces (--product-touch).
+#   9  prelab-readiness.css        Pre-Lab Readiness page (minified, one line).
+#  10  mobile-prelab-fixes.css     Touch/mobile hardening, incl. the S6 44x44
+#                                  `pointer: coarse` hit-target block.
+#  11  product-shell-v2.css        Shell V2 chrome (topbar, popovers, nav).
+#  12  product-experience-v2.css   Experience V2 page composition.
+#  13  commissioning-wizard-v2.css Commissioning wizard.
+#  14  commissioning-release-v3.css Commissioning release flow (minified, one
+#                                  line). Last layer, so it wins everything.
+#
+# Where to put a new rule:
+#   - Restyling an existing component        -> edit that component's sheet.
+#   - Colour of any kind                     -> use a token from app.css/theme.css.
+#     NEVER hardcode a hex background next to a themed foreground: that is the
+#     S5 defect class (docs/UI_VISUAL_AUDIT_2026-07-29.md) and it produced
+#     1.10:1 and 1.17:1 contrast in the field. Every colour must resolve
+#     correctly in BOTH themes.
+#   - Undefined token names                  -> add the token, don't add a
+#     `var(--x, #fff)` literal fallback; that fallback fires in both themes and
+#     is what made the readiness page white-on-white (S5a).
+#   - Layout/responsive tweak                -> theme.css or mobile-prelab-fixes.css.
+#
+# Do NOT create product-experience-v3.css. Adding a new sheet also requires
+# edits to web_assets.c, include/web_assets.h and web_server.c, and every extra
+# layer makes the !important arms race worse. Fix the rule where it lives.
+# ---------------------------------------------------------------------------
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/index.html" "${CMAKE_CURRENT_BINARY_DIR}/index.html" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/app.css" "${CMAKE_CURRENT_BINARY_DIR}/app.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/theme.css" "${CMAKE_CURRENT_BINARY_DIR}/theme.css" COPYONLY)
