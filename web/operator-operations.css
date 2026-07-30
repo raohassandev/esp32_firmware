@@ -238,3 +238,110 @@ html[data-theme="light"] .alarm-meta-item { background: var(--panel); }
     .alarm-summary, .alarm-meta { grid-template-columns: 1fr; }
     .alarm-metrics-grid, .alarm-dist-figures, .alarm-suppression-facts { grid-template-columns: 1fr; }
 }
+
+/* ============================================ operator content rewrite surfaces
+ *
+ * Styling for the markup the operator content rewrite introduced: disclosure
+ * drawers, dense equipment tables, the required-action list, the flow glyph and
+ * the unmeasured gauge.
+ *
+ * Every colour below resolves through a theme token and every value is on the
+ * 8px spacing scale and the 11/12/14/16/20/24/28 type scale declared in app.css.
+ * This block sits after .alarm-console, where alarm_ui_source_contract.py
+ * forbids hardcoded hex and forbids fading an element out; neither appears here.
+ * State is never carried by hue alone - each state also changes a glyph, a rule
+ * weight, a stroke pattern or a font weight. */
+
+/* -------------------------------------------------------- disclosure drawers */
+.op-more { margin-top: 12px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--surface-sunken); }
+.op-more[open] { border-color: var(--line); }
+.op-more-summary { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 8px 12px; border-radius: 8px; color: var(--muted); cursor: pointer; font-size: 12px; font-weight: 800; list-style: none; }
+.op-more-summary::-webkit-details-marker { display: none; }
+/* An explicit chevron that rotates, so open and closed are distinguishable
+   without the native marker and without relying on colour. */
+.op-more-summary::after { content: "\25BE"; margin-left: auto; font-size: 14px; line-height: 1; transition: transform 140ms ease; }
+.op-more[open] > .op-more-summary::after { transform: rotate(180deg); }
+.op-more-summary:hover { color: var(--text); }
+.op-more-summary:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.op-more-level { flex: 0 0 auto; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 10px; font-weight: 850; letter-spacing: .07em; text-transform: uppercase; }
+/* Engineering-level detail is marked with the accent, service-level stays
+   neutral. The word itself is in the badge, so the hue is reinforcement. */
+.op-more.level-engineering > .op-more-summary > .op-more-level { color: var(--accent-text); border-color: var(--accent-text); }
+.op-more-body { display: grid; gap: 8px; padding: 0 12px 12px; }
+.op-more-row { display: flex; justify-content: space-between; gap: 16px; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--line-soft); }
+.op-more-row:last-child { border-bottom: 0; }
+.op-more-row span { color: var(--muted); font-size: 12px; }
+.op-more-row strong { max-width: 62%; font-size: 12px; text-align: right; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.op-more-block { display: grid; gap: 4px; padding: 12px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--panel); }
+.op-more-note { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+
+/* ----------------------------------------------------------- dense equipment
+ * A table, not a wall of cards: one row per machine, headings once. */
+.op-table { width: 100%; margin-top: 12px; border-collapse: collapse; font-size: 14px; }
+.op-table th { padding: 8px 12px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 11px; font-weight: 850; letter-spacing: .06em; text-align: left; text-transform: uppercase; white-space: nowrap; }
+.op-table td { padding: 12px; border-bottom: 1px solid var(--line-soft); vertical-align: middle; overflow-wrap: anywhere; }
+.op-table tbody tr:last-child td { border-bottom: 0; }
+/* Measured values: fixed-width digits and right-aligned, so the column reads as
+   a column and a value does not shift sideways as it updates. */
+.op-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Failed equipment sorts first and is marked four ways - a heavy rule down the
+   left of the row, a leading warning glyph, heavier type, and the alarm colour.
+   Remove the colour and the row is still the one that stands out. Nothing here
+   fades a row: a machine nobody has looked at yet must not read as dismissed,
+   which is why the contract forbids fading in this part of the file. */
+.op-table tbody tr.op-row-bad td { border-bottom-color: var(--bad); }
+.op-table tbody tr.op-row-bad td:first-child { box-shadow: inset 4px 0 0 var(--bad); font-weight: 850; }
+.op-table tbody tr.op-row-bad td:first-child::before { content: "\26A0\FE0E"; margin-right: 8px; color: var(--bad); font-weight: 900; }
+/* Not commissioned is a different finding from failed: a neutral rule and an
+   en dash, never the alarm colour, because there is nothing to repair. */
+.op-table tbody tr.op-row-muted td { color: var(--muted); }
+.op-table tbody tr.op-row-muted td:first-child { box-shadow: inset 4px 0 0 var(--line-strong); }
+.op-table tbody tr.op-row-muted td:first-child::before { content: "\2013"; margin-right: 8px; color: var(--muted-2); }
+
+/* ------------------------------------------------------------- required action
+ * Condition, why it matters, and what to do - the last of the three is the only
+ * actionable line and is weighted so it reads that way. */
+.op-action-list { display: grid; gap: 12px; margin-top: 12px; }
+.op-action-row { display: grid; gap: 4px; padding: 12px; border: 1px solid var(--line-soft); border-left: 4px solid var(--accent-text); border-radius: 8px; background: var(--surface-sunken); }
+.op-action-row > strong { font-size: 14px; }
+.op-action-why { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.op-action-do { margin-top: 4px; color: var(--text); font-size: 14px; font-weight: 800; line-height: 1.45; }
+.op-action-do::before { content: "\2192"; margin-right: 8px; color: var(--accent-text); font-weight: 900; }
+
+/* Recommended action on an event row. Needs the extra class in the selector to
+   outrank .op-event-copy small, which paints every small in that block muted. */
+.op-event-copy .op-event-action { color: var(--text); font-weight: 800; line-height: 1.45; }
+.op-event-copy .op-event-action::before { content: "\2192"; margin-right: 8px; color: var(--accent-text); font-weight: 900; }
+
+.op-attention-host { display: grid; gap: 12px; }
+.op-attention-host:empty { display: none; }
+.alarm-age { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* ---------------------------------------------------------------- flow glyph */
+.op-flow-glyph { display: inline-grid; place-items: center; width: 32px; color: var(--accent-text); line-height: 1; }
+.op-flow-glyph svg { width: 32px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+/* An unknown direction is drawn in the neutral tone, never the accent: the
+   accent means "this is a measured flow going this way". */
+.op-flow-glyph.dir-unknown { color: var(--muted-2); }
+
+/* ---------------------------------------------------------- unmeasured gauge
+ * SAFETY-RELEVANT. A gauge with no measurement draws no needle at all, and the
+ * track it draws must not read as a scale with the needle resting at zero. On a
+ * controller whose whole purpose is preventing reverse power, "nothing is
+ * measuring this" and "this is zero" are the two readings that must never look
+ * alike. The track therefore becomes dashed - an incomplete instrument, not a
+ * complete one reading nothing - the tone colour is dropped so a .good gauge
+ * does not paint itself green with no data behind it, and the value slot shows
+ * the em dash and the words "Not measured" that the markup already carries. */
+.op-gauge-unmeasured .op-gauge-track { stroke: var(--line-strong); stroke-dasharray: 6 7; }
+.op-gauge-unmeasured .op-gauge-copy strong { color: var(--muted-2); }
+.op-gauge-unmeasured .op-gauge-copy small { color: var(--muted); font-weight: 850; letter-spacing: .06em; text-transform: uppercase; }
+
+@media (max-width: 760px) {
+    /* The table keeps its columns and scrolls rather than reflowing into cards:
+       reflowing loses the column headings that make the numbers mean anything. */
+    .op-table { display: block; overflow-x: auto; }
+    .op-more-row { flex-direction: column; gap: 2px; }
+    .op-more-row strong { max-width: 100%; text-align: left; }
+}
