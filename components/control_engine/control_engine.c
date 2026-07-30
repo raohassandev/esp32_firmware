@@ -86,15 +86,36 @@ _Static_assert(APP_MAX_GENERATORS == SOURCE_MAX_GENERATORS,
 
 /* Converts a ramp profile into the kW/s the policy layer expects.
  *
- * A disabled ramp yields a rate large enough that the policy's rate limiter can
- * never bind, which lets the command step straight to the allowed target. It
- * does NOT bypass the policy: the export/import target, the generator limit and
- * every safety clamp are applied first and still hold. */
+ * A disabled ramp must let the command step straight to the allowed target in a
+ * SINGLE cycle. The policy limits movement to rate x interval, so the rate for a
+ * disabled ramp has to be scaled by the interval: returning fleet_capacity_kw
+ * alone means "full range per second", which at the shipped 250 ms interval
+ * clamps each cycle to a quarter of the range and takes four cycles to reach
+ * target. That was wrong twice over -- it is not the documented behaviour, and it
+ * coupled the ramp to the poll rate in the worst direction, so polling faster for
+ * fresher data made the effective ramp slower as a fraction of range.
+ *
+ * It does NOT bypass the policy: the export/import target, the generator limit
+ * and every safety clamp are applied before the rate limiter and still hold. A
+ * disabled ramp removes a rate limit, not a safety limit.
+ *
+ * An enabled ramp is a true rate: percent of fleet capacity per second,
+ * independent of the interval, which is what makes it a commissioning value an
+ * engineer can reason about. */
 static float ramp_kw_per_second(const ramp_profile_t *ramp, bool upward,
-                                float fleet_capacity_kw, bool fleet_valid)
+                                float fleet_capacity_kw, bool fleet_valid,
+                                float interval_seconds)
 {
     if (!fleet_valid) return 0.0f;
-    if (!ramp->enabled) return fleet_capacity_kw;   /* full range within one second */
+    if (!ramp->enabled) {
+        /* Full range within one cycle, whatever the interval. Guarded so a
+         * nonsensical interval cannot produce a non-finite rate, which the policy
+         * would reject as invalid input and refuse to command at all. */
+        if (!isfinite(interval_seconds) || interval_seconds <= 0.0f) {
+            return fleet_capacity_kw;
+        }
+        return fleet_capacity_kw / interval_seconds;
+    }
     const float percent = upward ? ramp->up_percent_per_second
                                  : ramp->down_percent_per_second;
     if (!isfinite(percent) || percent <= 0.0f) return 0.0f;
@@ -398,8 +419,10 @@ static void control_task(void *argument)
             .ki = s_config.ki,
             .deadband_kw = s_config.deadband_kw,
             .interval_seconds = interval_seconds,
-            .ramp_up_kw_per_second = ramp_kw_per_second(&ramp, true, fleet_capacity_kw, fleet_valid),
-            .ramp_down_kw_per_second = ramp_kw_per_second(&ramp, false, fleet_capacity_kw, fleet_valid),
+            .ramp_up_kw_per_second = ramp_kw_per_second(&ramp, true, fleet_capacity_kw,
+                                                        fleet_valid, interval_seconds),
+            .ramp_down_kw_per_second = ramp_kw_per_second(&ramp, false, fleet_capacity_kw,
+                                                          fleet_valid, interval_seconds),
             .integral_kw = integral_kw,
             .generator_safe_limit_kw = generator_safe_limit_kw,
         };
