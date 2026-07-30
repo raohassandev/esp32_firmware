@@ -45,18 +45,16 @@ body.product-experience-v2 .button { min-height: 42px; }
 body.product-experience-v2 input,
 body.product-experience-v2 select { min-height: 44px; }
 
-/* Release polish from field screenshots. */
+/* Release polish from field screenshots.
+   Rules targeting .readiness-card/.readiness-grid/.history-chart/.trend-chart/
+   .gauge-card/.current-attention/.solar-empty-state were removed: the operator
+   DOM emits the "op-" prefixed names (op-readiness-card, op-history-chart,
+   op-gauge-card, op-trend-card in operator-view.js / operator-operations.js),
+   so the unprefixed selectors matched nothing. */
 .page-intro + .page-intro,
 [data-page="readiness"] > .page-intro:first-child { display: none !important; }
-.history-chart, .trend-chart { min-height: 132px; max-height: 190px; }
-.empty-state, .current-attention .empty-state, .solar-empty-state { min-height: 112px; padding: 24px; }
-[data-page="inverters"] .gauge-card { min-height: 220px; }
+.empty-state { min-height: 112px; padding: 24px; }
 [data-page="inverters"] .panel, [data-page="dashboard"] .panel { overflow: hidden; }
-html:not([data-theme="light"]) .readiness-card { background: var(--surface-overlay) !important; border-color: var(--line) !important; color: var(--text) !important; min-height: 112px !important; padding: 18px 20px !important; }
-html:not([data-theme="light"]) .readiness-card strong,
-html:not([data-theme="light"]) .readiness-card p,
-html:not([data-theme="light"]) .readiness-card small { color: inherit !important; opacity: 1 !important; }
-.readiness-grid { gap: 14px !important; }
 .engineering-login { max-width: 760px; padding: 26px; }
 .engineering-login form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: end; }
 .engineering-console { display: grid; gap: 18px; }
@@ -104,7 +102,4 @@ html:not([data-theme="light"]) .readiness-card small { color: inherit !important
   .engineering-login { padding: 20px; }
   .engineering-login form, .engineering-grid { grid-template-columns: 1fr; }
   .engineering-login .button, .engineering-actions .button { width: 100%; }
-  .readiness-grid { grid-template-columns: 1fr !important; }
-  html:not([data-theme="light"]) .readiness-card { min-height: 0 !important; }
-  .history-chart, .trend-chart { min-height: 110px; }
 }
