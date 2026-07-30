@@ -97,6 +97,10 @@ static const inverter_profile_t PROFILES[] = {
         .power_limit_readback_word_order = INVERTER_WORD_ORDER_AB,
         .power_limit_readback_scale = 0.1f,
         .readback_tolerance_percent = 0.2f,
+        /* Measured: this simulator defers a 40125 write by ~1500 ms and reports
+         * the previous active limit until then. 2500 ms leaves margin without
+         * approaching the 5000 ms confirmation deadline. */
+        .power_limit_settle_ms = 2500,
         .telemetry_poll_ms = 500,
         .telemetry_stale_timeout_ms = 3000,
     },

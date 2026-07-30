@@ -187,6 +187,51 @@ static void test_null_and_nonsense_inputs_fail_closed(void)
     assert(inverter_write_confirmation_evaluate(&e).state == INVERTER_WRITE_PENDING);
 }
 
+/* A device that defers applying a setpoint, reproduced from measurements against
+ * the SolTrix lab simulator: it accepts a 40125 write and applies it ~1500 ms
+ * later, reporting the PREVIOUS active limit in the meantime.
+ *
+ * With the old global 500 ms settle window this sequence produced MISMATCHED for
+ * a perfectly accepted command, which latches a confirmation fault, removes the
+ * inverter from commandable capacity and drives it to zero. A false fault on a
+ * healthy 100 kW machine is as harmful as missing a real one. The profile now
+ * carries the device's own settle window, and this pins the behaviour. */
+static void test_deferred_apply_device_is_pending_not_mismatched(void)
+{
+    inverter_write_evidence_t e = good_evidence();
+    e.settle_ms = 2500;     /* the device's declared window */
+    e.deadline_ms = 5000;
+    e.commanded_percent = 50.0f;
+    e.readback_percent = 100.0f; /* still the old active limit */
+
+    /* Throughout the deferral the verdict must be PENDING, never MISMATCHED. */
+    const uint32_t ages[] = {0, 200, 600, 1000, 1499, 2000, 2500};
+    for (size_t i = 0; i < sizeof(ages) / sizeof(ages[0]); ++i) {
+        e.age_since_write_ms = ages[i];
+        inverter_write_verdict_t verdict = inverter_write_confirmation_evaluate(&e);
+        assert(verdict.state == INVERTER_WRITE_PENDING);
+        /* Pending must not demand a safe-zero: that would fight the command. */
+        assert(!verdict.requires_safe_zero);
+    }
+
+    /* Once the device has applied it, the same readback confirms. */
+    e.age_since_write_ms = 2000;
+    e.readback_percent = 50.0f;
+    assert(inverter_write_confirmation_evaluate(&e).state == INVERTER_WRITE_CONFIRMED);
+
+    /* But the longer window must NOT hide a genuine disagreement: past settle,
+     * a disagreeing readback is still a mismatch. */
+    e.age_since_write_ms = 2501;
+    e.readback_percent = 100.0f;
+    assert(inverter_write_confirmation_evaluate(&e).state == INVERTER_WRITE_MISMATCHED);
+
+    /* And the deadline still bounds an unconfirmed setpoint regardless of how
+     * generous the settle window is. */
+    e.age_since_write_ms = 5001;
+    assert(inverter_write_confirmation_evaluate(&e).state == INVERTER_WRITE_MISMATCHED ||
+           inverter_write_confirmation_evaluate(&e).state == INVERTER_WRITE_UNVERIFIED);
+}
+
 static void test_fleet_rollup(void)
 {
     /* An empty fleet is unverified, never confirmed. */
@@ -235,6 +280,7 @@ int main(void)
     test_nothing_written_needs_no_rollback();
     test_rejected_write_demands_safe_zero();
     test_null_and_nonsense_inputs_fail_closed();
+    test_deferred_apply_device_is_pending_not_mismatched();
     test_fleet_rollup();
     test_state_names();
     printf("inverter write confirmation unit tests passed\n");

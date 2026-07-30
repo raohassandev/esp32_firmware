@@ -37,6 +37,29 @@ config PVDG_WIFI_PROVISION_ID
       PVDG_APPLY_BUILD_WIFI_PROVISIONING is explicitly enabled. Each approved
       factory credential set must use a strictly increasing positive value.
 
+config PVDG_ENGINEERING_CREDENTIAL_RESET_ID
+    int "Engineering credential reset generation"
+    default 0
+    help
+      Physical-recovery generation for a lost Engineering password. Leave at 0
+      for every normal, field, customer and unattended build.
+
+      When this value is positive and strictly greater than the generation
+      already recorded on the device, the stored Engineering credential is
+      deleted once during start-up. The controller then reports that setup is
+      required and prints a one-time setup code to the serial console, exactly
+      as an uncommissioned unit does, so a new password must be chosen before
+      any engineering endpoint can be used again.
+
+      No password is ever compiled into the firmware by this option: it removes
+      a credential, it does not install one. Recovery therefore requires
+      physical access to reflash the board and physical access to read its
+      serial console, which is the same trust boundary the one-time setup code
+      already relies on. Nothing about it is reachable over the network.
+
+      Each use must take a strictly increasing positive value, so that leaving a
+      recovery build installed cannot wipe the new password on every reboot.
+
 config PVDG_DEFAULT_ZLAN_HOST
     string "Default ZLAN5143D IP address"
     default "192.168.100.200"

@@ -68,6 +68,22 @@ typedef struct {
     float power_limit_readback_scale;
     float readback_tolerance_percent;
 
+    /* How long this device may take before an accepted setpoint appears in its
+     * readback register. Zero means "use the firmware default".
+     *
+     * This belongs to the profile because it is a property of the device, not of
+     * the controller. Devices differ: the lab simulator defers a 40125 write by
+     * about 1500 ms and reports the PREVIOUS active limit until it applies, so a
+     * global 500 ms window judged a perfectly accepted command to be a mismatch
+     * -- which latches a confirmation fault, removes the inverter from
+     * commandable capacity and drives it to zero. A false fault on a healthy
+     * machine is as damaging as a missed real one.
+     *
+     * It can only ever delay a verdict. It never turns a disagreement into a
+     * success, and the confirmation deadline still bounds how long an
+     * unconfirmed setpoint may stand. */
+    uint32_t power_limit_settle_ms;
+
     /*
      * Optional operational status register. Deliberately left unconfigured for
      * every shipped profile: no manufacturer status address is hardcoded in

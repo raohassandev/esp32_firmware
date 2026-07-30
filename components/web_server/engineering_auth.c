@@ -17,6 +17,9 @@
 
 #define AUTH_NAMESPACE "eng_auth"
 #define AUTH_RECORD_KEY "credential"
+/* Records the highest applied credential-reset generation, so a recovery build
+ * that stays installed resets the password once and not on every boot. */
+#define AUTH_RESET_GENERATION_KEY "reset_gen"
 #define AUTH_RECORD_MAGIC 0x41555448u
 #define AUTH_RECORD_VERSION 1u
 #define AUTH_SALT_BYTES 16u
@@ -653,8 +656,66 @@ static esp_err_t password_post(httpd_req_t *request)
     return send_json(request, NULL, root);
 }
 
+/* One-shot physical recovery for a lost Engineering password.
+ *
+ * Deletes the stored credential when the build carries a reset generation
+ * strictly greater than the one already recorded on the device, then records the
+ * new generation so a recovery build left installed cannot wipe the replacement
+ * password on every reboot. Start-up then takes the ordinary
+ * "no password configured" path: setup is required and a one-time setup code is
+ * printed to the serial console.
+ *
+ * This installs nothing. It removes a credential, so no secret exists in the
+ * firmware image, and it is unreachable over the network -- using it costs
+ * physical access to reflash the board plus physical access to read its console.
+ * That is the same trust boundary the existing one-time setup code already uses.
+ *
+ * Compiled out entirely at the default of 0, so a normal build does not merely
+ * decline to reset a credential -- it contains no code that can. */
+#if CONFIG_PVDG_ENGINEERING_CREDENTIAL_RESET_ID > 0
+static void apply_credential_reset(void)
+{
+    nvs_handle_t handle;
+    if (nvs_open(AUTH_NAMESPACE, NVS_READWRITE, &handle) != ESP_OK) return;
+
+    uint32_t applied = 0;
+    (void)nvs_get_u32(handle, AUTH_RESET_GENERATION_KEY, &applied);
+    if ((uint32_t)CONFIG_PVDG_ENGINEERING_CREDENTIAL_RESET_ID <= applied) {
+        nvs_close(handle);
+        return;
+    }
+
+    /* Erase only the credential key inside this namespace. Wi-Fi credentials,
+     * the commissioned configuration and the inverter profile assignments live
+     * elsewhere and are not touched. */
+    esp_err_t erased = nvs_erase_key(handle, AUTH_RECORD_KEY);
+    if (erased == ESP_ERR_NVS_NOT_FOUND) erased = ESP_OK; /* already absent */
+    if (erased == ESP_OK) {
+        erased = nvs_set_u32(handle, AUTH_RESET_GENERATION_KEY,
+                             (uint32_t)CONFIG_PVDG_ENGINEERING_CREDENTIAL_RESET_ID);
+    }
+    if (erased == ESP_OK) erased = nvs_commit(handle);
+    nvs_close(handle);
+
+    if (erased == ESP_OK) {
+        ESP_LOGW(TAG, "Engineering credential reset generation %d applied: the stored password "
+                      "was deleted. A new password must be set before any engineering endpoint "
+                      "can be used. Configuration and Wi-Fi credentials were not touched.",
+                 CONFIG_PVDG_ENGINEERING_CREDENTIAL_RESET_ID);
+    } else {
+        ESP_LOGE(TAG, "Engineering credential reset generation %d failed: %s",
+                 CONFIG_PVDG_ENGINEERING_CREDENTIAL_RESET_ID, esp_err_to_name(erased));
+    }
+}
+#else
+/* Recovery is not compiled into this build. */
+static inline void apply_credential_reset(void) {}
+#endif
+
 esp_err_t engineering_auth_init(void)
 {
+    apply_credential_reset();
+
     auth_record_t record = {0};
     esp_err_t err = load_record(&record);
     portENTER_CRITICAL(&s_lock);

@@ -41,6 +41,11 @@ static const char *DEFAULT_PROFILE_ID = "custom.modbus-percent-v1";
  *  SETTLE   - a readback that disagrees within this window of the write is
  *             treated as "not applied yet", not as a mismatch. It only ever
  *             delays a verdict; it can never turn a mismatch into a success.
+ *             This is only the DEFAULT: a profile may specify its own settle
+ *             window via power_limit_settle_ms, because how long a setpoint
+ *             takes to reach the readback register is a property of the device.
+ *             The lab simulator, measured, defers by ~1500 ms, against which
+ *             this 500 ms default would report a false mismatch.
  *  DEADLINE - past this age a write with no matching readback is UNVERIFIED and
  *             the inverter is driven safe. It bounds how long an unconfirmed
  *             setpoint may stand.
@@ -334,7 +339,18 @@ static bool evaluate_write_confirmation(inverter_runtime_t *runtime, uint32_t ti
     evidence.age_since_write_ms = runtime->data.write_issued
                                       ? timestamp - runtime->data.last_write_ms
                                       : 0U;
-    evidence.settle_ms = INVERTER_CONFIRMATION_SETTLE_MS;
+    /* A device-specific settle window overrides the firmware default. Clamped
+     * below the deadline: a settle window at or past the deadline would leave a
+     * disagreement permanently "pending" and an unconfirmed setpoint standing,
+     * which is exactly what the deadline exists to prevent. */
+    const uint32_t profile_settle_ms =
+        runtime->profile ? runtime->profile->power_limit_settle_ms : 0U;
+    uint32_t settle_ms = profile_settle_ms ? profile_settle_ms
+                                           : (uint32_t)INVERTER_CONFIRMATION_SETTLE_MS;
+    if (settle_ms >= (uint32_t)INVERTER_CONFIRMATION_DEADLINE_MS) {
+        settle_ms = (uint32_t)INVERTER_CONFIRMATION_DEADLINE_MS - 1U;
+    }
+    evidence.settle_ms = settle_ms;
     evidence.deadline_ms = INVERTER_CONFIRMATION_DEADLINE_MS;
     portEXIT_CRITICAL(&runtime->lock);
 
