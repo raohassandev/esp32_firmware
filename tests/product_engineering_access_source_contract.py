@@ -68,11 +68,43 @@ require("X-Engineering-Token" not in JS,
 
 for token in [
     "Electrical supply status", "Inverter fleet status", "installed capacity",
-    "Solar production", "Grid Power", "Solar Inverters", "/api/meters",
+    "Solar production", "/api/meters",
     "/api/inverters", "/api/inverter-telemetry", "op-gauge",
-    "operatorTrendHost", "Fleet availability", "Operator guidance",
+    "operatorTrendHost", "Fleet availability",
 ]:
     require(token in OPERATOR, f"operator product view missing {token}")
+
+# "Grid Power" and "Solar Inverters" used to be on the list above. They were the
+# operator-only spellings of two page names, printed as an eyebrow over each
+# screen - and tests/ia_taxonomy_source_contract.py now forbids exactly that:
+# one durable name per page, "Grid power" and "Solar inverters", owned by the
+# route table in web/app.js and applied to the sidebar, the title, the breadcrumb
+# and document.title from one place. Asserting the capitalised variants here was
+# pulling against that rule and pinning a third spelling of each page name into
+# the operator screen. The property is stronger stated as a prohibition.
+#
+# Only the operator-side variants are listed. "Inverters" as the heading of a
+# table of inverters is a noun, not a second name for a page.
+for invented in ["'Grid Power'", "'Solar Inverters'", "'Meters'"]:
+    require(invented not in OPERATOR,
+            f"the operator view spells a page name of its own ({invented}); page "
+            "names come from the route table in web/app.js so that an instruction "
+            "given over the phone matches what is on the screen")
+
+# "Operator guidance" was the headline of a card that printed a paragraph in
+# every state, including the state where nothing is wrong. It is now a card that
+# appears ONLY when something is blocking automatic control, and says what to do
+# rather than describing the situation. The assertion follows the requirement:
+# this screen must tell an operator what action is required.
+require("'Required action'" in OPERATOR and "function controlActions" in OPERATOR,
+        "the control screen must state the required action when automatic control "
+        "is blocked")
+require("action:" in OPERATOR and "why:" in OPERATOR and "condition:" in OPERATOR,
+        "an operator message must carry all three beats - what is true now, why it "
+        "matters, and what to do - not just a description")
+require(".slice(0, 3)" in OPERATOR,
+        "the required actions must be bounded; an unbounded list of things to do "
+        "is a list nobody does")
 
 # The operator trend is still present on the dashboard, the grid page and the
 # solar page - it is now one shared component rather than a second chart
