@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,6 +33,18 @@ assert "commandable_rated_kw" in js, "write eligibility must be surfaced"
 assert "Automatic control and physical inverter writes" not in js, "readiness UI must not claim approval"
 assert "Export snapshot" in js and "JSON.stringify(report" in js, "diagnostic export is required"
 assert "setInterval(refreshAll, 15000)" in js, "readiness must refresh periodically"
+# Audit S4: the poll must be scoped to its own route. Six requests every 15 s
+# from every screen -- including the ~26 KB /api/operator/history that S3
+# measured returning 500 under browser load -- fetched data nothing displayed.
+assert "route() !== 'readiness'" in js, "the readiness poll must be scoped to its own route"
+assert js.index("route() !== 'readiness'") < js.index("api('/api/status')"), \
+    "the route check must precede the requests, not filter them afterwards"
+# It must still load on arrival, or the page shows nothing for 15 s.
+assert "refreshAll(); render();" in js, "navigating to readiness must refresh immediately"
+# Routing, titles and breadcrumbs belong to app.js alone.
+code = re.sub(r"(?m)^\s*//.*$", "", re.sub(r"/\*.*?\*/", "", js, flags=re.S))
+assert "pageTitle" not in code and "breadcrumbCurrent" not in code, "route titles belong to app.js"
+assert "document.title" not in code, "the document title belongs to app.js"
 assert "temporary_field_bypass" in js, "unexpected bypass state must remain visible in readiness"
 assert "AUTH_TEMPORARY_FIELD_BYPASS" not in auth, "production authentication must not contain a bypass switch"
 assert '"temporary_field_bypass", false' in auth, "session API must report that bypass is disabled"

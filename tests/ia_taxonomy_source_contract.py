@@ -117,10 +117,21 @@ require("const name = routeName(route);" in chrome,
         "the title and the breadcrumb must be the same string, not two strings")
 
 # The screens that used to keep private name tables now defer to it.
-for source, name in ((OPERATOR, "operator-view.js"), (OPERATIONS, "operator-operations.js"),
-                     (MODE, "product-mode.js")):
+for source, name in ((OPERATOR, "operator-view.js"), (OPERATIONS, "operator-operations.js")):
     require("applyRouteChrome" in source,
             f"{name} still writes its own title/breadcrumb instead of using the route table")
+# product-mode.js used to call applyRouteChrome('engineering') from its own
+# activateEngineeringRoute(). It no longer participates in route chrome at all:
+# it injects the Engineering page and app.js selects it, either from the hash
+# change or from the shared content notifier. Deferring to the route table is
+# the weaker property; writing none of the chrome is the stronger one, so that
+# is what is asserted here. Comments are stripped: the module documents the
+# identifiers it must not touch by naming them.
+MODE_CODE = re.sub(r"(?m)^\s*//.*$", "",
+                   re.sub(r"/\*.*?\*/", "", MODE, flags=re.S))
+for forbidden in ("pageTitle", "breadcrumbCurrent", "document.title", "applyRouteChrome"):
+    require(forbidden not in MODE_CODE,
+            f"product-mode.js must not touch route chrome ({forbidden}); app.js owns it")
 require("'Grid Power' : 'Meters'" not in OPERATOR and "operator ? 'Grid Power'" not in OPERATOR,
         "sidebar labels must not change with the access level")
 

@@ -85,7 +85,6 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-product-suite.js" "
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/prelab-readiness.js" "${CMAKE_CURRENT_BINARY_DIR}/prelab-readiness.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/product-shell-v2.js" "${CMAKE_CURRENT_BINARY_DIR}/product-shell-v2.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/product-experience-v2.js" "${CMAKE_CURRENT_BINARY_DIR}/product-experience-v2.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/commissioning-route.js" "${CMAKE_CURRENT_BINARY_DIR}/commissioning-route.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/commissioning-wizard-v2.js" "${CMAKE_CURRENT_BINARY_DIR}/commissioning-wizard-v2.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/commissioning-release-v3.js" "${CMAKE_CURRENT_BINARY_DIR}/commissioning-release-v3.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/engineering-errors.js" "${CMAKE_CURRENT_BINARY_DIR}/engineering-errors.js" COPYONLY)
@@ -189,7 +188,6 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/prelab-readiness.js"
         "${CMAKE_CURRENT_BINARY_DIR}/product-shell-v2.js"
         "${CMAKE_CURRENT_BINARY_DIR}/product-experience-v2.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/commissioning-route.js"
         "${CMAKE_CURRENT_BINARY_DIR}/commissioning-wizard-v2.js"
         "${CMAKE_CURRENT_BINARY_DIR}/commissioning-release-v3.js"
         "${CMAKE_CURRENT_BINARY_DIR}/engineering-errors.js"

@@ -1,3 +1,15 @@
+/* product-experience-v2.js - per-page framing.
+ *
+ * OWNS: the masthead at the top of each page (eyebrow, title, orienting
+ *   question, guidance, scope marker) and the operator/engineering
+ *   classification of the page element.
+ * DOES NOT OWN: the navigation list - ordering and section labels moved to
+ *   product-shell-v2.js, the single navigation owner; this module used to
+ *   insert labels into a list another module was reordering. Nor routing or
+ *   the route title (app.js): the masthead heading is page furniture. Nor any
+ *   observer of its own; it subscribes to the shared one in product-mode.js.
+ * Issues no request.
+ */
 (() => {
   'use strict';
 
@@ -48,18 +60,8 @@
     });
   }
 
-  function groupNavigation() {
-    const nav = document.querySelector('.nav-list');
-    if (!nav) return;
-    const existing = [...nav.querySelectorAll(':scope > .experience-nav-label')];
-    if (existing.length === 2) return;
-    existing.forEach((node) => node.remove());
-    const firstOperator = nav.querySelector('[data-route="dashboard"]');
-    if (firstOperator) firstOperator.before(el('div', 'experience-nav-label', 'Operate'));
-    const firstEngineering = ['readiness','engineering','commissioning','wifi','system'].map(r => nav.querySelector(`[data-route="${r}"]`)).find(Boolean);
-    if (firstEngineering) firstEngineering.before(el('div', 'experience-nav-label', 'Commission & service'));
-  }
-
+  /* classList.add on a class already present records no mutation, so this is
+   * idempotent as written. */
   function removeCompetingControls() {
     ['productEngineeringEntry'].forEach(id => document.getElementById(id)?.classList.add('experience-secondary-control'));
     document.querySelectorAll('.product-tool-button, #themeToggle, #engineeringAccessButton').forEach(n => n.classList.add('experience-secondary-control'));
@@ -77,7 +79,6 @@
     if (document.body.dataset.experienceRoute !== name) document.body.dataset.experienceRoute = name;
     const access = isEngineering() ? 'engineering' : 'operator';
     if (document.body.dataset.experienceAccess !== access) document.body.dataset.experienceAccess = access;
-    groupNavigation();
     removeCompetingControls();
   }
 
@@ -92,12 +93,10 @@
     compose();
     window.addEventListener('hashchange', scheduleCompose);
     window.addEventListener('amx-access-change', scheduleCompose);
-    const main = document.getElementById('mainContent');
-    if (main) {
-      new MutationObserver((records) => {
-        if (records.some((record) => record.target === main && record.addedNodes.length)) scheduleCompose();
-      }).observe(main, { childList: true });
-    }
+    /* The single #mainContent observer lives in product-mode.js. compose()
+     * writes only inside a `.page`, and the shared notifier discards records
+     * its subscribers produce, so this cannot re-trigger itself. */
+    window.AutomatrixEngineeringAccess?.onContentChange(scheduleCompose);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });

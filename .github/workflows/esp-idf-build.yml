@@ -41,7 +41,6 @@ jobs:
           node --check web/prelab-readiness.js
           node --check web/product-shell-v2.js
           node --check web/product-experience-v2.js
-          node --check web/commissioning-route.js
           node --check web/commissioning-wizard-v2.js
           node --check web/commissioning-release-v3.js
           node --check web/engineering-errors.js

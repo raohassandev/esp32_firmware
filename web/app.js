@@ -1,3 +1,16 @@
+/* app.js - router and controller-status publisher.
+ *
+ * OWNS: routing. The only module that may set `.page.active`,
+ *   `.nav-link.active`, #pageTitle, #breadcrumbCurrent or document.title;
+ *   route metadata lives in ROUTES below and nowhere else. Modules inject
+ *   their page inactive and the router activates it. Also the /api/status
+ *   poll, republished as amx-controller-status / amx-controller-health so no
+ *   other module needs a second one; /api/config; the power-flow view.
+ * DOES NOT OWN: authorisation, engineering-only visibility, the request scope
+ *   predicate and the single #mainContent observer (product-mode.js); top bar
+ *   and navigation list (product-shell-v2.js); page mastheads
+ *   (product-experience-v2.js); operator content (operator-view.js).
+ */
 (() => {
     'use strict';
 
@@ -37,6 +50,18 @@
     ];
 
     const ROUTES = {
+        /* Routes owned by later modules still need an entry here. Without one,
+         * routeFromHash() fell back to 'dashboard' and stamped that into
+         * document.title, so #/alarms reported itself as "Dashboard" while
+         * correctly rendering the alarms section - the route, the title and the
+         * selected navigation item disagreed. Every reachable route, including
+         * commissioning and engineering, is therefore listed.
+         *
+         * The commissioning and engineering entries were also rewritten from
+         * outside: commissioning-route.js (now deleted) and product-mode.js
+         * each re-stamped their own title and breadcrumb after this router had
+         * written its own, so the text depended on event ordering. Both other
+         * writers are gone. The wording lives here, once, as `name`. */
         dashboard: { name: 'Plant overview', group: 'operate', icon: '⌂' },
         meters: { name: 'Grid power', group: 'operate', icon: '▤' },
         inverters: { name: 'Solar inverters', group: 'operate', icon: '◇' },
@@ -150,43 +175,54 @@
     const byId = (id) => document.getElementById(id);
     const all = (selector) => Array.from(document.querySelectorAll(selector));
 
+    /* Idempotent primitives. renderStatus() writes ~50 fields every two
+     * seconds on every route. Assigning textContent or className replaces the
+     * text node or attribute even when the value is identical, so an unchanged
+     * refresh used to emit a full set of DOM mutations and wake every observer
+     * watching the shell. Compare first; unchanged means no-op. */
+    function writeText(node, value) {
+        if (node && node.textContent !== value) node.textContent = value;
+    }
+
+    function writeClass(node, value) {
+        if (node && node.className !== value) node.className = value;
+    }
+
     function setText(id, value) {
-        const node = byId(id);
-        if (node) node.textContent = value == null || value === '' ? '--' : String(value);
+        writeText(byId(id), value == null || value === '' ? '--' : String(value));
     }
 
     function setTone(id, tone) {
         const node = byId(id);
         if (!node) return;
-        node.classList.remove('good-text', 'warning-text', 'bad-text', 'muted-text');
-        if (tone) node.classList.add(`${tone}-text`);
+        ['good-text', 'warning-text', 'bad-text', 'muted-text'].forEach((name) => {
+            node.classList.toggle(name, Boolean(tone) && name === `${tone}-text`);
+        });
     }
 
     function setDot(id, tone) {
-        const node = byId(id);
-        if (!node) return;
-        node.className = `dot${tone ? ` ${tone}` : ''}`;
+        writeClass(byId(id), `dot${tone ? ` ${tone}` : ''}`);
     }
 
     function setPill(id, label, tone) {
         const node = byId(id);
         if (!node) return;
-        node.textContent = label;
-        node.className = `live-pill ${tone || 'neutral'}`;
+        writeText(node, label);
+        writeClass(node, `live-pill ${tone || 'neutral'}`);
     }
 
     function setBadge(id, label, tone) {
         const node = byId(id);
         if (!node) return;
-        node.textContent = label;
-        node.className = `subtle-badge${tone ? ` ${tone}` : ''}`;
+        writeText(node, label);
+        writeClass(node, `subtle-badge${tone ? ` ${tone}` : ''}`);
     }
 
     function setMessage(id, message, tone) {
         const node = byId(id);
         if (!node) return;
-        node.textContent = message || '';
-        node.className = `action-message${tone ? ` ${tone}` : ''}`;
+        writeText(node, message || '');
+        writeClass(node, `action-message${tone ? ` ${tone}` : ''}`);
     }
 
     function formatPower(value) {
@@ -255,6 +291,16 @@
     function routeFromHash() {
         const route = window.location.hash.replace(/^#\/?/, '').trim();
         return ROUTES[route] ? route : 'dashboard';
+    }
+
+    /* Selection only, and idempotent: classList.toggle to a value already
+     * present records no mutation. Re-run when another module injects its page
+     * into #mainContent - that is how alarms, readiness, commissioning and
+     * engineering become active without each shipping its own router. */
+    function applyRoute() {
+        state.route = routeFromHash();
+        all('.page').forEach((page) => page.classList.toggle('active', page.dataset.page === state.route));
+        all('.nav-link').forEach((link) => link.classList.toggle('active', link.dataset.route === state.route));
     }
 
     /* ------------------------------------------------- navigation hierarchy
@@ -352,7 +398,12 @@
         const name = routeName(route);
         setText('pageTitle', name);
         setText('breadcrumbCurrent', name);
-        document.title = `${name} · Automatrix PV-DG`;
+        /* Idempotent like the rest of the chrome: this runs on every sidebar
+         * mutation, and assigning an identical document.title still notifies
+         * anything watching the title. */
+        if (document.title !== `${name} · Automatrix PV-DG`) {
+            document.title = `${name} · Automatrix PV-DG`;
+        }
         all('.nav-link').forEach((link) => link.classList.toggle('active', link.dataset.route === route));
         const pageType = PAGE_TYPES[route] || 'operational';
         if (document.body && document.body.dataset.pageType !== pageType) {
@@ -361,8 +412,7 @@
     }
 
     function navigate() {
-        state.route = routeFromHash();
-        all('.page').forEach((page) => page.classList.toggle('active', page.dataset.page === state.route));
+        applyRoute();
         ensureNavigationHierarchy();
         applyRouteChrome(state.route);
         closeMenu();
@@ -464,6 +514,12 @@
             sourceDetection: state.sourceDetection
         });
 
+        /* A full rebuild of ~50 elements, driven by a two-second poll. It used
+         * to run whether or not a number had moved. */
+        const signature = JSON.stringify(model);
+        if (container.dataset.flowSignature === signature) return;
+        container.dataset.flowSignature = signature;
+
         container.replaceChildren();
         const supply = document.createElement('div');
         supply.className = 'flow-column flow-supply';
@@ -524,6 +580,11 @@
         setText('statusUpdated', 'Refresh failed');
         setText('sidebarState', 'Controller unavailable');
         setTone('statusController', 'bad');
+        publishHealth({
+            controller: 'Offline', network: 'Unavailable', meter: 'Unavailable',
+            control: 'Unavailable', alarms: 'Unavailable',
+            online: false, meterHealthy: false, controlEnabled: false, alarmCount: 0
+        });
     }
 
     function renderStatus() {
@@ -631,6 +692,36 @@
          * poll, so the gate panel's two verbatim rows stay current even while the
          * engineering-guarded gate read is unavailable. */
         renderCommissioningGate();
+
+        publishHealth({
+            controller: networkOnline ? 'Online' : 'Offline',
+            network: networkOnline ? `${status.ssid || '--'} · ${status.ip || '--'}` : wifiState,
+            meter: meterFresh ? 'Online' : meterStale ? 'Stale' : 'Offline',
+            control: controlEnabled ? `Enabled · ${mode}` : 'Disabled',
+            alarms: alarmNames.length ? `${alarmNames.length} active` : 'Clear',
+            online: networkOnline,
+            meterHealthy: meterFresh,
+            controlEnabled,
+            alarmCount: alarmNames.length
+        });
+    }
+
+    /* The shell header used to derive its indicator by reading the rendered
+     * status strip back out of the DOM and regex-matching the English words in
+     * it, behind a characterData observer that fired every two seconds. The
+     * renderer knows the answer as data, so it states it. amx-controller-status
+     * carries the raw payload so nothing needs a second /api/status. */
+    let lastHealthSignature = '';
+    function publishHealth(health) {
+        const tone = !health.online || health.alarmCount > 0 || !health.meterHealthy ? 'bad'
+            : !health.controlEnabled ? 'warning'
+            : 'good';
+        const label = tone === 'bad' ? 'Attention' : tone === 'warning' ? 'Review' : 'Normal';
+        const detail = { ...health, tone, label };
+        const signature = JSON.stringify(detail);
+        if (signature === lastHealthSignature) return;
+        lastHealthSignature = signature;
+        window.dispatchEvent(new CustomEvent('amx-controller-health', { detail }));
     }
 
     async function refreshStatus() {
@@ -640,6 +731,7 @@
             state.status = await api('/api/status');
             state.lastUpdatedAt = new Date();
             renderStatus();
+            window.dispatchEvent(new CustomEvent('amx-controller-status', { detail: state.status }));
         } catch (error) {
             renderControllerUnavailable();
         } finally {
@@ -683,6 +775,9 @@
 
     function renderInverters(inverters) {
         const container = byId('inverterList');
+        const signature = JSON.stringify(inverters ?? null);
+        if (container.dataset.inverterSignature === signature) return;
+        container.dataset.inverterSignature = signature;
         container.replaceChildren();
         if (!Array.isArray(inverters) || inverters.length === 0) {
             const empty = document.createElement('div');
@@ -2255,6 +2350,10 @@
         watchNavigation();
         if (!window.location.hash) window.location.hash = '#/dashboard';
         navigate();
+        /* Pages injected after this script runs (alarms, readiness,
+         * commissioning, engineering) arrive inactive; the router selects them
+         * when the shared observer reports the addition. */
+        window.AutomatrixEngineeringAccess?.onContentChange(applyRoute);
         await Promise.allSettled([loadConfig(), refreshStatus()]);
         window.setInterval(refreshStatus, 2000);
         window.AutomatrixEngineeringAccess?.onScopeChange(refreshSourceDetection);
