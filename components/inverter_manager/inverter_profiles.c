@@ -11,13 +11,19 @@
  * simulator-only contracts. Their addresses must never be reused as production
  * manufacturer evidence.
  *
- * No profile below configures `status_register`. Operational status addresses
- * are NOT guessed: the Huawei, Solis and FoxESS/Knox manuals are not present in
- * this tree, and a plausible-looking wrong address could report "on grid" while
+ * No profile below configures an operating-status register. Those addresses are
+ * NOT guessed. Several manuals do name a status register, but the code tables
+ * they refer to are either in a separate document that is not available or are
+ * per-model, and a plausible-looking wrong mapping could report "on grid" while
  * an inverter is still checking or faulted, which would let the controller
- * command full output directly. Every profile therefore leaves the status
- * register unconfigured and every inverter reports INVERTER_STATE_UNKNOWN until
- * a commissioning engineer supplies a verified description.
+ * command full output directly. Every profile therefore leaves that description
+ * unconfigured and every inverter reports INVERTER_STATE_UNKNOWN until a
+ * commissioning engineer supplies a verified one.
+ *
+ * The manufacturer profiles that DO carry addresses (Huawei, Solis, Growatt,
+ * Sungrow, Chint/CPS) are manual transcriptions with per-value citations, kept at
+ * DOCUMENTED. See docs/BRAND_REGISTER_EVIDENCE.md for the extracted evidence and
+ * for the disagreements found against the lab simulator.
  */
 static const inverter_profile_t PROFILES[] = {
     {
@@ -332,13 +338,477 @@ static const inverter_profile_t PROFILES[] = {
     {
         .id = "solis.commercial.pending",
         .manufacturer = "Solis",
-        .model_family = "Commercial inverter family",
-        .protocol = "Modbus",
-        .connection = INVERTER_PROFILE_CONNECTION_LOGGER_GATEWAY,
+        .model_family = "Three-phase commercial string inverter (RS485 MODBUS protocol)",
+        .protocol = "Modbus RTU",
+        .connection = INVERTER_PROFILE_CONNECTION_MODBUS_RTU_GATEWAY,
+        /* DOCUMENTED, not qualified. Transcribed from the manufacturer manual;
+         * nothing below has been exercised against physical hardware or even
+         * against the lab simulator, so the production write gate still refuses
+         * this profile. Raising it further requires physical readback evidence.
+         *
+         * Source: Solis "RS485_MODBUS Communication Protocol", translated
+         * 2021-05-06 (PDF Solis.pdf in SolTrix/Manuals/Inverter).
+         *
+         * ADDRESSING -- the trap, and this manual is explicit and NOT uniform:
+         *   Section 5.2 (inverter type, FC 0x04), p.10: "The following table has
+         *     the same address with the actual address of the message frame. No
+         *     need extra offset or transform."  -> PDU = tag.
+         *   Section 5.3 (operation info, FC 0x04), p.10: "the register address
+         *     needs to offset one bit. Example: register address: 3000, the send
+         *     address is 2999."  -> PDU = tag - 1.
+         *   Section 5.6 (settings, FC 0x03/0x06/0x10), p.24: "the register
+         *     address needs to offset one bit. Example: register address: 3007,
+         *     the send address is 3006."  -> PDU = tag - 1.
+         * Every address below is therefore stated as the PDU value that goes on
+         * the wire, with the manual tag named beside it.
+         *
+         * ACTIVE POWER: section 5.3, p.11, tag "3005 - 3006 Active power, U32,
+         * 1W". PDU 3004, 2 registers, scale 0.001 for kW.
+         * Word order is NOT stated for numeric U32 anywhere in this manual. The
+         * only ordering statement in the document is the serial-number example at
+         * p.13 (tag 3061 "SN High 4" ... tag 3064 "SN LOW 4"), i.e. most
+         * significant word at the lower address, and the lab simulator agrees.
+         * AB is used on that basis and MUST be checked on the first read: a
+         * reversed word order turns 100 kW into a nonsense number.
+         *
+         * COMMAND: section 5.6, p.26, tag "3052 Power limitation, U16, Range
+         * (0-100%), 100% = rated". PDU 3051, FC 0x06.
+         * SCALE: the remark column says "10000 <--> 100%", i.e. 100 raw units per
+         * percent. The Unit column on the same row says "1%", which contradicts
+         * it. The remark is the one that is internally consistent, confirmed
+         * three independent ways in the same document:
+         *   p.26 tag 3051 reactive limitation, same "10000 <--> 100%", range
+         *     (-6000 - +6000) -- which is +/-60%, not +/-6000%;
+         *   p.32 tag 3142 MaxLeadingVar%, same notation, "Range: 0---60%;
+         *     Default:30%" -- 30% is raw 3000;
+         *   p.32 tag 3149 power ramp up rate, "3000 <--> 30%/min".
+         * raw_units_per_percent = 100 follows from those. It is still the single
+         * most important value to prove with one write-then-read in the lab,
+         * because a scale error here is SYMMETRIC: the readback would decode with
+         * the same wrong scale and confirm a command that did the wrong thing.
+         *
+         * READBACK: the same tag 3052 / PDU 3051, read with FC 0x03, which
+         * section 5.6 explicitly supports ("The function code is 0x03, 0x06 and
+         * 0X10"). Tag 3050 "Power limit actual" (section 5.3, FC 0x04, PDU 3049)
+         * is the separate APPLIED value and is a better commissioning check, but
+         * it is not the setpoint echo, so the setpoint register is used here.
+         *
+         * ENABLE REGISTER, and a real gap in this firmware's model: p.27 tag
+         * 3070 "Power limitation switch, 0xAA ON, 0x55 OFF(Power to 100%) (for
+         * 3052 and 3081 Reg)". Writing 3052 has NO effect while 3070 is 0x55.
+         * The profile struct has no field for a prerequisite enable register, so
+         * this firmware cannot set it and it must be set once during
+         * commissioning (or the struct must gain the field). Flagged, not hidden.
+         *
+         * RAMP: p.32 tag 3148 "Power ramp rate (Wgra), general", 10000 <--> 100%,
+         * range 5%---600%, default 16.67%, noted "Start up ramp rate"; tags 3149
+         * / 3150 power ramp up / down rate, "3000 <--> 30%/min", marked "Only for
+         * AUS". This firmware ramps in the control engine and writes none of
+         * them; reconcile on site so the two limiters do not fight.
+         *
+         * COMMS-LOSS FAIL-SAFE: none documented for the Modbus control link. Tag
+         * 3153 "Internal EPM failsafe switch" (p.33) concerns the EPM export
+         * meter, not the third-party control link, and is not used here.
+         *
+         * IDENTITY: deliberately unset. Section 5.2 gives tag/PDU 35000 "SOLIS
+         * inverter type definition, U16", with "1020 --- 3 phase inverter". The
+         * document does not settle whether the register holds decimal 1020 or
+         * 0x1020: it also says "high 8 bit means protocol version, low 8 bit
+         * means inverter model", which only reads correctly as 0x10 / 0x20. One
+         * read of that register in the lab resolves it; until then no expected
+         * value is asserted rather than a guessed one.
+         *
+         * OPERATING STATE: tag 3044 / 3072 ("Inverter status" / "Working status",
+         * Appendix 2 / Appendix 6) exist, but no state description is configured
+         * here -- see the note at the top of this file. Reports UNKNOWN.
+         *
+         * SETTLE TIME: no response or apply time for a percentage command is
+         * documented, so power_limit_settle_ms stays at the firmware default and
+         * MUST be measured during commissioning.
+         *
+         * POLL RATE: a controller choice, not a manual value. 1000/5000 ms is
+         * conservative for a 9600-baud RS-485 segment behind a gateway. */
         .qualification = INVERTER_PROFILE_QUALIFICATION_DOCUMENTED,
-        .manual_reference = "SolTrix/Manuals — exact model/manual revision extraction pending",
+        .manual_reference = "Solis RS485_MODBUS Communication Protocol (translated 2021-05-06) "
+                            "sections 5.2/5.3/5.6; not qualified on hardware",
+        .has_active_power = true,
+        .active_power_function = 4,
+        .active_power_address = 3004, /* manual tag 3005-3006, section 5.3 offset -1 */
+        .active_power_words = 2,
+        .active_power_type = INVERTER_VALUE_U32,
+        .active_power_word_order = INVERTER_WORD_ORDER_AB,
+        .active_power_scale = 0.001f,
+        .has_power_limit = true,
+        .power_limit_function = 6,
+        .power_limit_address = 3051, /* manual tag 3052, section 5.6 offset -1 */
+        .power_limit_words = 1,
+        .raw_units_per_percent = 100.0f, /* 10000 <--> 100% */
         .minimum_percent = 0.0f,
         .maximum_percent = 100.0f,
+        .has_power_limit_readback = true,
+        .power_limit_readback_function = 3,
+        .power_limit_readback_address = 3051,
+        .power_limit_readback_words = 1,
+        .power_limit_readback_type = INVERTER_VALUE_U16,
+        .power_limit_readback_word_order = INVERTER_WORD_ORDER_AB,
+        .power_limit_readback_scale = 0.01f,
+        .readback_tolerance_percent = 0.2f,
+        .telemetry_poll_ms = 1000,
+        .telemetry_stale_timeout_ms = 5000,
+    },
+    /*
+     * ----------------------------------------------------------------------
+     * Growatt. ONE manual, TWO incompatible telemetry maps.
+     *
+     * Source: "Growatt Inverter Modbus RTU Protocol", document TH-276-00,
+     * V1.20, effective 2020-05-12 (PDF GROWATT.pdf).
+     *
+     * ADDRESSING: 0-based PDU, used directly with no offset. Both register
+     * tables start at index 00 ("4.1 Holding Reg ... 00 OnOff", "4.2 Input Reg
+     * ... 0. Inverter Status") and p.3 states the ranges as "03 register
+     * range:0~124". A range that starts at 0 cannot be a 1-based tag number.
+     * The manual's frame examples on p.5-7 are images and carry no extractable
+     * address bytes, so there is no worked frame confirming this; it is the one
+     * addressing item to prove with the first read in the lab.
+     *
+     * The COMMAND register is common to both maps: p.9, holding register 03
+     * "Active P Rate -- Inverter Max output active power percent", W, value
+     * 0-100 or 255, unit %, initial 255, note "255: power is not be limited".
+     * Integer percent, so raw_units_per_percent = 1 and the readback tolerance
+     * has to allow the 1% quantisation (a request of 47.4% is written as 47).
+     * Readback is the same register with FC 0x03 ("Function 3 Read holding
+     * register", p.5).
+     *
+     * What DIFFERS is where output power is reported, and it differs by product
+     * family, which is why there are two profiles rather than one:
+     *   MAX / MID / MAC (TL3-X), p.3: "04 register range:0~124,125~249".
+     *     Output power is input registers 35/36 "Pac H/L", 0.1W (p.34), and the
+     *     applied percentage is input register 113 "real Power Percent 0-100 %
+     *     MAX" (p.37).
+     *   MIN / TL-X / TL-XH, p.3: "04 register range:3000~3124,3125~3249".
+     *     Output power is input registers 3023/3024 "Pac H, Pac L Output power
+     *     0.1W" (p.50, table headed "Use for TL-X and TL-XH"), and the applied
+     *     percentage is input register 3101 "RealOPPercent, Real Output power
+     *     Percent, 1%, 1~100" (p.53).
+     * A 100 kW commercial unit is a MAX-class TL3-X machine, so that is the
+     * profile to expect on site. The lab simulator implements the TL-X map, so
+     * the TL-X profile is the one that can be exercised today. WHICH ONE THE
+     * SITE HAS IS THE OWNER'S CALL, not a value to interpolate.
+     *
+     * Word order is documented for both: the registers are named "H" then "L"
+     * with H at the lower address, i.e. most significant word first -> AB.
+     *
+     * TIMING, and this one is a documented constraint rather than a guess, p.8:
+     * "Minimum CMD period (RS485 Time out): 850ms. Wait for minimum850ms to send
+     * a new CMD after last CMD. Suggestion is 1s". telemetry_poll_ms is 1000 for
+     * that reason. Note the firmware issues more than one transaction per poll,
+     * so an RS-485 segment may still need the poll period raised.
+     *
+     * RAMP: p.10 holding 20 "wPowerStartSlope, Power start slope, 1-1000, 0.1%"
+     * and 21 "wPowerRestartSlopeEE, Power restart slope". The manual does not
+     * give the time base for either, so no rate can be stated. Not written.
+     *
+     * COMMS-LOSS FAIL-SAFE: p.13 holding 42 "bfailsafeEn; G100 fail safe,
+     * Enable:1 Disable:0". G100 is the export-limitation fail-safe, tied to the
+     * export meter, not to loss of this controller. No watchdog on the
+     * third-party control link is documented. Not used.
+     *
+     * WRITE LOCK -- UNRESOLVED AND POTENTIALLY BLOCKING: note &*7 on p.61 says
+     * "Grid network power control command password: Inverter is in lock state
+     * after power on; change the power control by network command should unlock
+     * inverter first; default pw is XXXXXX; Unlock: send 0 to 3-135, then send
+     * password to 3-136~138; inverter will auto lock in 5min after unlocked".
+     * The password is redacted in the manual, the "3-135" notation is not
+     * defined anywhere in the document, and register 135 in the holding table is
+     * "BLVersion3 ... Reserved" -- so the notation cannot be resolved from this
+     * document. Nothing in the extractable text says which registers the note
+     * applies to. If it applies to holding 03, writes will be silently rejected
+     * (or accepted and auto-relocked after 5 minutes) until the sequence is
+     * performed. Growatt must be asked, and this is a hard blocker for Growatt
+     * commanding on real equipment. No unlock sequence is attempted here.
+     *
+     * IDENTITY: unset for both. The identity register is holding 43 "DTC Device
+     * Type Code" (p.11) whose table (note &*6, p.60) is per-model and elided
+     * with "......" for the commercial types; holding 28/29 "Inverter Module
+     * H/L" (note &*5, p.60) is a packed field, not a family constant. No
+     * expected value can be stated without the site's model.
+     *
+     * No settle time and no operating-status code mapping usable by this
+     * firmware are documented; both stay unset.
+     * ----------------------------------------------------------------------
+     */
+    {
+        .id = "growatt.tl3x.documented",
+        .manufacturer = "Growatt",
+        .model_family = "MAX / MID / MAC three-phase (TL3-X), input registers 0-249",
+        .protocol = "Modbus RTU",
+        .connection = INVERTER_PROFILE_CONNECTION_MODBUS_RTU_GATEWAY,
+        /* Citations, all from TH-276-00 V1.20; see the block comment above for
+         * the full reasoning and for the unresolved write lock.
+         *   p.9  holding 03 "Active P Rate", W, "0-100 or 255", % , 255 = not limited
+         *   p.5  "Function 3 Read holding register" -> the same register reads back
+         *   p.34 input 35 "Pac H Output power (high) 0.1W" / 36 "Pac L"
+         *   p.3  "TL3-X(MAX、MID、MAC Type)：04 register range：0~124,125~249"
+         *   p.8  "Minimum CMD period (RS485 Time out): 850ms ... Suggestion is 1s" */
+        .qualification = INVERTER_PROFILE_QUALIFICATION_DOCUMENTED,
+        .manual_reference = "Growatt Inverter Modbus RTU Protocol TH-276-00 V1.20 (2020-05-12) "
+                            "s4.1 holding 03 / s4.2 input 35-36; not qualified on hardware",
+        .has_active_power = true,
+        .active_power_function = 4,
+        .active_power_address = 35, /* input 35/36 "Pac H/L", 0.1 W */
+        .active_power_words = 2,
+        .active_power_type = INVERTER_VALUE_U32,
+        .active_power_word_order = INVERTER_WORD_ORDER_AB,
+        .active_power_scale = 0.0001f, /* 0.1 W -> kW */
+        .has_power_limit = true,
+        .power_limit_function = 6,
+        .power_limit_address = 3, /* holding 03 "Active P Rate", integer percent */
+        .power_limit_words = 1,
+        .raw_units_per_percent = 1.0f,
+        .minimum_percent = 0.0f,
+        .maximum_percent = 100.0f,
+        .has_power_limit_readback = true,
+        .power_limit_readback_function = 3,
+        .power_limit_readback_address = 3,
+        .power_limit_readback_words = 1,
+        .power_limit_readback_type = INVERTER_VALUE_U16,
+        .power_limit_readback_word_order = INVERTER_WORD_ORDER_AB,
+        .power_limit_readback_scale = 1.0f,
+        /* 1% command quantisation: half a step is 0.5, so a tighter tolerance
+         * would fault a perfectly accepted fractional setpoint. */
+        .readback_tolerance_percent = 0.6f,
+        .telemetry_poll_ms = 1000,
+        .telemetry_stale_timeout_ms = 5000,
+    },
+    {
+        .id = "growatt.tlx.documented",
+        .manufacturer = "Growatt",
+        .model_family = "MIN / TL-X / TL-XH, input registers 3000-3249",
+        .protocol = "Modbus RTU",
+        .connection = INVERTER_PROFILE_CONNECTION_MODBUS_RTU_GATEWAY,
+        /* Same manual (TH-276-00 V1.20), same command register, the TL-X
+         * telemetry map. See the block comment above for the full reasoning.
+         *   p.9  holding 03 "Active P Rate", W, "0-100 or 255", % , 255 = not limited
+         *   p.50 table "Use for TL-X and TL-XH": 3023 "Pac H Output power 0.1W" / 3024 "Pac L"
+         *   p.3  "TL-X（MIN Type）：04 register range：3000~3124,3125~3249"
+         *   p.8  "Minimum CMD period (RS485 Time out): 850ms ... Suggestion is 1s"
+         * This is the map the lab simulator implements. */
+        .qualification = INVERTER_PROFILE_QUALIFICATION_DOCUMENTED,
+        .manual_reference = "Growatt Inverter Modbus RTU Protocol TH-276-00 V1.20 (2020-05-12) "
+                            "s4.1 holding 03 / input 3023-3024 (TL-X table); "
+                            "not qualified on hardware",
+        .has_active_power = true,
+        .active_power_function = 4,
+        .active_power_address = 3023, /* input 3023/3024 "Pac H/L", 0.1 W */
+        .active_power_words = 2,
+        .active_power_type = INVERTER_VALUE_U32,
+        .active_power_word_order = INVERTER_WORD_ORDER_AB,
+        .active_power_scale = 0.0001f,
+        .has_power_limit = true,
+        .power_limit_function = 6,
+        .power_limit_address = 3,
+        .power_limit_words = 1,
+        .raw_units_per_percent = 1.0f,
+        .minimum_percent = 0.0f,
+        .maximum_percent = 100.0f,
+        .has_power_limit_readback = true,
+        .power_limit_readback_function = 3,
+        .power_limit_readback_address = 3,
+        .power_limit_readback_words = 1,
+        .power_limit_readback_type = INVERTER_VALUE_U16,
+        .power_limit_readback_word_order = INVERTER_WORD_ORDER_AB,
+        .power_limit_readback_scale = 1.0f,
+        .readback_tolerance_percent = 0.6f,
+        .telemetry_poll_ms = 1000,
+        .telemetry_stale_timeout_ms = 5000,
+    },
+    {
+        .id = "sungrow.string.documented",
+        .manufacturer = "Sungrow",
+        .model_family = "PV grid-connected string inverter (SG-series)",
+        .protocol = "Modbus RTU",
+        .connection = INVERTER_PROFILE_CONNECTION_MODBUS_RTU_GATEWAY,
+        /* DOCUMENTED, not qualified. Manual transcription, no hardware evidence.
+         *
+         * Source: Sungrow "Communication Protocol of PV Grid-Connected String
+         * Inverters", V1.1.36, 2021-02-07 (PDF "Sungrow .pdf").
+         *
+         * ADDRESSING: settled explicitly, p.5, section "3. Address type":
+         * "Visit all registers by subtracting 1 from the register address.
+         * Example: if the address is 5000-5001, visit it using address
+         * 4999-5000. Entering '01 04 1387 00 02 + CRC' to check the data of
+         * address 5000-5001."  0x1387 == 4999, so PDU = tag - 1, confirmed by a
+         * worked frame. Same page: 3X registers are read-only via 0x04, 4X are
+         * holding registers via 0x03 with writes by 0x06 / 0x10.
+         *
+         * ACTIVE POWER: p.7, 3X tag "31 Total active power 5031 - 5032, U32, W".
+         * PDU 5030, 2 registers, scale 0.001 for kW.
+         * WORD ORDER: BA, and this is documented rather than inferred, p.4:
+         * "U32: 32-bit unsigned integer; little-endian for double-word data.
+         * Big-endian for byte data. Example: transmission order of U32 data
+         * 0x01020304 is 03, 04, 01, 02." Least significant word first.
+         * This is the single most important cross-check on this brand -- see
+         * docs/BRAND_REGISTER_EVIDENCE.md; the lab simulator emits the opposite
+         * order, which would misread 100 kW by three orders of magnitude.
+         *
+         * COMMAND: p.16, 4X tag "9 Power limitation setting 5008, U16, See
+         * Appendix 6, 0.1%", noted "Available when the power limitation switch
+         * (5007) is enabled". PDU 5007, FC 0x06, 10 raw units per percent.
+         * READBACK: the same tag/PDU read with FC 0x03, which p.5 states is
+         * supported for 4X registers.
+         *
+         * RANGE: Appendix 6 (p.28-29) gives the power-limited range per model in
+         * 0.1%: 0-1000, 0-1100, 0-1110 or 0-1250 depending on model. 0-100% is
+         * inside every one of them, so it is the safe common subset and is what
+         * is set here. Overload scheduling above 100% exists (change log V1.1.35
+         * "Add 100% Scheduling to Achieve Active Overload") but is model-specific
+         * and deliberately not enabled.
+         *
+         * ENABLE REGISTER, same gap as Solis: p.16, 4X tag "8 Power limitation
+         * switch 5007, 0xAA: Enable; 0x55: Disable" (PDU 5006). The setpoint at
+         * 5008 does nothing while this is 0x55, and the profile struct cannot
+         * express a prerequisite write, so it must be set at commissioning.
+         *
+         * RAMP / GRADIENT: none. No ramp, gradient or rate-of-change register
+         * appears anywhere in this document.
+         * COMMS-LOSS FAIL-SAFE: none documented.
+         * SETTLE TIME: not documented.
+         *
+         * IDENTITY: unset. The register exists -- 3X tag "7 Device type code
+         * 5000, U16, See Appendix 6" (p.5, PDU 4999) -- but Appendix 6 assigns a
+         * distinct code per model (SG110CX 0x2C06, SG250HX 0x2C0C, SG100CX
+         * 0x2C12, ...). There is no family-wide constant, so no expected value
+         * can be asserted without knowing the site's model.
+         *
+         * OPERATING STATE: 3X tag 5038 "Work state ... See Appendix 1" exists;
+         * no state description is configured here, per the note at the top of
+         * this file. Reports UNKNOWN. */
+        .qualification = INVERTER_PROFILE_QUALIFICATION_DOCUMENTED,
+        .manual_reference = "Sungrow Communication Protocol of PV Grid-Connected String Inverters "
+                            "V1.1.36 (2021-02-07) s3.1 tag 5031 / s3.2 tags 5007-5008; "
+                            "not qualified on hardware",
+        .has_active_power = true,
+        .active_power_function = 4,
+        .active_power_address = 5030, /* manual tag 5031-5032, minus 1 */
+        .active_power_words = 2,
+        .active_power_type = INVERTER_VALUE_U32,
+        .active_power_word_order = INVERTER_WORD_ORDER_BA, /* documented little-endian words */
+        .active_power_scale = 0.001f,
+        .has_power_limit = true,
+        .power_limit_function = 6,
+        .power_limit_address = 5007, /* manual tag 5008, minus 1 */
+        .power_limit_words = 1,
+        .raw_units_per_percent = 10.0f, /* unit 0.1% */
+        .minimum_percent = 0.0f,
+        .maximum_percent = 100.0f,
+        .has_power_limit_readback = true,
+        .power_limit_readback_function = 3,
+        .power_limit_readback_address = 5007,
+        .power_limit_readback_words = 1,
+        .power_limit_readback_type = INVERTER_VALUE_U16,
+        .power_limit_readback_word_order = INVERTER_WORD_ORDER_AB,
+        .power_limit_readback_scale = 0.1f,
+        .readback_tolerance_percent = 0.2f,
+        .telemetry_poll_ms = 1000,
+        .telemetry_stale_timeout_ms = 5000,
+    },
+    {
+        .id = "chint.cps.sch100_125ktl.documented",
+        .manufacturer = "Chint Power Systems (CPS)",
+        .model_family = "SCH100KTL / SCH125KTL-DO 100(125) kW 1500 V",
+        .protocol = "Modbus RTU",
+        .connection = INVERTER_PROFILE_CONNECTION_MODBUS_RTU_GATEWAY,
+        /* DOCUMENTED, not qualified. Manual transcription, no hardware evidence.
+         *
+         * Source: "CPS Inverter Model Data Mapping Specification For 403X,
+         * Applicable Models 100kW(125kW)_1500V Inverter", V9.03, 2023-01-11.
+         * The Chint/ and CPS/ manual folders hold the SAME document: the
+         * extracted text of CPS_100_125kW-UL-Modbus-Map-Spec-FW-V12.0.pdf and of
+         * Chint/CPS_100_125kW-UL-Modbus-Map-Spec-FW-V120_240817_221331.pdf is
+         * byte-identical. There is one CPS/Chint protocol here, not two.
+         *
+         * ADDRESSING: p.8 states "(5).Basic register address is 0x0000." The
+         * hexadecimal addresses in the tables are 0-based PDU addresses and are
+         * used directly, with no offset. This is the cleanest of the four brands.
+         *
+         * IDENTITY: p.10, input register (FC 0x04) 0x0000 "Device, uint16 ...
+         * This register value represents the type of device. 0x4035: 100(125)
+         * kW_1500V inverter". That is an exact family constant for precisely the
+         * machine class this document covers, so it is used as the identity
+         * probe. (The model string is also available at 0x000A-0x0013,
+         * "e.g. SCH125KTL-DO/US-600".)
+         *
+         * ACTIVE POWER: p.11, input register 0x001D "Pac, uint16, 0.1kW, AC
+         * active power". One register, scale 0.1 for kW -- no word order to get
+         * wrong on this brand.
+         *
+         * COMMAND: p.16, holding register (FC 0x03 / 0x06) 0x1001 "PSet, uint16,
+         * 0.1%, min 0, max 1000, Remote electric dispatch Active Power setting
+         * value", in the section headed "2. Holding Registers Data Mapping /
+         * 1). Power dispatching". PDU 0x1001, 10 raw units per percent, 0-100%.
+         * READBACK: the same register with FC 0x03; the section header names
+         * 0x03 explicitly and the row is marked RW.
+         *
+         * NOT DECIDED, and an owner/site item exactly like Huawei 40125 vs
+         * 40199: p.38 register 0x2708 "PSetPercentRemote, uint16, 0.1%, 0..1100,
+         * Remote electric dispatch Active Power setting value" carries the same
+         * description with a 110% ceiling. Two registers, same words, different
+         * range. 0x1001 is used here because it sits in the dedicated power
+         * dispatching block and its documented maximum is exactly 100%. Confirm
+         * which one the firmware version on site honours before promoting.
+         *
+         * ENABLE REGISTER, same gap as Solis and Sungrow: p.32 register 0x2602
+         * "CtrModeActivePw ... The control mode of active power. 0: Disable
+         * dispatch mode. 1: Remote dispatch mode. 2: Local control." Remote
+         * dispatch has to be selected (1) or the setpoint is ignored. Not
+         * writable by this firmware; a commissioning step. Note also 0x250E
+         * "Percentage ... Local electric dispatch Active Power setting value"
+         * (p.28) is the LOCAL path and must not be confused with 0x1001.
+         *
+         * RAMP / GRADIENT: no dispatch ramp-rate register is documented. The
+         * nearest items are p.27 0x2505 "NormSoftStartT, 1s, Normal time in soft
+         * startup", 0x2504 "NormSoftStopT" and 0x2506 "NormDeratingStep, 0.01%,
+         * Normal power derating step" -- a step size and start/stop times, not a
+         * rate limit on a dispatch setpoint. None are written.
+         * COMMS-LOSS FAIL-SAFE: none documented.
+         * SETTLE TIME: not documented.
+         *
+         * OPERATING STATE: 0x002F and the 0x8400 bitfields exist; no state
+         * description is configured here, per the note at the top of this file. */
+        .qualification = INVERTER_PROFILE_QUALIFICATION_DOCUMENTED,
+        .manual_reference = "CPS Inverter Model Data Mapping Specification For 403X V9.03 "
+                            "(2023-01-11) input 0x0000/0x001D and holding 0x1001; "
+                            "not qualified on hardware",
+        .has_identity_probe = true,
+        .identity_function = 4,
+        .identity_address = 0x0000,
+        .identity_words = 1,
+        .identity_expected = 0x4035, /* "100(125) kW_1500V inverter" */
+        .identity_mask = 0xFFFF,
+        .has_active_power = true,
+        .active_power_function = 4,
+        .active_power_address = 0x001D,
+        .active_power_words = 1,
+        .active_power_type = INVERTER_VALUE_U16,
+        .active_power_word_order = INVERTER_WORD_ORDER_AB,
+        .active_power_scale = 0.1f, /* 0.1 kW */
+        .has_power_limit = true,
+        .power_limit_function = 6,
+        .power_limit_address = 0x1001,
+        .power_limit_words = 1,
+        .raw_units_per_percent = 10.0f, /* unit 0.1% */
+        .minimum_percent = 0.0f,
+        .maximum_percent = 100.0f,
+        .has_power_limit_readback = true,
+        .power_limit_readback_function = 3,
+        .power_limit_readback_address = 0x1001,
+        .power_limit_readback_words = 1,
+        .power_limit_readback_type = INVERTER_VALUE_U16,
+        .power_limit_readback_word_order = INVERTER_WORD_ORDER_AB,
+        .power_limit_readback_scale = 0.1f,
+        .readback_tolerance_percent = 0.2f,
+        .telemetry_poll_ms = 1000,
+        .telemetry_stale_timeout_ms = 5000,
     },
     {
         .id = "foxess.commercial.pending",
