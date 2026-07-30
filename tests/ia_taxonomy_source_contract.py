@@ -106,6 +106,70 @@ for route, name in [("dashboard", "Plant overview"), ("system", "Controller"),
     require(f"{route}: {{ name: '{name}'" in APP,
             f"{route} does not have a single durable name ({name})")
 
+# ------------------------------- narrow screens get a short FORM, not a second name
+#
+# The bottom bar on a phone kept its own five-entry label list, so the same
+# pages were called Overview and Grid there and Plant overview and Grid power in
+# the sidebar, the title and the breadcrumb -- the drift `name` exists to
+# prevent, reintroduced on the surface an operator uses in the field.
+#
+# A shorter label is genuinely needed at 360px, so it is a field ON the route
+# record. The property that makes it a rendering rather than a rival name is
+# that it is built only from words already in `name`: "Grid power" may shorten
+# to "Grid", never to "Meters". That is what is asserted, over the route table
+# parsed out of the source with comments stripped -- an assertion that could be
+# satisfied by prose in a comment would be no assertion at all.
+APP_CODE = re.sub(r"(?m)^\s*//.*$", "", re.sub(r"/\*.*?\*/", "", APP, flags=re.S))
+route_table = APP_CODE[APP_CODE.index("const ROUTES = {"):]
+route_table = route_table[:route_table.index("\n    };")]
+route_records = re.findall(r"(\w+): \{([^}]*)\}", route_table)
+require(len(route_records) == 10,
+        f"the route table no longer parses as ten records (found {len(route_records)})")
+
+SUPPRESSED = 0
+for route, body in route_records:
+    name = re.search(r"name: '([^']*)'", body)
+    require(name is not None, f"route {route} has no name")
+    short = re.search(r"short: '([^']*)'", body)
+    if short is None:
+        continue
+    SUPPRESSED += 1
+    words = [word.lower() for word in re.findall(r"[\w-]+", name.group(1))]
+    for word in re.findall(r"[\w-]+", short.group(1)):
+        require(word.lower() in words,
+                f"route {route} shortens {name.group(1)!r} to {short.group(1)!r}, which "
+                f"introduces the word {word!r}. A short form must be built from the "
+                "durable name it abbreviates, or it is a second name for the page")
+    require(len(short.group(1)) <= len(name.group(1)),
+            f"route {route} has a 'short' form longer than its name; it serves no purpose")
+require(SUPPRESSED >= 4,
+        "the narrow-screen labels are not coming from the route table")
+
+require("function routeShortName" in APP,
+        "nothing resolves the short form, so a navigation surface has to read the "
+        "field itself or invent one")
+require("routeShortName" in APP[APP.index("window.AutomatrixUi"):],
+        "the short form is not published, so a narrow navigation surface cannot use it")
+
+# The mobile bar must read both label and icon from the table rather than
+# carrying its own list. Comments are stripped for the same reason as above.
+SUITE = (ROOT / "web/operator-product-suite.js").read_text(encoding="utf-8")
+SUITE_CODE = re.sub(r"(?m)^\s*//.*$", "", re.sub(r"/\*.*?\*/", "", SUITE, flags=re.S))
+require("routeShortName" in SUITE_CODE and "ROUTES" in SUITE_CODE,
+        "the mobile bar does not read the route table")
+mobile = SUITE_CODE[SUITE_CODE.index("function ensureMobileNavigation"):]
+mobile = mobile[:mobile.index("\n    function ")]
+for durable in ("Plant overview", "Grid power", "Solar inverters", "Alarms and events",
+                "PV-DG control", "Overview", "'Grid'", "'Solar'", "'Alarms'", "'Control'"):
+    require(durable not in mobile,
+            f"the mobile bar carries its own page label again: {durable}")
+# The accessible name stays the durable one, so the label given over the phone
+# is the label a screen reader announces.
+require("routeName(route)" in mobile,
+        "the mobile bar must still expose the full durable name; a short form is "
+        "what is drawn, not what the page is called")
+
+
 # The name is the navigation label, the title, the breadcrumb and document.title
 # because there is only one string, applied in one place.
 require("function applyRouteChrome" in APP,

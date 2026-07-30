@@ -62,16 +62,16 @@
          * each re-stamped their own title and breadcrumb after this router had
          * written its own, so the text depended on event ordering. Both other
          * writers are gone. The wording lives here, once, as `name`. */
-        dashboard: { name: 'Plant overview', group: 'operate', icon: '⌂' },
-        meters: { name: 'Grid power', group: 'operate', icon: '▤' },
-        inverters: { name: 'Solar inverters', group: 'operate', icon: '◇' },
-        alarms: { name: 'Alarms and events', group: 'operate', icon: '△' },
+        dashboard: { name: 'Plant overview', short: 'Overview', group: 'operate', icon: '⌂' },
+        meters: { name: 'Grid power', short: 'Grid', group: 'operate', icon: '▤' },
+        inverters: { name: 'Solar inverters', short: 'Solar', group: 'operate', icon: '◇' },
+        alarms: { name: 'Alarms and events', short: 'Alarms', group: 'operate', icon: '△' },
         commissioning: { name: 'Commissioning', group: 'commission', icon: '✓' },
-        readiness: { name: 'Pre-lab readiness', group: 'commission', icon: '⌾' },
-        wifi: { name: 'Network setup', group: 'commission', icon: '⌁' },
-        control: { name: 'PV-DG control', group: 'maintain', icon: '⇄' },
+        readiness: { name: 'Pre-lab readiness', short: 'Readiness', group: 'commission', icon: '⌾' },
+        wifi: { name: 'Network setup', short: 'Network', group: 'commission', icon: '⌁' },
+        control: { name: 'PV-DG control', short: 'Control', group: 'maintain', icon: '⇄' },
         system: { name: 'Controller', group: 'maintain', icon: '⚙' },
-        engineering: { name: 'Engineering access', group: 'access', icon: '▣' }
+        engineering: { name: 'Engineering access', short: 'Engineering', group: 'access', icon: '▣' }
     };
 
     /* Page type drives the maximum measure. Operational screens are read across
@@ -91,6 +91,29 @@
     function routeName(route) {
         const meta = ROUTES[route];
         return meta ? meta.name : 'Controller';
+    }
+
+    /* `short` is a narrow-screen rendering OF `name`, not a second name.
+     *
+     * The bottom bar on a phone was carrying its own five-entry label list -
+     * Overview / Grid / Solar / Alarms / Control - so the same pages were
+     * called one thing on a phone and another thing everywhere else, which is
+     * exactly the drift the `name` field above exists to make impossible. The
+     * sidebar was being renamed from a second list too, and only looked right
+     * because ensureNavigationHierarchy() overwrote it on the next mutation.
+     *
+     * A shorter label IS genuinely needed - five full names do not fit five
+     * columns at 360px - so it lives on the route record, next to the name it
+     * abbreviates, and it may only be built from words that are already in that
+     * name. "Grid power" may shorten to "Grid"; it may not become "Meters".
+     * An operator told over the phone to open Grid power still recognises it,
+     * and tests/ia_taxonomy_source_contract.py holds the two together.
+     *
+     * A route with no `short` is one whose name is already short enough. */
+    function routeShortName(route) {
+        const meta = ROUTES[route];
+        if (!meta) return routeName(route);
+        return meta.short || meta.name;
     }
 
     /* ------------------------------------------------------------ state taxonomy
@@ -2338,6 +2361,7 @@
         NAV_GROUPS,
         STATES,
         routeName,
+        routeShortName,
         verbatim,
         applyRouteChrome,
         ensureNavigationHierarchy

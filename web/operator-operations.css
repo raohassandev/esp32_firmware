@@ -114,6 +114,11 @@
 .alarm-state-pill.tone-good { color: var(--good); border-color: var(--good); }
 .alarm-state-meaning { color: var(--muted); font-size: 11px; line-height: 1.45; }
 .alarm-action { color: var(--muted); font-size: 11px; line-height: 1.45; }
+/* The outstanding acknowledgement on a returned-to-normal row. Drawn as
+   ordinary text rather than muted: it is the obligation, not a footnote, and a
+   row that is styled quieter than the ones still present is the "resolved"
+   reading this screen exists to prevent. */
+.alarm-state-obligation { color: var(--text); font-size: 11px; line-height: 1.45; }
 .alarm-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 2px; }
 .alarm-meta-item { display: grid; gap: 3px; padding: 8px 10px; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--surface-sunken); }
 .alarm-meta-item span { color: var(--muted); font-size: 9px; font-weight: 850; letter-spacing: .06em; text-transform: uppercase; }

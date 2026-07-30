@@ -49,21 +49,14 @@
         if (kiosk) kiosk.textContent = state.preferences.kiosk ? 'Exit kiosk' : 'Kiosk mode';
     }
 
-    function setLabel(route, label, symbol) {
-        const link = document.querySelector(`.nav-link[data-route="${route}"]`);
-        if (!link) return;
-        const parts = link.querySelectorAll('span');
-        if (parts[0] && symbol) parts[0].textContent = symbol;
-        if (parts[1]) parts[1].textContent = label;
-        link.setAttribute('aria-label', label);
-    }
-
+    /* This function used to open by renaming five sidebar entries from a list
+     * of its own - Overview / Grid Power / Solar / Control / Controller. Those
+     * writes never survived: ensureNavigationHierarchy() in web/app.js reapplies
+     * the route table's `name` on every mutation, so the only thing the list
+     * produced was a flash of the wrong name and a second place to look when
+     * the sidebar and the page title disagreed. The route table names the
+     * pages; this function arranges and hides them. */
     function normalizeNavigation() {
-        setLabel('dashboard', 'Overview', '⌂');
-        setLabel('meters', 'Grid Power', '▤');
-        setLabel('inverters', 'Solar', '◇');
-        setLabel('control', 'Control', '⇄');
-        setLabel('system', 'Controller', '⚙');
         const wifi = document.querySelector('.nav-link[data-route="wifi"]');
         if (wifi) wifi.hidden = !isEngineering();
         const alarms = document.querySelector('.nav-link[data-route="alarms"]');
@@ -97,18 +90,41 @@
         sidebar.insertBefore(button, footer || null);
     }
 
+    /* Which routes the bar offers is this module's decision. What they are
+     * CALLED is not: the icon and both labels come from the route table in
+     * web/app.js, the same record the sidebar, the page title and the
+     * breadcrumb read. The bar used to carry its own five names, so a phone
+     * called these pages Overview and Grid while everything else called them
+     * Plant overview and Grid power.
+     *
+     * The narrow column shows the route's short form and the accessible name
+     * stays the full one, so the label an operator is told over the phone is
+     * what a screen reader announces and what a long-press reveals - a
+     * rendering of one name, not a second name. */
+    const MOBILE_ROUTES = ['dashboard', 'meters', 'inverters', 'alarms', 'control'];
+
     function ensureMobileNavigation() {
         if (byId('productMobileNav')) return;
+        const ui = window.AutomatrixUi;
         const nav = node('nav', 'product-mobile-nav');
         nav.id = 'productMobileNav';
         nav.setAttribute('aria-label', 'Operator shortcuts');
-        [['dashboard', '⌂', 'Overview'], ['meters', '▤', 'Grid'], ['inverters', '◇', 'Solar'], ['alarms', '△', 'Alarms'], ['control', '⇄', 'Control']].forEach(([route, icon, label]) => {
+        MOBILE_ROUTES.forEach((route) => {
+            const meta = ui?.ROUTES?.[route];
+            /* No invented fallback name. If the route table has not published
+             * yet the entry is not built, and normalizeNavigation() builds it
+             * on the next pass, rather than shipping a made-up label. */
+            if (!meta) return;
             const link = node('a', 'product-mobile-link');
             link.href = `#/${route}`;
             link.dataset.route = route;
-            link.innerHTML = `<span aria-hidden="true">${icon}</span><small>${label}</small>`;
+            link.append(node('span', '', meta.icon), node('small', '', ui.routeShortName(route)));
+            link.firstElementChild.setAttribute('aria-hidden', 'true');
+            link.setAttribute('aria-label', ui.routeName(route));
+            link.title = ui.routeName(route);
             nav.append(link);
         });
+        if (!nav.childElementCount) return;
         document.body.append(nav);
         updateMobileNavigation();
     }

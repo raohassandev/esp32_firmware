@@ -280,10 +280,10 @@ Most user-visible first.
 | 1 | **F1** — `meters` and `inverters` have no operator sidebar entry although they are unprotected, render operator content and are grouped under "Operate" | orphaned | **Needs a decision.** One-line change at `web/product-mode.js:308`; it alters the signed-out access surface, so it is the owner's call |
 | 2 | **F2** — Commissioning's sidebar entry depended on module start order | broken (latent) | **Fixed** |
 | 3 | **F3** — mobile bar offered PV-DG control to operators; the tap reached the sign-in page | broken | **Fixed** |
-| 4 | **F4** — roughly half the alarms screen sits behind two closed drawers | moved-behind-disclosure | **Left as-is** — deliberate; flagged so the owner can confirm it is what they wanted |
-| 5 | **F5** — mobile bar uses a second set of page names, contradicting the durable-name rule | broken (consistency) | **Needs a decision** — five full names do not fit five columns |
+| 4 | **F4** — roughly half the alarms screen sits behind two closed drawers | moved-behind-disclosure | **Rebalanced.** See §5 |
+| 5 | **F5** — mobile bar uses a second set of page names, contradicting the durable-name rule | broken (consistency) | **Fixed.** See §5 |
 | 6 | **F6** — engineering loses the "Recent events" card on the alarms screen | works as designed | **Needs a decision**; touches alarm presentation, excluded from this pass |
-| 7 | **F7** — `engineering-session-resilience.js` embedded but never served | dead weight | **Needs a decision** — remove the embed; do **not** serve it |
+| 7 | **F7** — `engineering-session-resilience.js` embedded but never served | dead weight | **Removed.** See §5 |
 | 8 | **F8** — nav entries created after `DOMContentLoaded` are never marked engineering-only | latent | **Left as-is** — currently unreachable |
 
 ---
@@ -318,3 +318,109 @@ Run before the changes to establish a baseline, and again after. Identical both 
 
 Not verified: anything on real hardware, and any behaviour that requires navigating between routes,
 signing in mid-session, or sustained polling.
+
+---
+
+## 5. Follow-up pass — F7, F4 and F5 closed
+
+Presentation and build only. No control, safety, authorisation, alarm-lifecycle, acquisition or
+Modbus behaviour was touched, and nothing post-processes the DOM: each fix is in the module that
+already owned the thing being fixed.
+
+### F7 — the dead asset is gone
+
+Both claims in §1 were re-verified before anything was deleted. `amx-engineering-session-ready` has
+exactly one occurrence in the repository and it is the `dispatchEvent` itself, so there is no
+listener; and `web_assets_engineering_session_resilience_js` appears in neither `assets[]` array in
+`web_server.c`. It was removed rather than served, for the reason §1 gives: it installs a second
+`window.fetch` wrapper alongside the one `product-mode.js` owns.
+
+Five registration points, not four — the CI workflow also `node --check`ed it:
+`web/engineering-session-resilience.js`, the `configure_file` and `EMBED_TXTFILES` entries in
+`components/web_server/CMakeLists.txt`, `DECLARE_ASSET` / `ASSET_GETTER` / the retained linker-symbol
+comment in `web_assets.c`, the declaration in `web_assets.h`, and the workflow line.
+
+Measured from the linker map of a clean build at `b5fa78b` against one after: the embedded blob was
+`0xb50` (2,896 bytes of `.rodata.embedded`, the file's 2,891 bytes plus a NUL, 4-byte aligned) and
+its getter another 33 bytes of `.literal` + `.text`. **2,929 bytes of flash.** The `.bin` itself did
+not shrink — the app image is padded, so the saving shows up as freed flash data rather than a
+smaller file.
+
+`tests/engineering_auth_loop_source_contract.py:10` asserts this getter stays out of `web_server.c`.
+It still passes, now trivially, and was deliberately not touched.
+
+### F4 — rebalanced, not reverted
+
+The two drawers mostly held what they should: the lifecycle lesson, the priority rationalisation and
+the per-condition metadata are reference material. Two things in them were not, and one measurement
+in §4 needs a caveat — 1026 visible against 971 hidden was recorded against a payload with an
+**empty alarm list**, so it measures the page's chrome, not a working triage screen. With conditions
+present the visible half grows with the list and the hidden half does not.
+
+**Promoted to the first screen:**
+
+- *The obligation on a returned-to-normal row.* Every other state reads correctly from its pill —
+  unacknowledged is present with an Acknowledge button beside it, acknowledged says it is still
+  present, normal is finished. Returned-to-normal is the one state where what the operator sees (the
+  condition is gone) contradicts what they must do, and the controller's `recommended_action`
+  describes the plant fault, not the outstanding acknowledgement. That sentence was reachable only
+  by opening "How alarm states work". It is now on the row, drawn from `ALARM_STATES` so it is the
+  same wording as the drawer rather than a second explanation, and **only** for that state — a
+  sentence of lifecycle on every row is what the prose reduction correctly removed.
+- *The alarm-load headline*, as the fourth summary tile. Whether the operator is reading twenty
+  independent faults or one flood changes what they do next; that is triage. The EEMUA evidence —
+  four metrics, their limits, their windows, the uptime caveat — stays in the drawer. The panel's
+  honesty rules are kept in the summary: no verdict before the controller says its steady-state
+  window has elapsed, and a breached peak outranks a met steady target, so a flood that has happened
+  is never reported as a pass.
+
+**Left disclosed:** the lifecycle explanation and state glossary, the priority rationalisation, the
+EEMUA rate evidence, the per-condition history and metadata, and the reasoning behind a suppression.
+
+**Unchanged, as required:** the state pill (including "Returned to normal · never acknowledged") is
+behind nothing; `isOutstanding` still keys on acknowledgement rather than presence and the
+outstanding filter still keeps returned-to-normal rows; the suppression pill stays on the row;
+Acknowledge is still a plain row control needing no session while shelving stays behind Engineering.
+
+`tests/alarm_ui_source_contract.py` now holds this balance structurally rather than by wording. A
+drawer is created by `details()`, so "before the first `details()` in this function" is literally
+"on the first screen"; and reference material is checked to reach the page only inside a
+`view.append(details(...))`. It is asserted over comment-stripped source, so no explanatory prose
+can satisfy it. Both directions were mutation-tested: burying the state pill, the obligation or the
+load headline fails, and so does promoting the EEMUA evidence or the lifecycle block out of its
+drawer.
+
+### F5 — one set of page names
+
+`ROUTES` gains a `short` field beside `name`, and `routeShortName()` is published on
+`window.AutomatrixUi` with the rest of the route table. The mobile bar reads icon, short label and
+accessible name from that record; which routes it offers is still its own decision. The narrow
+column shows the short form and the `aria-label`/`title` stay the full durable name, so the label an
+operator is given over the phone is what a screen reader announces.
+
+`short` is a rendering of `name`, not a rival for it, and that is enforced:
+`tests/ia_taxonomy_source_contract.py` parses the route table out of comment-stripped source and
+requires every word of a `short` to already appear in its `name`. "Grid power" may shorten to
+"Grid"; it may not become "Meters". Mutation-tested in both directions.
+
+The five `setLabel()` calls in `normalizeNavigation()` went with it. They renamed sidebar entries
+from a second list — Overview / Grid Power / Solar / Control / Controller — and never survived,
+because `ensureNavigationHierarchy()` reapplies the route table's `name` on the next mutation. All
+they produced was a flash of the wrong name and a second place to look when the sidebar and the
+title disagreed. §2 recorded this as dead code whose removal was a separate cleanup; it is the same
+defect as F5 and is removed with it.
+
+### Verification
+
+- `node --check` on all 31 `web/*.js` — clean. All 4 `web/tests/*.test.js` — pass.
+- All **71** CI contracts — pass. No assertion weakened or skipped; three were added, each
+  mutation-tested to confirm it fails when the property it names is broken.
+- The alarm-load tile's six rate cases executed against the real source, including both cases where
+  a pass must be withheld.
+- Asset wiring re-checked as a whole: 47 embedded assets, every `configure_file` source present,
+  every `EMBED_TXTFILES` entry backed by a `configure_file`, and every embedded asset carrying
+  `DECLARE_ASSET` + `ASSET_GETTER` + a header declaration + an `assets[]` entry in `web_server.c`.
+  The same check run against `b5fa78b` fails on exactly one asset — the one removed here.
+- `idf.py build` — zero warnings. Flash data 1,098,840 → 1,105,688 bytes: 2,929 freed by F7, the
+  rest added by the alarm-load tile, the obligation line and the route-table plumbing.
+- Not verified: anything on real hardware. The lab controller is off-network and was not flashed.

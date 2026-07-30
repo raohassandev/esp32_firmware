@@ -33,7 +33,6 @@ jobs:
         run: |
           set -euo pipefail
           node --check web/theme.js
-          node --check web/engineering-session-resilience.js
           node --check web/product-mode.js
           node --check web/operator-view.js
           node --check web/operator-operations.js

@@ -25,6 +25,7 @@ Acknowledgement also requires an authenticated engineering session, so the
 screen must not offer a control that can only ever return 401.
 """
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -137,6 +138,130 @@ require("opacity" not in CSS.split(".alarm-console", 1)[1],
 badge = UI[UI.index("function updateAlarmBadge"):]
 require("isOutstanding" in badge or "summary.unacknowledged" in badge,
         "the alarm badge must count outstanding work, not only live conditions")
+
+
+# ------------------------------------------ what triage may NOT be hidden behind
+#
+# Roughly half this screen was moved behind two closed <details> drawers by the
+# prose reduction. The cut was right in size and mostly right in target -- the
+# lifecycle lesson, the priority rationalisation and the per-condition metadata
+# are reference material and belong one level down. Three things are not, and
+# this block is what stops a future prose pass from taking them with it.
+#
+# Asserted structurally, on comment-stripped source, by position relative to the
+# details() calls in the same function. A drawer is created by details(), so
+# "before the first details() in this function" is literally "on the first
+# screen", and no wording in a comment can satisfy it.
+CODE = re.sub(r"(?m)^\s*//.*$", "", re.sub(r"/\*.*?\*/", "", UI, flags=re.S))
+
+
+def body(name, code=None):
+    source = CODE if code is None else code
+    start = source.index(f"function {name}(")
+    return source[start:source.index("\n    function ", start + 1)]
+
+
+row = body("alarmRow")
+require("details(" in row, "the alarm row no longer discloses anything")
+first_drawer = row.index("details(")
+
+# 1. The state pill. On an unattended site "Returned to normal, never
+#    acknowledged" is the state that matters most, and it must be legible
+#    without opening anything.
+require("alarm-state-pill" in row and row.index("alarm-state-pill") < first_drawer,
+        "the alarm state pill has been moved behind a disclosure; the "
+        "returned-to-normal state must be readable without opening a drawer")
+
+# 2. The obligation carried by that state. Every other state reads correctly
+#    from the pill alone; this is the one where the condition is gone and the
+#    work is not, and its explanation used to live only inside the closed
+#    lifecycle drawer.
+require("alarm-state-obligation" in row and row.index("alarm-state-obligation") < first_drawer,
+        "a returned-to-normal condition must say on the row that it stays "
+        "outstanding until someone acknowledges it; that sentence was reachable "
+        "only by opening the lifecycle drawer")
+require("meta.meaning" in row[:first_drawer],
+        "the obligation on the row must be the same wording as the lifecycle "
+        "drawer, not a second explanation of the same state")
+
+# 3. The required action the controller wrote.
+require("recommended_action" in row and row.index("recommended_action") < first_drawer,
+        "the controller's recommended action must stay on the first screen")
+
+# The suppression pill changes what the counts above mean, so it stays on the
+# row even though the reasoning behind it is disclosed.
+suppression = body("suppressionBlock")
+require("alarm-suppression-pill" in suppression
+        and suppression.index("alarm-suppression-pill") < suppression.index("details("),
+        "the suppression pill must stay on the row; hiding it makes the triage "
+        "counts above misleading")
+
+# Alarm load: the headline is triage, the EEMUA evidence is not. An operator
+# scanning a long list has to be able to tell twenty faults from one flood.
+tiles = body("alarmSummaryTiles")
+require("alarmLoadTile" in tiles,
+        "the alarm rate headline is not on the first screen, so a flood is only "
+        "discoverable by opening the performance drawer")
+require("details(" not in tiles, "the summary tiles must not be disclosed")
+load = body("alarmLoadTile")
+# The honesty rules that govern the full panel govern its headline too: no
+# verdict before the window has elapsed, and the peak is never a pass.
+require("steady_window_observed" in load,
+        "the load headline must gate its verdict on the controller's own "
+        "'window observed' flag rather than extrapolating one")
+require("Not yet measured" in load or "not yet measured" in load,
+        "before the steady-state window has elapsed the headline must say so")
+require("peak_target_breached" in load,
+        "the load headline ignores the peak breach flag")
+require("'good'" in load and load.index("peak_target_breached") < load.index("'good'"),
+        "a breached peak must be reported before any pass verdict can be reached")
+
+# And the evidence is still one level down, not promoted with it. Reference
+# material is built into a local first and only then wrapped, so position in the
+# function proves nothing; what proves it is that the only route these take onto
+# the page is a view.append() whose argument is a details() call.
+console = body("renderAlarmConsole")
+
+
+def appends(source, sink):
+    """Every `sink.append(...)` call in source, with balanced parentheses."""
+    calls, cursor = [], 0
+    opener = f"{sink}.append("
+    while True:
+        start = source.find(opener, cursor)
+        if start < 0:
+            return calls
+        depth, index = 0, start + len(opener) - 1
+        while index < len(source):
+            if source[index] == "(":
+                depth += 1
+            elif source[index] == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            index += 1
+        calls.append(source[start:index + 1])
+        cursor = index + 1
+
+
+view_appends = appends(console, "view")
+require(len(view_appends) >= 5,
+        "the alarm console no longer assembles its screen through view.append()")
+for reference in ("alarmRateSection", "alarmRationalisationSection", "ALARM_STATES"):
+    require(reference in console, f"{reference} has been dropped from the alarm screen")
+for call in view_appends:
+    for reference in ("alarmRateSection", "alarmRationalisationSection", "lifecycle"):
+        if reference not in call:
+            continue
+        require("details(" in call,
+                f"{reference} reaches the first screen without a disclosure; the "
+                "lifecycle lesson, the EEMUA evidence and the priority "
+                "rationalisation are reference material and the prose reduction "
+                "is being undone rather than rebalanced")
+# The lifecycle glossary is what that local is built from, so it travels with it.
+require("Object.keys(ALARM_STATES)" in console and "lifecycle.append" in console,
+        "the state glossary is no longer assembled into the disclosed lifecycle "
+        "block, so the assertion above no longer covers it")
 
 
 # --------------------------------- acknowledging never clears, and never invents

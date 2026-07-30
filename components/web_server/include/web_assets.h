@@ -19,7 +19,6 @@ const char *web_assets_em500_css(size_t *length);
 const char *web_assets_pvdg_chart_css(size_t *length);
 const char *web_assets_js(size_t *length);
 const char *web_assets_theme_js(size_t *length);
-const char *web_assets_engineering_session_resilience_js(size_t *length);
 const char *web_assets_product_mode_js(size_t *length);
 const char *web_assets_operator_view_js(size_t *length);
 const char *web_assets_operator_operations_js(size_t *length);

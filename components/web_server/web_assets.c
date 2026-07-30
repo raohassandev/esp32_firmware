@@ -9,7 +9,7 @@ _binary_mobile_prelab_fixes_css_start _binary_product_shell_v2_css_start
 _binary_product_experience_v2_css_start _binary_commissioning_wizard_v2_css_start
 _binary_commissioning_release_v3_css_start _binary_wifi_css_start
 _binary_devices_css_start _binary_em500_css_start _binary_app_js_start
-_binary_theme_js_start _binary_engineering_session_resilience_js_start
+_binary_theme_js_start
 _binary_product_mode_js_start _binary_operator_view_js_start
 _binary_operator_operations_js_start _binary_operator_product_suite_js_start
 _binary_prelab_readiness_js_start _binary_product_shell_v2_js_start
@@ -49,7 +49,6 @@ DECLARE_ASSET(em500_css);
 DECLARE_ASSET(pvdg_chart_css);
 DECLARE_ASSET(app_js);
 DECLARE_ASSET(theme_js);
-DECLARE_ASSET(engineering_session_resilience_js);
 DECLARE_ASSET(product_mode_js);
 DECLARE_ASSET(operator_view_js);
 DECLARE_ASSET(operator_operations_js);
@@ -109,7 +108,6 @@ ASSET_GETTER(web_assets_em500_css, em500_css)
 ASSET_GETTER(web_assets_pvdg_chart_css, pvdg_chart_css)
 ASSET_GETTER(web_assets_js, app_js)
 ASSET_GETTER(web_assets_theme_js, theme_js)
-ASSET_GETTER(web_assets_engineering_session_resilience_js, engineering_session_resilience_js)
 ASSET_GETTER(web_assets_product_mode_js, product_mode_js)
 ASSET_GETTER(web_assets_operator_view_js, operator_view_js)
 ASSET_GETTER(web_assets_operator_operations_js, operator_operations_js)

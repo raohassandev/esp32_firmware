@@ -77,7 +77,6 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500.css" "${CMAKE_CURRENT_
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/pvdg-chart.css" "${CMAKE_CURRENT_BINARY_DIR}/pvdg-chart.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/app.js" "${CMAKE_CURRENT_BINARY_DIR}/app.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/theme.js" "${CMAKE_CURRENT_BINARY_DIR}/theme.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/engineering-session-resilience.js" "${CMAKE_CURRENT_BINARY_DIR}/engineering-session-resilience.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/product-mode.js" "${CMAKE_CURRENT_BINARY_DIR}/product-mode.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-view.js" "${CMAKE_CURRENT_BINARY_DIR}/operator-view.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-operations.js" "${CMAKE_CURRENT_BINARY_DIR}/operator-operations.js" COPYONLY)
@@ -180,7 +179,6 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/pvdg-chart.css"
         "${CMAKE_CURRENT_BINARY_DIR}/app.js"
         "${CMAKE_CURRENT_BINARY_DIR}/theme.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/engineering-session-resilience.js"
         "${CMAKE_CURRENT_BINARY_DIR}/product-mode.js"
         "${CMAKE_CURRENT_BINARY_DIR}/operator-view.js"
         "${CMAKE_CURRENT_BINARY_DIR}/operator-operations.js"

@@ -342,8 +342,10 @@
     /* Counts first, because triage starts with "how much is there". The fourth
      * tile used to announce the state model and its ten-state lifecycle, which
      * teaches the alarm standard to someone who came here to find out what is
-     * wrong with the plant. It is in the lifecycle drawer below. */
-    function alarmSummaryTiles(alarms, summary) {
+     * wrong with the plant. That is in the lifecycle drawer below; the fourth
+     * tile now answers a question an operator has instead: how fast are these
+     * arriving. */
+    function alarmSummaryTiles(alarms, summary, rate) {
         const outstanding = alarms.filter(isOutstanding).length;
         const active = alarms.filter(isActive).length;
         const returned = alarms.filter((alarm) => String(alarm.state) === 'rtn_unacknowledged').length;
@@ -357,9 +359,47 @@
              * news: on an unattended site this is the ordinary shape of a real
              * fault, and it is the reason this screen exists. */
             summaryCard('Returned, never acknowledged', returned,
-                        'Cleared while nobody was watching', returned ? 'warning' : 'good')
+                        'Cleared while nobody was watching', returned ? 'warning' : 'good'),
+            alarmLoadTile(rate)
         );
         return tiles;
+    }
+
+    /* The fourth tile: how hard this alarm system is pushing the operator.
+     *
+     * The whole EEMUA panel was moved behind "Alarm system performance", which
+     * is right for the evidence - four metrics, their limits, their windows and
+     * the uptime caveat are a service engineer's page. But the headline is not
+     * evidence, it is triage: an operator scanning a long list needs to know
+     * whether they are reading twenty independent faults or one flood, because
+     * that changes what they do next. Standing in a flood is a condition, and a
+     * condition that needs attention does not belong behind a drawer.
+     *
+     * The honesty rules from alarmRateSection() are kept exactly. A pass is
+     * only claimed once the controller says its steady-state window has
+     * actually elapsed, and the peak is never reported as a pass - a flood that
+     * has not happened yet cannot be disproved by waiting. Before the window
+     * elapses the tile is neutral and says the target is not yet measured
+     * instead of extrapolating a verdict from part of an hour. */
+    function alarmLoadTile(rate) {
+        if (!rate || typeof rate !== 'object') {
+            return summaryCard('Alarm load', '—',
+                               'The controller did not report alarm-rate metrics', '');
+        }
+        const last10 = Number(rate.last_10_min) || 0;
+        const value = `${last10} in 10 min`;
+        if (rate.peak_target_breached === true) {
+            return summaryCard('Alarm load', value,
+                               `Worst ten minutes exceeded the ceiling of ${Number(rate.peak_limit) || 10}`,
+                               'bad');
+        }
+        if (rate.steady_window_observed !== true) {
+            return summaryCard('Alarm load', value,
+                               'Steady-state target not yet measured', '');
+        }
+        return rate.meets_steady_target === true
+            ? summaryCard('Alarm load', value, 'Within the steady-state target', 'good')
+            : summaryCard('Alarm load', value, 'Above the steady-state target', 'bad');
     }
 
     /* ------------------------------------------------- A10: EEMUA rate metrics
@@ -727,8 +767,28 @@
         /* The one sentence an operator acts on. The controller wrote it. */
         if (alarm.recommended_action) copy.append(node('small', 'alarm-action', alarm.recommended_action));
 
+        /* The single state whose obligation is not legible from the pill.
+         *
+         * Every other state reads correctly at a glance: unacknowledged is
+         * present and has an Acknowledge button beside it, acknowledged says it
+         * is still present, normal is finished. Returned-to-normal is the one
+         * where what the operator SEES - the condition is gone - contradicts
+         * what they must DO, and the controller's recommended_action is about
+         * the plant fault, not about the outstanding acknowledgement. Leaving
+         * that sentence in the closed lifecycle drawer meant the row that is
+         * the whole reason for this screen was the one row you had to open
+         * something to understand.
+         *
+         * It is drawn only for this state and only from ALARM_STATES, so it is
+         * the same wording as the drawer rather than a second explanation, and
+         * the cost scales with outstanding work rather than with list length -
+         * "a sentence of lifecycle per row, repeated down the whole list" is
+         * what the prose reduction removed and it is not coming back. */
+        if (returned) copy.append(node('small', 'alarm-state-obligation', meta.meaning));
+
         const history = node('div', 'op-more-body');
-        history.append(node('p', 'alarm-state-meaning', meta.meaning));
+        /* Not repeated one level down when it is already on the row. */
+        if (!returned) history.append(node('p', 'alarm-state-meaning', meta.meaning));
         if (alarm.detail) history.append(node('p', '', alarm.detail));
         /* A6: the priority and the reason it was assigned still travel with the
          * alarm. The rationalisation is only reviewable if the reasoning is on
@@ -780,7 +840,7 @@
         head.append(refresh);
         view.append(head);
 
-        view.append(alarmSummaryTiles(alarms, summary));
+        view.append(alarmSummaryTiles(alarms, summary, payload.rate));
 
         const controls = node('div', 'alarm-controls');
         controls.append(
@@ -844,10 +904,13 @@
         });
         view.append(details('engineering', 'How alarm states work', lifecycle));
 
-        /* A10 then A6: what the alarm system is doing to the operator, and how
-         * its priorities are distributed. Both are properties of the whole
-         * system, both are evidence a service engineer needs, and neither is
-         * something a plant operator acts on during a shift. */
+        /* A10 then A6: the evidence behind the alarm-load tile above, and how
+         * the priorities are distributed. The rate HEADLINE is on the first
+         * screen because standing in a flood changes what an operator does
+         * next; the four metrics, their EEMUA limits, their windows and the
+         * uptime caveat are what a service engineer needs to argue about them,
+         * and the priority distribution is not something a plant operator acts
+         * on during a shift at all. */
         view.append(details('service', 'Alarm system performance',
             alarmRateSection(payload.rate),
             alarmRationalisationSection(payload.rationalisation)));
