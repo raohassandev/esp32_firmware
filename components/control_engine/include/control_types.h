@@ -68,4 +68,26 @@ typedef struct {
      * never a silently optimistic answer. */
     uint8_t write_confirmation;
     bool write_confirmation_fault;
+
+    /* Prerequisite enable registers, kept strictly apart from the write
+     * confirmation above. Both remove an inverter from the commandable fleet,
+     * so from the outside they look the same, but they are different failures
+     * with different remedies:
+     *
+     *   write_confirmation_fault   - the SETPOINT register did not read back the
+     *                                commanded value, or could not be read.
+     *   prerequisite_enable_fault  - the ENABLE register is not confirmed to
+     *                                hold, so the setpoint is accepted, echoed
+     *                                back and then ignored. The setpoint
+     *                                readback looks perfect.
+     *
+     * The second is the more dangerous, which is why it is reported separately
+     * rather than folded into the first. Counts are the fleet roll-up from
+     * inverter_manager_commissioning_summary(); unconfirmed is transient and
+     * will be retried, unverifiable is permanent and needs a manual citation
+     * for the register and its readback. */
+    bool prerequisite_enable_fault;
+    uint8_t prerequisite_required_count;
+    uint8_t prerequisite_unconfirmed_count;
+    uint8_t prerequisite_unverifiable_count;
 } control_status_t;

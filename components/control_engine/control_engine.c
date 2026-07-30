@@ -401,6 +401,22 @@ static void control_task(void *argument)
         const inverter_write_state_t fleet_confirmation =
             inverter_manager_fleet_write_confirmation();
 
+        /* The prerequisite enable register is observed the same way and for the
+         * same structural reason, but it is NOT the same fault and is never
+         * merged into the one above. A confirmation fault says the setpoint read
+         * back wrong. A prerequisite fault says the setpoint will read back
+         * RIGHT and be ignored anyway, because the register that arms the limit
+         * is not confirmed to hold. An engineer told only "unconfirmed setpoint"
+         * would go looking at the setpoint register, which is working.
+         *
+         * Both calls read already-acquired state. Neither performs Modbus I/O,
+         * so the loop gains no blocking transaction at its 20 ms period. The
+         * summary struct is a couple of dozen bytes and is safe on this task's
+         * 4 kB stack, unlike an app_config_t. */
+        const bool prerequisite_fault = inverter_manager_prerequisite_enable_fault();
+        inverter_fleet_commissioning_t fleet_prerequisite;
+        inverter_manager_commissioning_summary(&fleet_prerequisite);
+
         /* While a generator carries the plant, PV must leave enough load on the
          * machine to satisfy its minimum loading and stay clear of reverse
          * power. An uncommissioned rating yields zero, which holds PV off rather
@@ -579,14 +595,27 @@ static void control_task(void *argument)
             .last_cycle_ms = timestamp,
             /* Commissioning is part of the authority answer, not a footnote to
              * it: an uncommissioned controller has no authority to command. */
+            /* An unconfirmed prerequisite withdraws authority for exactly the
+             * reason an unconfirmed setpoint does, and is treated identically
+             * rather than more leniently: while it holds, this controller cannot
+             * know that a limit it writes will be honoured, and reporting
+             * authority in that state is the false-confirmation trap the
+             * prerequisite sequencing exists to prevent. */
             .command_authority = commissioning.commissioned && control_enabled &&
-                                 policy.valid && alarm_flags == 0U && !confirmation_fault,
+                                 policy.valid && alarm_flags == 0U &&
+                                 !confirmation_fault && !prerequisite_fault,
             .commissioned = commissioning.commissioned,
             .commissioning_scope = (uint8_t)commissioning.scope,
             .commissioning_unmet_count = commissioning.unmet_count,
             .commissioning_first_unmet = commissioning.first_unmet,
             .write_confirmation = (uint8_t)fleet_confirmation,
             .write_confirmation_fault = confirmation_fault,
+            .prerequisite_enable_fault = prerequisite_fault,
+            .prerequisite_required_count = fleet_prerequisite.prerequisite_required_count,
+            .prerequisite_unconfirmed_count =
+                fleet_prerequisite.prerequisite_unconfirmed_count,
+            .prerequisite_unverifiable_count =
+                fleet_prerequisite.prerequisite_unverifiable_count,
         };
         /* One authoritative answer, in the firmware's own words, rather than the
          * interface inferring intent from several scattered flags. Ordered most
@@ -595,6 +624,19 @@ static void control_task(void *argument)
             !commissioning.commissioned ? commissioning_gate_summary(&commissioning)
             : !control_enabled        ? "Automatic control is disabled; engineering authorisation is required."
             : alarm_flags != 0U       ? "An active safety alarm is blocking commands."
+            /* Both prerequisite reasons sit AHEAD of the confirmation fault
+             * because they are the more specific and the more dangerous answer.
+             * A prerequisite fault does not show up in the setpoint readback at
+             * all: the setpoint is accepted, echoed back and ignored, so the
+             * readback looks perfect while the inverter runs unlimited. Reporting
+             * only "unconfirmed setpoint" would send an engineer to the register
+             * that is working. The unverifiable case is stated first because it
+             * is permanent -- no amount of polling resolves it, and the remedy is
+             * a manual citation rather than waiting. */
+            : prerequisite_fault &&
+              fleet_prerequisite.prerequisite_unverifiable_count > 0U
+                                      ? "An inverter enable register cannot be read back; its setpoint would read back correctly and be ignored."
+            : prerequisite_fault      ? "An inverter prerequisite enable register is not confirmed to hold; its setpoint would read back correctly and be ignored."
             : confirmation_fault      ? "An inverter setpoint could not be confirmed by readback; that inverter is held at zero and excluded from the fleet."
             : !roles.valid            ? "No single enabled meter is assigned the grid role."
             : !measurement_fresh      ? "The grid measurement is missing, stale or non-finite."
