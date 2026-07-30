@@ -160,6 +160,24 @@
     --proof-ambiguous: #c9b6ff;
     --proof-none: #9fb3c8;
 
+    /* Generator engine commissioning. Three state colours because the panel makes
+       three separate statements about one machine and collapsing any two of them
+       loses a commissioning decision: an engine is in service, an engine is not in
+       service, or an engine is configured in a way the controller refuses.
+       The fault hue is deliberately the failure red rather than a warning amber. A
+       base-loaded engine held below its own minimum loading is not a caution to
+       review later - its load does not follow the plant total, so no PV limit
+       corrects it, and it must not look like something the controller can work
+       around.
+       Measured against --engine-surface: in-service 9.42:1, out-of-service 8.54:1,
+       fault 6.67:1, note 7.08:1, and the card boundary 3.94:1. */
+    --engine-surface: #0d1f34;
+    --engine-line: #5b7ea6;
+    --engine-in-service: #4ddb96;
+    --engine-out-of-service: #a9bccf;
+    --engine-fault: #ff7b84;
+    --engine-note: #99abc0;
+
     /* ISA-18.2 suppression states (gap A9 of docs/ALARM_MANAGEMENT_RESEARCH.md).
        Three colours because the standard names three states and warns they must
        not collapse into one "disabled" look: an operator's expiring shelf, the
@@ -867,4 +885,99 @@ input:disabled, select:disabled, textarea:disabled {
     font-size: 11px;
     font-variant-numeric: tabular-nums;
     overflow-wrap: anywhere;
+}
+
+/* ================================================ generator engine commissioning
+ *
+ * One card per engine slot, because the numbers are per machine and a single flat
+ * form of nine fields gives no indication which rating belongs to which engine.
+ * The in-service state sits on the card, not in a legend, so a reader cannot form a
+ * judgement about an engine without also seeing whether it is in service.
+ *
+ * Every state is carried by more than hue: the badge carries a word, the fault line
+ * carries a whole sentence, and an out-of-service card's boundary changes style. A
+ * reader who cannot separate the colours still gets the commissioning decision. */
+.engine-cards {
+    gap: 12px;
+}
+
+.engine-card {
+    background: var(--engine-surface);
+    border: 1px solid var(--engine-line);
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: grid;
+    gap: 10px;
+}
+
+.engine-card-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.engine-card-head h4 {
+    margin: 0;
+    color: var(--text);
+    font-size: 15px;
+}
+
+/* The word is the answer; the colour only reinforces it. */
+.engine-state {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    padding: 2px 8px;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    color: var(--engine-out-of-service);
+}
+
+.engine-state.is-in-service { color: var(--engine-in-service); }
+.engine-state.is-out-of-service { color: var(--engine-out-of-service); border-style: dashed; }
+
+.engine-note {
+    margin: 0;
+    color: var(--engine-note);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+}
+
+/* A commissioning fault, not a caution. Styled only when it carries text, so an
+ * empty line never reads as a checked-and-clear result: the firmware's sentence is
+ * either present or the condition is not present. */
+.engine-fault:not(:empty) {
+    margin: 0;
+    padding: 6px 8px;
+    color: var(--engine-fault);
+    border-left: 3px solid var(--engine-fault);
+    background: var(--engine-surface);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+}
+
+.engine-floor {
+    margin-top: 14px;
+    padding: 12px 14px;
+    background: var(--engine-surface);
+    border: 1px solid var(--engine-line);
+    border-radius: 10px;
+    display: grid;
+    gap: 8px;
+}
+
+.engine-floor h4 {
+    margin: 0;
+    color: var(--text);
+    font-size: 15px;
+}
+
+.engine-floor .health-row strong { font-variant-numeric: tabular-nums; }
+
+.notice .notice-detail { overflow-wrap: anywhere; }
+
+@media (max-width: 650px) {
+    .engine-card-head { align-items: flex-start; }
 }

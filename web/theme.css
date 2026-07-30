@@ -95,6 +95,18 @@ html[data-theme="light"] {
     --proof-ambiguous: #4b3fa8;
     --proof-none: #455a6e;
 
+    /* Light counterparts for the generator engine commissioning panel. Measured
+       against --engine-surface: in-service 6.56:1, out-of-service 6.19:1,
+       fault 6.61:1, note 5.47:1, and the card boundary 3.72:1. Three distinct state
+       values, as in the dark theme: "not in service" and "configured in a way the
+       controller refuses" are different findings and must not be painted alike. */
+    --engine-surface: #f4f8fc;
+    --engine-line: #6c8299;
+    --engine-in-service: #14663f;
+    --engine-out-of-service: #4a5f74;
+    --engine-fault: #a52a33;
+    --engine-note: #52677d;
+
     /* Light counterparts for the three ISA-18.2 suppression states. Worst measured
        ratio across --surface-sunken, --panel, --panel-strong and --field:
        shelved 6.27:1, by-design 7.17:1, out-of-service 7.02:1. Three distinct

@@ -8,8 +8,58 @@
         controller: null,
         sequence: 0,
         saving: false,
-        savingRamps: false
+        savingRamps: false,
+        savingFleet: false,
+        sharingModes: null
     };
+
+    /* Engine slots the generator policy can describe. Mirrors
+     * SOLAR_GRID_MAX_GENERATORS; the payload carries engine_slot_count and that is
+     * what is used, so this is only the fallback when the payload is unavailable. */
+    const ENGINE_SLOT_FALLBACK = 3;
+
+    /*
+     * WHY THE AGGREGATE-LIMIT SENTENCES ARE COPIED HERE WORD FOR WORD.
+     *
+     * These are generator_fleet_inhibit() in components/control_engine/control_engine.c,
+     * byte for byte. They are the firmware's own account of why it will not command PV,
+     * and they are reproduced rather than reworded because a paraphrase of a safety
+     * decision is a different decision: "cannot determine which engines are online" and
+     * "no engine is online" send an engineer to two different places.
+     *
+     * The slug comes from generator_fleet_reason_id() over the wire, so it is stable.
+     * tests/multi_engine_commissioning_source_contract.py extracts both sides and fails
+     * if a single character drifts apart.
+     */
+    const FLEET_REASON_SENTENCES = {
+        ok: '',
+        no_engine_configured: 'No generator engine is commissioned, so no minimum-loading floor can be computed.',
+        rating_unknown: 'A commissioned generator engine has no usable rating or minimum-loading figure.',
+        running_set_unknown: 'Which generator engines are online cannot be determined, so PV is held at zero.',
+        no_engine_online: 'A generator is carrying the plant but no commissioned engine is measured online.',
+        load_unknown: 'The plant load behind the generator limit is missing or non-finite.',
+        sharing_mode_unset: 'More than one generator engine is online and no kW load-sharing mode is commissioned, so which engine sets the minimum-loading floor is unknown.',
+        sharing_mode_unsupported: 'The commissioned kW load-sharing mode is not one a defensible minimum-loading floor can be computed for; droop sharing is refused rather than approximated.',
+        base_load_setpoint_unknown: 'Base-load sharing is commissioned but an online engine has no declared role, or a base-loaded engine has no fixed kW setpoint.',
+        base_load_below_minimum: "A base-loaded engine's fixed kW setpoint is below its own minimum loading, which no PV limit can correct.",
+        no_swing_engine: 'Every online engine is held at a fixed kW, so nothing on the bus would absorb the load the controller shapes.'
+    };
+
+    /* Human labels for the mode slugs. The slug decides which entry is used and the
+     * firmware decides whether the mode is selectable at all - this maps a stable
+     * identifier to a noun, and states nothing about safety. */
+    const SHARING_MODE_LABELS = {
+        unset: 'Not commissioned',
+        isochronous: 'Isochronous (proportional kW sharing)',
+        base_load: 'Base load (fixed kW on one or more engines)',
+        droop: 'Droop (speed-droop characteristic)'
+    };
+
+    const ENGINE_ROLE_LABELS = [
+        [0, 'Not commissioned'],
+        [1, 'Swing - absorbs the remaining load'],
+        [2, 'Base load - held at a fixed kW']
+    ];
 
     const byId = (id) => document.getElementById(id);
     const route = () => window.location.hash.replace(/^#\/?/, '').split(/[?&]/, 1)[0] || 'dashboard';
@@ -300,6 +350,382 @@
         }
     }
 
+    /* ==================================================== generator engine fleet */
+
+    function engineFields(slot) {
+        const block = node('article', 'panel engine-card');
+        block.id = `engineCard${slot}`;
+        const heading = node('div', 'engine-card-head');
+        heading.append(node('h4', '', `Engine ${slot + 1}`));
+        const badge = node('span', 'engine-state');
+        badge.id = `engine${slot}State`;
+        heading.append(badge);
+        block.append(heading);
+
+        const toggle = node('label', 'switch field-switch');
+        const inService = node('input');
+        inService.id = `engine${slot}InService`;
+        inService.type = 'checkbox';
+        toggle.append(inService, node('span'), node('b', '', 'In service at this site'));
+        block.append(toggle);
+
+        /* Engine 1 has no stored in-service flag: it is in service exactly when its
+         * rating is above zero, which is what "commissioned" has meant for the
+         * single-generator configuration since the rating existed. The control is
+         * shown, and shown as derived, rather than offering a checkbox the firmware
+         * would refuse. */
+        if (slot === 0) {
+            inService.disabled = true;
+            const derived = node('p', 'engine-note');
+            derived.id = 'engine0Derived';
+            derived.textContent = 'Engine 1 is in service exactly when its rated power is above zero. Set the rating to take it in or out of service.';
+            block.append(derived);
+        }
+
+        const grid = node('div', 'field-grid');
+        grid.append(
+            field('Rated power (kW)', numberInput(`engine${slot}Rated`, 0, '0.1')),
+            field('Minimum loading (% of rating)', numberInput(`engine${slot}Loading`, 0, '0.1')),
+            field('Spinning reserve (kW)', numberInput(`engine${slot}Reserve`, 0, '0.1')),
+            field('Reverse-power margin (kW)', numberInput(`engine${slot}Margin`, 0, '0.1'))
+        );
+        block.append(grid);
+
+        const roleGrid = node('div', 'field-grid');
+        const role = node('select');
+        role.id = `engine${slot}Role`;
+        ENGINE_ROLE_LABELS.forEach(([value, label]) => role.append(option(value, label)));
+        roleGrid.append(
+            field('Base-load role', role),
+            field('Fixed kW setpoint (base load only)', numberInput(`engine${slot}BaseLoad`, 0, '0.1'))
+        );
+        block.append(roleGrid);
+
+        const own = node('p', 'engine-note');
+        own.id = `engine${slot}Minimum`;
+        block.append(own);
+
+        const fault = node('p', 'engine-fault');
+        fault.id = `engine${slot}Fault`;
+        fault.setAttribute('role', 'status');
+        block.append(fault);
+        return block;
+    }
+
+    function ensureFleetEditor(root) {
+        if (byId('generatorFleetEditor')) return;
+        const panel = node('article', 'panel form-panel');
+        panel.id = 'generatorFleetEditor';
+
+        const header = node('div', 'panel-header');
+        const copy = node('div');
+        copy.append(node('p', 'eyebrow', 'Persisted generator policy'),
+                    node('h3', '', 'Generator engines and kW load sharing'));
+        header.append(copy);
+        panel.append(header);
+
+        const notice = node('div', 'notice warning');
+        notice.append(
+            node('strong', '', 'Every number here is a nameplate or measured quantity.'),
+            node('span', '', 'None of them has a default and none is guessed. A rating left at zero means the engine is not commissioned and PV stays at zero while a generator carries the plant, which is the safe state rather than an error.')
+        );
+        panel.append(notice);
+
+        /* The consequence of base load, stated before the fields that produce it and
+         * in the firmware's own sentence once the configuration has been read. */
+        const baseLoadNotice = node('div', 'notice bad');
+        baseLoadNotice.id = 'generatorBaseLoadNotice';
+        baseLoadNotice.append(
+            node('strong', '', 'A base-loaded engine held below its own minimum loading is a commissioning fault.'),
+            node('span', 'notice-detail', '')
+        );
+        panel.append(baseLoadNotice);
+
+        const modeGrid = node('div', 'field-grid');
+        const mode = node('select');
+        mode.id = 'generatorSharingMode';
+        modeGrid.append(field('kW load-sharing mode', mode, true));
+        panel.append(modeGrid);
+
+        const modeReason = node('p', 'engine-fault');
+        modeReason.id = 'generatorSharingModeReason';
+        modeReason.setAttribute('role', 'status');
+        panel.append(modeReason);
+
+        const engines = node('div', 'dashboard-grid engine-cards');
+        engines.id = 'generatorFleetEngines';
+        const slots = Number(state.config?.engine_slot_count) || ENGINE_SLOT_FALLBACK;
+        for (let slot = 0; slot < slots; slot += 1) engines.append(engineFields(slot));
+        panel.append(engines);
+
+        /* The derived floor, as a statement rather than a number without a subject. */
+        const derived = node('div', 'engine-floor');
+        derived.innerHTML = [
+            '<h4>Aggregate minimum-loading floor</h4>',
+            '<p class="engine-note" id="generatorFloorBasis">The floor below is computed with every in-service engine treated as on the bus. That is the largest denominator this policy allows, so it is the largest floor and the one commissioning has to satisfy.</p>',
+            '<div class="health-list">',
+            '<div class="health-row"><span>Sharing mode used</span><strong id="generatorFloorMode">--</strong></div>',
+            '<div class="health-row"><span>Engines counted</span><strong id="generatorFloorOnline">--</strong></div>',
+            '<div class="health-row"><span>Aggregate rating</span><strong id="generatorFloorRating">--</strong></div>',
+            '<div class="health-row"><span>Minimum-loading floor</span><strong id="generatorFloorMinimum">--</strong></div>',
+            '<div class="health-row"><span>Held at fixed kW</span><strong id="generatorFloorBaseLoad">--</strong></div>',
+            '<div class="health-row"><span>Load the generators must keep</span><strong id="generatorFloorRequired">--</strong></div>',
+            '</div>',
+            '<p class="engine-fault" id="generatorFloorReason" role="status"></p>',
+            '<p class="engine-fault" id="generatorFleetGateReason" role="status"></p>',
+            '<p class="engine-note" id="generatorFloorRuntime"></p>'
+        ].join('');
+        panel.append(derived);
+
+        const actions = node('div', 'panel-actions');
+        const save = node('button', 'button primary', 'Save generator policy');
+        save.id = 'generatorFleetSave';
+        save.type = 'button';
+        const message = node('span', 'action-message');
+        message.id = 'generatorFleetMessage';
+        message.setAttribute('role', 'status');
+        actions.append(save, message);
+        panel.append(actions);
+
+        root.append(panel);
+        save.addEventListener('click', saveFleet);
+        panel.querySelectorAll('input, select').forEach((control) => {
+            control.addEventListener('change', fleetAdvisory);
+            control.addEventListener('input', fleetAdvisory);
+        });
+    }
+
+    function setFleetMessage(message, tone = '') {
+        const target = byId('generatorFleetMessage');
+        if (!target) return;
+        target.textContent = message || '';
+        target.className = `action-message${tone ? ` ${tone}` : ''}`;
+    }
+
+    function engineSlots() {
+        return byId('generatorFleetEngines')?.children.length || 0;
+    }
+
+    function renderSharingModes(config) {
+        const select = byId('generatorSharingMode');
+        if (!select) return;
+        const modes = Array.isArray(config?.load_sharing_modes) ? config.load_sharing_modes : [];
+        state.sharingModes = modes;
+        select.replaceChildren();
+        modes.forEach((entry) => {
+            const slug = String(entry?.id || '');
+            const label = SHARING_MODE_LABELS[slug] || slug;
+            /* A refused mode is never offered as if selecting it would work. It stays
+             * visible, because the stored value may be exactly that mode and hiding it
+             * would show a configuration the controller does not have. */
+            const supported = entry?.supported === true;
+            const item = option(Number(entry?.value), supported ? label : `${label} - refused by the controller`);
+            item.disabled = !supported && !(entry?.selected === true);
+            select.append(item);
+        });
+        select.value = String(Number(config?.load_sharing_mode) || 0);
+    }
+
+    function renderEngines(config) {
+        const engines = Array.isArray(config?.engines) ? config.engines : [];
+        for (let slot = 0; slot < engineSlots(); slot += 1) {
+            const engine = engines.find((entry) => Number(entry?.slot) === slot) || {};
+            const inService = byId(`engine${slot}InService`);
+            if (inService) inService.checked = engine.in_service === true;
+            byId(`engine${slot}Rated`).value = Number(engine.rated_kw) || 0;
+            byId(`engine${slot}Loading`).value = Number(engine.minimum_loading_percent) || 0;
+            byId(`engine${slot}Reserve`).value = Number(engine.reserve_kw) || 0;
+            byId(`engine${slot}Margin`).value = Number(engine.reverse_power_margin_kw) || 0;
+            byId(`engine${slot}Role`).value = String(Number(engine.role) || 0);
+            byId(`engine${slot}BaseLoad`).value = Number(engine.base_load_kw) || 0;
+        }
+        const detail = byId('generatorBaseLoadNotice')?.querySelector('.notice-detail');
+        /* The commissioning gate's own sentence, verbatim. Nothing is composed here. */
+        if (detail) detail.textContent = verbatimText(config?.base_load_below_minimum_reason);
+        fleetAdvisory();
+    }
+
+    function verbatimText(value) {
+        return typeof value === 'string' ? value.trim() : '';
+    }
+
+    function engineReadings(slot) {
+        const rated = Number(byId(`engine${slot}Rated`).value);
+        const loading = Number(byId(`engine${slot}Loading`).value);
+        const reserve = Number(byId(`engine${slot}Reserve`).value);
+        const margin = Number(byId(`engine${slot}Margin`).value);
+        const role = Number(byId(`engine${slot}Role`).value);
+        const baseLoad = Number(byId(`engine${slot}BaseLoad`).value);
+        const inService = slot === 0 ? rated > 0 : byId(`engine${slot}InService`).checked;
+        return { slot, rated, loading, reserve, margin, role, baseLoad, inService };
+    }
+
+    /* Advisory only: the firmware validates and the commissioning gate decides. What
+     * this does is show the consequence of a base-load setpoint next to the field that
+     * sets it, because the fault it produces cannot be corrected by any PV limit. */
+    function fleetAdvisory() {
+        const modeSelect = byId('generatorSharingMode');
+        if (!modeSelect) return;
+        const selected = state.sharingModes?.find(
+            (entry) => Number(entry?.value) === Number(modeSelect.value));
+        const reason = byId('generatorSharingModeReason');
+        /* The firmware's own reason for refusing the selected mode, verbatim. */
+        if (reason) reason.textContent = selected?.supported === true ? '' : verbatimText(selected?.reason);
+
+        let inServiceCount = 0;
+        for (let slot = 0; slot < engineSlots(); slot += 1) {
+            const engine = engineReadings(slot);
+            if (engine.inService) inServiceCount += 1;
+            const derived = byId(`engine${slot}InService`);
+            if (slot === 0 && derived) derived.checked = engine.rated > 0;
+
+            const badge = byId(`engine${slot}State`);
+            if (badge) {
+                badge.textContent = engine.inService ? 'In service' : 'Not in service';
+                badge.className = `engine-state ${engine.inService ? 'is-in-service' : 'is-out-of-service'}`;
+            }
+
+            const ownMinimum = Number.isFinite(engine.rated) && Number.isFinite(engine.loading)
+                ? engine.rated * engine.loading / 100 : NaN;
+            const note = byId(`engine${slot}Minimum`);
+            if (note) {
+                note.textContent = Number.isFinite(ownMinimum) && engine.rated > 0
+                    ? `This engine's own minimum loading is ${ownMinimum.toFixed(2)} kW.`
+                    : 'This engine has no commissioned rating, so it has no own minimum loading.';
+            }
+
+            const fault = byId(`engine${slot}Fault`);
+            if (!fault) continue;
+            const baseLoaded = engine.role === 2;
+            /* A missing setpoint and a setpoint above the machine's own rating are the
+             * same firmware verdict - neither is a commissioned setpoint - so both
+             * carry the firmware's sentence for it rather than a phrase written here. */
+            if (engine.inService && baseLoaded && (!(engine.baseLoad > 0) || engine.baseLoad > engine.rated)) {
+                fault.textContent = verbatimText(state.config?.base_load_unknown_reason);
+            } else if (engine.inService && baseLoaded && Number.isFinite(ownMinimum) &&
+                       engine.baseLoad > 0 && engine.baseLoad < ownMinimum) {
+                /* The gate's own sentence. Not reworded: this is a commissioning fault,
+                 * not something the controller can work around. */
+                fault.textContent = verbatimText(state.config?.base_load_below_minimum_reason);
+            } else {
+                fault.textContent = '';
+            }
+        }
+
+        const modeRequired = inServiceCount > 1;
+        const unsetSelected = Number(modeSelect.value) === 0;
+        if (reason && modeRequired && unsetSelected) {
+            /* The gate's own sentence for an uncommissioned mode. */
+            reason.textContent = verbatimText(state.config?.load_sharing_unset_reason);
+        }
+    }
+
+    function collectFleet() {
+        const modeSelect = byId('generatorSharingMode');
+        const mode = Number(modeSelect.value);
+        if (!Number.isInteger(mode) || mode < 0) throw new Error('Select a kW load-sharing mode.');
+        const engines = [];
+        for (let slot = 0; slot < engineSlots(); slot += 1) {
+            const engine = engineReadings(slot);
+            for (const [label, value, maximum] of [
+                ['Rated power', engine.rated, 1000000],
+                ['Minimum loading', engine.loading, 100],
+                ['Spinning reserve', engine.reserve, 1000000],
+                ['Reverse-power margin', engine.margin, 1000000],
+                ['Fixed kW setpoint', engine.baseLoad, 1000000]
+            ]) {
+                if (!Number.isFinite(value) || value < 0 || value > maximum) {
+                    throw new Error(`Engine ${slot + 1}: ${label} must be between 0 and ${maximum}.`);
+                }
+            }
+            if (![0, 1, 2].includes(engine.role)) throw new Error(`Engine ${slot + 1}: select a base-load role.`);
+            const entry = {
+                slot,
+                rated_kw: engine.rated,
+                minimum_loading_percent: engine.loading,
+                reserve_kw: engine.reserve,
+                reverse_power_margin_kw: engine.margin,
+                role: engine.role,
+                base_load_kw: engine.baseLoad
+            };
+            /* Engine 1 carries no stored in-service flag; the firmware refuses one
+             * that disagrees with its rating, so it is not sent. */
+            if (slot > 0) entry.in_service = engine.inService;
+            engines.push(entry);
+        }
+        return { load_sharing_mode: mode, engines };
+    }
+
+    async function saveFleet() {
+        if (state.savingFleet) return;
+        const save = byId('generatorFleetSave');
+        state.savingFleet = true;
+        if (save) save.disabled = true;
+        try {
+            const payload = collectFleet();
+            setFleetMessage('Saving the generator policy and forcing automatic control disabled…');
+            const saved = await api('/api/solar-grid/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+                timeoutMs: 7000
+            });
+            renderConfig(saved);
+            setFleetMessage('Generator policy saved and verified. Automatic control is disabled; restart is required.', 'good');
+        } catch (error) {
+            setFleetMessage(error.message, 'bad');
+        } finally {
+            state.savingFleet = false;
+            if (save) save.disabled = false;
+        }
+    }
+
+    function renderFleetStatus(fleet) {
+        if (!byId('generatorFloorMode')) return;
+        const derived = fleet?.derived_floor || null;
+        const unavailable = 'Unavailable';
+        const setRow = (id, text) => { const target = byId(id); if (target) target.textContent = text; };
+        if (!derived) {
+            ['generatorFloorMode', 'generatorFloorOnline', 'generatorFloorRating',
+             'generatorFloorMinimum', 'generatorFloorBaseLoad', 'generatorFloorRequired']
+                .forEach((id) => setRow(id, unavailable));
+            setRow('generatorFloorReason', '');
+            setRow('generatorFloorRuntime', '');
+            return;
+        }
+        const known = derived.known === true;
+        setRow('generatorFloorMode', String(derived.sharing_mode || 'unset').replaceAll('_', ' '));
+        setRow('generatorFloorOnline', known ? `${Number(derived.online_count) || 0} of ${Number(fleet?.engine_slot_count) || 0}` : unavailable);
+        setRow('generatorFloorRating', known ? power(derived.online_rated_kw) : unavailable);
+        setRow('generatorFloorMinimum', known ? power(derived.minimum_loading_kw) : unavailable);
+        setRow('generatorFloorBaseLoad', known
+            ? `${Number(derived.base_loaded_count) || 0} engine(s) · ${power(derived.base_load_total_kw)}`
+            : unavailable);
+        setRow('generatorFloorRequired', known ? power(derived.required_generator_kw) : unavailable);
+        /* The controller's own sentence for the reason it reported, selected by the
+         * slug it reported. Never a sentence composed here. */
+        setRow('generatorFloorReason', known ? '' : (FLEET_REASON_SENTENCES[String(derived.reason || '')] || ''));
+        setRow('generatorFloorRuntime', fleet?.runtime_fleet_limit_published === false
+            ? `The controller's own cycle-by-cycle limit is not published. Its reason is: ${verbatimText(fleet?.runtime_reason) || 'none reported'}`
+            : '');
+    }
+
+    /* The commissioning gate's verdict on the generator limits, in its own words. Read
+     * once per load rather than on the status poll: the Control route already holds
+     * one of very few client sockets open for the status refresh. */
+    async function loadGateReason() {
+        const target = byId('generatorFleetGateReason');
+        if (!target) return;
+        try {
+            const gate = await api('/api/commissioning/gate', { timeoutMs: 4000 });
+            const items = Array.isArray(gate?.prerequisites) ? gate.prerequisites : [];
+            const item = items.find((entry) => String(entry?.id) === 'generator_limits');
+            target.textContent = item && item.satisfied !== true ? verbatimText(item.detail) : '';
+        } catch {
+            target.textContent = '';
+        }
+    }
+
     function ensureWorkspace() {
         if (byId('solarGridWorkspace')) return;
         const page = document.querySelector('.page[data-page="control"]');
@@ -393,6 +819,7 @@
         configPanel.append(actions);
 
         root.append(runtime, configPanel);
+        ensureFleetEditor(root);
         ensureRampEditor(root);
         anchor.after(root);
 
@@ -457,6 +884,11 @@
         byId('solarGridLossTrip').value = config.grid_loss_trip_ms ?? 250;
         byId('solarGridRecoveryStable').value = config.grid_recovery_stable_ms ?? 5000;
         updateEvidenceVisibility();
+        /* The generator policy travels in the same document, so it is rendered from
+         * the same response. Before this existed the API carried engine slot 0 only
+         * and a multi-engine plant could not be commissioned through the product. */
+        renderSharingModes(config);
+        renderEngines(config);
     }
 
     function collectConfig() {
@@ -542,6 +974,7 @@
         byId('solarGridPower').textContent = power(status.grid_power_kw);
         byId('solarGridTarget').textContent = power(status.grid_target_kw);
         byId('solarGridEvidenceReads').textContent = `${Number(status.grid_evidence_success_count) || 0} OK · ${Number(status.grid_evidence_error_count) || 0} errors`;
+        renderFleetStatus(status.generator_fleet);
     }
 
     function stop() {
@@ -586,15 +1019,19 @@
         if (!controlScopeAllowed()) {
             setMessage('Unlock Engineering on this page to load the Solar + Grid settings.');
             setRampMessage('Unlock Engineering on this page to view the ramp profiles.');
+            setFleetMessage('Unlock Engineering on this page to commission the generator engines.');
             return;
         }
         try {
             renderConfig(await api('/api/solar-grid/config', { timeoutMs: 4000 }));
             setMessage('Settings loaded. Saving always forces control disabled.');
+            setFleetMessage('Generator policy loaded from the controller.');
         } catch (error) {
             setMessage(`Configuration unavailable: ${error.message}`, 'bad');
+            setFleetMessage(`Generator policy unavailable: ${error.message}`, 'bad');
         }
         await loadRamps();
+        await loadGateReason();
         if (route() === 'control' && !document.hidden) refreshStatus();
     }
 
