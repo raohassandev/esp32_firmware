@@ -635,6 +635,35 @@ node chrome-breakdown.js                    # area-accounting explanation
 Optional env: `TARGET`, `ENG_PASSWORD` (would unlock §0a), `ONLY_ROUTE`, `ONLY_VP`,
 `REPORT_NAME`, `SHOT_SUFFIX`.
 
+---
+
+## 10. Device state when this audit ended
+
+The controller went **off the network** after all measurement had finished. `/api/status`
+returned `000` after 15 s and 20 s timeouts, and ICMP failed 7/7 — the device is not merely
+refusing HTTP, it is not answering ping.
+
+Timeline, for whoever owns the board:
+
+| Time | Event |
+|---|---|
+| — | 90-run baseline completes against build A; device healthy |
+| +4 min | one navigation times out; `/api/telemetry` shows 212 s uptime → **re-flashed and restarted by another party** (§0b) |
+| +5 min | build B spot check (10 runs) and `tablet-taps.js` complete normally; `/api/status` 200 in 1.02 s, then 0.05 s |
+| +20 min | `/api/status` returns `000`; ICMP 100 % loss |
+
+**This was not caused by the audit.** Every request this session was a GET; the last one was
+~15 minutes before the device disappeared, and the device answered normally after it. The board
+had already been re-flashed once by someone else during the session, and a second flash or a
+power interruption is the obvious explanation. Per the audit's ground rules I stopped, waited,
+re-checked twice, and did **not** power-cycle it or attempt recovery. It should be checked
+physically.
+
+Nothing in the report depends on the device being reachable now: every figure comes from the
+committed JSON and screenshots.
+
+---
+
 **None of the findings in this report are firmware safety defects.** `control_enabled` was
 `false` and `control_authority.mode` was `monitoring_only` throughout; no inverter command was
 issued and no configuration was written.
