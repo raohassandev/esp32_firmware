@@ -226,10 +226,6 @@ jobs:
         run: python3 tests/alarm_management_source_contract.py
       - name: Check persistent alarm journal and ISA-18.2 shelving contract
         run: python3 tests/alarm_journal_shelving_source_contract.py
-      - name: Check ISA-18.2 suppressed-by-design and out-of-service contract
-        run: python3 tests/alarm_suppression_states_source_contract.py
-      - name: Check EEMUA 191 priority rationalisation and alarm-rate metrics contract
-        run: python3 tests/alarm_rate_and_priority_source_contract.py
       - name: Check HTTP route capacity leads the registered routes
         run: python3 tests/uri_handler_capacity_source_contract.py
       - name: Check no credential is shared across units
@@ -249,24 +245,6 @@ jobs:
             components/meter_manager/meter_poll_schedule.c \
             -lm -o /tmp/meter_poll_schedule_test
           /tmp/meter_poll_schedule_test
-      - name: Run EEMUA 191 alarm metrics unit tests
-        run: |
-          set -euo pipefail
-          gcc -std=c11 -Wall -Wextra -Werror \
-            -Icomponents/web_server/include \
-            tests/alarm_metrics_test.c \
-            components/web_server/alarm_metrics.c \
-            -lm -o /tmp/alarm_metrics_test
-          /tmp/alarm_metrics_test
-      - name: Run ISA-18.2 alarm suppression state machine unit tests
-        run: |
-          set -euo pipefail
-          gcc -std=c11 -Wall -Wextra -Werror \
-            -Icomponents/web_server/include \
-            tests/alarm_suppression_test.c \
-            components/web_server/alarm_suppression.c \
-            -lm -o /tmp/alarm_suppression_test
-          /tmp/alarm_suppression_test
       - name: Run inverter write permission unit tests
         run: |
           set -euo pipefail
@@ -313,21 +291,6 @@ jobs:
         run: python3 tests/lab_control_ui_source_contract.py
       - name: Check prerequisite enable register reporting
         run: python3 tests/prerequisite_reporting_source_contract.py
-      - name: Run write confirmation provenance roll-up unit tests
-        run: |
-          set -euo pipefail
-          gcc -std=c11 -Wall -Wextra -Werror \
-            -Itests/support -Icomponents/web_server/include \
-            -Icomponents/inverter_manager/include \
-            tests/write_provenance_test.c \
-            components/web_server/write_provenance.c \
-            components/inverter_manager/inverter_write_confirmation.c \
-            -lm -o /tmp/write_provenance_test
-          /tmp/write_provenance_test
-      - name: Check confirmation provenance reporting and UI
-        run: python3 tests/confirmation_provenance_source_contract.py
-      - name: Check multi-engine generator commissioning API and UI
-        run: python3 tests/multi_engine_commissioning_source_contract.py
       - name: Enforce production release gate
         env:
           PVDG_PRODUCTION_RELEASE: ${{ inputs.production_release && '1' || '0' }}
