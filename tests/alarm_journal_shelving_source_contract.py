@@ -462,6 +462,15 @@ require("tests/alarm_journal_shelving_source_contract.py" in WORKFLOW,
 # ---------------------------------------------------------------------------
 
 STUBS = {
+    # Force-included into alarm_journal.c so the fsync rename has a prototype on
+    # BOTH platforms: glibc declares fsync in <unistd.h> (so the old
+    # -Dfsync(fd)=0 corrupted that declaration), while MinGW does not declare it
+    # at all (so a bare rename left it implicit). Declaring it ourselves is the
+    # only form that is correct on both.
+    "pvdg_test_fsync.h": """
+#pragma once
+int pvdg_test_fsync(int fd);
+""",
     "esp_err.h": """
 #pragma once
 typedef int esp_err_t;
@@ -549,6 +558,17 @@ HARNESS = r"""
 #include <string.h>
 #include "alarm_journal.h"
 
+/* alarm_journal.c is compiled with -Dfsync=pvdg_test_fsync, so this is the
+ * fsync it calls. Durability is what the journal contract tests, and it tests
+ * it by reopening the file from a fresh process -- which the OS satisfies from
+ * the page cache without any flush to disk. A real fsync here would only slow
+ * the test down; it would not make the assertion stronger. */
+int pvdg_test_fsync(int fd)
+{
+    (void)fd;
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 2) return 2;
@@ -608,7 +628,13 @@ try:
         "gcc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-O1",
         f"-I{include}", f"-I{ROOT / 'components/web_server/include'}",
         f'-DALARM_JOURNAL_FILE="{journal_file.as_posix()}"',
-        "-Dfsync(fd)=0",
+        # Redirect fsync to a harness-provided stub rather than defining it away.
+        # "-Dfsync(fd)=0" rewrote glibc's own declaration in <unistd.h> --
+        # `extern int fsync(int)` became `extern int 0` -- which broke the Linux
+        # build while passing on MinGW, whose unistd.h does not declare fsync at
+        # all. Renaming the symbol leaves every declaration well-formed on both.
+        "-Dfsync=pvdg_test_fsync",
+        "-include", "pvdg_test_fsync.h",
         str(work / "harness.c"), str(JOURNAL_PATH), "-o", str(binary),
     ]
     compiled = subprocess.run(compile_command, capture_output=True, text=True)

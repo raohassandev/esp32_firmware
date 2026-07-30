@@ -207,9 +207,28 @@ static bool journal_read_block(uint32_t slot, uint32_t slots, uint8_t *buffer)
         return false;
     }
     /* A short read is expected while the ring is still growing: the slots past
-     * the end of the file simply do not exist yet, and the zeroed buffer fails
-     * validation exactly as an unwritten slot should. */
-    (void)fread(buffer, 1U, (size_t)slots * ALARM_JOURNAL_RECORD_BYTES, s_file);
+     * the end of the file simply do not exist yet, and because the buffer was
+     * zeroed above, those slots fail validation exactly as an unwritten slot
+     * should. That case is not an error and must not be reported as one.
+     *
+     * A read ERROR is a different thing entirely and was previously
+     * indistinguishable from it. The return value was discarded with a (void)
+     * cast, so a failing filesystem returned a block of zeroes that the caller
+     * accepted as "these slots were never written" -- silently converting an I/O
+     * fault into missing history, which is the one outcome a journal exists to
+     * prevent. ferror() separates them: end-of-file is growth, anything else is a
+     * failure the caller must see.
+     *
+     * (The (void) cast did not even suppress the warning it was written for:
+     * glibc marks fread warn_unused_result, and casting to void does not silence
+     * that attribute, so this broke the -Werror build on Linux while compiling
+     * clean on MinGW.) */
+    const size_t wanted = (size_t)slots * ALARM_JOURNAL_RECORD_BYTES;
+    const size_t got = fread(buffer, 1U, wanted, s_file);
+    if (got < wanted && ferror(s_file)) {
+        clearerr(s_file);
+        return false;
+    }
     return true;
 }
 
