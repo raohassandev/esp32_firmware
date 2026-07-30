@@ -1,0 +1,155 @@
+runs completed: 90 / 90
+
+===== ISSUE TYPES =====
+  368  low-contrast-text  (11 distinct)
+
+===== WORST CONTRAST =====
+  2.23  span  "⌂"  ratio 2.23 < 4.5 (rgb(242, 138, 43) on rgb(238,243,248), 19px)
+         x40 seen: dashboard/1440x900/light, control/1440x900/light, alarms/1440x900/light, wifi/1440x900/light
+  2.23  p.eyebrow  "Plant overview"  ratio 2.23 < 4.5 (rgb(242, 138, 43) on rgb(238,243,248), 10px)
+         x65 seen: dashboard/1440x900/light, meters/1440x900/light, inverters/1440x900/light, control/1440x900/light
+  2.32  span  "⌂"  ratio 2.32 < 4.5 (rgb(255, 140, 42) on rgb(255,255,255), 19px)
+         x4 seen: dashboard/390x844/light, meters/390x844/light, inverters/390x844/light, alarms/390x844/light
+  2.32  small  "Overview"  ratio 2.32 < 4.5 (rgb(255, 140, 42) on rgb(255,255,255), 10px)
+         x4 seen: dashboard/390x844/light, meters/390x844/light, inverters/390x844/light, alarms/390x844/light
+  2.38  p.eyebrow  "EEMUA 191 · measured"  ratio 2.38 < 4.5 (rgb(242, 138, 43) on rgb(248,250,252), 10px)
+         x10 seen: alarms/1440x900/light, alarms/1920x1080/light, alarms/1024x768/light, alarms/390x844/light
+  2.49  p.eyebrow  "Live power flow"  ratio 2.49 < 4.5 (rgb(242, 138, 43) on rgb(255,255,255), 14px)
+         x5 seen: dashboard/1440x900/light, dashboard/1920x1080/light, dashboard/1024x768/light, dashboard/390x844/light
+  2.49  span  "→"  ratio 2.49 < 3 (rgb(242, 138, 43) on rgb(255,255,255), 24px)
+         x10 seen: dashboard/1440x900/light, dashboard/1920x1080/light, dashboard/1024x768/light, dashboard/390x844/light
+  2.49  p.eyebrow  "Authentication"  ratio 2.49 < 4.5 (rgb(242, 138, 43) on rgb(255,255,255), 10px)
+         x25 seen: control/1440x900/light, wifi/1440x900/light, system/1440x900/light, commissioning/1440x900/light
+  3.41  span  "△"  ratio 3.41 < 4.5 (rgb(113, 133, 154) on rgb(238,243,248), 19px)
+         x160 seen: dashboard/1440x900/light, meters/1440x900/light, inverters/1440x900/light, control/1440x900/light
+  3.80  small  "Into site"  ratio 3.80 < 4.5 (rgb(113, 133, 154) on rgb(255,255,255), 9px)
+         x25 seen: dashboard/1440x900/light, dashboard/1920x1080/light, dashboard/1024x768/light, dashboard/390x844/light
+  4.34  small  "Into site"  ratio 4.34 < 4.5 (rgb(113, 133, 157) on rgb(14,32,53), 9px)
+         x20 seen: dashboard/1440x900/dark, dashboard/1920x1080/dark, dashboard/1024x768/dark, dashboard/390x844/dark
+
+===== TAP TARGETS < 44 (390x844) =====
+
+===== NETWORK (all runs) =====
+    675  /api/status  {"200":675}
+    377  /api/inverters  {"200":377}
+    376  /api/meters  {"200":376}
+    304  /api/inverter-telemetry  {"200":304}
+    207  /api/engineering/session  {"200":207}
+    180  /api/config  {"200":180}
+    180  /api/operator/history  {"200":180}
+    180  /api/operator/events  {"200":180}
+     90  /  {"200":90}
+     90  /app.css  {"200":90}
+     90  /app.js  {"200":90}
+     90  /api/operator/alarms  {"200":90}
+     27  /api/telemetry  {"200":27}
+
+===== BASELINE 1440x900 light =====
+route         useful%  value%  prose%  chrome%  empty%  words  prose-w  dupVals  cards  charts  belowFold  jargon  DOM   reqs
+dashboard       13.6     1.8     8.4      8.2    69.8    321      153        2      8       1          2       1  1511     33
+meters          12.9     1.7       3      8.2    75.9     75       31        1      4       2          0       2  1429     33
+inverters       12.5     2.4     2.3        8    77.2     63       16        1      4       2          0       1  1461     37
+control          7.1       0     2.1     15.9    74.9     28       20        0      1       0          0       1  1370     32
+alarms          24.5    14.3      15     16.2    44.4   1338      589       12      9       0         54       1  1761     31
+wifi             7.1       0     2.1     15.9    74.9     28       20        0      1       0          0       1  1327     31
+system           7.1       0     2.1     15.9    74.9     28       20        0      1       0          0       1  1407     32
+commissioning    7.1       0     2.1     15.9    74.9     28       20        0      1       0          0       1  1824     32
+readiness       18.5     3.4     5.8     15.8    59.8    158       72        1     10       0          0       1  1395     31
+engineering      7.1       0     1.8     15.9    75.3     21       13        0      1       0          0       1  1320     30
+
+===== DEVELOPER TERMINOLOGY (1440x900 light) =====
+  [register] p  "Live demand, direction, freshness, and meter availability—without engineering re"  routes: meters
+  [schema] div#sidebarVersion.sidebar-version  "Configuration schema 5 · automatrix-pvdg"  routes: dashboard,meters,inverters,control,alarms,wifi,system,commissioning,readiness,engineering
+
+===== REPEATED VALUES (1440x900 light) =====
+  --- dashboard: 2 repeated value groups
+      "25.22 kW" x2
+         strong @(352,468) 106x36 "25.22 kW"
+         strong.op-kpi-value @(283,1473) 241x28 "25.22 kW"
+      "0.00 A" x2
+         small.op-flow-note @(300,1241) 210x55 "Applied PV command 0.00 kW — a limit written to the fleet, n"
+         small.op-flow-note @(610,655) 80x23 "Applied 0.00 kW"
+  --- meters: 1 repeated value groups
+      "1" x2
+         strong @(1240,475) 160x20 "1 online"
+         small @(1240,497) 160x18 "1 enabled meter"
+  --- inverters: 1 repeated value groups
+      "100.0 kW" x2
+         small @(340,412) 149x19 "100.0 kW installed capacity"
+         small @(352,571) 83x19 "100.0 kW rated"
+  --- alarms: 12 repeated value groups
+      "45" x21
+         strong @(347,1715) 242x18 "45 min ago"
+         strong @(619,1715) 242x18 "45 min ago"
+         strong @(347,2113) 242x18 "45 min ago"
+         strong @(619,2113) 242x18 "45 min ago"
+      "1" x5
+         strong @(347,1780) 242x18 "1"
+         strong @(347,2178) 242x18 "1"
+         strong @(347,2576) 242x18 "1"
+         strong @(347,2974) 242x18 "1"
+      "4" x4
+         strong.op-kpi-value @(283,519) 242x28 "4"
+         strong.op-kpi-value @(863,519) 242x28 "4"
+         strong @(860,720) 243x32 "4 alarm(s)"
+         strong @(1142,725) 243x38 "4 alarm(s)"
+      "2 %" x4
+         small @(294,1084) 170x16 "2 condition(s) · target 5%"
+         small @(472,1084) 170x16 "2 condition(s) · target 15%"
+         small @(858,1077) 170x15 "2 condition(s) · target 5%"
+         small @(1036,1077) 170x15 "2 condition(s) · target 15%"
+      "15" x4
+         strong @(890,1715) 242x18 "15 sec"
+         strong @(890,2113) 242x18 "15 sec"
+         strong @(890,2511) 242x18 "15 sec"
+         strong @(890,2909) 242x18 "15 sec"
+      "191 A" x3
+         p.eyebrow @(281,632) 1116x15 "EEMUA 191 · measured"
+         p.eyebrow @(281,918) 1116x15 "EEMUA 191 · rationalised"
+         p.alarm-metrics-note @(281,1227) 1116x72 "Every condition was rationalised individually against one te"
+      "0" x2
+         strong.op-kpi-value @(573,519) 242x28 "0"
+         strong @(297,720) 243x32 "0 alarm(s)"
+      "10" x2
+         span @(297,696) 243x20 "Last 10 minutes"
+         small @(860,756) 243x37 "Ceiling: 10 in the first ten minutes of an upset. No breach "
+  --- readiness: 1 repeated value groups
+      "1" x2
+         span @(1189,371) 162x22 "1 blocker(s) · 2 warning(s)"
+         p @(382,578) 365x22 "1 meter channel is online with fresh data."
+
+===== CHARTS (1440x900 light) =====
+  --- dashboard
+      svg 525x92 in card article.op-card.op-trend-card 567x196 -> 43.5% of card area, 47% of card height
+  --- meters
+      svg 220x140 in card article.op-card.op-gauge-card 299x320 -> 32.2% of card area, 43.8% of card height
+      svg 417x92 in card article.op-card.op-trend-card 459x320 -> 26.2% of card area, 28.8% of card height
+  --- inverters
+      svg 220x140 in card article.op-card.op-gauge-card 301x222 -> 46.1% of card area, 63.1% of card height
+      svg 220x140 in card article.op-card.op-gauge-card 301x222 -> 46.1% of card area, 63.1% of card height
+
+===== LARGEST EMPTY REGIONS (1440x900 light) =====
+  dashboard: 928x152 @(512,752) = 10.8%; 296x384 @(0,432) = 8.7%; 576x192 @(752,56) = 8.5%
+  meters: 1224x232 @(216,672) = 21.8%; 1112x104 @(0,480) = 8.9%; 440x192 @(888,56) = 6.5%
+  inverters: 1224x312 @(216,592) = 29.3%; 512x192 @(816,56) = 7.6%; 216x384 @(0,432) = 6.4%
+  control: 1224x400 @(216,504) = 37.6%; 352x360 @(1088,144) = 9.7%; 216x384 @(0,432) = 6.4%
+  alarms: 280x368 @(0,448) = 7.9%; 752x88 @(432,0) = 5.1%; 392x160 @(1048,144) = 4.8%
+  wifi: 1224x400 @(216,504) = 37.6%; 352x360 @(1088,144) = 9.7%; 216x384 @(0,432) = 6.4%
+  system: 1224x400 @(216,504) = 37.6%; 352x360 @(1088,144) = 9.7%; 216x384 @(0,432) = 6.4%
+  commissioning: 1224x400 @(216,504) = 37.6%; 352x360 @(1088,144) = 9.7%; 216x384 @(0,432) = 6.4%
+  readiness: 320x384 @(0,432) = 9.4%; 680x112 @(504,336) = 5.9%; 728x88 @(456,0) = 4.9%
+  engineering: 1224x440 @(216,464) = 41.4%; 352x320 @(1088,144) = 8.7%; 216x384 @(0,432) = 6.4%
+
+===== CARDS UNDER 40% FILLED (1440x900 light) =====
+  dashboard: article.op-card.op-flow-card 771x1159 @(264,230) fill 32.2%
+  dashboard: article.op-card.op-health-card 363x1159 @(1051,230) fill 24.9%
+  meters: article.op-card.op-gauge-card 299x320 @(264,230) fill 14.8%
+  meters: article.op-card.op-trend-card 459x320 @(579,230) fill 15.6%
+  meters: article.op-card.op-readiness-card 359x320 @(1055,230) fill 38.6%
+  meters: article.op-card 1150x141 @(264,568) fill 30.4%
+  inverters: article.op-card.op-gauge-card 301x222 @(264,230) fill 16.8%
+  inverters: article.op-card.op-gauge-card 301x222 @(581,230) fill 18.8%
+  inverters: article.op-card.op-trend-card 516x222 @(898,230) fill 35.6%
+  inverters: article.op-card 1150x158 @(264,470) fill 32.1%
+
+wrote baseline-metrics.json

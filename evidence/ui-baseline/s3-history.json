@@ -1,0 +1,180 @@
+{
+  "base": "http://192.168.100.14",
+  "generated": "2026-07-30T16:32:46.964Z",
+  "phases": {
+    "A_standalone": {
+      "n": 30,
+      "statuses": {
+        "200": 30
+      },
+      "samples": [
+        {
+          "status": 200,
+          "ms": 306,
+          "bytes": 28789
+        },
+        {
+          "status": 200,
+          "ms": 246,
+          "bytes": 28789
+        },
+        {
+          "status": 200,
+          "ms": 218,
+          "bytes": 28789
+        },
+        {
+          "status": 200,
+          "ms": 203,
+          "bytes": 28789
+        },
+        {
+          "status": 200,
+          "ms": 245,
+          "bytes": 28789
+        },
+        {
+          "status": 200,
+          "ms": 267,
+          "bytes": 28789
+        },
+        {
+          "status": 200,
+          "ms": 193,
+          "bytes": 28789
+        },
+        {
+          "status": 200,
+          "ms": 164,
+          "bytes": 28790
+        },
+        {
+          "status": 200,
+          "ms": 186,
+          "bytes": 28787
+        },
+        {
+          "status": 200,
+          "ms": 208,
+          "bytes": 28788
+        },
+        {
+          "status": 200,
+          "ms": 457,
+          "bytes": 28788
+        },
+        {
+          "status": 200,
+          "ms": 213,
+          "bytes": 28788
+        },
+        {
+          "status": 200,
+          "ms": 166,
+          "bytes": 28789
+        },
+        {
+          "status": 200,
+          "ms": 182,
+          "bytes": 28789
+        },
+        {
+          "status": 200,
+          "ms": 211,
+          "bytes": 28789
+        },
+        {
+          "status": 200,
+          "ms": 164,
+          "bytes": 28789
+        },
+        {
+          "status": 200,
+          "ms": 190,
+          "bytes": 28789
+        },
+        {
+          "status": 200,
+          "ms": 133,
+          "bytes": 28789
+        },
+        {
+          "status": 200,
+          "ms": 129,
+          "bytes": 28789
+        },
+        {
+          "status": 200,
+          "ms": 282,
+          "bytes": 28789
+        },
+        {
+          "status": 200,
+          "ms": 174,
+          "bytes": 28789
+        },
+        {
+          "status": 200,
+          "ms": 235,
+          "bytes": 28789
+        },
+        {
+          "status": 200,
+          "ms": 143,
+          "bytes": 28789
+        },
+        {
+          "status": 200,
+          "ms": 172,
+          "bytes": 28789
+        },
+        {
+          "status": 200,
+          "ms": 241,
+          "bytes": 28789
+        },
+        {
+          "status": 200,
+          "ms": 177,
+          "bytes": 28789
+        },
+        {
+          "status": 200,
+          "ms": 314,
+          "bytes": 28789
+        },
+        {
+          "status": 200,
+          "ms": 365,
+          "bytes": 28789
+        },
+        {
+          "status": 200,
+          "ms": 194,
+          "bytes": 28789
+        },
+        {
+          "status": 200,
+          "ms": 279,
+          "bytes": 28789
+        }
+      ]
+    },
+    "B_single_tab_90s": {
+      "n": 15,
+      "statuses": {
+        "200": 15
+      }
+    },
+    "C_three_tabs_60s": {
+      "n": 37,
+      "statuses": {
+        "200": 37
+      },
+      "independentClientDuringLoad": {
+        "status": 200,
+        "ms": 1179
+      }
+    }
+  }
+}

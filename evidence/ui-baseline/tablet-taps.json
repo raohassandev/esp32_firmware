@@ -1,0 +1,84 @@
+{
+  "base": "http://192.168.100.14",
+  "generated": "2026-07-30T16:40:25.429Z",
+  "viewport": "1024x768",
+  "runs": [
+    {
+      "route": "dashboard",
+      "pointerCoarse": true,
+      "tapTargets": [
+        {
+          "type": "tap-target-too-small",
+          "selector": "button.pvc-legend-item",
+          "detail": "107x25px < 44x44",
+          "text": "Grid power"
+        },
+        {
+          "type": "tap-target-too-small",
+          "selector": "button.pvc-legend-item",
+          "detail": "138x25px < 44x44",
+          "text": "Solar production"
+        }
+      ]
+    },
+    {
+      "route": "meters",
+      "pointerCoarse": true,
+      "tapTargets": [
+        {
+          "type": "tap-target-too-small",
+          "selector": "button.pvc-legend-item",
+          "detail": "107x25px < 44x44",
+          "text": "Grid power"
+        }
+      ]
+    },
+    {
+      "route": "inverters",
+      "pointerCoarse": true,
+      "tapTargets": [
+        {
+          "type": "tap-target-too-small",
+          "selector": "button.pvc-legend-item",
+          "detail": "138x25px < 44x44",
+          "text": "Solar production"
+        }
+      ]
+    },
+    {
+      "route": "control",
+      "pointerCoarse": true,
+      "tapTargets": []
+    },
+    {
+      "route": "alarms",
+      "pointerCoarse": true,
+      "tapTargets": []
+    },
+    {
+      "route": "wifi",
+      "pointerCoarse": true,
+      "tapTargets": []
+    },
+    {
+      "route": "system",
+      "pointerCoarse": true,
+      "tapTargets": []
+    },
+    {
+      "route": "commissioning",
+      "pointerCoarse": true,
+      "tapTargets": []
+    },
+    {
+      "route": "readiness",
+      "pointerCoarse": true,
+      "tapTargets": []
+    },
+    {
+      "route": "engineering",
+      "pointerCoarse": true,
+      "tapTargets": []
+    }
+  ]
+}
