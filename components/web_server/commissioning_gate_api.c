@@ -9,6 +9,7 @@
 #include "esp_err.h"
 #include "inverter_manager.h"
 #include "inverter_write_confirmation.h"
+#include "write_provenance_api.h"
 
 /* Every header value below is a string literal with static storage duration.
  * httpd_resp_set_hdr() stores the pointer and does NOT copy, so a value that
@@ -129,6 +130,21 @@ static esp_err_t gate_get(httpd_req_t *request)
                             "permanent and needs a manual citation for the register and its "
                             "readback.");
 
+    /* WHAT CONFIRMED THE WRITES, published unconditionally beside the verdict.
+     *
+     * write_confirmation_fault above says whether a write could not be confirmed.
+     * It does NOT say what confirmed the ones that were, and since plant-level
+     * logger control landed there are two answers with very different weight: a
+     * limit demonstrated by measured power, and an echo of a stored command. A
+     * client shown only the verdict would print "confirmed" for both.
+     *
+     * Unconditional for the same reason `scope` above is unconditional: a client
+     * that can read one verdict field must be able to read this one. Reads
+     * already-acquired snapshots; no Modbus I/O happens here. */
+    write_provenance_rollup_t provenance;
+    write_provenance_collect(&provenance);
+    write_provenance_add_fleet(root, &provenance);
+
     cJSON *items = cJSON_AddArrayToObject(root, "prerequisites");
     if (!items) {
         cJSON_Delete(root);
@@ -217,6 +233,14 @@ static esp_err_t confirmation_get(httpd_req_t *request)
                             "as confirmed while the inverter ignores the limit. Read the "
                             "prerequisite state on each inverter as well.");
 
+    /* Fleet provenance, beside fleet_state rather than instead of it.
+     * fleet_state says WHETHER the fleet is confirmed; these keys say what that
+     * rests on. Unconditional: a client that can read the first must be able to
+     * read the second, or "confirmed" is unreadable. */
+    write_provenance_rollup_t provenance;
+    write_provenance_collect(&provenance);
+    write_provenance_add_fleet(root, &provenance);
+
     uint8_t count = inverter_manager_get_count();
     cJSON_AddNumberToObject(root, "count", count);
     cJSON *items = cJSON_AddArrayToObject(root, "inverters");
@@ -250,6 +274,11 @@ static esp_err_t confirmation_get(httpd_req_t *request)
         cJSON_AddNumberToObject(item, "mismatch_count", data.mismatch_count);
         cJSON_AddNumberToObject(item, "write_successes", data.write_successes);
         cJSON_AddNumberToObject(item, "write_errors", data.write_errors);
+
+        /* PER-INVERTER PROVENANCE. Placed immediately after the verdict and the
+         * three percent figures, because it is what says whether the verdict
+         * above is a demonstrated limit or an echo of a stored command. */
+        write_provenance_add_inverter(item, &data);
 
         /* PER-INVERTER PREREQUISITE STATE. Nested in its own object so it can
          * never be mistaken for one of the four setpoint confirmation states

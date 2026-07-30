@@ -143,6 +143,23 @@
     --prereq-unconfirmed: #ffb454;
     --prereq-unverifiable: #ff9ecb;
 
+    /* Limit evidence: what a confirmed write actually rests on. Four colours,
+       none of them borrowed from the four setpoint-confirmation hues above,
+       because this is a THIRD independent answer and not a severity on the same
+       scale.
+       The pairing that matters is measured against echo. A limit demonstrated by
+       measurement and an echo of a stored command must not look alike at a
+       glance, or the weaker of the two reads as the stronger - which is the
+       defect these tokens exist to remove. The echo colour is deliberately NOT a
+       success hue for the same reason: it is acceptance, not a limit.
+       Ambiguous is off both, because it is neither success nor failure.
+       Measured against --confirm-surface: measured 10.54:1, echo 9.88:1,
+       ambiguous 9.20:1, none 7.73:1. */
+    --proof-measured: #5fe3c8;
+    --proof-echo: #f0b6e0;
+    --proof-ambiguous: #c9b6ff;
+    --proof-none: #9fb3c8;
+
     /* ISA-18.2 suppression states (gap A9 of docs/ALARM_MANAGEMENT_RESEARCH.md).
        Three colours because the standard names three states and warns they must
        not collapse into one "disabled" look: an operator's expiring shelf, the
@@ -736,6 +753,109 @@ input:disabled, select:disabled, textarea:disabled {
     .confirm-values { grid-template-columns: 1fr; }
     .lab-target-result { grid-template-columns: 1fr; }
     .lab-target-result dt { margin-top: 6px; }
+}
+
+/* --------------------------------------------- limit evidence (what confirmed it)
+ *
+ * A confirmed write rests on one of two kinds of evidence, and they are not
+ * equally strong: measured output that fell from above a new limit to at or below
+ * it demonstrates the limit, while a matching setpoint readback on a plant-level
+ * logger is an echo of a stored command and shows only that the command was
+ * accepted. The two must be visually and textually distinguishable, and the echo
+ * must not read as the stronger of the two.
+ *
+ * So the echo takes a cautionary hue and a dotted rule rather than the solid one
+ * the demonstrated limit gets; the demonstrated limit is the only evidence drawn
+ * as a settled fact. The ambiguous case is drawn as neither: it is not a success
+ * and it is not a fault, and dimming it would make "nothing was proven" read as
+ * "resolved". Colour is never the only channel - every state also carries its own
+ * word and its own glyph.
+ *
+ * Every colour resolves through a token declared in BOTH themes; the measured
+ * ratios are recorded beside the declarations in :root and in theme.css.
+ * --muted-2 is excluded here for the same reason as in the panels above: it
+ * reaches only 4.39:1 dark and 3.56:1 light on --confirm-surface. */
+.proof-notice {
+    display: grid;
+    gap: 5px;
+    margin: 13px 0 0;
+    padding: 11px 13px;
+    border: 1px solid var(--proof-echo);
+    border-left-width: 4px;
+    border-radius: 11px;
+}
+.proof-notice strong { color: var(--text); font-size: 12px; font-weight: 800; line-height: 1.45; }
+.proof-notice span { color: var(--muted); font-size: 11px; line-height: 1.55; }
+.proof-notice span[hidden] { display: none; }
+/* Demonstrated, echo-only and ambiguous are three separate figures and are never
+ * summed: adding an echo to a demonstrated limit produces a number that claims
+ * more than the evidence supports. */
+.proof-counts { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 9px; color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+/* Per-inverter block inside a confirmation row, ruled off from the setpoint
+ * figures above it so it reads as a statement ABOUT them rather than one of them. */
+.proof-block { margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--gate-boundary); }
+.proof-block-head { display: flex; flex-wrap: wrap; gap: 9px; justify-content: space-between; align-items: center; }
+.proof-block-title { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: 0.07em; text-transform: uppercase; }
+.proof-block-meaning { margin: 8px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.proof-block-detail { margin: 6px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+/* Contention. Another master scheduling the same plant is not a confirmation
+ * state and is not folded into one, so it gets its own rule. */
+.proof-block-contention {
+    margin: 8px 0 0;
+    padding: 8px 10px;
+    border: 1px solid var(--confirm-mismatched);
+    border-left-width: 4px;
+    border-radius: 9px;
+    color: var(--text);
+    font-size: 11px;
+    line-height: 1.5;
+}
+/* Same pill construction as the setpoint and enable-register states, with a
+ * different word and a different glyph in every case, so the three vocabularies
+ * cannot be confused at a glance. The pill's own colour is its border and its
+ * text on --confirm-surface, which is the pairing the measured ratios apply to. */
+.proof-state-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 30px;
+    padding: 0 11px;
+    border: 1px solid var(--gate-boundary);
+    border-radius: 999px;
+    background: transparent;
+    font-size: 12px;
+    font-weight: 850;
+    letter-spacing: 0.04em;
+}
+/* The limit is demonstrated. The only evidence drawn as a settled fact: a solid
+ * rule, heavier than the echo's, in the one hue reserved for a measured limit. */
+.proof-state-measured_power { color: var(--proof-measured); border-color: var(--proof-measured); border-width: 2px; }
+/* Acceptance, not a limit. Dotted on purpose - it must not read as settled, and
+ * it must not read as the demonstrated case with a different colour. */
+.proof-state-setpoint_readback { color: var(--proof-echo); border-color: var(--proof-echo); border-style: dotted; }
+/* Neither success nor failure. Dashed, as every other 'not measurable' state in
+ * this application, and never dimmed: nothing was proven is not resolved. */
+.proof-state-ambiguous_headroom { color: var(--proof-ambiguous); border-color: var(--proof-ambiguous); border-style: dashed; }
+/* No evidence recorded at all. Claims the least, and is drawn that way. */
+.proof-state-none { color: var(--proof-none); border-color: var(--proof-none); border-style: dashed; }
+/* The evidence is a property of the whole row, not a footnote in it. A reader
+ * scanning verdict pills must not be able to see "Confirmed" and miss that only
+ * an echo was observed.
+ *
+ * Drawn as an INSET SHADOW, a third channel of its own. The row border already
+ * carries the setpoint verdict and the outline already carries the enable
+ * register; a mismatched setpoint, an unarmed enable register and a mere echo can
+ * all be true at once, so none of the three markings may overwrite another.
+ *
+ * The stripe's WIDTH tracks how much the evidence claims, so the marking is not
+ * carried by hue alone: a demonstrated limit is the heaviest, an echo thinner,
+ * and an ambiguous reading thinnest of all. */
+.confirm-row.proof-measured { box-shadow: inset 7px 0 0 var(--proof-measured); }
+.confirm-row.proof-echo { box-shadow: inset 4px 0 0 var(--proof-echo); }
+.confirm-row.proof-ambiguous { box-shadow: inset 2px 0 0 var(--proof-ambiguous); }
+
+@media (max-width: 650px) {
+    .proof-block-head { align-items: flex-start; }
 }
 
 /* Measurement provenance: source, age and quality shown with every live value.

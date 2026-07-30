@@ -10,6 +10,7 @@
 #include "inverter_write_confirmation.h"
 #include "solar_grid_config.h"
 #include "source_mode.h"
+#include "write_provenance_api.h"
 
 static void add_finite(cJSON *root, const char *name, float value)
 {
@@ -105,6 +106,22 @@ static esp_err_t status_get(httpd_req_t *request)
                                 (inverter_write_state_t)status.write_confirmation));
     cJSON_AddBoolToObject(root, "write_confirmation_fault",
                           status.write_confirmation_fault);
+    /* WHAT THE WRITE CONFIRMATION RESTS ON, beside the verdict and never instead
+     * of it.
+     *
+     * write_confirmation above is one of four words. Since plant-level logger
+     * control landed, the word "confirmed" covers two kinds of evidence that are
+     * not equally strong: a limit DEMONSTRATED by measured power, and a setpoint
+     * readback that on a stored-command interface is an echo proving acceptance
+     * only. A client given the verdict and not the proof cannot tell them apart,
+     * and would show an operator a limited plant that may not be limited.
+     *
+     * Unconditional for the same reason commissioning_scope above is
+     * unconditional. The roll-up walks the inverter manager's already-acquired
+     * snapshots; this handler still performs no Modbus I/O. */
+    write_provenance_rollup_t provenance;
+    write_provenance_collect(&provenance);
+    write_provenance_add_fleet(root, &provenance);
     /* PREREQUISITE ENABLE REGISTERS. A separate fault from write confirmation
      * above, published unconditionally next to it for the same reason
      * commissioning_scope is published unconditionally: a client that can read

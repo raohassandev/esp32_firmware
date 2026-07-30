@@ -71,6 +71,11 @@ set(WEB_SERVER_C_SOURCES
     "em500_settings_plan_api.c"
     "solar_grid_api.c"
     "solar_grid_status_api.c"
+    # write_provenance.c is deliberately free of cJSON and ESP-IDF so the fleet
+    # roll-up rule is executed by tests/write_provenance_test.c on the host
+    # rather than asserted about. write_provenance_api.c is the cJSON side.
+    "write_provenance.c"
+    "write_provenance_api.c"
     "commissioning_gate_api.c"
     "system_resource_api.c"
     "audit_log_core.c"

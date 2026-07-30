@@ -158,6 +158,23 @@
                     <article class="panel confirm-panel" id="writeConfirmationPanel">
                         <div class="panel-header"><div><p class="eyebrow">Setpoint confirmation</p><h3>Requested against confirmed</h3></div><span class="subtle-badge" id="confirmFleetBadge">Unavailable</span></div>
                         <p class="confirm-lead" id="confirmFleetDetail" role="status">Reading setpoint confirmation…</p>
+                        <!-- Limit evidence. Shown here permanently, not only when
+                             something is wrong, because it is what makes the word
+                             "confirmed" above readable at all. A confirmed write
+                             rests on one of two kinds of evidence and they are not
+                             equally strong: measured output that fell from above
+                             the new limit to at or below it demonstrates the
+                             limit, while a matching setpoint readback on a
+                             plant-level logger is an echo of a stored command and
+                             shows only that the command was accepted. -->
+                        <div class="proof-notice" id="proofNotice">
+                            <strong>Confirmed does not mean the limit was demonstrated.</strong>
+                            <span>A write is confirmed either because measured output was above the new limit before the command and at or below it after, which demonstrates the limit, or because the setpoint register read back matching. On a plant-level logger that register stores the command and forwards it, so reading it back returns the stored command rather than the plant's achieved output, and the logger may scale the commanded percentage by an adjustment coefficient that has no register a Modbus client can read. The readback is therefore an echo of a stored command: it proves acceptance and nothing more. Every verdict below is shown with the evidence it rests on.</span>
+                            <span id="confirmProvenance" role="status">Reading the limit evidence…</span>
+                            <span id="confirmProvenanceDetail" hidden></span>
+                        </div>
+                        <div class="proof-counts" id="confirmProvenanceCounts"></div>
+                        <div class="confirm-legend" id="proofLegend"></div>
                         <!-- Prerequisite enable register. Shown here permanently,
                              not only when it is faulted, because it is the reason
                              a setpoint state on this panel is not by itself proof
@@ -224,6 +241,10 @@
                             <div class="gate-authority-row"><span>Commissioning scope</span><strong id="gateScope">Unavailable</strong></div>
                             <div class="gate-authority-row"><span>Prerequisites satisfied</span><strong id="gateSatisfied">Unavailable</strong></div>
                             <div class="gate-authority-row"><span>Setpoint confirmation</span><strong id="gateWriteConfirmation">Unavailable</strong></div>
+                            <!-- Two rows, not one. "No setpoint fault latched" says
+                                 nothing could be read back wrong; it does not say a
+                                 limit was demonstrated. -->
+                            <div class="gate-authority-row"><span>Limit evidence</span><strong id="gateLimitEvidence">Unavailable</strong></div>
                             <div class="gate-authority-row"><span>Enable register (prerequisite)</span><strong id="gatePrerequisite">Unavailable</strong></div>
                         </div>
                         <!-- The two faults are reported as two rows deliberately.
