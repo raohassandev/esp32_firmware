@@ -91,6 +91,41 @@ _Static_assert(APP_MAX_GENERATORS == GENERATOR_FLEET_MAX_ENGINES,
 _Static_assert(APP_MAX_GENERATORS == COMMISSIONING_MAX_GENERATORS,
                "meter generator slots and commissioning gate engine slots must agree");
 
+/* The kW load-sharing vocabulary is declared three times -- once in the persisted
+ * policy, once in the pure limit module, once in the pure gate -- because each of
+ * those components deliberately depends on nothing. This file is the one place that
+ * copies the value between them, so this is where the three must be proved
+ * numerically identical. Without these, renumbering one enum would silently turn a
+ * commissioned "base load" into "isochronous" and compute a floor for a plant that
+ * is not sharing load that way. */
+_Static_assert((int)SOLAR_GRID_LOAD_SHARING_UNSET == (int)GENERATOR_SHARING_UNSET &&
+                   (int)SOLAR_GRID_LOAD_SHARING_UNSET == (int)COMMISSIONING_SHARING_UNSET,
+               "the uncommissioned load-sharing mode must be the same value everywhere");
+_Static_assert((int)SOLAR_GRID_LOAD_SHARING_ISOCHRONOUS == (int)GENERATOR_SHARING_ISOCHRONOUS &&
+                   (int)SOLAR_GRID_LOAD_SHARING_ISOCHRONOUS == (int)COMMISSIONING_SHARING_ISOCHRONOUS,
+               "isochronous load sharing must be the same value everywhere");
+_Static_assert((int)SOLAR_GRID_LOAD_SHARING_BASE_LOAD == (int)GENERATOR_SHARING_BASE_LOAD &&
+                   (int)SOLAR_GRID_LOAD_SHARING_BASE_LOAD == (int)COMMISSIONING_SHARING_BASE_LOAD,
+               "base-load sharing must be the same value everywhere");
+_Static_assert((int)SOLAR_GRID_LOAD_SHARING_DROOP == (int)GENERATOR_SHARING_DROOP &&
+                   (int)SOLAR_GRID_LOAD_SHARING_DROOP == (int)COMMISSIONING_SHARING_DROOP,
+               "droop sharing must be the same value everywhere, including where it is refused");
+_Static_assert((int)SOLAR_GRID_LOAD_SHARING_COUNT == (int)GENERATOR_SHARING_MODE_COUNT &&
+                   (int)SOLAR_GRID_LOAD_SHARING_COUNT == (int)COMMISSIONING_SHARING_COUNT,
+               "a load-sharing mode added to one enum must be added to all three");
+_Static_assert((int)SOLAR_GRID_ENGINE_ROLE_UNSET == (int)GENERATOR_ENGINE_ROLE_UNSET &&
+                   (int)SOLAR_GRID_ENGINE_ROLE_UNSET == (int)COMMISSIONING_ENGINE_ROLE_UNSET,
+               "the undeclared engine role must be the same value everywhere");
+_Static_assert((int)SOLAR_GRID_ENGINE_ROLE_SWING == (int)GENERATOR_ENGINE_ROLE_SWING &&
+                   (int)SOLAR_GRID_ENGINE_ROLE_SWING == (int)COMMISSIONING_ENGINE_ROLE_SWING,
+               "the swing engine role must be the same value everywhere");
+_Static_assert((int)SOLAR_GRID_ENGINE_ROLE_BASE_LOAD == (int)GENERATOR_ENGINE_ROLE_BASE_LOAD &&
+                   (int)SOLAR_GRID_ENGINE_ROLE_BASE_LOAD == (int)COMMISSIONING_ENGINE_ROLE_BASE_LOAD,
+               "the base-loaded engine role must be the same value everywhere");
+_Static_assert((int)SOLAR_GRID_ENGINE_ROLE_COUNT == (int)GENERATOR_ENGINE_ROLE_COUNT &&
+                   (int)SOLAR_GRID_ENGINE_ROLE_COUNT == (int)COMMISSIONING_ENGINE_ROLE_COUNT,
+               "an engine role added to one enum must be added to all three");
+
 /* Smallest increase worth a Modbus write, in kW. Below this a re-command carries
  * no information the inverter can act on, and at a fast control period it is pure
  * traffic. Decreases bypass this entirely -- reducing PV protects the generator
@@ -162,6 +197,16 @@ static const char *generator_fleet_inhibit(uint8_t reason)
         return "A generator is carrying the plant but no commissioned engine is measured online.";
     case GENERATOR_FLEET_LOAD_UNKNOWN:
         return "The plant load behind the generator limit is missing or non-finite.";
+    case GENERATOR_FLEET_SHARING_MODE_UNSET:
+        return "More than one generator engine is online and no kW load-sharing mode is commissioned, so which engine sets the minimum-loading floor is unknown.";
+    case GENERATOR_FLEET_SHARING_MODE_UNSUPPORTED:
+        return "The commissioned kW load-sharing mode is not one a defensible minimum-loading floor can be computed for; droop sharing is refused rather than approximated.";
+    case GENERATOR_FLEET_BASE_LOAD_UNKNOWN:
+        return "Base-load sharing is commissioned but an online engine has no declared role, or a base-loaded engine has no fixed kW setpoint.";
+    case GENERATOR_FLEET_BASE_LOAD_BELOW_MINIMUM:
+        return "A base-loaded engine's fixed kW setpoint is below its own minimum loading, which no PV limit can correct.";
+    case GENERATOR_FLEET_NO_SWING_ENGINE:
+        return "Every online engine is held at a fixed kW, so nothing on the bus would absorb the load the controller shapes.";
     default:
         return "The aggregate generator limit could not be established, so PV is held at zero.";
     }
@@ -482,6 +527,10 @@ static void control_task(void *argument)
                  * single commissioned engine is unambiguous, which is the legacy
                  * single-generator behaviour. */
                 .allow_unmetered_single_engine = roles.generator_count == 0U,
+                /* Copied straight through: the persisted accessor already reports an
+                 * unrecognised stored value as UNSET, and the limit module refuses
+                 * anything it does not model. Nothing here interprets the mode. */
+                .sharing_mode = solar_grid_config_load_sharing_mode(&s_grid_config),
                 .engine_count = APP_MAX_GENERATORS,
             };
             for (uint8_t slot = 0U; slot < APP_MAX_GENERATORS; ++slot) {
@@ -493,6 +542,9 @@ static void control_task(void *argument)
                 engine->minimum_loading_percent = limits.minimum_loading_percent;
                 engine->reserve_kw = limits.reserve_kw;
                 engine->reverse_power_margin_kw = limits.reverse_power_margin_kw;
+                engine->role = solar_grid_config_engine_role(&s_grid_config, slot);
+                engine->base_load_kw =
+                    solar_grid_config_engine_base_load_kw(&s_grid_config, slot);
 
                 const uint8_t meter_index = roles.generator_index[slot];
                 engine->metered = roles.valid && meter_index != METER_ROLE_INDEX_NONE;
@@ -824,6 +876,11 @@ esp_err_t control_engine_init(void)
      * rating means the site can run an engine the policy does not describe, and no
      * aggregate minimum-loading floor can be computed for that configuration. */
     s_commissioning_inputs.generator_limits_known = error == ESP_OK;
+    /* A failed read leaves the mode UNSET rather than whatever was there before, so
+     * an unreadable configuration can never present itself as a commissioned one. */
+    s_commissioning_inputs.generator_load_sharing_mode =
+        error == ESP_OK ? solar_grid_config_load_sharing_mode(&s_grid_config)
+                        : (uint8_t)COMMISSIONING_SHARING_UNSET;
     for (uint8_t slot = 0U; slot < APP_MAX_GENERATORS; ++slot) {
         const solar_grid_generator_limits_t limits =
             error == ESP_OK ? solar_grid_config_generator(&s_grid_config, slot)
@@ -834,6 +891,12 @@ esp_err_t control_engine_init(void)
             limits.minimum_loading_percent;
         s_commissioning_inputs.generators[slot].referenced_by_meter =
             roles.generator_index[slot] != METER_ROLE_INDEX_NONE;
+        s_commissioning_inputs.generators[slot].role =
+            error == ESP_OK ? solar_grid_config_engine_role(&s_grid_config, slot)
+                            : (uint8_t)COMMISSIONING_ENGINE_ROLE_UNSET;
+        s_commissioning_inputs.generators[slot].base_load_kw =
+            error == ESP_OK ? solar_grid_config_engine_base_load_kw(&s_grid_config, slot)
+                            : 0.0f;
     }
     s_commissioning_inputs.source_detection_known = true;
     s_commissioning_inputs.grid_evidence_configured =

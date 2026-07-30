@@ -63,6 +63,28 @@ for known in ("meter_roles_known", "inverter_fleet_known", "ramp_policy_known",
     if known not in GATE_H or f"!in->{known}" not in GATE_C:
         raise SystemExit(f"{known} is not used to fail closed on unreadable state")
 
+# The kW load-sharing mode must be a commissioned value with no default, because
+# which engine binds the aggregate minimum-loading floor depends on it. Zero is
+# UNSET, so a zeroed input struct -- and any unit upgraded into this schema --
+# commissions no sharing law.
+if "COMMISSIONING_SHARING_UNSET = 0" not in GATE_H:
+    raise SystemExit("the uncommissioned load-sharing mode must be zero")
+if "generator_load_sharing_mode" not in GATE_H or "generator_load_sharing_mode" not in GATE_C:
+    raise SystemExit("the gate must evaluate the commissioned kW load-sharing mode")
+for reason in ("COMMISSIONING_REASON_GENERATOR_SHARING_MODE_UNSET",
+               "COMMISSIONING_REASON_GENERATOR_SHARING_MODE_UNSUPPORTED",
+               "COMMISSIONING_REASON_GENERATOR_BASE_LOAD_UNKNOWN",
+               "COMMISSIONING_REASON_GENERATOR_BASE_LOAD_BELOW_MINIMUM",
+               "COMMISSIONING_REASON_GENERATOR_NO_SWING_ENGINE"):
+    if reason not in GATE_H or reason not in GATE_C:
+        raise SystemExit(f"{reason} must exist and be reachable, so an engineer is "
+                         f"told which load-sharing fact is missing")
+# The control engine must not substitute a mode of its own when the configuration
+# could not be read: an unreadable policy is not a commissioned one.
+if "(uint8_t)COMMISSIONING_SHARING_UNSET" not in CONTROL:
+    raise SystemExit("an unreadable Solar-Grid policy must collect the load-sharing "
+                     "mode as UNSET rather than leaving a stale value in place")
+
 # The module must stay pure so it can be host-compiled and called from any task.
 for forbidden in ("esp_", "portENTER_CRITICAL", "malloc(", "cJSON", "ESP_LOG",
                   "#include \"freertos"):

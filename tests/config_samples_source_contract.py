@@ -163,13 +163,32 @@ if isinstance(site_generators, list) and max_generators is not None:
             f"{int(max_generators.group(1)) - 1} beyond engine 0")
     for position, engine in enumerate(site_generators):
         for key in ("enabled", "rated_kw", "minimum_loading_percent",
-                    "reserve_kw", "reverse_power_margin_kw"):
+                    "reserve_kw", "reverse_power_margin_kw",
+                    # Base-load sharing needs a role per engine and a setpoint for
+                    # every base-loaded one. Neither can be defaulted: mis-declaring
+                    # a swing engine as base-loaded, or the reverse, moves the floor
+                    # in either direction depending on the setpoints.
+                    "role", "base_load_kw"):
             require(key in engine,
                     f"engine {position + 1} in the site template omits '{key}'")
             require(engine.get(key) is None,
                     f"engine {position + 1} in the site template carries a value "
                     f"for '{key}'; per-engine generator protection numbers are "
                     f"nameplate data and must be measured, never shipped")
+
+# The kW load-sharing mode decides WHICH engine binds the minimum-loading floor, so
+# the floor is not computable without it. It must appear in the template, and it must
+# stay a null placeholder: there is no safe default, because base-load sharing can
+# place the floor either above or below the isochronous floor depending on the
+# commissioned setpoints. A template that shipped "isochronous" would be shipping the
+# very assumption the firmware stopped making.
+for key in ("load_sharing_mode", "engine_0_role", "engine_0_base_load_kw"):
+    require(key in site["solar_grid"],
+            f"the site template omits '{key}'; how the engines divide load is a "
+            "commissioned fact the minimum-loading floor depends on")
+    require(site["solar_grid"].get(key) is None,
+            f"the site template carries a value for '{key}'; no load-sharing mode is "
+            "conservative for every plant, so none may be shipped as a default")
 
 # The known modelling gap must stay stated rather than quietly forgotten.
 site_text = SITE.read_text(encoding="utf-8")
@@ -184,6 +203,13 @@ require("generator_index" in site_text,
 require("aggregate" in site_text.lower(),
         "the site template must state that the minimum-loading floor is computed "
         "against the aggregate rating of the engines online")
+# A refused mode is only safe if the engineer is told it is refused. Silence here
+# would read as "droop is supported, just leave it".
+require("droop" in site_text.lower() and "refused" in site_text.lower(),
+        "the site template must say that droop sharing is refused, not silently "
+        "unsupported; an engineer who enters it must be told the gate stays closed")
+require("isochronous" in site_text.lower() and "base_load" in site_text,
+        "the site template must name the load-sharing modes the firmware accepts")
 
 # ---------------------------------------------------------------------------
 # The documentation must exist and must not invent a credential

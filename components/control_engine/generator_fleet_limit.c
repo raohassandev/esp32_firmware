@@ -14,6 +14,10 @@ static generator_fleet_limit_t fail_closed(generator_fleet_reason_t reason)
         .online_count = 0U,
         .online_rated_kw = 0.0f,
         .minimum_loading_kw = 0.0f,
+        /* Never echoed as a supported mode when nothing was computed. */
+        .sharing_mode = (uint8_t)GENERATOR_SHARING_UNSET,
+        .base_loaded_count = 0U,
+        .base_load_total_kw = 0.0f,
         .required_generator_kw = 0.0f,
         /* Zero PV. The most conservative reading of an unknown running set is not
          * a guessed denominator, it is no command at all. */
@@ -67,6 +71,7 @@ generator_fleet_limit_t generator_fleet_limit_evaluate(const generator_fleet_inp
     float worst_minimum_loading_percent = 0.0f;
     float reserve_total_kw = 0.0f;
     float margin_total_kw = 0.0f;
+    bool online_slot[GENERATOR_FLEET_MAX_ENGINES] = {false};
 
     for (uint8_t index = 0U; index < count; ++index) {
         const generator_engine_input_t *engine = &input->engines[index];
@@ -99,6 +104,7 @@ generator_fleet_limit_t generator_fleet_limit_evaluate(const generator_fleet_inp
         }
 
         if (!online) continue;
+        online_slot[index] = true;
         online_count++;
         online_rated_kw += engine->rated_kw;
         reserve_total_kw += engine->reserve_kw;
@@ -115,46 +121,174 @@ generator_fleet_limit_t generator_fleet_limit_evaluate(const generator_fleet_inp
     }
 
     /*
-     * HOW MINIMUM LOADING AGGREGATES ACROSS ENGINES -- and why it is the worst
-     * percentage, not the per-engine sum.
+     * WHICH ENGINE BINDS THE FLOOR DEPENDS ON HOW THE PLANT SHARES LOAD.
      *
-     * Gensets in parallel under isochronous kW load sharing carry load in
-     * proportion to their ratings, so every engine sits at the SAME percentage
-     * loading. Total load P leaves engine i at P / sum(rated) percent. The binding
-     * constraint is therefore the engine with the HIGHEST minimum-loading figure:
+     * The floor this module reports is defined, in every mode, as the SMALLEST TOTAL
+     * generator load P at which every online engine independently satisfies its own
+     * minimum loading. Nothing below is a heuristic; each expression is that
+     * definition solved for the mode's own sharing law. Write m_i = rated_i *
+     * percent_i / 100 for engine i's own minimum in kW.
      *
-     *     P >= sum(rated_i) * max(percent_i) / 100
+     * Reserve and reverse-power margin are absolute per-engine kW quantities and are
+     * SUMMED in every mode: each engine needs its own headroom, and summing is also
+     * the conservative direction.
      *
-     * Summing the per-engine minima instead gives sum(rated_i * percent_i) / 100,
-     * which is SMALLER whenever the figures differ -- it permits more PV than the
-     * most-constrained engine tolerates, and the engine that gets under-loaded is
-     * the one whose own protection relay trips. The sum is the intuitive formula
-     * and it is the unsafe one. This module uses the worst percentage. Where every
-     * engine carries the same figure -- the normal case, and every single-engine
-     * case -- the two are identical, so nothing changes for an upgraded unit.
-     *
-     * Reserve and reverse-power margin are absolute per-engine kW quantities and
-     * are SUMMED: each engine needs its own headroom, and summing is also the
-     * conservative direction.
-     *
-     * OWNER DECISION. This assumes proportional (isochronous) kW load sharing. A
-     * plant running base-load or droop sharing, where one engine is deliberately
-     * held at a fixed kW, does not distribute load proportionally and its binding
-     * constraint is different. That case is NOT modelled here and no figure for it
-     * has been invented.
+     * The mode itself is commissioned, never inferred. See generator_sharing_mode_t
+     * for why the default is "no mode" rather than the isochronous law this module
+     * used to assume silently.
      */
-    const float minimum_loading_kw =
-        online_rated_kw * worst_minimum_loading_percent / 100.0f;
+    uint8_t mode = input->sharing_mode;
 
-    /* Reduced to one equivalent machine and handed to the already-tested policy
-     * function, so the safe-PV arithmetic and its fail-closed guards exist in
-     * exactly one place. */
+    /*
+     * THE SINGLE-ENGINE EXEMPTION, and it is the only one.
+     *
+     * With exactly one engine on the bus there is no load to share. Every sharing
+     * law -- isochronous, base-load, droop, or one nobody has named -- gives that
+     * engine the entire plant load, so the floor is rated * percent / 100 under all
+     * of them and the mode changes nothing. Demanding a commissioned sharing mode
+     * here would demand a quantity that has no referent, and it would break every
+     * single-generator site that is already commissioned and running: those units
+     * have no such field stored, so they would migrate to UNSET and stop commanding
+     * PV. The exemption is therefore what keeps existing behaviour bit-for-bit.
+     *
+     * It applies ONLY to UNSET. DROOP is refused even with one engine online,
+     * because it is an affirmative statement that the plant's sharing law is one
+     * this module does not model, and which engines are on the bus is a runtime fact
+     * -- the same site will have two engines online later in the day, and honouring
+     * droop now would mean the controller commands PV on a droop-shared plant
+     * whenever it happens to be running one machine. An out-of-range value is
+     * refused for the same reason: it is not evidence of anything.
+     */
+    if (online_count == 1U && mode == (uint8_t)GENERATOR_SHARING_UNSET) {
+        mode = (uint8_t)GENERATOR_SHARING_ISOCHRONOUS;
+    }
+    if (mode == (uint8_t)GENERATOR_SHARING_UNSET) {
+        return fail_closed(GENERATOR_FLEET_SHARING_MODE_UNSET);
+    }
+    if (!generator_sharing_mode_supported(mode)) {
+        return fail_closed(GENERATOR_FLEET_SHARING_MODE_UNSUPPORTED);
+    }
+
+    /* The floor is always reduced to ONE equivalent machine and handed to the
+     * already-tested policy function, so the safe-PV arithmetic and its fail-closed
+     * guards exist in exactly one place. `swing_rated_kw` and `worst_swing_percent`
+     * are that machine's rating and minimum-loading percentage;
+     * `base_load_total_kw` enters as additional absolute kW that must stay on the
+     * generators, which is exactly what the reserve term already means. */
+    float swing_rated_kw = 0.0f;
+    float worst_swing_percent = 0.0f;
+    float base_load_total_kw = 0.0f;
+    uint8_t base_loaded_count = 0U;
+    uint8_t swing_count = 0U;
+
+    if (mode == (uint8_t)GENERATOR_SHARING_ISOCHRONOUS) {
+        /*
+         * ISOCHRONOUS / PROPORTIONAL. Every engine sits at the SAME percentage of
+         * its own rating, so total load P leaves engine i carrying
+         * P * rated_i / sum(rated). Requiring that to be at least m_i for every i:
+         *
+         *     P * rated_i / sum(rated) >= rated_i * percent_i / 100
+         *     P                        >= sum(rated) * percent_i / 100   for all i
+         *     P                        >= sum(rated) * max(percent_i) / 100
+         *
+         * The binding constraint is the engine with the HIGHEST minimum-loading
+         * percentage. Summing the per-engine minima instead gives
+         * sum(rated_i * percent_i) / 100, which is SMALLER whenever the figures
+         * differ -- it permits more PV than the most-constrained engine tolerates,
+         * and the engine that gets under-loaded is the one whose own protection
+         * relay trips. The sum is the intuitive formula and it is the unsafe one.
+         * Where every engine carries the same figure -- the normal case, and every
+         * single-engine case -- the two are identical.
+         */
+        swing_rated_kw = online_rated_kw;
+        worst_swing_percent = worst_minimum_loading_percent;
+    } else {
+        /*
+         * BASE LOAD (fixed kW). Engines with role BASE_LOAD are held at a
+         * commissioned setpoint s_i by their own governors, independent of the
+         * total. The swing engines absorb the remainder P - sum(s_i) and share THAT
+         * isochronously with each other, in proportion to their ratings.
+         *
+         * The two constraint families are genuinely different, which is the whole
+         * point of separating the modes:
+         *
+         *  - A base-loaded engine satisfies s_i >= m_i or it does not, and no total
+         *    plant load changes the answer, because its load does not follow the
+         *    total. s_i < m_i is a COMMISSIONING FAULT: the plant has been set up to
+         *    run an engine below its own minimum loading, and the controller must
+         *    say so rather than compute a floor that pretends otherwise.
+         *  - A swing engine j carries (P - sum(s_i)) * rated_j / sum_swing(rated).
+         *    Requiring that to be at least m_j for every swing engine gives
+         *
+         *      P >= sum(s_i) + sum_swing(rated) * max_swing(percent_j) / 100
+         *
+         * which is the isochronous result applied to the swing subset, offset by the
+         * base-loaded setpoints. With no base-loaded engine the expression reduces
+         * to the isochronous one exactly, which is why the two modes agree on a
+         * plant that has no base-loaded machine.
+         *
+         * Note this floor is NOT ordered against the isochronous floor in general:
+         * a large setpoint raises it, and taking a big engine out of the
+         * proportional term lowers it. That is precisely why the mode cannot be
+         * defaulted -- there is no safe guess, only a commissioned fact.
+         */
+        for (uint8_t index = 0U; index < count; ++index) {
+            if (!online_slot[index]) continue;
+            const generator_engine_input_t *engine = &input->engines[index];
+
+            if (engine->role == (uint8_t)GENERATOR_ENGINE_ROLE_BASE_LOAD) {
+                /* A setpoint that is missing, non-positive, non-finite or above the
+                 * machine's own rating is not a commissioned setpoint. */
+                if (!isfinite(engine->base_load_kw) || engine->base_load_kw <= 0.0f ||
+                    engine->base_load_kw > engine->rated_kw) {
+                    return fail_closed(GENERATOR_FLEET_BASE_LOAD_UNKNOWN);
+                }
+                const float own_minimum_kw =
+                    engine->rated_kw * engine->minimum_loading_percent / 100.0f;
+                if (engine->base_load_kw < own_minimum_kw) {
+                    return fail_closed(GENERATOR_FLEET_BASE_LOAD_BELOW_MINIMUM);
+                }
+                base_load_total_kw += engine->base_load_kw;
+                base_loaded_count++;
+            } else if (engine->role == (uint8_t)GENERATOR_ENGINE_ROLE_SWING) {
+                swing_count++;
+                swing_rated_kw += engine->rated_kw;
+                if (engine->minimum_loading_percent > worst_swing_percent) {
+                    worst_swing_percent = engine->minimum_loading_percent;
+                }
+            } else {
+                /* No role declared, or a value this build does not recognise.
+                 * Guessing is unavailable: calling a base-loaded engine "swing", or
+                 * the reverse, moves the floor in either direction depending on the
+                 * setpoints, so one of the two guesses is permissive on any given
+                 * plant and nothing here can tell which. */
+                return fail_closed(GENERATOR_FLEET_BASE_LOAD_UNKNOWN);
+            }
+        }
+
+        /* Every online engine is pinned to a fixed kW. Nothing on the bus absorbs
+         * the swing, so there is no total plant load for the controller to shape and
+         * no floor that describes one. This is not an arithmetic edge case to round
+         * away -- a plant in that state cannot hold frequency, and PV must not be
+         * commanded into it. */
+        if (swing_count == 0U) return fail_closed(GENERATOR_FLEET_NO_SWING_ENGINE);
+        if (!isfinite(swing_rated_kw) || swing_rated_kw <= 0.0f ||
+            !isfinite(base_load_total_kw)) {
+            return fail_closed(GENERATOR_FLEET_RATING_UNKNOWN);
+        }
+    }
+
+    const float minimum_loading_kw =
+        swing_rated_kw * worst_swing_percent / 100.0f + base_load_total_kw;
+
     const generator_limit_input_t equivalent = {
         .evidence_fresh = true,
         .facility_load_kw = input->facility_load_kw,
-        .running_generator_rated_kw = online_rated_kw,
-        .minimum_loading_percent = worst_minimum_loading_percent,
-        .reserve_kw = reserve_total_kw,
+        .running_generator_rated_kw = swing_rated_kw,
+        .minimum_loading_percent = worst_swing_percent,
+        /* The base-loaded setpoints are absolute kW that must remain on the
+         * generators, which is what `reserve_kw` already means to this function. */
+        .reserve_kw = reserve_total_kw + base_load_total_kw,
         .reverse_power_margin_kw = margin_total_kw,
     };
     const float safe_pv_kw = source_mode_generator_safe_pv_kw(&equivalent);
@@ -169,6 +303,9 @@ generator_fleet_limit_t generator_fleet_limit_evaluate(const generator_fleet_inp
         .online_count = online_count,
         .online_rated_kw = online_rated_kw,
         .minimum_loading_kw = minimum_loading_kw,
+        .sharing_mode = mode,
+        .base_loaded_count = base_loaded_count,
+        .base_load_total_kw = base_load_total_kw,
         .required_generator_kw = required_kw,
         .safe_pv_kw = safe_pv_kw,
         .reason = (uint8_t)GENERATOR_FLEET_OK,
@@ -183,10 +320,47 @@ static const char *const REASON_IDS[GENERATOR_FLEET_REASON_COUNT] = {
     "running_set_unknown",
     "no_engine_online",
     "load_unknown",
+    "sharing_mode_unset",
+    "sharing_mode_unsupported",
+    "base_load_setpoint_unknown",
+    "base_load_below_minimum",
+    "no_swing_engine",
 };
 
 const char *generator_fleet_reason_id(uint8_t reason)
 {
     return reason < (uint8_t)GENERATOR_FLEET_REASON_COUNT ? REASON_IDS[reason]
                                                           : "running_set_unknown";
+}
+
+static const char *const SHARING_MODE_IDS[GENERATOR_SHARING_MODE_COUNT] = {
+    "unset",
+    "isochronous",
+    "base_load",
+    "droop",
+};
+
+const char *generator_sharing_mode_id(uint8_t mode)
+{
+    /* An unrecognised value must never read as a supported mode. */
+    return mode < (uint8_t)GENERATOR_SHARING_MODE_COUNT ? SHARING_MODE_IDS[mode] : "unset";
+}
+
+static const char *const ENGINE_ROLE_IDS[GENERATOR_ENGINE_ROLE_COUNT] = {
+    "unset",
+    "swing",
+    "base_load",
+};
+
+const char *generator_engine_role_id(uint8_t role)
+{
+    return role < (uint8_t)GENERATOR_ENGINE_ROLE_COUNT ? ENGINE_ROLE_IDS[role] : "unset";
+}
+
+/* The supported set is enumerated positively, so a mode added to the enum without
+ * a floor derivation is refused by default rather than silently accepted. */
+bool generator_sharing_mode_supported(uint8_t mode)
+{
+    return mode == (uint8_t)GENERATOR_SHARING_ISOCHRONOUS ||
+           mode == (uint8_t)GENERATOR_SHARING_BASE_LOAD;
 }

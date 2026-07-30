@@ -10,6 +10,8 @@ MODE_C = (ROOT / "components/control_engine/source_mode.c").read_text(encoding="
 CONTROL = (ROOT / "components/control_engine/control_engine.c").read_text(encoding="utf-8")
 SG_H = (ROOT / "components/solar_grid_config/include/solar_grid_config.h").read_text(encoding="utf-8")
 SG_C = (ROOT / "components/solar_grid_config/solar_grid_config.c").read_text(encoding="utf-8")
+FLEET_H = (ROOT / "components/control_engine/include/generator_fleet_limit.h").read_text(encoding="utf-8")
+FLEET_C = (ROOT / "components/control_engine/generator_fleet_limit.c").read_text(encoding="utf-8")
 
 
 def require(condition, message):
@@ -48,8 +50,9 @@ require("transition_pending" in CONTROL,
 for field in ("generator_rated_kw", "generator_minimum_loading_percent",
               "generator_reserve_kw", "generator_reverse_power_margin_kw"):
     require(field in SG_H, f"generator limit configuration missing {field}")
-require("SOLAR_GRID_CONFIG_VERSION 3u" in SG_H,
-        "per-engine generator limits require schema 3")
+require("SOLAR_GRID_CONFIG_VERSION 4u" in SG_H,
+        "per-engine generator limits require schema 3, and the explicit kW "
+        "load-sharing mode requires schema 4")
 require("legacy_solar_grid_config_v1_t" in SG_C,
         "schema 1 layout must be frozen so a commissioned policy is upgraded, not discarded")
 require("legacy_solar_grid_config_v2_t" in SG_C,
@@ -62,11 +65,54 @@ require("_Static_assert(offsetof(legacy_solar_grid_config_v2_t, generator_rated_
         "schema 1 must be proven a byte-exact prefix of schema 2")
 require("_Static_assert(offsetof(solar_grid_config_t, generator_extra) ==" in SG_C,
         "schema 2 must be proven a byte-exact prefix of schema 3")
-require("sizeof(solar_grid_config_t) > sizeof(legacy_solar_grid_config_v2_t)" in SG_C,
+require("sizeof(legacy_solar_grid_config_v3_t) > sizeof(legacy_solar_grid_config_v2_t)" in SG_C,
         "schema 3 must stay distinguishable from schema 2 by blob size")
-for schema in (1, 2):
+# Schema 4 added the explicit kW load-sharing mode. The same discipline applies: the
+# schema 3 layout is frozen, proven a byte-exact prefix, and migrated rather than
+# discarded, or a commissioned multi-engine site loses every rating it holds.
+require("legacy_solar_grid_config_v3_t" in SG_C,
+        "schema 3 layout must be frozen so commissioned per-engine ratings are "
+        "upgraded, not discarded")
+require("_Static_assert(offsetof(solar_grid_config_t, load_sharing_mode) ==" in SG_C,
+        "schema 3 must be proven a byte-exact prefix of schema 4")
+require("sizeof(solar_grid_config_t) > sizeof(legacy_solar_grid_config_v3_t)" in SG_C,
+        "schema 4 must stay distinguishable from schema 3 by blob size")
+# The frozen schema 3 snapshot must not silently track a growing
+# solar_grid_generator_limits_t, or a stored schema 3 blob would match by size while
+# being misread field for field -- worse than being rejected.
+require("sizeof(((legacy_solar_grid_config_v3_t *)0)->generator_extra) ==" in SG_C,
+        "the frozen schema 3 snapshot must be proven to still describe the live "
+        "per-engine limits block")
+for schema in (1, 2, 3):
     require(f"Migrated Solar-Grid configuration schema {schema}" in SG_C,
             f"schema {schema} must be migrated rather than replaced by defaults")
+
+# The kW load-sharing mode must be an explicit commissioned value that defaults to
+# nothing, and droop must be refused rather than approximated. These are the
+# properties the aggregate floor's correctness rests on.
+require("SOLAR_GRID_LOAD_SHARING_UNSET = 0" in SG_H,
+        "the uncommissioned load-sharing mode must be zero, so a zeroed or migrated "
+        "configuration commissions no sharing law")
+require("GENERATOR_SHARING_UNSET = 0" in FLEET_H,
+        "the limit module's uncommissioned sharing mode must be zero")
+require("GENERATOR_FLEET_SHARING_MODE_UNSET" in FLEET_H and
+        "GENERATOR_FLEET_SHARING_MODE_UNSET" in FLEET_C,
+        "a multi-engine bus with no commissioned sharing mode must have its own "
+        "fail-closed reason")
+require("GENERATOR_FLEET_BASE_LOAD_BELOW_MINIMUM" in FLEET_C,
+        "a base-loaded engine held below its own minimum must be reported as a "
+        "commissioning fault, not computed around")
+require("GENERATOR_FLEET_NO_SWING_ENGINE" in FLEET_C,
+        "a bus with every engine pinned to a fixed kW must fail closed")
+# Droop is refused positively: the supported set is enumerated, so a mode added to
+# the enum without a floor derivation is refused by default.
+supported = FLEET_C[FLEET_C.index("bool generator_sharing_mode_supported("):]
+require("GENERATOR_SHARING_DROOP" not in supported[:400],
+        "droop must not be in the supported set; no defensible floor can be computed "
+        "from values a commissioning engineer can obtain")
+require("GENERATOR_SHARING_ISOCHRONOUS" in supported[:400] and
+        "GENERATOR_SHARING_BASE_LOAD" in supported[:400],
+        "the supported sharing modes must be enumerated positively")
 
 # Per-engine limits, read through one uniform accessor so no caller has to know
 # where a given slot is stored.

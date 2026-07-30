@@ -186,6 +186,79 @@ static commissioning_prereq_result_t evaluate_generator_limits(const commissioni
             return unmet(COMMISSIONING_REASON_GENERATOR_LOADING_UNKNOWN);
         }
     }
+
+    /*
+     * THE kW LOAD-SHARING MODE MUST BE COMMISSIONED EXPLICITLY.
+     *
+     * How engines in parallel divide the load decides which of them binds the
+     * aggregate minimum-loading floor, so the floor is not computable without it.
+     * It used to be assumed to be isochronous, silently. It is now a value an
+     * engineer states, and an unstated one keeps this gate closed.
+     *
+     * WITH EXACTLY ONE ENGINE SLOT IN SERVICE AN UNSET MODE IS ACCEPTED, and that is
+     * the only exemption. One engine cannot share load with anything: every sharing
+     * law hands it the whole plant load and the floor is rated * percent / 100 under
+     * all of them. Requiring the mode there would demand a quantity with no referent,
+     * and it would close the gate on every already-commissioned single-generator
+     * site the moment it was upgraded -- losing behaviour those sites are running on
+     * today, for no safety gain. The requirement therefore lands exactly where the
+     * arithmetic actually depends on it. Note the count used is the number of slots
+     * IN SERVICE, not the number online: a plant that CAN run two engines needs the
+     * mode commissioned even at a moment when it happens to be running one.
+     *
+     * The exemption covers UNSET ONLY. A mode that IS stated is checked whatever the
+     * engine count, because the aggregate limit module refuses a droop or unrecognised
+     * mode at runtime whatever the engine count -- and a gate that reported
+     * "commissioned" while the control loop silently held PV at zero would send an
+     * engineer looking in the wrong place. The two must agree, so they do.
+     */
+    const uint8_t mode = in->generator_load_sharing_mode;
+    if (mode == (uint8_t)COMMISSIONING_SHARING_UNSET) {
+        if (enabled == 1U) return met();
+        return unmet(COMMISSIONING_REASON_GENERATOR_SHARING_MODE_UNSET);
+    }
+    if (mode == (uint8_t)COMMISSIONING_SHARING_DROOP ||
+        mode >= (uint8_t)COMMISSIONING_SHARING_COUNT) {
+        /* Droop is refused rather than approximated: its floor needs the per-governor
+         * no-load speed trim and the running bus frequency, and the first is not a
+         * number a commissioning engineer can reliably obtain. An out-of-range value
+         * is refused for the same reason -- it is evidence of nothing. */
+        return unmet(COMMISSIONING_REASON_GENERATOR_SHARING_MODE_UNSUPPORTED);
+    }
+
+    if (mode == (uint8_t)COMMISSIONING_SHARING_BASE_LOAD) {
+        /* Base-load sharing needs one more commissioned fact per engine: whether it
+         * is held at a fixed kW, and if so at what kW. Neither may be defaulted --
+         * mis-declaring a swing engine as base-loaded, or the reverse, moves the
+         * floor in either direction depending on the setpoints, so one of the two
+         * guesses is permissive on any given plant and nothing here can tell which. */
+        uint8_t swing = 0U;
+        for (uint8_t slot = 0U; slot < (uint8_t)COMMISSIONING_MAX_GENERATORS; ++slot) {
+            if (!in->generators[slot].enabled) continue;
+            const uint8_t role = in->generators[slot].role;
+            if (role == (uint8_t)COMMISSIONING_ENGINE_ROLE_SWING) {
+                swing++;
+                continue;
+            }
+            if (role != (uint8_t)COMMISSIONING_ENGINE_ROLE_BASE_LOAD) {
+                return unmet(COMMISSIONING_REASON_GENERATOR_BASE_LOAD_UNKNOWN);
+            }
+            const float setpoint = in->generators[slot].base_load_kw;
+            if (!positive_finite(setpoint) || setpoint > in->generators[slot].rated_kw) {
+                return unmet(COMMISSIONING_REASON_GENERATOR_BASE_LOAD_UNKNOWN);
+            }
+            /* An engine held below its own minimum loading is a commissioning fault,
+             * not a floor to compute around: its load does not follow the plant
+             * total, so no amount of PV curtailment ever brings it up to its
+             * minimum. The plant has been configured to wet-stack that engine. */
+            const float own_minimum_kw = in->generators[slot].rated_kw *
+                                         in->generators[slot].minimum_loading_percent / 100.0f;
+            if (setpoint < own_minimum_kw) {
+                return unmet(COMMISSIONING_REASON_GENERATOR_BASE_LOAD_BELOW_MINIMUM);
+            }
+        }
+        if (swing == 0U) return unmet(COMMISSIONING_REASON_GENERATOR_NO_SWING_ENGINE);
+    }
     return met();
 }
 
@@ -323,6 +396,11 @@ static const char *const REASON_IDS[COMMISSIONING_REASON_COUNT] = {
     "generator_loading_unknown",
     "control_tuning_invalid",
     "generator_slot_not_configured",
+    "generator_sharing_mode_unset",
+    "generator_sharing_mode_unsupported",
+    "generator_base_load_unknown",
+    "generator_base_load_below_minimum",
+    "generator_no_swing_engine",
 };
 
 static const char *const REASON_MESSAGES[COMMISSIONING_REASON_COUNT] = {
@@ -342,6 +420,11 @@ static const char *const REASON_MESSAGES[COMMISSIONING_REASON_COUNT] = {
     "The generator minimum loading percentage is not commissioned.",
     "The control tuning constants or loop timing are not within a commissioned range.",
     "A meter is assigned to a generator slot that the generator policy does not describe, so the aggregate minimum-loading floor cannot be computed.",
+    "The plant runs more than one generator and no kW load-sharing mode has been commissioned, so which engine sets the minimum-loading floor is not established.",
+    "The commissioned kW load-sharing mode is not one the controller can compute a defensible minimum-loading floor for. Droop sharing is refused rather than approximated.",
+    "Base-load sharing is commissioned but an in-service engine has no declared role, or a base-loaded engine has no fixed kW setpoint.",
+    "A base-loaded engine's fixed kW setpoint is below that engine's own minimum loading, so the plant is configured to under-load it and no PV limit can correct that.",
+    "Base-load sharing is commissioned but no in-service engine is a swing engine, so nothing on the bus would absorb the load the controller shapes.",
 };
 
 const char *commissioning_prereq_id(uint8_t prereq)

@@ -75,8 +75,55 @@ typedef enum {
      * neither the aggregate rating nor the aggregate minimum-loading floor can be
      * computed for the configuration the plant can actually run. */
     COMMISSIONING_REASON_GENERATOR_SLOT_NOT_CONFIGURED,
+    /* Two or more engine slots are in service and no kW load-sharing mode has been
+     * commissioned. Which engine binds the aggregate minimum-loading floor depends
+     * on the sharing law, and no law may be assumed: see
+     * COMMISSIONING_SHARING_* below. */
+    COMMISSIONING_REASON_GENERATOR_SHARING_MODE_UNSET,
+    /* The commissioned sharing mode is one the firmware refuses to model. Droop is
+     * refused: no defensible floor can be computed from values a commissioning
+     * engineer can actually obtain. */
+    COMMISSIONING_REASON_GENERATOR_SHARING_MODE_UNSUPPORTED,
+    /* Base-load sharing, and an in-service engine has no declared role, or a
+     * base-loaded engine has no fixed kW setpoint. */
+    COMMISSIONING_REASON_GENERATOR_BASE_LOAD_UNKNOWN,
+    /* Base-load sharing, and a base-loaded engine's setpoint is below that engine's
+     * own minimum loading. No plant load fixes this; the plant has been set up to
+     * under-load an engine. */
+    COMMISSIONING_REASON_GENERATOR_BASE_LOAD_BELOW_MINIMUM,
+    /* Base-load sharing, and no in-service engine is a swing engine. Nothing would
+     * absorb the load the controller shapes. */
+    COMMISSIONING_REASON_GENERATOR_NO_SWING_ENGINE,
     COMMISSIONING_REASON_COUNT
 } commissioning_reason_t;
+
+/*
+ * The kW load-sharing modes, mirroring generator_sharing_mode_t and
+ * solar_grid_load_sharing_t value for value. Declared independently because this
+ * module depends on nothing; the control engine _Static_asserts that all three
+ * agree numerically.
+ *
+ * UNSET is zero, so a zeroed input struct commissions no sharing mode. That is the
+ * deliberate default and the safe one: base-load sharing can place the floor either
+ * above or below the isochronous floor depending on the commissioned setpoints, so
+ * no mode is conservative for every plant and none may be assumed. Only "no mode",
+ * which keeps this gate closed, is safe when the answer is unknown.
+ */
+typedef enum {
+    COMMISSIONING_SHARING_UNSET = 0,
+    COMMISSIONING_SHARING_ISOCHRONOUS,
+    COMMISSIONING_SHARING_BASE_LOAD,
+    COMMISSIONING_SHARING_DROOP,
+    COMMISSIONING_SHARING_COUNT
+} commissioning_sharing_mode_t;
+
+/* One engine's part in a base-load plant. Mirrors generator_engine_role_t. */
+typedef enum {
+    COMMISSIONING_ENGINE_ROLE_UNSET = 0,
+    COMMISSIONING_ENGINE_ROLE_SWING,
+    COMMISSIONING_ENGINE_ROLE_BASE_LOAD,
+    COMMISSIONING_ENGINE_ROLE_COUNT
+} commissioning_engine_role_t;
 
 /* Engine slots the gate can describe. Must equal APP_MAX_GENERATORS and
  * SOLAR_GRID_MAX_GENERATORS; declared independently because this module depends
@@ -92,6 +139,11 @@ typedef struct {
     bool referenced_by_meter;
     float rated_kw;
     float minimum_loading_percent;
+    /* commissioning_engine_role_t. Required only under base-load sharing. */
+    uint8_t role;
+    /* The fixed kW setpoint a base-loaded engine's governor holds. Zero means "not
+     * commissioned". Required only for an engine whose role is BASE_LOAD. */
+    float base_load_kw;
 } commissioning_generator_slot_t;
 
 /*
@@ -150,6 +202,9 @@ typedef struct {
      * A zeroed struct leaves every slot disabled, which yields "no generator slot
      * is commissioned" -- the same unmet verdict a zero rating always gave. */
     bool generator_limits_known;
+    /* commissioning_sharing_mode_t. Zero is UNSET, which keeps the gate closed for
+     * any plant that can run two or more engines. */
+    uint8_t generator_load_sharing_mode;
     commissioning_generator_slot_t generators[COMMISSIONING_MAX_GENERATORS];
 
     bool control_tuning_known;
