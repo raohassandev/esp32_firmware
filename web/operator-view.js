@@ -606,22 +606,22 @@
         if (!meterReady) {
             actions.push({
                 condition: 'The grid measurement is not usable.',
-                why: 'Automatic control cannot verify export protection without it.',
-                action: 'Check the meter and its communication path, then ask Engineering to confirm it.'
+                why: 'Export cannot be prevented without it.',
+                action: 'Check the meter and its communication path.'
             });
         }
         if (commandable <= 0) {
             actions.push({
-                condition: 'No inverter is approved to accept control.',
-                why: 'Automatic control has nothing it is allowed to command.',
-                action: 'Ask Engineering to commission at least one inverter for external control.'
+                condition: 'No inverter accepts external control.',
+                why: 'There is nothing for the controller to command.',
+                action: 'Ask Engineering to commission an inverter for control.'
             });
         }
         if (!authority.enabled) {
             actions.push({
                 condition: 'Automatic control is switched off.',
-                why: 'The controller is watching the plant but not acting on it.',
-                action: 'Ask Engineering to enable automatic control when the plant is ready.'
+                why: 'The controller is watching, not acting.',
+                action: 'Ask Engineering to enable it when the plant is ready.'
             });
         }
         return actions.slice(0, 3);

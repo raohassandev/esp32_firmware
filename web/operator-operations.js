@@ -160,6 +160,27 @@
         return item;
     }
 
+    /* ------------------------------------------------- three presentation levels
+     *
+     * The same disclosure control web/operator-view.js uses, for the same reason.
+     * The first screen of an alarm list has one job: triage. What is wrong, how
+     * bad, how old, what do I do. The alarm standard's lifecycle, the EEMUA
+     * performance metrics and the per-condition history are all real and all
+     * kept - one level down, closed, labelled.
+     *
+     * It is presentation, not permission. Every action still passes the
+     * controller's own gate: acknowledgement is open to an operator because
+     * ISA-18.2 assigns it to them, and shelving is refused without an
+     * engineering session whether or not this file draws a control for it. */
+    function details(level, summaryText, ...children) {
+        const wrap = node('details', `op-more level-${level}`);
+        const head = node('summary', 'op-more-summary');
+        head.append(node('span', 'op-more-level', level === 'service' ? 'Service' : 'Engineering'),
+            node('span', '', summaryText));
+        wrap.append(head, ...children.filter(Boolean));
+        return wrap;
+    }
+
     async function api(path, options = {}) {
         const controller = new AbortController();
         const timer = window.setTimeout(() => controller.abort(), 6000);
@@ -318,6 +339,10 @@
         return wrap;
     }
 
+    /* Counts first, because triage starts with "how much is there". The fourth
+     * tile used to announce the state model and its ten-state lifecycle, which
+     * teaches the alarm standard to someone who came here to find out what is
+     * wrong with the plant. It is in the lifecycle drawer below. */
     function alarmSummaryTiles(alarms, summary) {
         const outstanding = alarms.filter(isOutstanding).length;
         const active = alarms.filter(isActive).length;
@@ -325,13 +350,14 @@
         const tiles = node('div', 'alarm-summary');
         tiles.append(
             summaryCard('Unacknowledged', Number(summary.unacknowledged ?? outstanding) || 0,
-                        'Work nobody has accepted yet', outstanding ? 'bad' : 'good'),
+                        'Nobody has accepted these', outstanding ? 'bad' : 'good'),
             summaryCard('Active conditions', Number(summary.active ?? active) || 0,
-                        'Present now, acknowledged or not', active ? 'warning' : 'good'),
+                        'Present now', active ? 'warning' : 'good'),
+            /* Never collapsed into the two tiles above and never styled as good
+             * news: on an unattended site this is the ordinary shape of a real
+             * fault, and it is the reason this screen exists. */
             summaryCard('Returned, never acknowledged', returned,
-                        'Cleared itself while nobody was watching', returned ? 'warning' : 'good'),
-            summaryCard('State model', summary.state_model || 'ISA-18.2',
-                        'Ten-state lifecycle; four states are implemented', '')
+                        'Cleared while nobody was watching', returned ? 'warning' : 'good')
         );
         return tiles;
     }
@@ -554,11 +580,16 @@
         const block = node('div', 'alarm-suppression');
         const meta = suppressionState(alarm);
         const key = String(alarm.suppression || 'none');
-        const pill = node('span', `alarm-suppression-pill tone-${meta.tone} suppression-${key}`, meta.label);
-        block.append(pill);
+        /* The pill itself stays on the first screen whenever an alarm is
+         * suppressed at all: it changes what the triage counts mean, so hiding
+         * it would make the counts above misleading. Only the reasoning behind
+         * it - who decided, what ends it, the recorded reason - moves down a
+         * level. "Not suppressed" is the normal state and prints nothing. */
         if (key === 'none') return block;
+        block.append(node('span', `alarm-suppression-pill tone-${meta.tone} suppression-${key}`, meta.label));
 
-        block.append(node('small', 'alarm-suppression-meaning', meta.meaning));
+        const drawer = node('div', 'op-more-body');
+        drawer.append(node('small', 'alarm-suppression-meaning', meta.meaning));
         const facts = node('div', 'alarm-suppression-facts');
         facts.append(alarmMetaRow('Decided by',
             String(alarm.suppression_authority || 'unknown')));
@@ -579,15 +610,26 @@
         if (alarm.out_of_service === true) {
             facts.append(alarmMetaRow('Out of service since', formatAge(alarm.out_of_service_age_ms)));
         }
-        block.append(facts);
+        drawer.append(facts);
         if (alarm.out_of_service === true && alarm.out_of_service_reason_text) {
-            block.append(node('small', 'alarm-suppression-reason',
+            drawer.append(node('small', 'alarm-suppression-reason',
                 `Recorded reason: ${alarm.out_of_service_reason_text}`));
         }
+        block.append(details('engineering', 'Why this is suppressed', drawer));
         return block;
     }
 
+    /* The asymmetry, made visible by where the controls sit. Acknowledge is a
+     * plain button on the row: it is the operator's action under ISA-18.2 and it
+     * needs no session. Shelving and out-of-service hide a live condition, still
+     * require an engineering session, and therefore live one level down behind a
+     * drawer that says so. The drawer is a signpost, not a lock - the controller
+     * refuses these without a session regardless of what the browser drew. */
     function suppressionControls(alarm) {
+        return details('engineering', 'Shelve or take out of service', suppressionActions(alarm));
+    }
+
+    function suppressionActions(alarm) {
         const wrap = node('div', 'alarm-suppress-actions');
         if (!engineeringAuthorized()) {
             /* No dead buttons: suppression is an engineering action and a control
@@ -662,6 +704,13 @@
         const marker = node('span', 'alarm-marker', severityIcon(severity));
         marker.setAttribute('aria-hidden', 'true');
 
+        /* The triage row, and only the triage row: what it is, how bad, what
+         * state it is in, how old, and what to do. The state MEANING (a sentence
+         * of alarm-standard lifecycle per row, repeated down the whole list), the
+         * priority rationale, the detail paragraph and the six metadata fields
+         * were the bulk of this screen and are all one level down. The state
+         * PILL stays - a returned-to-normal-unacknowledged condition must be
+         * legible without anyone opening anything. */
         const copy = node('div', 'alarm-copy');
         const heading = node('div', 'alarm-heading');
         heading.append(
@@ -672,12 +721,18 @@
         const stateLine = node('div', 'alarm-state-line');
         stateLine.append(
             node('span', `alarm-state-pill tone-${meta.tone}`, meta.label),
-            node('small', 'alarm-state-meaning', meta.meaning)
+            node('small', 'alarm-age', formatAge(alarm.last_raised_age_ms))
         );
         copy.append(heading, stateLine, suppressionBlock(alarm));
-        /* A6: the priority and the reason it was assigned, on the row. The
-         * rationalisation is only reviewable if the reasoning travels with the
-         * alarm instead of living in a spreadsheet nobody opens. */
+        /* The one sentence an operator acts on. The controller wrote it. */
+        if (alarm.recommended_action) copy.append(node('small', 'alarm-action', alarm.recommended_action));
+
+        const history = node('div', 'op-more-body');
+        history.append(node('p', 'alarm-state-meaning', meta.meaning));
+        if (alarm.detail) history.append(node('p', '', alarm.detail));
+        /* A6: the priority and the reason it was assigned still travel with the
+         * alarm. The rationalisation is only reviewable if the reasoning is on
+         * the condition rather than in a spreadsheet nobody opens. */
         if (alarm.priority) {
             const priorityLine = node('div', 'alarm-priority-line');
             priorityLine.append(
@@ -685,11 +740,8 @@
                      `${String(alarm.priority)} priority`),
                 node('small', 'alarm-priority-rationale', String(alarm.priority_rationale || ''))
             );
-            copy.append(priorityLine);
+            history.append(priorityLine);
         }
-        if (alarm.detail) copy.append(node('p', '', alarm.detail));
-        if (alarm.recommended_action) copy.append(node('small', 'alarm-action', `Recommended action: ${alarm.recommended_action}`));
-
         const metaGrid = node('div', 'alarm-meta');
         metaGrid.append(
             alarmMetaRow('First occurrence', formatAge(alarm.first_raised_age_ms)),
@@ -699,7 +751,8 @@
             alarmMetaRow('Present now', alarm.present ? 'Yes' : 'No'),
             alarmMetaRow('Acknowledged', alarm.acknowledged ? formatAge(alarm.acknowledged_age_ms) : 'No')
         );
-        copy.append(metaGrid);
+        history.append(metaGrid);
+        copy.append(details('engineering', 'Condition history', history));
 
         const actions = node('div', 'alarm-actions');
         actions.append(acknowledgeControl(alarm), suppressionControls(alarm));
@@ -715,32 +768,19 @@
         const summary = payload.summary || {};
         view.replaceChildren();
 
+        /* The page name, the breadcrumb and the document title already say
+         * "Alarms and events" - the heading and the paragraph that used to
+         * restate it, and then list the columns the reader can see, are gone.
+         * Counts first, then the list. */
         const head = node('div', 'op-section-head');
-        const copy = node('div');
-        copy.append(
-            node('p', 'eyebrow', 'Plant attention'),
-            node('h3', '', 'Alarm conditions'),
-            node('p', '', 'Every condition the controller tracks, with when it started, how long it has stood, how often it has recurred and whether anyone has accepted it.')
-        );
+        head.append(node('div'));
         const refresh = node('button', 'button secondary', 'Refresh');
         refresh.type = 'button';
         refresh.addEventListener('click', refreshAlarms);
-        head.append(copy, refresh);
+        head.append(refresh);
         view.append(head);
 
-        /* Stated before the list, not buried in a tooltip: acknowledgement is a
-         * record that a human looked, not a repair. Operators who believe
-         * otherwise stop investigating. */
-        view.append(node('div', 'notice warning alarm-semantics',
-            'Acknowledging records that someone has seen a condition. It never clears it — only the plant can do that. '
-            + 'An acknowledged condition that is still present stays on this list and still counts as active.'));
-
         view.append(alarmSummaryTiles(alarms, summary));
-        /* A10 then A6: what the alarm system is doing to the operator, then how its
-         * priorities are distributed. Both above the list, because both are
-         * properties of the whole system and cannot be seen from any single row. */
-        view.append(alarmRateSection(payload.rate));
-        view.append(alarmRationalisationSection(payload.rationalisation));
 
         const controls = node('div', 'alarm-controls');
         controls.append(
@@ -786,6 +826,31 @@
         }
         visible.forEach((alarm) => list.append(alarmRow(alarm)));
         view.append(list);
+
+        /* Below the list, closed. Acknowledgement semantics are safety-relevant
+         * and are kept word for word - an operator who thinks acknowledging
+         * repairs something stops investigating - but they are a lesson, and a
+         * lesson does not belong above the thing the reader came for. */
+        const lifecycle = node('div', 'op-more-body');
+        lifecycle.append(node('p', '',
+            'Acknowledging records that someone has seen a condition. It never clears it — only the plant can do that. '
+            + 'An acknowledged condition that is still present stays on this list and still counts as active.'));
+        lifecycle.append(node('p', '', `State model: ${summary.state_model || 'ISA-18.2'}.`));
+        Object.keys(ALARM_STATES).forEach((key) => {
+            const entry = ALARM_STATES[key];
+            const item = node('div', 'op-more-row');
+            item.append(node('span', '', entry.label), node('small', '', entry.meaning));
+            lifecycle.append(item);
+        });
+        view.append(details('engineering', 'How alarm states work', lifecycle));
+
+        /* A10 then A6: what the alarm system is doing to the operator, and how
+         * its priorities are distributed. Both are properties of the whole
+         * system, both are evidence a service engineer needs, and neither is
+         * something a plant operator acts on during a shift. */
+        view.append(details('service', 'Alarm system performance',
+            alarmRateSection(payload.rate),
+            alarmRationalisationSection(payload.rationalisation)));
     }
 
     async function acknowledgeAlarm(alarm) {
@@ -902,42 +967,47 @@
         if (!view || route() !== 'alarms' || !isOperator()) return;
         const payload = state.events || {};
         const events = Array.isArray(payload.events) ? payload.events : [];
-        const summary = payload.summary || {};
         view.replaceChildren();
 
-        const head = node('div', 'op-section-head');
-        const copy = node('div');
-        copy.append(node('p', 'eyebrow', 'Plant attention'), node('h3', '', 'Alarm and event center'), node('p', '', 'Active conditions, recoveries, and recent controller events in operator language.'));
-        const refresh = node('button', 'button secondary', 'Refresh');
-        refresh.type = 'button';
-        refresh.addEventListener('click', refreshAll);
-        head.append(copy, refresh);
-        view.append(head);
-
-        const totals = node('div', 'op-three-column');
-        totals.append(
-            summaryCard('Critical', Number(summary.active_critical) || 0, 'Immediate plant attention', Number(summary.active_critical) ? 'bad' : 'good'),
-            summaryCard('Warnings', Number(summary.active_warning) || 0, 'Review when safe', Number(summary.active_warning) ? 'warning' : 'good'),
-            summaryCard('Event history', Number(summary.stored_events) || 0, 'Controller-resident events', '')
-        );
-        view.append(totals);
-
-        const active = events.filter((event) => event.active && event.severity !== 'information');
-        const activeCard = node('article', 'op-card');
-        activeCard.append(node('div', 'op-card-headline', 'Active conditions'));
-        const activeList = node('div', 'op-event-list');
-        if (!active.length) activeList.append(node('div', 'op-empty-state good', 'No active critical or warning condition.'));
-        active.forEach((event) => activeList.append(eventRow(event)));
-        activeCard.append(activeList);
-        view.append(activeCard);
-
+        /* What is left of this section after the duplicates were removed. The
+         * three totals repeated the condition counts already tiled at the top of
+         * the same page, and the "Active conditions" card listed the same
+         * conditions as the alarm table directly above it - a second, subtly
+         * different rendering of the row an operator is meant to act on. The
+         * event ring answers a question the condition table does not: what has
+         * been happening here recently. That is all it renders now. */
         const historyCard = node('article', 'op-card');
         historyCard.append(node('div', 'op-card-headline', 'Recent events'));
         const historyList = node('div', 'op-event-list');
-        events.slice(0, 40).forEach((event) => historyList.append(eventRow(event)));
+        events.slice(0, 12).forEach((event) => historyList.append(eventRow(event)));
         if (!events.length) historyList.append(node('div', 'op-empty-state', 'Events will appear as controller states change.'));
         historyCard.append(historyList);
         view.append(historyCard);
+    }
+
+    /* ------------------------------------------- the plant overview attention band
+     *
+     * Rendered into the mount point web/operator-view.js puts at the TOP of the
+     * plant overview. It used to be a card appended after the charts, at the
+     * bottom of the longest page in the product.
+     *
+     * Three beats per exception, in the order an operator needs them: what is
+     * true now, why that matters, what to do about it. The controller writes all
+     * three - title, detail and recommended_action - so none of it is this
+     * screen's opinion about a safety condition. */
+    function renderAttention() {
+        const host = byId('operatorAttentionHost');
+        if (!host || !isOperator()) return;
+        const events = (state.events?.events || [])
+            .filter((event) => event.active && event.severity !== 'information');
+        host.replaceChildren();
+        if (!events.length) return;   /* Normal gets no paragraph explaining normal. */
+        const card = node('article', 'op-card op-dashboard-events');
+        card.append(node('div', 'op-card-headline', 'Needs attention'));
+        const list = node('div', 'op-event-list compact');
+        events.slice(0, 3).forEach((event) => list.append(eventRow(event)));
+        card.append(list);
+        host.append(card);
     }
 
     function summaryCard(label, value, detail, tone) {
@@ -946,11 +1016,19 @@
         return card;
     }
 
+    /* Current condition / why it matters / required action. A condition that has
+     * already returned to normal gets the first beat and the age only: telling
+     * an operator what to do about something that is no longer happening is the
+     * noise that teaches them to skim the ones that are. */
     function eventRow(event) {
         const row = node('article', `op-event-row ${event.severity || 'information'} ${event.active ? 'active' : 'cleared'}`);
         const marker = node('span', 'op-event-marker', severityIcon(event.severity));
         const copy = node('div', 'op-event-copy');
-        copy.append(node('strong', '', event.title || 'Controller event'), node('p', '', event.detail || ''), node('small', '', event.recommended_action || ''));
+        copy.append(node('strong', '', event.title || 'Controller event'));
+        if (event.active) {
+            if (event.detail) copy.append(node('p', '', event.detail));
+            if (event.recommended_action) copy.append(node('small', 'op-event-action', event.recommended_action));
+        }
         const meta = node('div', 'op-event-meta');
         /* Alarm family, not a fifth set of words: an event is Critical, Warning
          * or Normal, and whether it is present now is said separately. */
@@ -1077,16 +1155,10 @@
         const target = current === 'dashboard' ? byId('operatorDashboardView') : current === 'meters' ? byId('operatorMeterView') : current === 'inverters' ? byId('operatorInverterView') : null;
         if (!target) return;
         mountChart(target, current);
-        if (current === 'dashboard' && !target.querySelector('.op-dashboard-events')) {
-            const events = (state.events?.events || []).filter((event) => event.active && event.severity !== 'information');
-            const attention = node('article', 'op-card op-dashboard-events');
-            attention.append(node('div', 'op-card-headline', 'Current attention'));
-            const list = node('div', 'op-event-list compact');
-            if (!events.length) list.append(node('div', 'op-empty-state good', 'Plant monitoring is clear.'));
-            events.slice(0, 3).forEach((event) => list.append(eventRow(event)));
-            attention.append(list);
-            target.append(attention);
-        }
+        /* The band is re-rendered rather than appended once: operator-view.js
+         * keeps the mount point across its rebuilds, so this is the only thing
+         * that keeps its contents current. */
+        if (current === 'dashboard') renderAttention();
     }
 
     function scheduleEnhance() {

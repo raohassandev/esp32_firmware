@@ -71,8 +71,32 @@ require("web_assets_operator_operations_js" in SERVER and
         "operator history/event assets are not served")
 require("operator_operations_js_start" in ASSETS and "operator_operations_css_start" in ASSETS,
         "operator history/event embedded symbols are missing")
-require("Alarm and event center" in UI and "Active conditions" in UI,
-        "dedicated operator alarm center is missing")
+# The operator alarm centre exists and shows both populations it is responsible
+# for: the live condition table, and the controller's event ring.
+#
+# This used to assert the literal heading "Alarm and event center". That heading
+# is gone, and its removal is the point rather than a regression: the route table
+# in web/app.js already names this page "Alarms and events" in the sidebar, the
+# title, the breadcrumb and document.title, so a section heading underneath it
+# was a fifth copy of the same words at the top of a triage screen. The three
+# summary tiles that followed it repeated the condition counts tiled directly
+# above, and the "Active conditions" card below listed the same conditions as the
+# alarm table - a second, subtly different rendering of the row an operator is
+# meant to act on. Asserting the heading string would now protect the duplication
+# instead of the screen.
+#
+# What the assertion is actually for is that this module renders BOTH the alarm
+# condition table and the recent-event history, and that the active population is
+# reachable. That is asserted directly, and it survives a rename.
+require("renderAlarmConsole" in UI and "renderAlarmPage" in UI,
+        "the operator alarm centre must render both the condition table and the "
+        "controller event history")
+require("Recent events" in UI,
+        "the controller event ring is not surfaced; it answers a question the "
+        "condition table does not - what has been happening here recently")
+require("'Active conditions'" in UI and "'Active only'" in UI,
+        "the active population must be both counted and filterable, or a live "
+        "condition cannot be separated from a returned one")
 require("requestAnimationFrame" in UI and "subtree: true" not in UI,
         "operator alarm enhancement must be deduplicated and must not observe its own subtree output")
 require("AbortController" in UI and "Controller request timed out" in UI,
