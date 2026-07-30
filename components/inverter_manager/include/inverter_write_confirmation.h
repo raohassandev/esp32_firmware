@@ -102,6 +102,33 @@ const char *inverter_write_state_name(inverter_write_state_t state);
 inverter_write_state_t inverter_write_state_worst(const inverter_write_state_t *states,
                                                   uint8_t count);
 
+/* Whether a power-limit command must be withheld to respect the device's
+ * documented minimum command interval.
+ *
+ * Pure, so the rule is executed by host tests rather than asserted about. It is
+ * safety-relevant in an asymmetric way: withholding an INCREASE is harmless, but
+ * withholding a REDUCTION is the harm the limit must never cause, because
+ * reducing PV is how this product protects a generator from under-loading and
+ * reverse power.
+ *
+ * Therefore:
+ *   - minimum_interval_ms == 0            -> never limited
+ *   - no previous command                 -> never limited
+ *   - requested < previously requested    -> never limited (a reduction)
+ *   - otherwise limited while the interval has not elapsed
+ *
+ * Timestamps are milliseconds and compared with unsigned arithmetic, so the
+ * 32-bit rollover cannot make an old command look recent. A non-finite
+ * previously-requested value is treated as unknown, and the command is allowed
+ * rather than withheld: an unknown previous setpoint must not be able to block a
+ * reduction. */
+bool inverter_command_rate_limited(uint32_t minimum_interval_ms,
+                                   bool has_previous_command,
+                                   uint32_t last_command_ms,
+                                   float previous_percent,
+                                   float requested_percent,
+                                   uint32_t now_ms);
+
 #ifdef __cplusplus
 }
 #endif

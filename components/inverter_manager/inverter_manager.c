@@ -490,6 +490,42 @@ static void update_stale_state(inverter_runtime_t *runtime, uint32_t timestamp)
     portEXIT_CRITICAL(&runtime->lock);
 }
 
+/* Shortest interval this device documents between two power-limit commands.
+ *
+ * A profile may state its own. Otherwise a logger-gateway connection gets 1000 ms,
+ * because the Huawei SmartLogger Modbus definitions state that the adjustment
+ * value "should be issued at intervals of not less than 1 seconds", and this
+ * controller's default control period is 250 ms -- four times faster. A direct
+ * connection gets no limit, since no direct-inverter manual read for this project
+ * documents one; that is an absence of evidence, not evidence of absence, and it
+ * is on the commissioning checklist to confirm per site. */
+static uint32_t min_command_interval_ms(const inverter_profile_t *profile)
+{
+    if (!profile) return 0U;
+    if (profile->min_command_interval_ms) return profile->min_command_interval_ms;
+    if (profile->connection == INVERTER_PROFILE_CONNECTION_LOGGER_GATEWAY) return 1000U;
+    return 0U;
+}
+
+/* Snapshots this inverter's command history and asks the pure rule whether the
+ * command must be withheld. The rule itself lives in inverter_write_confirmation
+ * so host tests execute it; see inverter_command_rate_limited() for why a
+ * reduction is never withheld. */
+static bool command_is_rate_limited(inverter_runtime_t *runtime,
+                                    const inverter_profile_t *profile,
+                                    float percent, uint32_t timestamp)
+{
+    portENTER_CRITICAL(&runtime->lock);
+    const bool written_before = runtime->data.write_issued;
+    const uint32_t last_write_ms = runtime->data.last_write_ms;
+    const float previous_percent = runtime->data.requested_percent;
+    portEXIT_CRITICAL(&runtime->lock);
+
+    return inverter_command_rate_limited(min_command_interval_ms(profile),
+                                         written_before, last_write_ms,
+                                         previous_percent, percent, timestamp);
+}
+
 /* Records a write that has just been issued. The value becomes the thing the
  * next readback is judged against - it does NOT become a commanded value. Only
  * evaluate_write_confirmation() may do that, and only on a matching readback. */
@@ -904,6 +940,15 @@ esp_err_t inverter_manager_set_total_power_kw(float target_kw)
     for (uint8_t i = 0; i < target_count; ++i) {
         command_target_t *target = &targets[i];
         esp_err_t write_error = ESP_ERR_INVALID_RESPONSE;
+
+        if (command_is_rate_limited(target->runtime, target->profile, target->percent,
+                                    now_ms())) {
+            /* Deliberately no note_write_issued(): nothing was sent, so the
+             * previous setpoint and its confirmation window still stand. Writing
+             * here would reset the confirmation window for a command that never
+             * left the controller. */
+            continue;
+        }
 
         /* Transport retries only, back to back. A retry costs one round trip;
          * it never costs a sleep. */

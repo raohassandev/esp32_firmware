@@ -84,6 +84,20 @@ typedef struct {
      * unconfirmed setpoint may stand. */
     uint32_t power_limit_settle_ms;
 
+    /* Shortest interval permitted between two power-limit commands to this
+     * device. Zero means "derive a safe default from the connection type".
+     *
+     * Not a performance knob -- a manufacturer constraint. The Huawei SmartLogger
+     * Modbus definitions state that the adjustment value "should be issued at
+     * intervals of not less than 1 seconds". This controller's default control
+     * period is 250 ms, so an unthrottled loop would issue commands roughly four
+     * times faster than the equipment documents as safe.
+     *
+     * This throttles ordinary setpoint updates ONLY. A protective reduction --
+     * driving an inverter to its safe fallback -- is never delayed: holding back
+     * a reduction is what endangers a generator. */
+    uint32_t min_command_interval_ms;
+
     /*
      * Optional operational status register. Deliberately left unconfigured for
      * every shipped profile: no manufacturer status address is hardcoded in

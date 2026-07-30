@@ -232,6 +232,50 @@ static void test_deferred_apply_device_is_pending_not_mismatched(void)
            inverter_write_confirmation_evaluate(&e).state == INVERTER_WRITE_UNVERIFIED);
 }
 
+/* Minimum command interval. Asymmetric on purpose: withholding an increase is
+ * harmless, withholding a reduction is the harm this must never cause, because
+ * reducing PV is how the product protects a generator from under-loading and
+ * reverse power.
+ *
+ * The concrete constraint being honoured: the Huawei SmartLogger Modbus
+ * definitions state the adjustment value "should be issued at intervals of not
+ * less than 1 seconds", while this controller's default control period is 250 ms. */
+static void test_command_rate_limit(void)
+{
+    /* No configured minimum: never limited, whatever the timing. */
+    assert(!inverter_command_rate_limited(0, true, 1000, 50.0f, 100.0f, 1001));
+
+    /* The first command always goes, even inside the interval. */
+    assert(!inverter_command_rate_limited(1000, false, 0, 0.0f, 100.0f, 10));
+
+    /* An increase inside the interval is withheld; once elapsed it goes. */
+    assert(inverter_command_rate_limited(1000, true, 5000, 50.0f, 60.0f, 5001));
+    assert(inverter_command_rate_limited(1000, true, 5000, 50.0f, 60.0f, 5999));
+    assert(!inverter_command_rate_limited(1000, true, 5000, 50.0f, 60.0f, 6000));
+    assert(!inverter_command_rate_limited(1000, true, 5000, 50.0f, 60.0f, 6001));
+
+    /* A repeat of the same value is treated as an increase: it carries no
+     * protective urgency, so it may wait. */
+    assert(inverter_command_rate_limited(1000, true, 5000, 50.0f, 50.0f, 5100));
+
+    /* A REDUCTION is never withheld, however soon it arrives. This is the
+     * property that protects the generator. */
+    assert(!inverter_command_rate_limited(1000, true, 5000, 50.0f, 49.9f, 5001));
+    assert(!inverter_command_rate_limited(1000, true, 5000, 100.0f, 0.0f, 5000));
+    assert(!inverter_command_rate_limited(1000, true, 5000, 0.5f, 0.0f, 5000));
+
+    /* Millisecond rollover must not make an old command look recent. Last
+     * command just below 2^32, now just after wrapping: 20 ms have elapsed. */
+    assert(inverter_command_rate_limited(1000, true, 0xFFFFFFF0u, 50.0f, 60.0f, 4u));
+    /* And a genuinely old command across the wrap is not limited. */
+    assert(!inverter_command_rate_limited(1000, true, 0xFFFFF000u, 50.0f, 60.0f, 4000u));
+
+    /* A non-finite setpoint on either side must not be able to block a command,
+     * because it must never block a reduction. */
+    assert(!inverter_command_rate_limited(1000, true, 5000, NAN, 60.0f, 5001));
+    assert(!inverter_command_rate_limited(1000, true, 5000, 50.0f, NAN, 5001));
+}
+
 static void test_fleet_rollup(void)
 {
     /* An empty fleet is unverified, never confirmed. */
@@ -281,6 +325,7 @@ int main(void)
     test_rejected_write_demands_safe_zero();
     test_null_and_nonsense_inputs_fail_closed();
     test_deferred_apply_device_is_pending_not_mismatched();
+    test_command_rate_limit();
     test_fleet_rollup();
     test_state_names();
     printf("inverter write confirmation unit tests passed\n");

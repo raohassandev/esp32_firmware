@@ -113,3 +113,23 @@ inverter_write_state_t inverter_write_state_worst(const inverter_write_state_t *
     }
     return worst;
 }
+
+bool inverter_command_rate_limited(uint32_t minimum_interval_ms,
+                                   bool has_previous_command,
+                                   uint32_t last_command_ms,
+                                   float previous_percent,
+                                   float requested_percent,
+                                   uint32_t now_ms)
+{
+    if (minimum_interval_ms == 0U) return false;
+    if (!has_previous_command) return false;
+
+    /* A reduction is never withheld. Also treated as "allow" when either value is
+     * not finite: an unknown setpoint must not be able to block a reduction. */
+    if (!isfinite(previous_percent) || !isfinite(requested_percent)) return false;
+    if (requested_percent < previous_percent) return false;
+
+    /* Unsigned subtraction wraps correctly, so the 32-bit millisecond rollover
+     * cannot make an old command appear recent. */
+    return (uint32_t)(now_ms - last_command_ms) < minimum_interval_ms;
+}
