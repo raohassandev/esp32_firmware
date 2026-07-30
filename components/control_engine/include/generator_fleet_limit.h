@@ -85,6 +85,24 @@ typedef enum {
      * Nothing on the bus absorbs the swing, so the plant load the controller would
      * be shaping has nowhere to go and no floor describes it. */
     GENERATOR_FLEET_NO_SWING_ENGINE,
+    /* Base-load sharing with at least one base-loaded engine, and no setpoint
+     * agreement tolerance has been commissioned. The floor rests on the assumption
+     * that the engine is holding its setpoint, and without a tolerance that
+     * assumption cannot be checked against the measurement that is already
+     * available. See base_load_tolerance_kw for why this refuses rather than
+     * skipping the check. */
+    GENERATOR_FLEET_BASE_LOAD_TOLERANCE_UNSET,
+    /* Base-load sharing, and a base-loaded engine carries no fresh finite measured
+     * power to compare its setpoint against. Unknown is not confirmation: an
+     * unchecked setpoint is exactly the permissive assumption the check exists to
+     * remove, so a missing observation refuses rather than assuming agreement. */
+    GENERATOR_FLEET_BASE_LOAD_UNMEASURED,
+    /* Base-load sharing, and a base-loaded engine's fresh measured power disagrees
+     * with its commissioned setpoint by more than the commissioned tolerance. The
+     * governor is not holding kW: it has lost its load-sharing line, been switched
+     * to droop, reverted to isochronous, or been put in manual. The engine is NOT
+     * reclassified as a swing engine, because what it actually became is unknown. */
+    GENERATOR_FLEET_BASE_LOAD_DRIFT,
     GENERATOR_FLEET_REASON_COUNT
 } generator_fleet_reason_t;
 
@@ -213,6 +231,65 @@ typedef struct {
     uint8_t sharing_mode;
     uint8_t engine_count;
     generator_engine_input_t engines[GENERATOR_FLEET_MAX_ENGINES];
+
+    /*
+     * BASE-LOAD SETPOINT AGREEMENT TOLERANCE, and why the check cannot be skipped.
+     *
+     * The base-load floor is sum(setpoints) + sum_swing(rated) x max_swing(percent)
+     * / 100. Its first term rests on an assumption: that a base-loaded engine's
+     * governor is actually holding the kW it was commissioned to hold. If that
+     * governor drops out of kW control -- lost load-sharing line, switched to droop,
+     * reverted to isochronous, put in manual -- the engine silently becomes a swing
+     * engine, and the floor is then computed from a setpoint nobody is holding. The
+     * error is in the PERMISSIVE direction: the controller believes the base engines
+     * are absorbing kW they are not, and permits more PV than the plant can carry.
+     * That is the reverse-power condition this product exists to prevent.
+     *
+     * The observation needed to check it already exists: measured_kw with
+     * sample_fresh. What was missing is the tolerance, and NO MANUAL, NAMEPLATE OR
+     * SITE DOCUMENT IN THIS REPOSITORY STATES ONE. So it is not invented here. It is
+     * a commissioned value with no default, stated either absolutely in kW or as a
+     * percentage of that engine's own rating, exactly as
+     * measured_tolerance_kw / measured_tolerance_percent_of_capacity are handled in
+     * inverter_manager/include/inverter_write_confirmation.h.
+     *
+     * WHEN BOTH ARE STATED THE NARROWER BAND IS USED, and that is deliberately the
+     * OPPOSITE of the choice inverter_write_confirmation.h makes. The reasoning there
+     * is that its band sits on BOTH sides of its test, so widening it also demands a
+     * larger pre-command excursion before a limit counts as demonstrated -- widening
+     * is partly conservative. Here the band sits on exactly ONE side:
+     * |measured - setpoint| <= band. Widening it is purely permissive; it can only
+     * make drift harder to detect. The narrower band is therefore the conservative
+     * reading of two figures an engineer stated, and a nuisance refusal is
+     * recoverable in a way that over-generating into a genset is not.
+     *
+     * ZERO IN BOTH MEANS NOT COMMISSIONED, so a zeroed struct commissions no
+     * tolerance. WHAT THAT THEN MEANS -- the decision, stated where it is
+     * implemented:
+     *
+     *   BASE-LOAD SHARING WITH AT LEAST ONE BASE-LOADED ENGINE IS REFUSED UNTIL A
+     *   TOLERANCE IS COMMISSIONED (GENERATOR_FLEET_BASE_LOAD_TOLERANCE_UNSET).
+     *
+     * The alternative -- report the check as "unavailable" and keep computing the
+     * base-load floor -- was rejected. It leaves the plant running on precisely the
+     * unverifiable assumption this field exists to remove, and that assumption fails
+     * permissively; an "unavailable" flag on a status page does not curtail PV.
+     * Refusing to commission is a closed gate an engineer resolves by supplying one
+     * number, which is recoverable. Over-generating into an under-loaded genset is
+     * not. Between a recoverable refusal and an unrecoverable permission, the module
+     * fails closed, which is the rule stated at the top of this header.
+     *
+     * NOTHING ELSE CHANGES. An isochronous plant reads neither field; a plant with no
+     * base-loaded engine has no setpoint to check and needs no tolerance, so base-load
+     * sharing over an all-swing fleet still equals isochronous exactly; and the
+     * single-engine exemption is untouched, because a lone base-loaded engine is
+     * already refused for having no swing engine.
+     *
+     * A negative, non-finite, or above-100 % value is NOT a commissioned tolerance and
+     * reads as not commissioned rather than being clamped into one.
+     */
+    float base_load_tolerance_kw;
+    float base_load_tolerance_percent_of_rating;
 } generator_fleet_input_t;
 
 typedef struct {
@@ -261,6 +338,20 @@ const char *generator_engine_role_id(uint8_t role);
 /* True only for a sharing mode this build can compute a defensible floor for.
  * False for UNSET, for DROOP and for anything out of range. */
 bool generator_sharing_mode_supported(uint8_t mode);
+
+/* The commissioned base-load setpoint-agreement band for ONE engine, in kW.
+ *
+ * Returns a NEGATIVE value when no tolerance is commissioned, which is
+ * distinguishable from a commissioned band of zero -- and a band of zero is itself
+ * refused, because a zero band on a physical measurement is not a tolerance, it is a
+ * bug (the same position inverter_write_confirmation.h takes).
+ *
+ * Exposed so the one rule -- including "when both are stated, use the NARROWER band"
+ * and why that differs from the inverter module -- is executed by the unit test rather
+ * than asserted about in a comment. */
+float generator_base_load_tolerance_band_kw(float tolerance_kw,
+                                            float tolerance_percent_of_rating,
+                                            float rated_kw);
 
 #ifdef __cplusplus
 }

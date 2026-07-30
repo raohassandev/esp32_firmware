@@ -94,6 +94,44 @@ typedef struct {
     } generator_extra[SOLAR_GRID_MAX_GENERATORS - 1u];
 } legacy_solar_grid_config_v3_t;
 
+/* Frozen schema 4 layout: the explicit kW load-sharing mode, before a base-load
+ * setpoint-agreement tolerance existed. Never edit.
+ *
+ * Spelled out field for field like every other snapshot in this file, and for the same
+ * reason: it must not reference the live solar_grid_config_t or the live
+ * solar_grid_generator_limits_t, because appending one field to either would silently
+ * change this struct's size, no stored blob would match any known schema, and a
+ * commissioned site would fall back to defaults -- losing its grid policy, its
+ * generator ratings, its sharing mode and its base-load setpoints in one step. */
+typedef struct {
+    uint32_t magic;
+    uint16_t version;
+    solar_grid_policy_t policy;
+    solar_grid_meter_orientation_t meter_orientation;
+    float export_limit_kw;
+    float minimum_import_kw;
+    solar_grid_signal_config_t grid_available;
+    solar_grid_signal_config_t grid_breaker_closed;
+    uint32_t evidence_poll_interval_ms;
+    uint32_t evidence_stale_timeout_ms;
+    uint32_t grid_loss_trip_ms;
+    uint32_t grid_recovery_stable_ms;
+    float generator_rated_kw;
+    float generator_minimum_loading_percent;
+    float generator_reserve_kw;
+    float generator_reverse_power_margin_kw;
+    struct {
+        bool enabled;
+        float rated_kw;
+        float minimum_loading_percent;
+        float reserve_kw;
+        float reverse_power_margin_kw;
+    } generator_extra[SOLAR_GRID_MAX_GENERATORS - 1u];
+    uint8_t load_sharing_mode;
+    uint8_t engine_role[SOLAR_GRID_MAX_GENERATORS];
+    float engine_base_load_kw[SOLAR_GRID_MAX_GENERATORS];
+} legacy_solar_grid_config_v4_t;
+
 /* Prefix proofs, stated with offsetof rather than arithmetic on field sizes: the
  * appended block may be preceded by alignment padding, and a hand-computed size
  * sum would then be wrong in a way that only shows up as a discarded
@@ -124,7 +162,33 @@ _Static_assert(offsetof(solar_grid_config_t, load_sharing_mode) ==
                    sizeof(legacy_solar_grid_config_v3_t),
                "schema 3 must remain a byte-exact prefix of schema 4");
 _Static_assert(sizeof(solar_grid_config_t) > sizeof(legacy_solar_grid_config_v3_t),
+               "every schema after 3 must stay distinguishable from schema 3 by blob size");
+/* The frozen schema 4 snapshot must still describe the live struct's schema 4 region
+ * exactly -- same start, same size -- or a stored schema 4 blob would be misread field
+ * for field while still matching by size, which is worse than being rejected because it
+ * would look like a successful upgrade. */
+_Static_assert(offsetof(legacy_solar_grid_config_v4_t, load_sharing_mode) ==
+                   offsetof(solar_grid_config_t, load_sharing_mode),
+               "the frozen schema 4 snapshot must agree with the live struct on where "
+               "the load-sharing policy starts");
+_Static_assert(sizeof(((legacy_solar_grid_config_v4_t *)0)->engine_base_load_kw) ==
+                   sizeof(((solar_grid_config_t *)0)->engine_base_load_kw),
+               "the frozen schema 4 snapshot must agree with the live struct on the size "
+               "of the per-engine base-load setpoints");
+_Static_assert(offsetof(legacy_solar_grid_config_v4_t, engine_base_load_kw) ==
+                   offsetof(solar_grid_config_t, engine_base_load_kw),
+               "the frozen schema 4 snapshot must agree with the live struct on where "
+               "the per-engine base-load setpoints sit");
+_Static_assert(sizeof(legacy_solar_grid_config_v4_t) > sizeof(legacy_solar_grid_config_v3_t),
                "schema 4 must stay distinguishable from schema 3 by blob size");
+/* Schema 5 appends the base-load setpoint-agreement tolerance. Schema 4 must remain a
+ * byte-exact prefix, so a commissioned unit is upgraded by appending zeroes and cannot
+ * lose a rating, a sharing mode or a base-load setpoint. */
+_Static_assert(offsetof(solar_grid_config_t, base_load_tolerance_kw) ==
+                   sizeof(legacy_solar_grid_config_v4_t),
+               "schema 4 must remain a byte-exact prefix of schema 5");
+_Static_assert(sizeof(solar_grid_config_t) > sizeof(legacy_solar_grid_config_v4_t),
+               "schema 5 must stay distinguishable from schema 4 by blob size");
 /* Each schema must be distinguishable by blob size, because that is how a stored
  * blob is recognised on load. */
 _Static_assert(sizeof(legacy_solar_grid_config_v2_t) > sizeof(legacy_solar_grid_config_v1_t),
@@ -208,6 +272,24 @@ float solar_grid_config_engine_base_load_kw(const solar_grid_config_t *config, u
     /* Zero, not the stored bit pattern, for anything that is not a usable setpoint.
      * Zero is the "not commissioned" reading everywhere else in this policy. */
     return isfinite(setpoint) && setpoint > 0.0f ? setpoint : 0.0f;
+}
+
+float solar_grid_config_base_load_tolerance_kw(const solar_grid_config_t *config)
+{
+    if (!config) return 0.0f;
+    const float tolerance = config->base_load_tolerance_kw;
+    /* Zero, not the stored bit pattern, for anything that is not a usable tolerance.
+     * Zero is the "not commissioned" reading everywhere else in this policy, and the
+     * control engine refuses base-load sharing on it rather than inventing a band. */
+    return isfinite(tolerance) && tolerance > 0.0f ? tolerance : 0.0f;
+}
+
+float solar_grid_config_base_load_tolerance_percent(const solar_grid_config_t *config)
+{
+    if (!config) return 0.0f;
+    const float tolerance = config->base_load_tolerance_percent_of_rating;
+    /* A percentage above the engine's whole rating is not a tolerance either. */
+    return isfinite(tolerance) && tolerance > 0.0f && tolerance <= 100.0f ? tolerance : 0.0f;
 }
 
 /* Bounds only. Zero rated kW with the slot disabled is the uncommissioned state
@@ -313,6 +395,19 @@ bool solar_grid_config_valid(const solar_grid_config_t *config)
             return false;
         }
     }
+    /* The base-load setpoint-agreement tolerance: BOUNDS ONLY, for the same reason as
+     * everything above. Zero is the uncommissioned state and is valid to store --
+     * rejecting it here would discard a commissioned grid policy on every upgraded
+     * unit. Keeping base-load sharing out of commissioning until an engineer supplies a
+     * figure is the commissioning gate's job, and it does it. */
+    if (!isfinite(config->base_load_tolerance_kw) ||
+        config->base_load_tolerance_kw < 0.0f ||
+        config->base_load_tolerance_kw > 1000000.0f ||
+        !isfinite(config->base_load_tolerance_percent_of_rating) ||
+        config->base_load_tolerance_percent_of_rating < 0.0f ||
+        config->base_load_tolerance_percent_of_rating > 100.0f) {
+        return false;
+    }
     return true;
 }
 
@@ -373,13 +468,72 @@ esp_err_t solar_grid_config_init(void)
     if (error == ESP_OK && size == sizeof(loaded) && solar_grid_config_valid(&loaded)) {
         set_active(&loaded);
         ESP_LOGI(TAG, "Loaded persisted Solar-Grid policy '%s'; explicit grid evidence %s; "
-                      "%u of %u generator engine slots in service; kW load sharing '%s'",
+                      "%u of %u generator engine slots in service; kW load sharing '%s'; "
+                      "base-load setpoint agreement tolerance %s",
                  solar_grid_policy_name(loaded.policy),
                  solar_grid_config_evidence_complete(&loaded) ? "configured" : "not configured",
                  (unsigned)solar_grid_config_enabled_generator_count(&loaded),
                  (unsigned)SOLAR_GRID_MAX_GENERATORS,
-                 solar_grid_load_sharing_name(solar_grid_config_load_sharing_mode(&loaded)));
+                 solar_grid_load_sharing_name(solar_grid_config_load_sharing_mode(&loaded)),
+                 (solar_grid_config_base_load_tolerance_kw(&loaded) > 0.0f ||
+                  solar_grid_config_base_load_tolerance_percent(&loaded) > 0.0f)
+                     ? "commissioned"
+                     : "not commissioned");
         return ESP_OK;
+    }
+
+    /*
+     * Schema 4 predates the base-load setpoint-agreement tolerance. It is a byte-exact
+     * prefix, so the upgrade is an append of zeroes: the tolerance arrives NOT
+     * COMMISSIONED.
+     *
+     * WHAT THAT MEANS FOR A COMMISSIONED UNIT, stated plainly because it is the one
+     * place this change can alter field behaviour. Every isochronous plant is
+     * unaffected: the tolerance is never read. Every single-engine plant is unaffected.
+     * A base-load plant with no base-loaded engine is unaffected, because there is no
+     * setpoint to check. A base-load plant that DOES hold an engine at a fixed kW
+     * migrates with no tolerance and its commissioning gate CLOSES until an engineer
+     * supplies one.
+     *
+     * That is deliberate, and it is the position argued at generator_fleet_input_t:
+     * the base-load floor credits the base engines with kW they may not be carrying,
+     * and that error is permissive. Migrating a plausible tolerance to preserve the
+     * numbers would be writing a commissioning fact nobody supplied -- the same
+     * mistake as migrating the sharing mode to ISOCHRONOUS, refused for the same
+     * reason. It is also, as far as this component can tell, an empty set in the
+     * field: a base-loaded engine requires a per-engine role, and the multi-engine
+     * policy only became writable over the HTTP API in the revision that introduced
+     * it.
+     */
+    if (error == ESP_OK && size == sizeof(legacy_solar_grid_config_v4_t)) {
+        legacy_solar_grid_config_v4_t legacy = {0};
+        size_t legacy_size = sizeof(legacy);
+        nvs_handle_t legacy_handle;
+        if (nvs_open(SOLAR_GRID_NAMESPACE, NVS_READONLY, &legacy_handle) == ESP_OK) {
+            const esp_err_t legacy_error =
+                nvs_get_blob(legacy_handle, SOLAR_GRID_KEY, &legacy, &legacy_size);
+            nvs_close(legacy_handle);
+            if (legacy_error == ESP_OK && legacy.magic == SOLAR_GRID_CONFIG_MAGIC &&
+                legacy.version == 4u) {
+                memset(&loaded, 0, sizeof(loaded));
+                memcpy(&loaded, &legacy, sizeof(legacy));
+                loaded.version = SOLAR_GRID_CONFIG_VERSION;
+                loaded.base_load_tolerance_kw = 0.0f;
+                loaded.base_load_tolerance_percent_of_rating = 0.0f;
+                if (solar_grid_config_valid(&loaded)) {
+                    set_active(&loaded);
+                    ESP_LOGI(TAG, "Migrated Solar-Grid configuration schema 4 to schema %u; "
+                                  "every generator limit, the kW load-sharing mode '%s' and "
+                                  "every base-load setpoint are kept, and the base-load "
+                                  "setpoint-agreement tolerance is not commissioned",
+                             SOLAR_GRID_CONFIG_VERSION,
+                             solar_grid_load_sharing_name(
+                                 solar_grid_config_load_sharing_mode(&loaded)));
+                    return solar_grid_config_save(&loaded);
+                }
+                ESP_LOGW(TAG, "Schema 4 Solar-Grid migration produced an invalid configuration");
+            }
+        }
     }
 
     /*
@@ -418,6 +572,11 @@ esp_err_t solar_grid_config_init(void)
                 loaded.load_sharing_mode = (uint8_t)SOLAR_GRID_LOAD_SHARING_UNSET;
                 memset(loaded.engine_role, 0, sizeof(loaded.engine_role));
                 memset(loaded.engine_base_load_kw, 0, sizeof(loaded.engine_base_load_kw));
+                /* Schema 5's tolerance arrives not commissioned. A schema 3 unit has no
+                 * sharing mode and therefore no base-loaded engine, so nothing reads
+                 * it: see the schema 4 note for what it means where it is read. */
+                loaded.base_load_tolerance_kw = 0.0f;
+                loaded.base_load_tolerance_percent_of_rating = 0.0f;
                 if (solar_grid_config_valid(&loaded)) {
                     set_active(&loaded);
                     ESP_LOGI(TAG, "Migrated Solar-Grid configuration schema 3 to schema %u; "
@@ -460,6 +619,10 @@ esp_err_t solar_grid_config_init(void)
                 loaded.load_sharing_mode = (uint8_t)SOLAR_GRID_LOAD_SHARING_UNSET;
                 memset(loaded.engine_role, 0, sizeof(loaded.engine_role));
                 memset(loaded.engine_base_load_kw, 0, sizeof(loaded.engine_base_load_kw));
+                /* Schema 5's tolerance arrives not commissioned, and a schema 2 unit is
+                 * single-engine by construction, so it is never read. */
+                loaded.base_load_tolerance_kw = 0.0f;
+                loaded.base_load_tolerance_percent_of_rating = 0.0f;
                 if (solar_grid_config_valid(&loaded)) {
                     set_active(&loaded);
                     ESP_LOGI(TAG, "Migrated Solar-Grid configuration schema 2 to schema %u; "

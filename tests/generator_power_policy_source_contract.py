@@ -50,9 +50,10 @@ require("transition_pending" in CONTROL,
 for field in ("generator_rated_kw", "generator_minimum_loading_percent",
               "generator_reserve_kw", "generator_reverse_power_margin_kw"):
     require(field in SG_H, f"generator limit configuration missing {field}")
-require("SOLAR_GRID_CONFIG_VERSION 4u" in SG_H,
-        "per-engine generator limits require schema 3, and the explicit kW "
-        "load-sharing mode requires schema 4")
+require("SOLAR_GRID_CONFIG_VERSION 5u" in SG_H,
+        "per-engine generator limits require schema 3, the explicit kW load-sharing "
+        "mode requires schema 4, and the base-load setpoint-agreement tolerance "
+        "requires schema 5")
 require("legacy_solar_grid_config_v1_t" in SG_C,
         "schema 1 layout must be frozen so a commissioned policy is upgraded, not discarded")
 require("legacy_solar_grid_config_v2_t" in SG_C,
@@ -83,9 +84,49 @@ require("sizeof(solar_grid_config_t) > sizeof(legacy_solar_grid_config_v3_t)" in
 require("sizeof(((legacy_solar_grid_config_v3_t *)0)->generator_extra) ==" in SG_C,
         "the frozen schema 3 snapshot must be proven to still describe the live "
         "per-engine limits block")
-for schema in (1, 2, 3):
+# Schema 5 appended the base-load setpoint-agreement tolerance. Same discipline again:
+# the schema 4 layout is frozen, proven a byte-exact prefix, distinguishable by size, and
+# migrated rather than discarded -- or a commissioned base-load plant loses every rating,
+# its sharing mode AND its base-load setpoints in one step.
+require("legacy_solar_grid_config_v4_t" in SG_C,
+        "schema 4 layout must be frozen so a commissioned load-sharing mode and its "
+        "base-load setpoints are upgraded, not discarded")
+require("_Static_assert(offsetof(solar_grid_config_t, base_load_tolerance_kw) ==" in SG_C,
+        "schema 4 must be proven a byte-exact prefix of schema 5")
+require("sizeof(solar_grid_config_t) > sizeof(legacy_solar_grid_config_v4_t)" in SG_C,
+        "schema 5 must stay distinguishable from schema 4 by blob size")
+require("sizeof(legacy_solar_grid_config_v4_t) > sizeof(legacy_solar_grid_config_v3_t)" in SG_C,
+        "schema 4 must stay distinguishable from schema 3 by blob size")
+# The frozen schema 4 snapshot must not silently track a growing live struct, or a stored
+# schema 4 blob would match by size while being misread field for field.
+require("sizeof(((legacy_solar_grid_config_v4_t *)0)->engine_base_load_kw) ==" in SG_C,
+        "the frozen schema 4 snapshot must be proven to still describe the live "
+        "per-engine base-load setpoints")
+require("offsetof(legacy_solar_grid_config_v4_t, load_sharing_mode) ==" in SG_C,
+        "the frozen schema 4 snapshot must be proven to start its load-sharing policy "
+        "where the live struct does")
+
+for schema in (1, 2, 3, 4):
     require(f"Migrated Solar-Grid configuration schema {schema}" in SG_C,
             f"schema {schema} must be migrated rather than replaced by defaults")
+
+# THE BASE-LOAD SETPOINT AGREEMENT TOLERANCE HAS NO DEFAULT, ANYWHERE.
+#
+# The base-load floor credits a base-loaded engine with the load its setpoint promises.
+# That is a claim about a governor, and a governor that has left kW control makes it false
+# in the PERMISSIVE direction. No manual, nameplate or site document in this repository
+# states how much disagreement is normal, so no figure may appear as a default in the
+# persisted model, in the defaults function, or in the pure limit module.
+require("base_load_tolerance_kw" in SG_H and
+        "base_load_tolerance_percent_of_rating" in SG_H,
+        "the persisted policy must carry the base-load setpoint-agreement tolerance, "
+        "stated absolutely in kW or as a percentage of the engine's rating, or both")
+DEFAULTS = SG_C[SG_C.index("void solar_grid_config_defaults("):]
+DEFAULTS = DEFAULTS[:DEFAULTS.index("\n}\n")]
+require("base_load_tolerance" not in DEFAULTS,
+        "solar_grid_config_defaults() must not assign a base-load setpoint-agreement "
+        "tolerance; the memset to zero is the uncommissioned state and no figure exists "
+        "in this repository to put there")
 
 # The kW load-sharing mode must be an explicit commissioned value that defaults to
 # nothing, and droop must be refused rather than approximated. These are the

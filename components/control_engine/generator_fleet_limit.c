@@ -38,6 +38,39 @@ static bool limits_usable(const generator_engine_input_t *engine)
            engine->reverse_power_margin_kw >= 0.0f;
 }
 
+/* The commissioned setpoint-agreement band for one engine, or a negative value when
+ * no tolerance is commissioned. See generator_fleet_input_t for the whole argument;
+ * the two rules executed here are:
+ *
+ *   - a value that is non-finite, negative, zero, or (for the percentage) above 100 is
+ *     NOT a commissioned tolerance and contributes no band. A zero band on a physical
+ *     measurement is not a tolerance, it is a bug;
+ *   - when BOTH are commissioned the NARROWER band wins. That is the opposite of
+ *     inverter_write_confirmation.c's "wider" rule, and deliberately so: that band
+ *     appears on both sides of its test, so widening it is partly conservative. This
+ *     band appears on exactly one side, |measured - setpoint| <= band, so widening it
+ *     is purely permissive.
+ */
+float generator_base_load_tolerance_band_kw(float tolerance_kw,
+                                            float tolerance_percent_of_rating,
+                                            float rated_kw)
+{
+    float band_kw = -1.0f;
+
+    if (isfinite(tolerance_kw) && tolerance_kw > 0.0f) band_kw = tolerance_kw;
+
+    if (isfinite(tolerance_percent_of_rating) && tolerance_percent_of_rating > 0.0f &&
+        tolerance_percent_of_rating <= 100.0f && isfinite(rated_kw) && rated_kw > 0.0f) {
+        const float percent_band_kw = rated_kw * tolerance_percent_of_rating / 100.0f;
+        if (isfinite(percent_band_kw) && percent_band_kw > 0.0f) {
+            /* The narrower of the two, which is the conservative reading. */
+            band_kw = (band_kw < 0.0f || percent_band_kw < band_kw) ? percent_band_kw : band_kw;
+        }
+    }
+
+    return band_kw;
+}
+
 generator_fleet_limit_t generator_fleet_limit_evaluate(const generator_fleet_input_t *input)
 {
     if (!input) return fail_closed(GENERATOR_FLEET_RUNNING_SET_UNKNOWN);
@@ -248,6 +281,63 @@ generator_fleet_limit_t generator_fleet_limit_evaluate(const generator_fleet_inp
                 if (engine->base_load_kw < own_minimum_kw) {
                     return fail_closed(GENERATOR_FLEET_BASE_LOAD_BELOW_MINIMUM);
                 }
+
+                /*
+                 * IS THE ENGINE ACTUALLY HOLDING THAT SETPOINT?
+                 *
+                 * Everything above this point checked the CONFIGURATION. The term
+                 * base_load_total_kw is about to be added to the floor as kW the
+                 * generators are absorbing, and that is a claim about the PLANT, not
+                 * about the configuration. A governor that has dropped out of kW
+                 * control makes the claim false in the permissive direction: the
+                 * controller credits the base engines with load they are not carrying
+                 * and permits more PV than the bus can lose.
+                 *
+                 * The three refusals below are ordered so an engineer is told the most
+                 * specific true thing:
+                 *
+                 *  1. NO TOLERANCE COMMISSIONED. The check is impossible, so
+                 *     base-load sharing is refused rather than performed blind. This
+                 *     is the deliberate choice between the two available positions and
+                 *     the argument for it is at generator_fleet_input_t. It is placed
+                 *     AFTER the setpoint and minimum-loading checks so that an
+                 *     already-broken setpoint still reports its own reason and not
+                 *     this one.
+                 *  2. NO USABLE MEASUREMENT. Unknown is not confirmation. A missing,
+                 *     stale or non-finite sample says nothing about the governor, and
+                 *     reading silence as agreement is the error this whole check
+                 *     exists to remove. (A METERED engine whose sample is stale has
+                 *     already failed closed as RUNNING_SET_UNKNOWN far above; what
+                 *     reaches here is an engine counted online with no measurement at
+                 *     all, which is only possible on the unmetered legacy path.)
+                 *  3. DISAGREEMENT BEYOND THE BAND. The engine is not holding kW. It
+                 *     is NOT reclassified as a swing engine and the evaluation is NOT
+                 *     continued with it moved into the proportional term: this module
+                 *     knows the governor is not doing what it was commissioned to do,
+                 *     and knows nothing whatever about what it is doing instead.
+                 *     Droop, isochronous and manual all give different floors, and
+                 *     picking one would be inventing the very fact that just proved
+                 *     itself unavailable.
+                 *
+                 * Symmetric comparison, both directions. Measuring BELOW the setpoint
+                 * is the permissive error described above. Measuring ABOVE it is also
+                 * a governor not under kW control, and it moves the swing engines'
+                 * share in the other direction; neither is agreement.
+                 */
+                const float band_kw = generator_base_load_tolerance_band_kw(
+                    input->base_load_tolerance_kw,
+                    input->base_load_tolerance_percent_of_rating, engine->rated_kw);
+                if (band_kw < 0.0f) {
+                    return fail_closed(GENERATOR_FLEET_BASE_LOAD_TOLERANCE_UNSET);
+                }
+                if (!engine->metered || !engine->sample_fresh ||
+                    !isfinite(engine->measured_kw)) {
+                    return fail_closed(GENERATOR_FLEET_BASE_LOAD_UNMEASURED);
+                }
+                if (fabsf(engine->measured_kw - engine->base_load_kw) > band_kw) {
+                    return fail_closed(GENERATOR_FLEET_BASE_LOAD_DRIFT);
+                }
+
                 base_load_total_kw += engine->base_load_kw;
                 base_loaded_count++;
             } else if (engine->role == (uint8_t)GENERATOR_ENGINE_ROLE_SWING) {
@@ -325,6 +415,9 @@ static const char *const REASON_IDS[GENERATOR_FLEET_REASON_COUNT] = {
     "base_load_setpoint_unknown",
     "base_load_below_minimum",
     "no_swing_engine",
+    "base_load_tolerance_unset",
+    "base_load_unmeasured",
+    "base_load_setpoint_drift",
 };
 
 const char *generator_fleet_reason_id(uint8_t reason)
