@@ -6,6 +6,7 @@
 
 #include <assert.h>
 #include <math.h>
+#include <stddef.h>  /* offsetof: pulled in transitively by some libcs, not by glibc */
 #include <stdio.h>
 #include <string.h>
 
