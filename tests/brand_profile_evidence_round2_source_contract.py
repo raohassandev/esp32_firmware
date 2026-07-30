@@ -18,6 +18,17 @@ transcription safe to carry in a shipped catalogue:
      rejected; the reason each was rejected is a safety fact, and a later edit
      must not quietly populate one of them.
 
+     ONE refusal has since been LIFTED, deliberately, and the section that guarded
+     it now guards the opposite. SolarEdge was refused for a FIRMWARE limitation --
+     no IEEE-754 value type and no command-side word order -- and this file
+     originally carried a tripwire that fired if a float type appeared, precisely so
+     that SolarEdge would not be left refused for a reason that had stopped being
+     true. Both capabilities now exist and the profile is populated, so the
+     tripwire has been discharged and replaced by assertions that pin the float
+     command path, the little-endian word order, the enable chain this firmware
+     cannot represent, and the fail-safe registers it must not write. SMA, Solax,
+     SAJ and Fronius remain refused and their reasons remain document facts.
+
 The catalogue-wide execution of the write gate lives in
 tests/inverter_write_permission_test.c; this file is the source-evidence half.
 """
@@ -28,6 +39,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 PROFILES = (ROOT / "components/inverter_manager/inverter_profiles.c").read_text(encoding="utf-8")
 DECODE_H = (ROOT / "components/inverter_manager/include/inverter_profile_decode.h").read_text(encoding="utf-8")
+PROFILES_H = (ROOT / "components/inverter_manager/include/inverter_profiles.h").read_text(encoding="utf-8")
 EVIDENCE_PATH = ROOT / "docs/BRAND_REGISTER_EVIDENCE_ROUND2.md"
 
 failures = []
@@ -250,11 +262,6 @@ if goodwe is not None:
 # stay recorded.
 # ---------------------------------------------------------------------------
 REFUSALS = {
-    "solaredge": [
-        "Float32",                       # firmware has no such type
-        "little-endian word order",       # ...nor a command-side word order field
-        "stops production and restarts",  # ...nor prerequisite sequencing
-    ],
     "sma": [
         "no RO mirror",         # readback is not evidenced
         "Grid Guard",           # an undetermined unlock that expires on restart
@@ -288,14 +295,158 @@ for brand in REFUSALS:
             f"manual has closed the gap, update docs/BRAND_REGISTER_EVIDENCE_ROUND2.md and "
             f"this contract deliberately -- do not add the profile silently.")
 
-# SolarEdge's refusal is a FIRMWARE limitation, so it must stay true that the
-# firmware cannot represent a float. If a float type is ever added, SolarEdge
-# becomes reachable and this contract should be revisited on purpose.
-require("INVERTER_VALUE_FLOAT" not in DECODE_H,
-        "a float value type now exists in inverter_profile_decode.h. SolarEdge was refused "
-        "partly because it could not be represented; revisit docs/"
-        "BRAND_REGISTER_EVIDENCE_ROUND2.md section 6.1 rather than leaving it refused for a "
-        "reason that has stopped being true.")
+# ---------------------------------------------------------------------------
+# SolarEdge: the refusal has been LIFTED, deliberately.
+#
+# Round 2 refused SolarEdge for a FIRMWARE limitation, not a documentation one --
+# there was no IEEE-754 value type and no command-side word order -- and left a
+# tripwire here demanding that the refusal be revisited rather than left standing
+# once that stopped being true. Both capabilities now exist, so the tripwire has
+# been discharged and this section replaces it.
+#
+# What was a "must not exist" assertion is now its exact inverse: the profile
+# depends on the float type and on the command-side word order, so both must stay,
+# and the profile must keep using them. If someone removes the float type, the
+# encoder falls back to writing an INTEGER into a Float32 dispatch register --
+# 50 becomes 7e-44, effectively zero output, and the readback decodes the same
+# garbage the same wrong way and reports the command CONFIRMED. That is the
+# regression this section now guards.
+# ---------------------------------------------------------------------------
+require("INVERTER_VALUE_FLOAT32" in DECODE_H,
+        "the IEEE-754 value type has been removed. The SolarEdge profile's command "
+        "register is Float32 (technical note p.14); without the type the encoder writes "
+        "the percentage as a plain integer, which lands in the register as ~7e-44 -- "
+        "effectively zero output -- and the readback decodes it the same wrong way and "
+        "reports CONFIRMED. Remove the profile in the same change or not at all.")
+require("power_limit_word_order" in PROFILES_H,
+        "the command-side word order field has been removed. Word order was modelled on "
+        "the readback side only, and that asymmetry is what made SolarEdge's documented "
+        "little-endian word order unrepresentable.")
+
+solaredge = block_for("solaredge.terramax.documented")
+require(solaredge is not None,
+        "solaredge.terramax.documented is missing. SolarEdge is the only brand in this "
+        "round whose manual documents BOTH a comms-loss fail-safe and a command interval, "
+        "and it was refused only for firmware gaps that have since been closed.")
+if solaredge is not None:
+    # --- unpromoted, like every other transcription -------------------------
+    require("INVERTER_PROFILE_QUALIFICATION_DOCUMENTED" in solaredge,
+            "solaredge.terramax.documented must stay DOCUMENTED: it is a paper "
+            "transcription and nothing in it has touched physical equipment")
+    require("PRODUCTION_APPROVED" not in solaredge,
+            "solaredge.terramax.documented must not claim production approval")
+    require("status_register" not in solaredge and "status_address" not in solaredge,
+            "solaredge.terramax.documented must not configure an operating-status "
+            "register. This manual has the most complete state table in the whole set "
+            "(p.9, I_STATUS_OFF..I_STATUS_STANDBY), which makes it tempting -- and that "
+            "is a separate, deliberate change with its own review, not a side effect of "
+            "adding a float type.")
+    require(".simulator_only = true" not in solaredge,
+            "solaredge.terramax.documented is a manufacturer map, not a simulator contract")
+
+    # --- the float command path, asserted as exact values -------------------
+    require(".power_limit_type = INVERTER_VALUE_FLOAT32" in solaredge,
+            "p.14 and p.15 both type 0xF322 Dynamic Active Power Limit as Float32")
+    require(".power_limit_readback_type = INVERTER_VALUE_FLOAT32" in solaredge,
+            "the readback is the same R/W register, so it is the same type; decoding it "
+            "as an integer would agree with an integer-encoded command and confirm it")
+    require(".power_limit_word_order = INVERTER_WORD_ORDER_BA" in solaredge and
+            ".power_limit_readback_word_order = INVERTER_WORD_ORDER_BA" in solaredge,
+            "p.14: 'Each 32-bit value spans over two registers in the little-endian word "
+            "order (LSB-MSB)' -- least significant word at the lower address, on BOTH the "
+            "write and the read path. The two must agree or a wrong value would read back "
+            "as the value requested.")
+    require(".power_limit_address = 62242" in solaredge and
+            ".power_limit_readback_address = 62242" in solaredge,
+            "the command register is 0xF322 = 62242. Note 0xFB22 = 64290 is the "
+            "big-endian ALTERNATIVE map (p.14, offset 0x800); switching to it means "
+            "changing the address AND the word order together.")
+    require(".power_limit_words = 2" in solaredge and
+            ".power_limit_readback_words = 2" in solaredge,
+            "a Float32 occupies two registers")
+    require(".power_limit_function = 16" in solaredge,
+            "p.14: 'The two registers must be written together using Modbus function 16.' "
+            "Function 0x06 cannot write two registers at all.")
+    require(".raw_units_per_percent = 1.0f" in solaredge,
+            "the float carries the percentage itself (p.14 range '0-100 %'), so there is "
+            "no gain -- and no gain to get wrong")
+    require(".minimum_percent = 0.0f" in solaredge and ".maximum_percent = 100.0f" in solaredge,
+            "solaredge.terramax.documented must bound its command to 0-100%")
+
+    # --- the prerequisite chain, only the last link of which is representable
+    require(".requires_prerequisite_enable = true" in solaredge,
+            "p.18: 'To perform the Write command, enable the Dynamic Power Control "
+            "Mode.' 0xF300 defaults to 0, so the setpoint is subordinate to it.")
+    require(".prerequisite_address = 62208" in solaredge and
+            ".has_prerequisite_readback = true" in solaredge,
+            "0xF300 = 62208 is R/W and one register wide, so its readability is "
+            "established by citation (p.15 table, p.16 function 0x03) -- which is what "
+            "lets this profile describe the prerequisite rather than write it blind")
+    for token in ("0xF142", "0xF104", "0xF100", "stops production and restarts"):
+        require(token in solaredge,
+                f"the SolarEdge profile must record the rest of the enable chain it "
+                f"CANNOT represent: {token!r}. 0xF300 is the last of five steps (p.12), "
+                "and verifying it alone is not proof the chain is in place.")
+
+    # --- the fail-safe is recorded and NOT written --------------------------
+    for token in ("0xF310", "0xF312", "Command Timeout"):
+        require(token in solaredge,
+                f"the comms-loss fail-safe must be recorded in the profile: {token!r}")
+    require(".prerequisite_write_function = 6" in solaredge,
+            "the only register this firmware writes besides the setpoint is the enable")
+    for forbidden in (".prerequisite_address = 61696", ".prerequisite_address = 61762",
+                      ".prerequisite_address = 61700"):
+        require(forbidden not in solaredge,
+                f"a SolarEdge commissioning register is configured as the prerequisite "
+                f"write ({forbidden}). 0xF100 in particular 'stops production and restarts "
+                "the inverter' (p.12) -- a controller must never issue that, and 0xF142 / "
+                "0xF104 are human commissioning steps.")
+
+    # --- timing, both values traced to the timing appendix ------------------
+    require(".min_command_interval_ms = 100" in solaredge,
+            "p.20 gives the only separation figure in the document: 'Data transfer "
+            "interval ... the time separation period between data transfers', 0.1 s")
+    require(".power_limit_settle_ms = 1000" in solaredge,
+            "p.20: 'Reaction time of setpoint (dynamic) Active Power (P) < 1 s'. A settle "
+            "window can only delay a verdict, never turn a disagreement into a success.")
+
+    # --- the flash-wear check was done, and answered from the document -----
+    require(".command_register_is_flash_backed" not in solaredge,
+            "0xF322 is in the manual's VOLATILE group (p.13-14, 'DO NOT maintain their "
+            "value following an inverter restart'), so the p.19 flash warning applies to "
+            "the non-volatile 0xF308-0xF320 group this profile never writes")
+
+    # --- active power stays unset: a RUNTIME scale factor cannot be honoured
+    require(".has_active_power = true" not in solaredge,
+            "SolarEdge's active power is int16 watts with a RUNTIME scale factor at "
+            "base-0 40084 (p.9-10). active_power_scale is compile-time, and no document "
+            "in the SolarEdge set states a value for I_AC_Power_SF, so a scale here would "
+            "be invented and every telemetry reading would be wrong by a power of ten.")
+
+    # --- attributable -------------------------------------------------------
+    require("not qualified on hardware" in solaredge,
+            "the manual reference must say plainly that this profile is unqualified")
+    for citation in ("Version 1.0", "May 2024", "0xF322", "0xF300", "0xF304",
+                     "little-endian", "base 0", "Float32"):
+        require(citation in solaredge,
+                f"solaredge.terramax.documented does not cite {citation!r}")
+    require("solaredge.terramax.documented" in EVIDENCE,
+            "solaredge.terramax.documented is not covered by "
+            "docs/BRAND_REGISTER_EVIDENCE_ROUND2.md")
+
+# The document's own record of the SolarEdge decision must survive, including the
+# contradiction that only physical equipment can settle and the addressing
+# evidence. These are the facts a reviewer needs in order to check the profile.
+for token in (
+    "F322",                             # the register
+    "little-endian word order",         # the order, quoted from p.14
+    "stops production and restarts",    # the commit step this firmware must never issue
+    "F3 24 00 00 00 64",                # a worked frame proving the addressing
+    "0x00000032",                       # the integer-in-a-float-register hazard
+    "F304",                             # the non-invasive read that settles it
+):
+    require(token in EVIDENCE,
+            f"the evidence document no longer records the SolarEdge decision: {token!r}")
 
 
 if failures:
@@ -305,4 +456,6 @@ if failures:
 
 print("brand register-map evidence contract round 2 passed "
       "(FoxESS, GoodWe, Knox/AISWEI populated and attributable; "
-      "SolarEdge, SMA, Solax, SAJ, Fronius refusals still recorded and still refused)")
+      "SolarEdge populated on Float32 + little-endian word order with its enable chain "
+      "and fail-safe recorded but not written; "
+      "SMA, Solax, SAJ, Fronius refusals still recorded and still refused)")

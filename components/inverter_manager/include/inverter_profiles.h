@@ -56,6 +56,27 @@ typedef struct {
     uint8_t power_limit_function;
     uint16_t power_limit_address;
     uint8_t power_limit_words;
+
+    /* How the command register is laid out on the wire.
+     *
+     * These two fields existed on the READBACK side only, and that asymmetry was a
+     * bug rather than an omission: the encoder emitted the high word first
+     * unconditionally, so a manufacturer documenting the other order got a value
+     * with its halves swapped. For a float dispatch register the swapped halves are
+     * not merely wrong, they are a different order of magnitude -- and the readback
+     * decoder, being the only half that DID model word order, would decode
+     * correctly, disagree, and latch a confirmation fault on a healthy machine.
+     * With the profile-driven order the two halves are inverses by construction.
+     *
+     * Zero means U16/AB, which is exactly what the encoder previously hardcoded, so
+     * every profile written before these fields existed is unchanged. For an
+     * integer command the width in power_limit_words still decides the range; the
+     * type field is what selects IEEE-754 encoding, because a float register cannot
+     * be inferred from a width -- U32 and Float32 are both two registers wide and
+     * the same percentage produces completely different bytes. */
+    inverter_value_type_t power_limit_type;
+    inverter_word_order_t power_limit_word_order;
+
     float raw_units_per_percent;
     float minimum_percent;
     float maximum_percent;

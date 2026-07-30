@@ -1073,19 +1073,41 @@ static esp_err_t encode_command(const inverter_profile_t *profile, float percent
     }
 
     double raw_value = (double)percent * (double)profile->raw_units_per_percent;
-    double maximum_raw = profile->power_limit_words == 1U ? UINT16_MAX : UINT32_MAX;
-    if (!isfinite(raw_value) || raw_value < 0.0 || raw_value > maximum_raw) {
+    if (!isfinite(raw_value) || raw_value < 0.0) return ESP_ERR_INVALID_ARG;
+
+    /*
+     * Which encoding the device's register actually uses. Only FLOAT32 is taken
+     * from the profile: for an integer command the width has always decided the
+     * range, and every profile written before power_limit_type existed leaves it
+     * zero, so deriving the integer type from the width keeps them all encoding
+     * byte-for-byte as before.
+     *
+     * A float register cannot be inferred from the width. U32 and Float32 are both
+     * two registers wide, and 50 % encoded as the integer 50 lands in a Float32
+     * register as 7e-44 -- effectively zero output -- while the readback decodes
+     * the same two registers the same wrong way, agrees with the request, and
+     * reports the command CONFIRMED. That is the single worst outcome this module
+     * can produce, and it is why the type is declared per profile from the manual
+     * rather than guessed here.
+     */
+    inverter_value_type_t type = profile->power_limit_type == INVERTER_VALUE_FLOAT32
+        ? INVERTER_VALUE_FLOAT32
+        : (profile->power_limit_words == 1U ? INVERTER_VALUE_U16 : INVERTER_VALUE_U32);
+
+    /* A float register is two registers that must be written together, and Modbus
+     * has no way to write two registers with function 0x06. Refusing here rather
+     * than in the transport keeps the failure at plan time, before any inverter in
+     * the fleet has been written. */
+    if (type == INVERTER_VALUE_FLOAT32 &&
+        (profile->power_limit_words != 2U || profile->power_limit_function != 16U)) {
         return ESP_ERR_INVALID_ARG;
     }
-    uint32_t raw = (uint32_t)llround(raw_value);
-    if (profile->power_limit_words == 2U) {
-        words[0] = (uint16_t)(raw >> 16);
-        words[1] = (uint16_t)raw;
-        *word_count = 2U;
-    } else {
-        words[0] = (uint16_t)raw;
-        *word_count = 1U;
-    }
+
+    esp_err_t err = inverter_profile_encode_value(raw_value, type,
+                                                  profile->power_limit_word_order,
+                                                  profile->power_limit_words, words);
+    if (err != ESP_OK) return err;
+    *word_count = profile->power_limit_words;
     return ESP_OK;
 }
 
