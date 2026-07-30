@@ -200,6 +200,53 @@ static void test_prerequisite_enable_is_refused(void)
     }
 }
 
+/* A flash-backed command register with no manufacturer-stated rate is refused.
+ *
+ * GoodWe 42407 carries the remark "Storage, does not support high-frequency write
+ * operations". This controller moves a setpoint continuously against a changing
+ * generator load, so commanding a flash-backed register wears out the inverter's
+ * non-volatile memory: a permanent hardware failure on a customer's machine while
+ * every individual write reports success. Nothing in the readback can see it
+ * coming, so it is refused structurally rather than warned about. */
+static void test_flash_backed_register_without_a_rate_is_refused(void)
+{
+    inverter_profile_t profile;
+    memset(&profile, 0, sizeof(profile));
+    profile.id = "test.flash";
+    profile.qualification = INVERTER_PROFILE_QUALIFICATION_PRODUCTION_APPROVED;
+    profile.has_power_limit = true;
+    profile.has_power_limit_readback = true;
+    profile.command_register_is_flash_backed = true;
+
+    /* No stated rate: refused in both modes, and by the production predicate. */
+    assert(profile.min_command_interval_ms == 0U);
+    assert(inverter_profile_write_permission(&profile, false) == INVERTER_WRITE_FORBIDDEN);
+    assert(inverter_profile_write_permission(&profile, true) == INVERTER_WRITE_FORBIDDEN);
+    assert(!inverter_profile_allows_write(&profile));
+
+    /* A manufacturer-stated rate lifts the refusal -- the hazard is writing
+     * without a permitted rate, not the register being flash-backed as such. */
+    profile.min_command_interval_ms = 60000U;
+    assert(inverter_profile_write_permission(&profile, false) == INVERTER_WRITE_PRODUCTION);
+
+    /* Clearing the flag restores ordinary behaviour, proving the flag caused the
+     * refusal rather than some other missing field. */
+    profile.min_command_interval_ms = 0U;
+    profile.command_register_is_flash_backed = false;
+    assert(inverter_profile_write_permission(&profile, false) == INVERTER_WRITE_PRODUCTION);
+
+    /* Every shipped profile declaring a flash-backed register must either carry a
+     * rate or be refused. */
+    for (size_t i = 0; i < inverter_profiles_count(); ++i) {
+        const inverter_profile_t *shipped = inverter_profiles_get(i);
+        if (!shipped->command_register_is_flash_backed) continue;
+        if (shipped->min_command_interval_ms == 0U) {
+            assert(inverter_profile_write_permission(shipped, false) == INVERTER_WRITE_FORBIDDEN);
+            assert(inverter_profile_write_permission(shipped, true) == INVERTER_WRITE_FORBIDDEN);
+        }
+    }
+}
+
 static void test_labels(void)
 {
     assert(strcmp(inverter_write_permission_label(INVERTER_WRITE_FORBIDDEN), "forbidden") == 0);
@@ -223,6 +270,7 @@ int main(void)
     test_production_survives_a_lab_declaration();
     test_every_sub_production_level_needs_a_declaration();
     test_prerequisite_enable_is_refused();
+    test_flash_backed_register_without_a_rate_is_refused();
     test_labels();
     printf("inverter write permission unit tests passed\n");
     return 0;

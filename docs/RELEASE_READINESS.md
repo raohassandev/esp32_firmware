@@ -30,13 +30,14 @@ can ever obtain today.
 | SolTrix Simulator | `soltrix.sim.goodwe.v1` | Simulator verified | lab only | — |
 | SolTrix Simulator | `soltrix.sim.solis.v1` | Simulator verified | lab only | — |
 | **Huawei** | `huawei.sun2000.pending` | Documented | **lab only** | commandable in lab; see §1.2 |
-| GoodWe | `goodwe.commercial.pending` | Documented | forbidden | no command register transcribed |
+| GoodWe | `goodwe.commercial.pending` | Documented | forbidden | command/readback at 42407 transcribed, but the register is **flash-backed** with no documented write rate (see 1.4) |
 | Solis | `solis.commercial.pending` | Documented | forbidden | needs prerequisite enable (§1.2) |
 | Growatt | `growatt.tl3x.documented` | Documented | forbidden | power-on write lock (§1.2) |
 | Growatt | `growatt.tlx.documented` | Documented | forbidden | power-on write lock (§1.2) |
 | Sungrow | `sungrow.string.documented` | Documented | forbidden | needs prerequisite enable (§1.2) |
 | Chint / CPS | `chint.cps.sch100_125ktl.documented` | Documented | forbidden | needs prerequisite enable (§1.2) |
-| FoxESS / Knox | `foxess.commercial.pending` | Documented | forbidden | no command register transcribed |
+| FoxESS | `foxess.commercial.pending` | Documented | lab only | command/readback at 49007 from the FoxESS commercial manual; addressing convention **deduced, not proven** (see 1.5) |
+| AISWEI (Knox / Solplanet ASW) | `knox.aiswei.asw.documented` | Documented | forbidden | printed 44001 must enable active-power control before printed 45403 takes effect, and 45403 echoes either way |
 
 Write-qualified or production-approved profiles: **0**.
 

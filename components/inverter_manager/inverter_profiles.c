@@ -346,6 +346,10 @@ static const inverter_profile_t PROFILES[] = {
     },
     {
         .id = "goodwe.commercial.pending",
+        /* Manual remark on 42407: "Storage, does not support high-frequency write
+         * operations". No permitted rate and no write-cycle budget are given, so
+         * this profile is refused rather than commanded at a rate we invented. */
+        .command_register_is_flash_backed = true,
         .manufacturer = "GoodWe",
         .model_family = "GT series three-phase grid-connected string inverter",
         .protocol = "Modbus RTU",
@@ -1269,6 +1273,7 @@ bool inverter_profile_allows_write(const inverter_profile_t *profile)
      * same answer: commanding such a device produces a CONFIRMED verdict for a
      * limit the inverter is ignoring. */
     return profile && !profile->simulator_only && !profile->requires_prerequisite_enable &&
+           !(profile->command_register_is_flash_backed && profile->min_command_interval_ms == 0U) &&
            profile->has_power_limit && profile->has_power_limit_readback &&
            profile->qualification == INVERTER_PROFILE_QUALIFICATION_PRODUCTION_APPROVED;
 }
@@ -1288,6 +1293,14 @@ inverter_write_permission_t inverter_profile_write_permission(const inverter_pro
      * unable to command is recoverable; being told a plant is limited when it is
      * not is not. See requires_prerequisite_enable in the header. */
     if (profile->requires_prerequisite_enable) return INVERTER_WRITE_FORBIDDEN;
+    /* A flash-backed command register with no manufacturer-stated permitted rate is
+     * refused in BOTH modes. Commanding it continuously wears out the inverter's
+     * non-volatile memory -- a permanent hardware failure while every write reports
+     * success -- and no rate this firmware invented would be defensible. See
+     * command_register_is_flash_backed in the header. */
+    if (profile->command_register_is_flash_backed && profile->min_command_interval_ms == 0U) {
+        return INVERTER_WRITE_FORBIDDEN;
+    }
     if (inverter_profile_allows_write(profile)) return INVERTER_WRITE_PRODUCTION;
     if (declared_lab_target) return INVERTER_WRITE_LAB_ONLY;
     return INVERTER_WRITE_FORBIDDEN;

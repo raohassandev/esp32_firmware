@@ -118,6 +118,29 @@ typedef struct {
      * commissioning step whose completion the controller can confirm. */
     bool requires_prerequisite_enable;
 
+    /* True when the manual says the command register is stored in non-volatile
+     * memory -- GoodWe 42407 is the known case, whose remark column reads
+     * "Storage, does not support high-frequency write operations".
+     *
+     * This controller exists to move a setpoint continuously against a moving
+     * generator load. Doing that to a flash-backed register wears the inverter's
+     * memory out: a permanent hardware failure on a customer's machine, caused by
+     * the controller working exactly as designed, with every individual write
+     * reporting success. Nothing in the readback or the confirmation logic can see
+     * it coming, which is why it needs its own field rather than a comment.
+     *
+     * A flash-backed register is therefore refused unless the profile also carries
+     * a min_command_interval_ms, because without a manufacturer-stated permitted
+     * rate there is no number this firmware could choose that is not invented. The
+     * GoodWe manual states the prohibition and gives neither a permitted rate nor a
+     * write-cycle budget, so that profile stays refused until GoodWe supplies one.
+     *
+     * If such a rate is ever supplied, the control engine's keepalive refresh must
+     * ALSO be suppressed or lengthened for these registers: refreshing an unchanged
+     * setpoint every couple of seconds is tens of thousands of writes a day, which
+     * defeats the purpose of the interval. */
+    bool command_register_is_flash_backed;
+
     /*
      * Optional operational status register. Deliberately left unconfigured for
      * every shipped profile: no manufacturer status address is hardcoded in

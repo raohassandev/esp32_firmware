@@ -167,11 +167,24 @@ static void defaults(app_config_t *c)
     strlcpy(m->endpoint.host, CONFIG_PVDG_DEFAULT_ZLAN_HOST, sizeof(m->endpoint.host));
     m->endpoint.port = CONFIG_PVDG_DEFAULT_ZLAN_PORT;
     m->endpoint.unit_id = 1;
-    /* Sized against the measured link rather than left at a value that would
-     * stall several control cycles: median transaction 28 ms, p90 37 ms. A read
-     * that overruns this is abandoned and retried on the next poll instead of
-     * holding the loop. */
-    m->endpoint.timeout_ms = 300;
+    /* Measured against the site EM500 through its ZLAN gateway, 129 back-to-back
+     * transactions: mean 93 ms, p50 29 ms, p90 294 ms, max 319 ms. The latency is
+     * bimodal -- 74 % complete under 50 ms and 24 % take over 250 ms -- which looks
+     * like a periodic stall in the gateway or the meter's own update cycle rather
+     * than jitter.
+     *
+     * The previous 300 ms was set from best-case figures and sat inside that tail:
+     * about 3 % of perfectly good responses overran it and were recorded as
+     * failures, which wastes the full timeout, triggers backoff, and feeds the
+     * quality window that blocks control input when success drops below 80 %. A
+     * healthy meter was being intermittently reported as unhealthy.
+     *
+     * 800 ms clears the measured tail with margin. It does not slow the control
+     * loop: control reads the cached sample and applies its own staleness rule, and
+     * the poll task runs below control on the same core. The cost is that a
+     * genuinely dead endpoint takes 800 ms to declare, which the failure backoff
+     * then spaces out anyway. */
+    m->endpoint.timeout_ms = 800;
     m->function_code = 3;
     m->active_power_address = 57;
     m->active_power_type = MODBUS_DATA_INT32;

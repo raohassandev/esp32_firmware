@@ -45,6 +45,8 @@ for match in re.finditer(r"\.id = (SAFE_DEFAULT_PROFILE_ID|\"([^\"]+)\")", PROFI
         "command": ".has_power_limit = true" in block,
         "readback": ".has_power_limit_readback = true" in block,
         "production": "QUALIFICATION_PRODUCTION_APPROVED" in block,
+        "flash_backed": ".command_register_is_flash_backed = true" in block,
+        "has_command_rate": ".min_command_interval_ms =" in block,
     }
 
 require(len(catalogue) >= 10, f"only {len(catalogue)} profiles parsed; the parser is probably wrong")
@@ -80,10 +82,18 @@ for profile_id, facts in catalogue.items():
         continue  # already reported above
 
     # Mirrors inverter_profile_write_permission() with a lab target declared:
-    # a command and a readback register are both required, a prerequisite enable
-    # is refused outright, and nothing here is production-approved.
+    # a command and a readback register are both required, a prerequisite enable is
+    # refused outright, and a flash-backed command register is refused unless the
+    # manufacturer stated a permitted write rate. Nothing here is
+    # production-approved.
+    #
+    # This mirror must be kept in step with the C rule. When it drifted, this test
+    # is what reported it -- which is the point, but it also means a change to the
+    # gate belongs here in the same commit.
+    flash_hazard = facts["flash_backed"] and not facts["has_command_rate"]
     commandable_in_lab = (facts["command"] and facts["readback"]
-                          and not facts["prerequisite"])
+                          and not facts["prerequisite"]
+                          and not flash_hazard)
     expected = "lab only" if commandable_in_lab else "forbidden"
     require(expected in row["authority"],
             f"{profile_id}: the release table says lab authority "
