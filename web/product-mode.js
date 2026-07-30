@@ -306,7 +306,24 @@
     function addNavigation() {
         const nav = document.querySelector('.nav-list');
         if (!nav || document.getElementById('engineeringNav')) return;
-        ['wifi', 'control', 'system', 'meters', 'inverters', 'commissioning'].forEach((route) => {
+        /* Exactly the protected routes, and nothing else.
+         *
+         * This list used to also carry 'meters' (Grid power) and 'inverters'
+         * (Solar inverters), which are NOT in PROTECTED_ROUTES. The result was an
+         * operator sidebar offering four of ten pages while two fully operator-
+         * facing screens -- grid import/export and solar production, with their
+         * trend charts -- were reachable only by typing the URL. They were
+         * orphaned, not secured: the router served them to anyone who asked, and
+         * their engineering internals are hidden separately by
+         * ENGINEERING_ONLY_SELECTORS. Hiding the link therefore protected
+         * nothing and cost the operator the two screens that carry the energy
+         * statistics this product exists to show.
+         *
+         * Deriving the list from PROTECTED_ROUTES rather than repeating it means
+         * nav visibility and route authorization can no longer disagree -- which
+         * is exactly how they came to disagree. Server-side default-deny remains
+         * the actual barrier; this only decides what is offered. */
+        [...PROTECTED_ROUTES].forEach((route) => {
             const link = nav.querySelector(`[data-route="${route}"]`);
             if (link) {
                 link.dataset.engineeringNav = 'true';
