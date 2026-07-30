@@ -1,0 +1,223 @@
+/* Industrial operator presentation layer.
+ * UI-only: no control authority, API scope or firmware behaviour is changed here.
+ */
+
+:root {
+    --industrial-radius: 8px;
+    --industrial-shadow: 0 8px 22px rgba(4, 15, 28, 0.16);
+}
+
+.metric-value,
+.health-row strong,
+.status-item strong,
+.mode-panel strong,
+.flow-secondary strong {
+    font-variant-numeric: tabular-nums;
+}
+
+.panel,
+.metric-card,
+.connection-overview,
+.notice {
+    border-radius: var(--industrial-radius) !important;
+}
+
+.metric-card {
+    min-height: 132px;
+}
+
+.industrial-audience-badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 32px;
+    padding: 0 10px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--panel);
+    color: var(--muted);
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    white-space: nowrap;
+}
+
+.industrial-audience-badge.engineering {
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+    color: var(--accent);
+}
+
+body[data-audience="operator"] .industrial-internal-control-card {
+    display: none !important;
+}
+
+body[data-audience="engineering"] .industrial-operator-card {
+    display: none !important;
+}
+
+body[data-audience="operator"] [data-page="dashboard"] .metric-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.industrial-operator-card .metric-value.compact {
+    font-size: clamp(1.2rem, 2vw, 1.75rem);
+    line-height: 1.18;
+}
+
+.industrial-advanced-details {
+    margin-top: 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--industrial-radius);
+    background: color-mix(in srgb, var(--panel) 92%, transparent);
+    overflow: hidden;
+}
+
+.industrial-advanced-details > summary {
+    min-height: 48px;
+    padding: 13px 16px;
+    cursor: pointer;
+    color: var(--text);
+    font-weight: 750;
+    user-select: none;
+}
+
+.industrial-advanced-details > summary::marker {
+    color: var(--accent);
+}
+
+.industrial-advanced-details[open] > summary {
+    border-bottom: 1px solid var(--line);
+}
+
+.industrial-advanced-intro {
+    margin: 14px 16px 0;
+    color: var(--muted);
+    line-height: 1.5;
+}
+
+.industrial-advanced-grid {
+    padding: 14px 16px 16px;
+}
+
+.industrial-evidence-block {
+    position: relative;
+}
+
+.industrial-evidence-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 40px;
+    margin: 10px 0 0;
+    padding: 8px 12px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.industrial-evidence-toggle:hover,
+.industrial-evidence-toggle:focus-visible {
+    border-color: var(--accent);
+    outline: none;
+}
+
+.industrial-evidence-block.is-collapsed > span,
+.industrial-evidence-block.is-collapsed > .lsb-notice,
+.industrial-evidence-block.is-collapsed > [id$="Detail"] {
+    display: none !important;
+}
+
+.industrial-service-toggle {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+    margin-left: auto;
+}
+
+.industrial-service-toggle small {
+    max-width: 310px;
+    color: var(--muted);
+    font-size: 0.72rem;
+    line-height: 1.35;
+    text-align: right;
+}
+
+.industrial-service-panel {
+    border-color: color-mix(in srgb, var(--warning, #d99a2b) 52%, var(--line)) !important;
+    box-shadow: var(--industrial-shadow);
+}
+
+.industrial-service-panel::before {
+    content: "ADVANCED SERVICE TOOL";
+    display: inline-flex;
+    margin: 0 0 12px;
+    padding: 4px 8px;
+    border: 1px solid color-mix(in srgb, var(--warning, #d99a2b) 55%, var(--line));
+    border-radius: 999px;
+    color: var(--warning, #d99a2b);
+    font-size: 0.68rem;
+    font-weight: 850;
+    letter-spacing: 0.08em;
+}
+
+/* Replace the browser-dependent single-letter mark with a stable geometric
+ * Automatrix-style symbol while keeping the existing accessible brand text. */
+.brand-mark {
+    position: relative;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    background: transparent !important;
+    color: transparent !important;
+    font-size: 0 !important;
+}
+
+.brand-mark::before,
+.brand-mark::after {
+    content: "";
+    position: absolute;
+    width: 23px;
+    height: 30px;
+    clip-path: polygon(50% 0, 100% 100%, 72% 100%, 50% 48%, 28% 100%, 0 100%);
+}
+
+.brand-mark::before {
+    transform: translateX(-4px);
+    background: #f28a2b;
+}
+
+.brand-mark::after {
+    transform: translateX(5px) scale(0.82);
+    background: #2c6ea4;
+}
+
+@media (max-width: 1100px) {
+    body[data-audience="operator"] [data-page="dashboard"] .metric-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 700px) {
+    .industrial-audience-badge {
+        display: none;
+    }
+
+    body[data-audience="operator"] [data-page="dashboard"] .metric-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .industrial-service-toggle {
+        width: 100%;
+        align-items: stretch;
+        margin-left: 0;
+    }
+
+    .industrial-service-toggle small {
+        max-width: none;
+        text-align: left;
+    }
+}
