@@ -330,10 +330,18 @@ missing pieces are one lab session away.
 
 ## 6. Brands examined and REFUSED — with exactly what was missing
 
-Nothing was populated for any of these. No profile was added, and no existing
-profile was modified.
+Nothing was populated for any of these **except SolarEdge**, whose refusal was
+lifted by a later change and is documented in §6.1 and §6.1a below. No other
+profile was added and no existing profile was modified.
 
-### 6.1 SolarEdge — manual EXCELLENT; **the firmware, not the manual, is the blocker**
+### 6.1 SolarEdge — manual EXCELLENT; **the firmware, not the manual, was the blocker**
+
+> **STATUS CHANGED.** This section records the refusal as it stood in round 2. The
+> two firmware gaps it names — no IEEE-754 value type, no command-side word order
+> — have since been closed, and `solaredge.terramax.documented` is now populated.
+> See **§6.1a** for what was built, what was transcribed, and what is still
+> unresolved. The refusal is preserved rather than deleted because the reasoning
+> is why the profile looks the way it does.
 
 Source: `KC_PV_DG\docs\Inverter\Solar edge\se-modbus-interface-for-solaredge-terramax-inverter-technical-note.pdf`
 (*Modbus Interface for the SolarEdge TerraMax™ Inverter — Technical Note*, Version 1.0, May 2024, 21 pages).
@@ -397,6 +405,197 @@ inverter restart and must be re-configured after the inverter restarts."
 > and a documented command interval. Unlocking it is a **firmware** task, not a
 > documentation task: add a float32 value type, add a command-side word order
 > field, add runtime scale-factor support, and add prerequisite-write sequencing.
+
+---
+
+### 6.1a SolarEdge — `solaredge.terramax.documented`, populated
+
+Two of the four firmware items above were built; two were not. What was built:
+
+1. **`INVERTER_VALUE_FLOAT32`** in `inverter_profile_decode.h` — IEEE-754 binary32
+   in two registers, on the read path and the write path.
+2. **A command-side word order.** `inverter_profile_t` gained
+   `power_limit_type` and `power_limit_word_order`. `encode_command()` no longer
+   hardcodes `words[0] = raw >> 16`; it calls a new
+   `inverter_profile_encode_value()` that is the exact inverse of
+   `inverter_profile_decode_value()`, sharing one word-split helper so the two
+   halves cannot drift. Both fields default to zero (U16 / AB), which is precisely
+   what the encoder previously emitted unconditionally, so **no existing profile's
+   bytes change**. That is executed, not asserted:
+   `tests/inverter_float_register_test.c` checks the pre-existing integer shapes
+   byte for byte.
+
+What was **not** built, and therefore still constrains this profile:
+
+3. **Runtime scale-factor support** — not added. This is what keeps the profile
+   inert; see below.
+4. **Prerequisite-write sequencing for a multi-register chain** — not added. The
+   firmware models exactly one prerequisite register; SolarEdge documents five
+   steps.
+
+#### The transcription
+
+| Item | Address | PDU / FC | Type, scale | Citation |
+|---|---|---|---|---|
+| Active-power % **WRITE** | 0xF322 | **62242**, FC **0x10** | Float32, 2 reg, LSW first, 1.0 raw/percent | p.14 + p.15 tables: "F322 2 R/W Dynamic Active Power Limit Float32 0-100 %"; p.14 "The two registers must be written together using Modbus function 16." |
+| Active-power % **READBACK** | 0xF322 | **62242**, FC 0x03 | Float32, scale 1.0 | Same row (`R/W`); p.16 "0x03 – Read holding register" |
+| Word order | — | **BA** (little-endian words) | — | p.14 and p.16: "Each 32-bit value spans over two registers in the little-endian word order (LSB-MSB)" |
+| Byte order within a register | — | big-endian | — | p.14: "Each register contains two bytes in big-endian order (MSB-LSB)" |
+| **Prerequisite enable** | 0xF300 | **62208**, FC 0x06 write / 0x03 read, value 1 | Uint16, 0 or 1 | p.18 "To perform the Write command, enable the Dynamic Power Control Mode."; p.11 "disabled (set to 0) by default"; p.15 table row |
+| Identity | base-0 **40004** | 40004, FC 0x03, 1 reg | first word of `C_Manufacturer`, 0x536F = "So" | p.9 "40004 40005 16 C_Manufacturer String(32) Value Registered with SunSpec = \"SolarEdge \""; p.8 "C_Manufacturer is set to SolarEdge" |
+| Minimum command interval | — | **100 ms** | — | p.20 "Data transfer interval — For system stability, this is the time separation period between data transfers", table value "< 0.1 s" |
+| Settle time | — | **1000 ms** | — | p.20 "Reaction time of setpoint (dynamic) Active Power (P) < 1 s", where reaction time is "the time between the changing of the setpoint until it comes into effect" |
+| Comms-loss fail-safe | 0xF310 / 0xF312 | **read only, never written** | Uint32 s / Float32 % | p.13 tables; p.12 "If the inverter doesn't receive one of the dynamic commands within this time frame, it will revert to the fallback settings" |
+| Ramp | 0xF318 / 0xF31A | *not written* | Float32 %/min, −1 = disabled | p.13 |
+| Active power output | base-0 40083 | *left unset* | int16 W **+ runtime SF at 40084** | p.9–10 |
+| Max Active Power (rating) | 0xF304 | *not used as telemetry* | Float32 W, **read-only** | p.11 and p.14: "F304 2 R Max Active Power Float32 Inverter rating W" |
+
+#### Addressing convention — this manual states **both** of its conventions
+
+| Map | Convention | Evidence | Strength |
+|---|---|---|---|
+| SunSpec monitoring map | dual "(base 0)" / "(base 1)" columns; the **base-0** column is the PDU address | p.9: "The base register of the Device Specific block is set to 40070 (MODBUS PLC address [base 1]), or 40069 (MODBUS Protocol Address [base 0])"; p.8 says the same for the common block ("40001 … [base 1] or 40000 … [base 0]") | **Explicit, and the manual names base 0 as the *protocol* address. Proven.** |
+| Dynamic power control map | bare hex, on the wire unmodified | Four worked frames: p.16 broadcast `F3 00 00 01`; p.17 read `F3 24 00 01`; p.18 write single `0xF3 00 00 01`; p.19 write multiple `F3 24 00 00 00 64` | **Worked byte-level frames. Proven.** |
+
+In each of those four frames the table's hex address is the first two bytes of the
+PDU data field with no offset applied.
+
+#### The one contradiction in the document, and how it was resolved
+
+The type tables call these registers Float32 **three times independently** (p.13
+properties table, p.14 volatile table, p.15 summary table). **Appendix A's worked
+examples treat the very same registers as plain integers:**
+
+- p.17, reading 0xF324/0xF325, response data `04 00 00 00 32`, annotated "00 32
+  response for F324, 00 00 response for F325". In the document's own little-endian
+  word order that is the 32-bit value **`0x00000032`** — integer 50. As a Float32 it
+  is 7e-44.
+- p.19, "Set Dynamic Reactive Power Limit to 100. Write 0x64 to F324", data
+  `F3 24 00 00 00 64` — integer 100, not `0x42C80000`.
+
+The type tables are treated as normative and Appendix A as illustrative, for three
+stated reasons: the type is given three times independently; the appendix
+contradicts itself inside a single bullet (p.16 describes "the Little-Endian word
+order from the least significant byte to the most significant byte (**MSB-LSB**)",
+labelling an LSB-first order MSB-LSB); and its frames are structurally malformed
+(the p.19 function-16 frame declares length `0x08` and carries no register count
+or byte count).
+
+**This is the single highest-priority item to prove on real equipment, and it can
+be proven without writing anything.** `0xF304` "Max Active Power", Float32,
+**read-only**, holds the inverter rating in watts. Read PDU 62212 as two registers
+and decode four ways — Float32/BA, Float32/AB, U32/BA, U32/AB. On a 100 kW machine
+exactly one yields ≈100000, and that one settles the float question and the word
+order together, non-invasively.
+
+#### Prerequisite enable — set, describable, and only **partly** representable
+
+`requires_prerequisite_enable = true`, and the profile describes 0xF300 as both a
+write and a **readback**, because its readability is established by citation (`R/W`
+in the p.15 table, one register wide, and p.16 lists function 0x03). Under the
+rule in `inverter_profiles.h` that makes the prerequisite no longer a reason for
+refusal — the profile is therefore **lab-authority only**, like Solis and Sungrow.
+
+But 0xF300 is only the **last of five steps** (p.12), and the firmware holds one
+prerequisite register:
+
+1. `0xF142 AdvancedPwrControlEn` → 1 (default 0)
+2. `0xF104 ReactivePwrConfig` → 4 (default 0)
+3. `0xF100` Commit Power Control Settings → 1 — **"This command stops production
+   and restarts the inverter."**
+4. initialise `0xF308`–`0xF320`
+5. `0xF300 Enable Dynamic Power Control` → 1 (default 0)
+
+Steps 1–4 are a **human commissioning sequence**. Step 3 in particular must never
+be issued by this firmware: a controller that stopped production and restarted a
+100 kW inverter as a side effect of its own start-up would be an outage caused by
+the safety machinery. The contract asserts that none of 0xF100 / 0xF142 / 0xF104 is
+configured as the prerequisite write.
+
+**What this means honestly:** verifying 0xF300 = 1 is *not* proof that steps 1–2 are
+in place. The manual does not say whether 0xF300 can read back 1 while
+`AdvancedPwrControlEn` is still 0. If it can, the accept-and-echo trap is still
+open on this brand — narrowed, not closed. **That is a lab item, and it is listed
+in §8.**
+
+Volatility compounds it. p.13–14: the volatile group "DO NOT maintain their value
+following an inverter restart and must be re-configured after the inverter
+restarts", which covers 0xF322 itself. **0xF300 appears in neither the non-volatile
+list (0xF308–0xF320) nor the volatile list (0xF322–0xF326)**, so its persistence
+across a restart is undocumented — although p.12's own sequence enables it *after*
+the restarting commit, which hints it does not survive one. The firmware's default
+5 s prerequisite re-check already catches a lost enable quickly, so no
+profile-specific period was invented.
+
+#### Comms-loss fail-safe — recorded, **not written**
+
+0xF310 Command Timeout (Uint32, s) and 0xF312 Fall-back Active Power Limit
+(Float32, %) are both `R/W` and both in the **non-volatile** group, i.e.
+commissioning settings. This firmware writes neither, and that is deliberate:
+writing a fail-safe blind asserts a safety behaviour the controller cannot verify,
+and `0xF310 = 0` would silently disable the fail-safe altogether.
+
+What it means for this controller:
+
+- If the controller dies, loses its network or reboots, the inverter does **not**
+  hold the last commanded limit — after Command Timeout seconds it moves to the
+  fallback limit on its own. That is the behaviour a PV-DG generator-protection
+  scheme wants, and no other brand in this set offers it.
+- **But the manual states no default for either register.** If 0xF312 is 100 %,
+  losing the controller *raises* the plant's limit. **Reading 0xF310 and 0xF312 is
+  a mandatory commissioning step**, and it is a read.
+- The obligation runs the other way too, and **this firmware does not model it.**
+  p.12: "The controller command interval must be at least Command Timeout interval
+  / 2" — a *maximum* permitted gap, i.e. a keepalive duty. If the control loop goes
+  quiet for longer than Command Timeout while everything is healthy, the inverter
+  reverts to fallback autonomously and **no register tells the controller this
+  happened.** Reconciling the keepalive refresh period against whatever 0xF310
+  holds is an owner decision (§9).
+
+#### Flash wear — checked, and answered from the document
+
+p.19 carries a real warning: "The adjustable parameters in Modbus registers are
+intended for long-term storage. Periodic changes in this parameter may damage the
+flash memory." That is the GoodWe hazard, so it was checked rather than assumed
+away. It does **not** apply to 0xF322: p.13 heads 0xF308–0xF320 "Non-volatile
+memory registers — The following registers maintain their value following an
+inverter restart", and p.13–14 heads 0xF322–0xF326 "Volatile memory registers".
+0xF322 is in the volatile group, which is exactly what a dispatch register written
+every control cycle must be, and this profile writes nothing in the non-volatile
+group. `command_register_is_flash_backed` is therefore false **on evidence**.
+
+#### Active power — left unset, which makes the profile INERT
+
+p.9–10: "40083 40084 1 I_AC_Power int16 Watts AC Power value" and "40084 40085 1
+I_AC_Power_SF int16 AC Power scale factor", with p.9–10 defining
+`Value = "Value" * 10^ Value_SF`. **The scale factor is a runtime register.**
+`active_power_scale` is a compile-time float, no document in the SolarEdge set
+states a value for `I_AC_Power_SF` (the companion
+`sunspec-implementation-technical-note.pdf` repeats the same generic formula and
+gives no constant), and guessing it scales every telemetry reading by a power of
+ten.
+
+**Consequence, stated because it is not obvious from the field list:** with no
+active-power register the acquisition task never marks telemetry valid, and an
+inverter without valid telemetry is **not eligible for a command**. So this profile
+can be read for identity and for its limit readback, but it **cannot be commanded
+at runtime** until either runtime scale-factor support is added or a per-model
+`I_AC_Power_SF` is obtained. This is the same inert condition as
+`knox.aiswei.asw.documented`, and it is an owner call (§9).
+
+0xF304 Max Active Power is the inverter **rating**, not its output, so it is not a
+substitute — but it is the ideal non-invasive probe for the float question above.
+
+#### Operating state — deliberately still unconfigured
+
+p.11 gives "40107 40108 1 I_Status uint16 Operating State" and p.9 lists the
+complete value table (1 Off, 2 Sleeping, 3 Grid Monitoring/wake-up, 4 MPPT/
+producing, 5 Production (curtailed), 6 Shutting down, 7 Fault, 8 Maintenance/
+setup). **This is the most complete state table in the entire catalogue** — and it
+is still not configured, in line with the rule that no shipped profile describes an
+operating state. Enabling it is a separate, deliberate change with its own review,
+not a side effect of adding a float type. Every inverter continues to report
+`INVERTER_STATE_UNKNOWN`.
 
 ### 6.2 SMA — register map found, but **no readback evidence, no telemetry register, and an undetermined lock**
 
@@ -535,7 +734,7 @@ generally, because that is memory, not evidence.
 | **FoxESS** | Yes (command + readback) | `foxess.commercial.pending` **populated** | Addressing convention deduced, not proven; word order undocumented so no telemetry |
 | **GoodWe** | Yes (best evidenced) | `goodwe.commercial.pending` **populated** | Flash-backed command register, no permitted write rate documented |
 | **Knox / AISWEI** | Yes (command + readback) | `knox.aiswei.asw.documented` **added** | Prerequisite enable at 44001 → write refused; word order undocumented so no telemetry |
-| **SolarEdge** | Yes — fully, better than any other | none | **Firmware** cannot represent Float32 or a command-side word order; runtime scale factors unsupported; large prerequisite chain |
+| **SolarEdge** | Yes — fully, better than any other | `solaredge.terramax.documented` **populated** (§6.1a) after Float32 and command-side word order were added | Float32 vs Appendix A's integer examples unproven on hardware; runtime scale factor still unsupported so **no telemetry, therefore inert**; only the last link of a 5-step enable chain is verifiable |
 | **SMA** | Partly | none | No readback evidence for a setpoint channel; Grid Guard status undetermined; no measured-power register in this doc set |
 | **Solax** | No | none | No active-power-percentage **write** register exists; wrong product class (residential hybrid) |
 | **SAJ** | No | none | Limit register is **write-only**; scale and range blank |
@@ -590,8 +789,36 @@ manufacturer).
     at "Three phase 50-60kW" and does not cover 100 kW.
 16. **Settle time and minimum command interval** — neither documented.
 
+**SolarEdge** (added with §6.1a; every one of these is a *read* except 21)
+17. **Is 0xF322 really Float32?** The type tables say so three times; Appendix A's
+    worked examples treat it as an integer. Settle it with ONE READ AND NO WRITE:
+    read `0xF304` "Max Active Power" (Float32, **read-only**, PDU 62212) as two
+    registers and decode Float32/BA, Float32/AB, U32/BA, U32/AB. On a 100 kW
+    machine exactly one yields ≈100000. **Highest priority SolarEdge item** — it
+    settles the data type and the word order simultaneously. Until it is done, the
+    whole command path rests on the type table rather than on observed bytes.
+18. **Read `0xF310` Command Timeout and `0xF312` Fall-back Active Power Limit.**
+    The manual states no defaults. If 0xF310 is 0 the fail-safe is off; if 0xF312 is
+    100 %, losing this controller *raises* the plant's limit. Both are reads.
+19. **Does `0xF300` survive an inverter restart?** Not documented either way. It is
+    in neither the volatile nor the non-volatile list.
+20. **Can `0xF322` be written, and echoed back, while `0xF142` and `0xF104` are
+    still at their defaults?** If yes, the accept-and-echo trap is still open on
+    this brand and verifying 0xF300 alone is insufficient. This is the one item
+    that decides whether the lab authority granted to this profile is sound.
+21. **`I_AC_Power_SF` (base-0 40084) for the site's actual model.** One read gives
+    the value, but honouring it needs *runtime* scale-factor support in the
+    firmware. Until then the profile has no telemetry and cannot be commanded at
+    all. Alternatively obtain a per-model constant from SolarEdge.
+22. **Function code 0x06 on `0xF300`.** The manual demonstrates exactly this
+    (p.18, "Write 1 to F300", function 0x06), so this is a confirmation rather than
+    an open question — but it is the only write this firmware makes besides the
+    setpoint.
+23. **Settle time against the readback**, as distinct from the documented "< 1 s"
+    reaction time: how long before 0xF322 echoes an accepted value.
+
 **Cross-brand**
-17. **Whether the site's inverters are any of these brands at all.** Every profile
+24. **Whether the site's inverters are any of these brands at all.** Every profile
     here is a paper transcription against a manual whose product-family match to
     the installed equipment is unconfirmed.
 
@@ -599,11 +826,20 @@ manufacturer).
 
 ## 9. Decisions that are the owner's, not this change's
 
-1. **`docs/RELEASE_READINESS.md` must be updated by its owner.** This change adds
-   one profile and changes the write authority of two others, so
-   `tests/release_doc_catalogue_source_contract.py` **fails until the table is
-   updated**. That file is not owned by this change. The exact rows required are
-   reported with this work.
+1. **`docs/RELEASE_READINESS.md` must be updated by its owner.** Round 2 added one
+   profile and changed the write authority of two others; the SolarEdge work in
+   §6.1a adds a further one. `tests/release_doc_catalogue_source_contract.py`
+   compiles and RUNS the real permission rule against that table, so it **fails
+   until the table is updated**. That file is not owned by either change. The exact
+   row the SolarEdge work needs is:
+
+   ```
+   | SolarEdge | `solaredge.terramax.documented` | Documented | lab only | enable 0xF300 is described and verified by readback, but it is only the last of five documented steps (§6.1a) and there is no telemetry register, so nothing is commandable at runtime yet |
+   ```
+
+   The firmware decides `lab_simulator_only` for it (verified by running
+   `tests/support/profile_authority_probe.c`), and it is **not** production-capable,
+   so the document's headline claim of zero production-approved profiles stays true.
 2. **GoodWe's flash-backed command register.** Blocking for production. Either
    GoodWe supplies a permitted write rate, or a deadband/minimum-interval
    strategy is implemented, or a non-flash dispatch path is obtained. See §4.
@@ -614,10 +850,23 @@ manufacturer).
    being read.
 4. **Whether to keep the inert `knox.aiswei.asw.documented` entry.** It can
    currently neither read nor command. See §5.
-5. **Whether to invest in the SolarEdge firmware work.** It is the only brand in
-   this set with a documented comms-loss fail-safe *and* a documented command
-   interval — i.e. the only one whose manual describes a device designed to be
-   driven by a controller like this one. The gaps are all on our side. See §6.1.
+5. **SolarEdge: two of the four firmware gaps were closed; the remaining two are
+   owner calls.** Float32 and a command-side word order were built (§6.1a). Still
+   open:
+   - **Runtime scale-factor support.** Without it SolarEdge has no telemetry, and
+     no telemetry means no command — the profile is inert exactly as
+     `knox.aiswei.asw.documented` is. Either add runtime SF support or obtain a
+     per-model `I_AC_Power_SF` from SolarEdge.
+   - **Keepalive vs. Command Timeout.** p.12 imposes a *maximum* gap between
+     commands ("at least Command Timeout interval / 2"). This controller has no
+     concept of a device-imposed keepalive obligation, and no register reports that
+     the inverter has fallen back. Whoever owns `components/control_engine` must
+     decide how the refresh period is reconciled with whatever 0xF310 holds.
+   - **Multi-register prerequisite sequencing.** The firmware verifies one enable
+     register; SolarEdge documents five steps, one of which restarts the inverter
+     and must never be issued by software. Whether one-register verification is
+     accepted as sufficient for lab work is an owner decision, and item 20 in §8
+     is the test that informs it.
 6. **Whether to obtain the three missing documents**: SMA's device-specific
    assignment table, a *commercial* Solax protocol, and any Fronius protocol at
    all.

@@ -1268,6 +1268,388 @@ static const inverter_profile_t PROFILES[] = {
         .telemetry_poll_ms = 1000,
         .telemetry_stale_timeout_ms = 5000,
     },
+    {
+        .id = "solaredge.terramax.documented",
+        .manufacturer = "SolarEdge",
+        .model_family = "TerraMax three-phase inverter (SunSpec + dynamic power control)",
+        .protocol = "Modbus TCP / RTU (SunSpec)",
+        /* p.7-8: "MODBUS/TCP ... Here, it is used for remote 3rd party monitoring
+         * and control", default port 1502, "Only one connection is supported".
+         * RS-485 is equally documented (p.3), so a gateway deployment is possible;
+         * TCP is the direct path this firmware speaks. */
+        .connection = INVERTER_PROFILE_CONNECTION_MODBUS_TCP,
+        /* DOCUMENTED, and it stays there. Every value below is transcribed from the
+         * manufacturer technical note. Nothing has been exercised against physical
+         * equipment or against the lab simulator, so the gate refuses this profile
+         * for real hardware and only a per-inverter simulator declaration makes it
+         * commandable at all. Raising it toward production approval requires
+         * physical readback evidence from the machine itself.
+         *
+         * Source: "Modbus Interface for the SolarEdge TerraMax(TM) Inverter -
+         * Technical Note", Version 1.0, May 2024, 21 pages
+         * (se-modbus-interface-for-solaredge-terramax-inverter-technical-note.pdf).
+         * Page numbers below are PDF page numbers from pypdf extraction.
+         *
+         * WHY THIS PROFILE EXISTS NOW. It was refused in
+         * docs/BRAND_REGISTER_EVIDENCE_ROUND2.md section 6.1 not because the manual
+         * was inadequate -- it is the best-evidenced document in the whole set --
+         * but because this firmware had no IEEE-754 value type and no command-side
+         * word order. Both now exist, so the refusal has stopped being true and the
+         * profile is populated. See docs/BRAND_REGISTER_EVIDENCE_ROUND2.md
+         * section 6.1 for the full comparison against the other brands.
+         *
+         * ============================================================
+         * ADDRESSING CONVENTION: this manual uses TWO conventions, and it states
+         * both explicitly, which is why it is quoted rather than deduced.
+         *
+         * (1) The SunSpec monitoring map is printed in DUAL COLUMNS headed
+         *     "(base 0)" and "(base 1)". p.9: "The base register of the Device
+         *     Specific block is set to 40070 (MODBUS PLC address [base 1]), or
+         *     40069 (MODBUS Protocol Address [base 0])." The protocol address is
+         *     the PDU address that goes on the wire, so the base-0 column is used
+         *     directly. Same statement for the common block, p.8: "The base
+         *     Register Common Block is set to 40001 (MODBUS PLC address [base 1])
+         *     or 40000 (MODBUS Protocol Address [base 0])."
+         *
+         * (2) The dynamic power control map is printed as bare hex addresses with
+         *     no base-0/base-1 duality, and FOUR worked frames prove they go on
+         *     the wire unmodified:
+         *       p.16, broadcast write 1 to 0xF300, Data field:
+         *         "F3 00 00 01 (F300 address of starting point, with additional 1)"
+         *       p.17, read two registers at 0xF324, Data field: "F3 24 00 01"
+         *       p.18, write single 1 to 0xF300, Data field:
+         *         "0xF3 00 00 01. (write 1 to F300)"
+         *       p.19, write multiple to 0xF324, Data field: "F3 24 00 00 00 64"
+         *     In every one the table's hex address is the first two bytes of the
+         *     PDU data field, with no offset. That is a worked byte-level frame,
+         *     the strongest class of addressing evidence in this catalogue.
+         *
+         * ============================================================
+         * COMMAND AND READBACK -- 0xF322, and this is the whole reason the firmware
+         * needed a float type.
+         *
+         * p.14, "Volatile memory registers" table, and repeated verbatim in the
+         * summary table on p.15:
+         *   "F322 | 2 | R/W | Dynamic Active Power Limit | Float32 | 0-100 | %"
+         * and described p.14: "Dynamic Active Power Limit controls the active power
+         * limit of the inverter dynamically. It is set as the percentage of the
+         * Active Power Limit register setting."
+         *
+         * R/W, so the same address is the readback with function 0x03 (p.16 lists
+         * "0x03 - Read holding register" among the main functions). PDU 62242 =
+         * 0xF322. Two registers, Float32, so raw_units_per_percent is 1.0: the
+         * float carries the percentage itself, with no gain to get wrong.
+         *
+         * WORD ORDER -- documented, and NOT the order this firmware used to emit.
+         * p.14, and again p.16: "Each register contains two bytes in big-endian
+         * order (MSB-LSB)." / "Each 32-bit value spans over two registers in the
+         * little-endian word order (LSB-MSB)." Least significant word at the lower
+         * address is INVERTER_WORD_ORDER_BA in this firmware's terms, on BOTH the
+         * write and the read path. Before the command-side field existed the
+         * encoder emitted the high word first unconditionally, so it would have
+         * written the two halves of the float swapped -- a value in a completely
+         * different order of magnitude -- while the readback decoder, which did
+         * model word order, would have decoded correctly and disagreed. That is a
+         * confirmation fault on a healthy machine at best.
+         *
+         * FUNCTION CODE 16 IS MANDATORY, not a choice. p.14: "The two registers
+         * must be written together using Modbus function 16." p.16 repeats it:
+         * "Some commands require two registers. You must write the two registers
+         * together using Modbus function 16." encode_command() refuses a float
+         * command that is not two registers with function 16.
+         *
+         * THE BIG-ENDIAN ALTERNATIVE, deliberately not used. p.14: "If the
+         * controller does not support the little-endian word order, another map
+         * using the big-endian word order correlating to this one exists at an
+         * offset of 0x800 from this map", i.e. 0xFB22 (PDU 64290), and p.19 works
+         * the frame for the reactive equivalent: "to use a big-endian notation, add
+         * an offset of 0x800 to the register address ... Write 0x64 FB24". This
+         * firmware now supports the documented little-endian order directly, so the
+         * primary map is used. The alternative is recorded because it is a
+         * one-field fallback if a lab read shows the primary map behaving
+         * unexpectedly -- but note that switching maps means changing BOTH the
+         * address and the word order, and changing only one of the two would write
+         * a plausible-looking wrong value.
+         *
+         * ============================================================
+         * A CONTRADICTION IN THE DOCUMENT THAT MUST BE SETTLED ON HARDWARE.
+         *
+         * The type tables say Float32 three separate times (p.13 properties table,
+         * p.14 volatile table, p.15 summary table). Appendix A's worked examples
+         * treat the SAME registers as plain integers:
+         *   p.17, reading 0xF324/0xF325, response Data: "04 00 00 00 32 (04 is the
+         *     data length - 00 32 response for F324, 00 00 response for F325)".
+         *     Little-endian word order makes that the 32-bit value 0x00000032 --
+         *     integer 50, but as a Float32 it is 7e-44.
+         *   p.19, "Set Dynamic Reactive Power Limit to 100. Write 0x64 to F324",
+         *     Data: "F3 24 00 00 00 64" -- integer 100, not 100.0f (0x42C80000).
+         *
+         * The type tables are treated as normative and Appendix A as illustrative,
+         * for three reasons: the type is stated three times independently, the
+         * appendix contradicts itself inside a single bullet ("the Little-Endian
+         * word order from the least significant byte to the most significant byte
+         * (MSB-LSB)", p.16 -- it labels an LSB-first order "MSB-LSB"), and its
+         * frames are structurally malformed (the p.19 function-16 frame declares
+         * length 0x08 and carries no register count or byte count).
+         *
+         * THIS IS THE FIRST THING TO PROVE ON REAL EQUIPMENT, and it can be proven
+         * WITHOUT WRITING ANYTHING. p.11 and p.14: "F304 | 2 | R | Max Active Power
+         * | Float32 | Inverter rating | W", read-only. Read PDU 62212 (0xF304) as
+         * two registers and decode four ways: Float32/BA, Float32/AB, U32/BA,
+         * U32/AB. On a 100 kW machine exactly one of them yields ~100000, and that
+         * one settles the float question and the word order together. Until that
+         * read is done, every value in this profile's command path rests on the
+         * type table rather than on observed bytes.
+         *
+         * ============================================================
+         * PREREQUISITE ENABLE -- set, describable, and only PARTLY representable.
+         *
+         * p.18: "To perform the Write command, enable the Dynamic Power Control
+         * Mode." p.11: "Enable Dynamic Power Control on address 0xF300 is disabled
+         * (set to 0) by default and should be enabled (set to 1) for dynamic power
+         * control functionality." p.15 summary table: "F300 | 1 | R/W | Enable
+         * Dynamic Power Control | Uint16 | 0 or 1 | N/A".
+         *
+         * R/W and one register wide, so it is READABLE with function 0x03 (p.16
+         * "0x03 - Read holding register") -- readability is established by citation,
+         * which is what lets this profile describe the prerequisite instead of being
+         * refused outright for an enable it could only write blind. Whole-register
+         * compare against 1, because the documented value range is exactly "0 or 1"
+         * and inventing a bit position inside it would be inventing a layout.
+         *
+         * WHAT THIS FIRMWARE CANNOT REPRESENT, stated plainly because it is the
+         * most important limitation on this entry. 0xF300 is the LAST link of a
+         * five-step chain (p.12):
+         *   1. 0xF142 AdvancedPwrControlEn (PDU 61762) -> 1; default 0
+         *   2. 0xF104 ReactivePwrConfig (PDU 61700) -> 4; default 0 (Fixed CosPhi)
+         *   3. 0xF100 Commit Power Control Settings (PDU 61696) -> 1 --
+         *      "This command stops production and restarts the inverter."
+         *   4. initialise the enhanced power control settings, 0xF308-0xF320
+         *   5. Enable Dynamic Power Control (0xF300) -> 1
+         * with p.12 also warning "If registers are set to the correct value, do not
+         * rewrite them" and "Dynamic Power Control should be enabled only after the
+         * initialization of the enhanced power control operation in the previous
+         * step."
+         *
+         * The prerequisite model here holds ONE register, so steps 1-4 are a HUMAN
+         * COMMISSIONING SEQUENCE, not something the controller performs. Step 3 in
+         * particular must never be issued by this firmware: a controller that
+         * stopped production and restarted a 100 kW inverter as a side effect of
+         * its own start-up is an outage caused by the safety machinery. Whether
+         * 0xF300 can read back 1 while steps 1-2 are still at their defaults is NOT
+         * documented, so verifying 0xF300 alone is NOT proof the whole chain is in
+         * place. Confirming that is a lab item.
+         *
+         * VOLATILITY, and why the default 5 s prerequisite re-check is left alone.
+         * p.13-14: the volatile block "DO NOT maintain their value following an
+         * inverter restart and must be re-configured after the inverter restarts"
+         * -- which covers 0xF322 itself. 0xF300 appears in NEITHER the non-volatile
+         * list (0xF308-0xF320) nor the volatile list (0xF322-0xF326), so its
+         * persistence across a restart is undocumented; the fact that p.12's own
+         * sequence sets it AFTER the restarting commit hints it does not survive
+         * one, but a hint is not evidence. The firmware default re-reads the enable
+         * every 5 s, which is already tight enough to catch a restart quickly, so no
+         * profile-specific period is asserted.
+         *
+         * ============================================================
+         * COMMS-LOSS FAIL-SAFE -- documented, and NOT WRITTEN BY THIS FIRMWARE.
+         *
+         * p.13 non-volatile table: "F310 | 2 | R/W | Command Timeout | Uint32 |
+         * 0-65535 | Sec" and "F312 | 2 | R/W | Fall-back Active Power Limit |
+         * Float32 | 0-100 | %". p.12: "Command Timeout sets the timeout interval
+         * for dynamic commands. If the inverter doesn't receive one of the dynamic
+         * commands within this time frame, it will revert to the fallback settings
+         * described in the bullets below." SolarEdge is the only brand in this
+         * catalogue that documents such a thing.
+         *
+         * WHAT IT MEANS FOR THIS CONTROLLER:
+         *  - If this controller dies, loses its network or reboots, the inverter
+         *    does NOT hold the last commanded limit. After Command Timeout seconds
+         *    it moves autonomously to Fall-back Active Power Limit. That is the
+         *    behaviour a generator-protection scheme wants -- but only if the
+         *    fallback is a SAFE value. The manual states no default for either
+         *    register, so the direction of the fallback is unknown: if F312 is
+         *    100 %, losing the controller RAISES the plant's limit. Reading 0xF310
+         *    and 0xF312 is therefore a mandatory commissioning step, and it is a
+         *    READ, not a write.
+         *  - Both are in the non-volatile block, so they are commissioning settings
+         *    that survive restart. This firmware writes neither. Writing a
+         *    fail-safe blind would be asserting a safety behaviour it cannot
+         *    verify, and 0xF310 = 0 would silently disable the fail-safe entirely.
+         *  - The obligation runs the other way too, and this firmware does not model
+         *    it. p.12: "The controller command interval must be at least Command
+         *    Timeout interval / 2" -- a MAXIMUM permitted gap between commands, i.e.
+         *    a keepalive duty. If the control loop goes quiet for longer than
+         *    Command Timeout while everything is healthy, the inverter reverts to
+         *    fallback on its own and the controller has no register that tells it
+         *    this happened. Reconciling the keepalive refresh period against
+         *    whatever 0xF310 holds is an owner decision recorded in
+         *    docs/BRAND_REGISTER_EVIDENCE_ROUND2.md section 6.1.
+         *
+         * ============================================================
+         * MINIMUM COMMAND INTERVAL -- 100 ms, from the only separation figure the
+         * document gives, and the reading is flagged rather than asserted.
+         *
+         * p.20, "Timing definitions": "Data transfer interval | For system
+         * stability, this is the time separation period between data transfers",
+         * and the "Timing performance" table gives "Data transfer interval < 0.1 s".
+         * The table expresses it as an upper bound while the definition describes a
+         * separation period, so the two readings differ; 100 ms is the value that
+         * satisfies either, and it is BELOW this controller's 250 ms control period,
+         * so the throttle is non-binding today and cannot slow the loop down. It
+         * only ever delays an INCREASE: a protective reduction is never withheld.
+         *
+         * SETTLE TIME -- 1000 ms, documented, not measured. p.20 "Timing
+         * performance": "Write | Reaction time of setpoint (dynamic) | Active Power
+         * (P) | < 1 s", where p.20 defines reaction time as "the time between the
+         * changing of the setpoint until it comes into effect". Response time
+         * "(includes Processing time) < 0.5 s" is the transaction, not the effect.
+         * A settle window can only ever DELAY a verdict -- it never turns a
+         * disagreement into a success -- so taking the documented worst-case
+         * reaction time is the conservative choice. It must still be measured at
+         * commissioning against the actual readback behaviour.
+         *
+         * ============================================================
+         * FLASH WEAR -- checked, and this register is NOT flash-backed.
+         *
+         * p.19 carries a real warning: "The adjustable parameters in Modbus
+         * registers are intended for long-term storage. Periodic changes in this
+         * parameter may damage the flash memory." That is the GoodWe hazard, so it
+         * was checked rather than assumed away. It does not apply to 0xF322: p.13
+         * heads the 0xF308-0xF320 group "Non-volatile memory registers - The
+         * following registers maintain their value following an inverter restart",
+         * and p.13-14 heads the 0xF322-0xF326 group "Volatile memory registers -
+         * The following registers DO NOT maintain their value following an inverter
+         * restart". 0xF322 is in the volatile group, which is exactly what a
+         * dispatch register written every control cycle must be, and this profile
+         * writes nothing in the non-volatile group. command_register_is_flash_backed
+         * is therefore false on evidence, not by omission.
+         *
+         * ============================================================
+         * ACTIVE POWER -- DELIBERATELY UNSET, and this makes the profile inert.
+         *
+         * p.9-10 SunSpec inverter model: "40083 | 40084 | 1 | I_AC_Power | int16 |
+         * Watts | AC Power value" and "40084 | 40085 | 1 | I_AC_Power_SF | int16 |
+         * AC Power scale factor" (base-0 / base-1 columns). p.9-10 defines the
+         * mechanism: "As an alternative to a floating point format, values are
+         * represented by Integer values with a signed scale factor applied ...
+         * Value = "Value" * 10^ Value_SF".
+         *
+         * The scale factor is a RUNTIME REGISTER. active_power_scale is a
+         * compile-time float, so this firmware cannot honour it, and no document in
+         * the SolarEdge set states a fixed value for I_AC_Power_SF (the companion
+         * sunspec-implementation-technical-note.pdf repeats the same generic
+         * formula and no constant). For a 100 kW+ TerraMax an int16 cannot hold the
+         * watt value at SF 0, so SF is certainly non-zero -- but "certainly
+         * non-zero" is not a number, and guessing it scales every telemetry reading
+         * by a power of ten.
+         *
+         * CONSEQUENCE, stated because it is not obvious from the field list: with no
+         * active-power register the acquisition task never marks telemetry valid, and
+         * an inverter without valid telemetry is not eligible for a command. So this
+         * profile can be READ for identity and for its limit readback, but it cannot
+         * actually be commanded at runtime until either runtime scale-factor support
+         * is added or a per-model I_AC_Power_SF is obtained from SolarEdge. That is
+         * an owner decision, and it is the same shape as the inert Knox entry.
+         *
+         * 0xF304 Max Active Power (Float32, W, read-only) is the inverter RATING,
+         * not its output, so it is not a substitute -- but it is the ideal
+         * non-invasive probe for the float/word-order question above.
+         *
+         * ============================================================
+         * IDENTITY -- 0-based PDU 40004, one register, "So".
+         *
+         * p.9 common-block table: "40004 | 40005 | 16 | C_Manufacturer | String(32)
+         * | Value Registered with SunSpec = "SolarEdge "", and p.8: "C_Manufacturer
+         * is set to SolarEdge". Only the FIRST register is probed, so no 32-bit word
+         * order is involved at all -- only the byte order inside one register, which
+         * p.14 states: "Each register contains two bytes in big-endian order
+         * (MSB-LSB)". 'S' = 0x53, 'o' = 0x6F, so the first register reads 0x536F.
+         *
+         * The numeric alternative was rejected on purpose: p.9 gives "40000 | 40001
+         * | 2 | C_SunSpec_ID | uint32 | Value = "SunS" (0x53756e53)", which is a
+         * real numeric constant, but reading it needs a 32-bit word order and the
+         * only word-order statement in the document is scoped to the dynamic power
+         * control map. A one-register ASCII probe needs no such assumption, and this
+         * is the same pattern the Huawei and Growatt entries use.
+         *
+         * ============================================================
+         * DOCUMENTED BUT NOT WRITTEN, for the record.
+         *
+         * RAMP: p.13 "F318 | 2 | R/W | Active Power Ramp-up Rate | Float32 | -1*,
+         * 0-100 | %/min" and "F31A | 2 | R/W | Active Power Ramp-down Rate", where
+         * p.13 notes "A value of -1 indicates that the ramp-up is disabled and that
+         * the change is immediate". This firmware ramps in the control engine and
+         * writes neither; reconcile on site so the two limiters do not fight. Note
+         * these are in the NON-VOLATILE group covered by the p.19 flash warning, so
+         * they are commissioning settings, never cyclic writes.
+         *
+         * OPERATING STATE: p.11 gives "40107 | 40108 | 1 | I_Status | uint16 |
+         * Operating State" and p.9 lists the I_STATUS_* values (1 Off, 2 Sleeping,
+         * 3 Grid Monitoring/wake-up, 4 MPPT/producing, 5 Production (curtailed),
+         * 6 Shutting down, 7 Fault, 8 Maintenance/setup). This is the most complete
+         * state table in the catalogue -- and it is still NOT configured here, in
+         * line with the rule at the top of this file that no shipped profile
+         * describes an operating state. Enabling it is a separate, deliberate change
+         * with its own review, not a side effect of adding a float type. Every
+         * inverter therefore reports INVERTER_STATE_UNKNOWN.
+         *
+         * POLL RATE: a controller choice, not a manual value. 1000/5000 ms is
+         * consistent with p.20's "< 0.5 s" read response time and with the
+         * TCP-server idle limit of 2 minutes (p.8).
+         *
+         * NOT DOCUMENTED ANYWHERE IN THIS MANUAL: the default values of 0xF310 and
+         * 0xF312, whether 0xF300 survives a restart, whether 0xF322 can be written
+         * with 0xF142/0xF104 still at their defaults, and any per-model value for
+         * I_AC_Power_SF. None of those is interpolated here. */
+        .qualification = INVERTER_PROFILE_QUALIFICATION_DOCUMENTED,
+        .manual_reference = "SolarEdge Modbus Interface for the TerraMax Inverter, "
+                            "Technical Note Version 1.0 (May 2024), pp.8-20; "
+                            "not qualified on hardware",
+        .has_identity_probe = true,
+        .identity_function = 3,
+        .identity_address = 40004, /* base-0 column, p.9 C_Manufacturer */
+        .identity_words = 1,
+        .identity_expected = 0x536F, /* "So" of "SolarEdge " */
+        .identity_mask = 0xFFFF,
+        /* Active power intentionally unconfigured: runtime scale factor at base-0
+         * 40084 cannot be honoured by a compile-time scale. See the note above. */
+        .has_power_limit = true,
+        .power_limit_function = 16, /* p.14: "must be written together using ... 16" */
+        .power_limit_address = 62242, /* 0xF322 Dynamic Active Power Limit */
+        .power_limit_words = 2,
+        .power_limit_type = INVERTER_VALUE_FLOAT32, /* p.14/p.15 type column */
+        .power_limit_word_order = INVERTER_WORD_ORDER_BA, /* p.14 little-endian words */
+        .raw_units_per_percent = 1.0f, /* the float carries the percentage itself */
+        .minimum_percent = 0.0f,
+        .maximum_percent = 100.0f, /* p.14 value range "0-100 %" */
+        .has_power_limit_readback = true,
+        .power_limit_readback_function = 3,
+        .power_limit_readback_address = 62242, /* same R/W register, p.14 */
+        .power_limit_readback_words = 2,
+        .power_limit_readback_type = INVERTER_VALUE_FLOAT32,
+        .power_limit_readback_word_order = INVERTER_WORD_ORDER_BA,
+        .power_limit_readback_scale = 1.0f,
+        .readback_tolerance_percent = 0.2f,
+        /* p.20: reaction time of a dynamic active-power setpoint "< 1 s". */
+        .power_limit_settle_ms = 1000,
+        /* p.20 "Data transfer interval ... time separation period between data
+         * transfers", 0.1 s. See the reading note above. */
+        .min_command_interval_ms = 100,
+        /* p.18: "To perform the Write command, enable the Dynamic Power Control
+         * Mode." 0xF300 defaults to 0, so the setpoint is subordinate to it. */
+        .requires_prerequisite_enable = true,
+        .has_prerequisite_enable = true,
+        .prerequisite_write_function = 6, /* one register, p.16 "0x06 - Preset single" */
+        .prerequisite_address = 62208, /* 0xF300 Enable Dynamic Power Control */
+        .prerequisite_value = 1, /* p.15 value range "0 or 1" */
+        .has_prerequisite_readback = true,
+        .prerequisite_readback_function = 3,
+        .prerequisite_readback_address = 62208,
+        .prerequisite_readback_mask = 0xFFFF, /* documented range is exactly 0 or 1 */
+        .telemetry_poll_ms = 1000,
+        .telemetry_stale_timeout_ms = 5000,
+    },
 };
 
 size_t inverter_profiles_count(void)
