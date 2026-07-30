@@ -209,12 +209,39 @@ static void add_generator_fleet(cJSON *root, const control_status_t *status)
     /* Stated rather than left to be inferred from the absence of a key. */
     cJSON_AddBoolToObject(floor_object, "safe_pv_published", false);
 
-    /* WHAT IS NOT HERE, named rather than left as a silent gap. The cycle-by-cycle
-     * aggregate limit is a local of the control loop and control_engine exposes no
-     * accessor for it, so the online count and floor the loop actually used cannot
-     * be published from this component. The loop's REASON does reach a client: it is
-     * the inhibit_reason already published at the top level of this response. */
-    cJSON_AddBoolToObject(fleet, "runtime_fleet_limit_published", false);
+    /* THE RUNTIME VERDICT -- what the control loop actually acted on, taken from the
+     * loop itself rather than recomputed here.
+     *
+     * The distinction matters and is the reason both objects exist. `derived_floor`
+     * above answers "what would the floor be if every in-service engine were on the
+     * bus"; this answers "what floor did the loop use, given which engines it
+     * believed were running". They differ whenever an engine is commissioned but its
+     * meter is not reporting, and presenting the first as the second would misreport
+     * why PV is being held down. */
+    cJSON *runtime = cJSON_AddObjectToObject(fleet, "runtime_floor");
+    if (!runtime) return;
+    generator_fleet_limit_t live = {0};
+    const bool have_live = control_engine_get_generator_fleet(&live);
+    /* False until the loop has evaluated once, so "no verdict yet" stays
+     * distinguishable from "a verdict of zero". */
+    cJSON_AddBoolToObject(fleet, "runtime_fleet_limit_published", have_live);
+    cJSON_AddBoolToObject(runtime, "evaluated", have_live);
+    if (have_live) {
+        cJSON_AddStringToObject(runtime, "basis", "engines_the_control_loop_believed_online");
+        cJSON_AddBoolToObject(runtime, "known", live.known);
+        cJSON_AddStringToObject(runtime, "reason", generator_fleet_reason_id(live.reason));
+        cJSON_AddStringToObject(runtime, "sharing_mode",
+                                generator_sharing_mode_id(live.sharing_mode));
+        cJSON_AddNumberToObject(runtime, "online_count", live.online_count);
+        add_finite(runtime, "online_rated_kw", live.online_rated_kw);
+        add_finite(runtime, "minimum_loading_kw", live.minimum_loading_kw);
+        cJSON_AddNumberToObject(runtime, "base_loaded_count", live.base_loaded_count);
+        add_finite(runtime, "base_load_total_kw", live.base_load_total_kw);
+        add_finite(runtime, "required_generator_kw", live.required_generator_kw);
+        /* Published here, unlike derived_floor, because this one was computed against
+         * the real plant load and is therefore a real answer. */
+        add_finite(runtime, "safe_pv_kw", live.safe_pv_kw);
+    }
     cJSON_AddStringToObject(fleet, "runtime_reason_field", "inhibit_reason");
     cJSON_AddStringToObject(fleet, "runtime_reason",
                             status ? status->inhibit_reason : "");

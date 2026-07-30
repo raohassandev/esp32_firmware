@@ -259,10 +259,31 @@ require('"basis"' in FLEET_STATUS and "every_engine_in_service_treated_as_on_the
 require('cJSON_AddBoolToObject(floor_object, "safe_pv_published", false)' in FLEET_STATUS,
         "no safe-PV figure may be published from an evaluation whose plant load is "
         "zero: a real number answering an imaginary question")
-require('"runtime_fleet_limit_published", false' in FLEET_STATUS,
-        "the gap must be named. control_engine exposes no accessor for the "
-        "cycle-by-cycle limit, and a client must be told that rather than reading the "
-        "commissioned-set floor as the runtime one")
+# The runtime verdict is now published, so the assertion that the gap be NAMED is
+# replaced by one that the gap be CLOSED. It must come from the control loop itself,
+# not be recomputed here: a recomputation over the commissioned set answers "what
+# would the floor be if every in-service engine were running", and offering that as
+# the runtime answer would misreport why PV is being held down.
+require("control_engine_get_generator_fleet(&live)" in FLEET_STATUS,
+        "the runtime floor must be read from the control loop, not recomputed")
+require('cJSON_AddBoolToObject(fleet, "runtime_fleet_limit_published", have_live)' in FLEET_STATUS,
+        "whether a runtime verdict exists must be reported from the accessor's return, "
+        "so 'no verdict yet' stays distinguishable from 'a verdict of zero'")
+require('"engines_the_control_loop_believed_online"' in FLEET_STATUS,
+        "the runtime floor must state its basis, so it cannot be confused with the "
+        "commissioned-set floor published beside it")
+require('add_finite(runtime, "safe_pv_kw", live.safe_pv_kw)' in FLEET_STATUS,
+        "the runtime floor MAY publish safe PV, unlike the commissioned-set floor: it "
+        "was computed against the real plant load and is therefore a real answer")
+# And the loop must actually publish it every cycle, including when it is not in
+# generator mode, or a verdict from a previous source mode would stand as current.
+CONTROL = (ROOT / "components/control_engine/control_engine.c").read_text(encoding="utf-8")
+require("store_fleet_limit(&fleet_limit);" in CONTROL,
+        "the control loop must publish its fleet verdict")
+require(CONTROL.index("store_fleet_limit(&fleet_limit);") >
+        CONTROL.index("generator_safe_limit_kw = fleet_limit.known"),
+        "the verdict must be published after it is used, so what is published is what "
+        "the loop acted on")
 require('"runtime_reason"' in FLEET_STATUS,
         "the control loop's own inhibit sentence must travel with the fleet block")
 require("modbus_io_in_http_handler" in FLEET_STATUS,

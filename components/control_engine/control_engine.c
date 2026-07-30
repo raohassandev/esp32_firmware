@@ -62,6 +62,37 @@ static commissioning_status_t s_commissioning;
 static bool s_commissioning_valid;
 static portMUX_TYPE s_commissioning_lock = portMUX_INITIALIZER_UNLOCKED;
 
+/* The generator fleet verdict the CONTROL LOOP actually acted on, published so an
+ * engineer can see the floor that inhibited PV rather than a floor recomputed
+ * elsewhere from configuration.
+ *
+ * That distinction is the whole reason this exists. A second computation over the
+ * commissioned set answers a different question -- "what would the floor be if every
+ * in-service engine were on the bus" -- and presenting it as the runtime answer would
+ * misreport why the plant is being held down. `valid` stays false until the loop has
+ * evaluated once, so a caller can tell "no verdict yet" from "a verdict of zero". */
+static generator_fleet_limit_t s_fleet_limit;
+static bool s_fleet_limit_valid;
+static portMUX_TYPE s_fleet_lock = portMUX_INITIALIZER_UNLOCKED;
+
+static void store_fleet_limit(const generator_fleet_limit_t *limit)
+{
+    portENTER_CRITICAL(&s_fleet_lock);
+    s_fleet_limit = *limit;
+    s_fleet_limit_valid = true;
+    portEXIT_CRITICAL(&s_fleet_lock);
+}
+
+bool control_engine_get_generator_fleet(generator_fleet_limit_t *out_limit)
+{
+    if (!out_limit) return false;
+    portENTER_CRITICAL(&s_fleet_lock);
+    const bool valid = s_fleet_limit_valid;
+    *out_limit = s_fleet_limit;
+    portEXIT_CRITICAL(&s_fleet_lock);
+    return valid;
+}
+
 static void store_commissioning(const commissioning_status_t *status)
 {
     portENTER_CRITICAL(&s_commissioning_lock);
@@ -561,6 +592,9 @@ static void control_task(void *argument)
              * commanding against a plant of unknown capacity. */
             generator_safe_limit_kw = fleet_limit.known ? fleet_limit.safe_pv_kw : 0.0f;
         }
+        /* Published every cycle, in generator mode or not, so a verdict from a
+         * previous source mode is never left standing as if it were current. */
+        store_fleet_limit(&fleet_limit);
 
         power_control_input_t input = {
             .measurement_fresh = measurement_fresh && fleet_valid && gate.control_allowed,
