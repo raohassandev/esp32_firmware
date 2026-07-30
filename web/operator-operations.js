@@ -3,6 +3,13 @@
 
     const state = {
         history: null,
+        historyAt: 0,
+        historyError: null,
+        /* One chart instance for the whole product. It is created once, moved
+         * between the pages that show it, and reconfigured - never rebuilt per
+         * page and never duplicated per series. */
+        chart: null,
+        chartPage: null,
         events: null,
         range: '15m',
         busy: false,
@@ -111,12 +118,6 @@
         } finally {
             window.clearTimeout(timer);
         }
-    }
-
-    function formatPower(value) {
-        const number = Number(value);
-        if (!Number.isFinite(number)) return '—';
-        return `${number.toFixed(Math.abs(number) >= 100 ? 1 : 2)} kW`;
     }
 
     function formatAge(value) {
@@ -513,66 +514,104 @@
         return row;
     }
 
-    function values(key) {
-        return (state.history?.samples || []).map((sample) => Number(sample[key])).filter(Number.isFinite);
-    }
-
-    function sparkline(series, label) {
-        const wrap = node('div', 'op-sparkline op-history-chart');
-        if (!series.length) {
-            wrap.append(node('span', 'op-empty-inline', 'Controller history is collecting samples'));
-            return wrap;
+    /* ------------------------------------------------------- the one chart
+     *
+     * Two chart implementations used to draw this data: a browser-session
+     * sparkline in operator-view.js and the controller-history sparkline that
+     * used to live here. Both appeared on the dashboard at once - four charts,
+     * two different windows over the same quantity, neither with a time axis.
+     *
+     * Both also compacted the samples down to the finite ones before
+     * drawing, which deleted the missing readings instead of showing them, so a
+     * minute in which the meter said nothing was drawn as a straight line
+     * between the readings either side of it. On a reverse-power controller
+     * that is a safety-relevant lie. web/pvdg-chart.js is now the only chart,
+     * and it breaks the line at a gap.
+     *
+     * The controller offers exactly three ranges and silently substitutes 15m
+     * for anything else, so only those three values are ever requested. */
+    const CHART_PAGES = {
+        dashboard: {
+            title: 'Plant power trend',
+            description: 'Grid exchange and solar production stored by the controller',
+            series: [
+                { key: 'grid_kw', label: 'Grid power', meaning: { positive: 'importing from the utility', negative: 'exporting to the utility' } },
+                { key: 'solar_kw', label: 'Solar production', meaning: { positive: 'producing', negative: 'consuming' } }
+            ]
+        },
+        meters: {
+            title: 'Grid power trend',
+            description: 'Grid exchange stored by the controller',
+            series: [
+                { key: 'grid_kw', label: 'Grid power', meaning: { positive: 'importing from the utility', negative: 'exporting to the utility' } }
+            ]
+        },
+        inverters: {
+            title: 'Solar production trend',
+            description: 'Measured inverter production stored by the controller',
+            series: [
+                { key: 'solar_kw', label: 'Solar production', meaning: { positive: 'producing', negative: 'consuming' } }
+            ]
         }
-        const width = 420, height = 92, pad = 8;
-        const min = Math.min(...series), max = Math.max(...series);
-        const span = Math.max(1, max - min);
-        const points = series.map((value, index) => {
-            const x = series.length === 1 ? width / 2 : pad + index * (width - pad * 2) / (series.length - 1);
-            const y = height - pad - ((value - min) / span) * (height - pad * 2);
-            return `${x.toFixed(1)},${y.toFixed(1)}`;
-        }).join(' ');
-        wrap.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${label}"><path class="op-spark-area" d="M ${points.replace(/ /g, ' L ')} L ${width - pad},${height - pad} L ${pad},${height - pad} Z"/><polyline class="op-spark-line" points="${points}"/></svg>`;
-        return wrap;
-    }
+    };
 
-    function rangeSelector() {
-        const group = node('div', 'op-range-selector');
-        [['15m', '15 min'], ['1h', '1 hour'], ['24h', '24 hours']].forEach(([value, label]) => {
-            const button = node('button', `op-range-button ${state.range === value ? 'active' : ''}`, label);
-            button.type = 'button';
-            button.addEventListener('click', async () => {
-                state.range = value;
-                await refreshHistory();
-                scheduleEnhance();
+    function chart() {
+        if (!state.chart && window.PvdgChart && typeof window.PvdgChart.create === 'function') {
+            state.chart = window.PvdgChart.create({
+                height: 500,
+                range: state.range,
+                series: CHART_PAGES.dashboard.series,
+                onRangeChange: (value) => {
+                    state.range = window.PvdgChart.normalizeRange(value);
+                    refreshHistory();
+                }
             });
-            group.append(button);
+        }
+        return state.chart;
+    }
+
+    function applyHistory() {
+        const instance = state.chart;
+        if (!instance) return;
+        if (state.historyError) {
+            instance.setState('error', state.historyError);
+            return;
+        }
+        if (!state.history) {
+            instance.setState('loading');
+            return;
+        }
+        instance.setData({
+            samples: state.history.samples,
+            sample_interval_ms: state.history.sample_interval_ms,
+            range: state.history.range,
+            receivedAt: state.historyAt
         });
-        return group;
     }
 
-    function historyPanel(kind) {
-        const key = kind === 'solar' ? 'solar_kw' : 'grid_kw';
-        const series = values(key);
-        const summary = state.history?.summary || {};
-        const prefix = kind === 'solar' ? 'solar' : 'grid';
-        const card = node('article', 'op-card op-controller-history');
-        const headline = node('div', 'op-history-head');
-        headline.append(node('div', 'op-card-headline', `${kind === 'solar' ? 'Solar production' : 'Grid demand'} history`), rangeSelector());
-        card.append(headline, sparkline(series, `${kind} history`));
-        const stats = node('div', 'op-history-stats');
-        stats.append(
-            stat('Minimum', formatPower(summary[`${prefix}_min_kw`])),
-            stat('Average', formatPower(summary[`${prefix}_average_kw`])),
-            stat('Peak', formatPower(summary[`${prefix}_max_kw`]))
-        );
-        card.append(stats, node('small', 'op-chart-note', `Stored by the controller · ${state.history?.range || state.range} range`));
-        return card;
-    }
-
-    function stat(label, value) {
-        const item = node('div', 'op-history-stat');
-        item.append(node('span', '', label), node('strong', '', value));
-        return item;
+    function mountChart(target, page) {
+        const spec = CHART_PAGES[page];
+        if (!target || !spec) return;
+        /* The mount point belongs to operator-view.js, which rebuilds its page
+         * every refresh but keeps this one node. Without it there is nowhere to
+         * put the chart, and appending it to the page body would only have it
+         * wiped by the next rebuild. */
+        const host = target.querySelector('#operatorTrendHost');
+        if (!host) return;
+        const instance = chart();
+        if (!instance) {
+            if (!host.querySelector('.op-empty-state')) {
+                host.append(node('div', 'op-empty-state', 'Trend charting is unavailable in this build.'));
+            }
+            return;
+        }
+        if (state.chartPage !== page) {
+            state.chartPage = page;
+            instance.setTitle(spec.title, spec.description);
+            instance.setSeries(spec.series);
+        }
+        if (instance.element.parentElement !== host) host.append(instance.element);
+        applyHistory();
     }
 
     function enhanceCurrentPage() {
@@ -583,11 +622,9 @@
             return;
         }
         const target = current === 'dashboard' ? byId('operatorDashboardView') : current === 'meters' ? byId('operatorMeterView') : current === 'inverters' ? byId('operatorInverterView') : null;
-        if (!target || target.querySelector('.op-controller-history')) return;
-        if (current === 'dashboard') {
-            const grid = node('div', 'op-two-column op-history-section');
-            grid.append(historyPanel('grid'), historyPanel('solar'));
-            target.append(grid);
+        if (!target) return;
+        mountChart(target, current);
+        if (current === 'dashboard' && !target.querySelector('.op-dashboard-events')) {
             const events = (state.events?.events || []).filter((event) => event.active && event.severity !== 'information');
             const attention = node('article', 'op-card op-dashboard-events');
             attention.append(node('div', 'op-card-headline', 'Current attention'));
@@ -596,10 +633,6 @@
             events.slice(0, 3).forEach((event) => list.append(eventRow(event)));
             attention.append(list);
             target.append(attention);
-        } else if (current === 'meters') {
-            target.append(historyPanel('grid'));
-        } else if (current === 'inverters') {
-            target.append(historyPanel('solar'));
         }
     }
 
@@ -613,7 +646,15 @@
     }
 
     async function refreshHistory() {
-        state.history = await api(`/api/operator/history?range=${encodeURIComponent(state.range)}`);
+        try {
+            const payload = await api(`/api/operator/history?range=${encodeURIComponent(state.range)}`);
+            state.history = payload;
+            state.historyAt = Date.now();
+            state.historyError = null;
+        } catch (error) {
+            state.historyError = error?.message || 'Controller history is unavailable.';
+        }
+        applyHistory();
     }
 
     async function refreshAll() {
@@ -625,6 +666,8 @@
                 api('/api/operator/events')
             ]);
             state.history = history;
+            state.historyAt = Date.now();
+            state.historyError = null;
             state.events = events;
             /* The navigation badge is driven by the alarm condition table, not
              * by the event ring: the condition table is the one that still
@@ -632,6 +675,8 @@
             renderAlarmPage();
             scheduleEnhance();
         } catch (error) {
+            state.historyError = error?.message || 'Controller history is unavailable.';
+            applyHistory();
             console.warn('Operator history/events unavailable:', error);
         } finally {
             state.busy = false;
@@ -660,6 +705,7 @@
             renderAlarmConsole();
         }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-access'] });
         window.addEventListener('amx-access-change', renderAlarmConsole);
+        window.addEventListener('amx-operator-view-rendered', scheduleEnhance);
         const main = byId('mainContent');
         if (main) {
             new MutationObserver((records) => {

@@ -60,11 +60,13 @@ jobs:
           node --check web/em500-plan.js
           node --check web/source-detection.js
           node --check web/solar-grid.js
+          node --check web/pvdg-chart.js
           node --check tools/soltrix_modbus_simulator.js
           node --check tools/soltrix_modbus_simulator_test.js
           node web/tests/wifi-utils.test.js
           node web/tests/devices-utils.test.js
           node web/tests/em500-utils.test.js
+          node web/tests/chart-utils.test.js
       - name: Run source mode safety unit tests
         run: |
           set -euo pipefail

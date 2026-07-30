@@ -13,6 +13,10 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/commissioning-release-v3.css
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/wifi.css" "${CMAKE_CURRENT_BINARY_DIR}/wifi.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/devices.css" "${CMAKE_CURRENT_BINARY_DIR}/devices.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500.css" "${CMAKE_CURRENT_BINARY_DIR}/em500.css" COPYONLY)
+# The one time-series chart component. Its sheet is concatenated last (see
+# css_handler in web_server.c) so it can retire the superseded sparkline
+# geometry without editing the sheets that declared it.
+configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/pvdg-chart.css" "${CMAKE_CURRENT_BINARY_DIR}/pvdg-chart.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/app.js" "${CMAKE_CURRENT_BINARY_DIR}/app.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/theme.js" "${CMAKE_CURRENT_BINARY_DIR}/theme.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/engineering-session-resilience.js" "${CMAKE_CURRENT_BINARY_DIR}/engineering-session-resilience.js" COPYONLY)
@@ -33,6 +37,7 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/wifi-guard.js" "${CMAKE_CURR
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/wifi.js" "${CMAKE_CURRENT_BINARY_DIR}/wifi.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/network-commissioning-fix.js" "${CMAKE_CURRENT_BINARY_DIR}/network-commissioning-fix.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/devices-utils.js" "${CMAKE_CURRENT_BINARY_DIR}/devices-utils.js" COPYONLY)
+configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/pvdg-chart.js" "${CMAKE_CURRENT_BINARY_DIR}/pvdg-chart.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/devices.js" "${CMAKE_CURRENT_BINARY_DIR}/devices.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/devices-refresh.js" "${CMAKE_CURRENT_BINARY_DIR}/devices-refresh.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/inverter-profiles.js" "${CMAKE_CURRENT_BINARY_DIR}/inverter-profiles.js" COPYONLY)
@@ -92,6 +97,7 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/wifi.css"
         "${CMAKE_CURRENT_BINARY_DIR}/devices.css"
         "${CMAKE_CURRENT_BINARY_DIR}/em500.css"
+        "${CMAKE_CURRENT_BINARY_DIR}/pvdg-chart.css"
         "${CMAKE_CURRENT_BINARY_DIR}/app.js"
         "${CMAKE_CURRENT_BINARY_DIR}/theme.js"
         "${CMAKE_CURRENT_BINARY_DIR}/engineering-session-resilience.js"
@@ -112,6 +118,7 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/wifi.js"
         "${CMAKE_CURRENT_BINARY_DIR}/network-commissioning-fix.js"
         "${CMAKE_CURRENT_BINARY_DIR}/devices-utils.js"
+        "${CMAKE_CURRENT_BINARY_DIR}/pvdg-chart.js"
         "${CMAKE_CURRENT_BINARY_DIR}/devices.js"
         "${CMAKE_CURRENT_BINARY_DIR}/devices-refresh.js"
         "${CMAKE_CURRENT_BINARY_DIR}/inverter-profiles.js"
