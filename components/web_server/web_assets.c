@@ -8,7 +8,8 @@ _binary_operator_product_suite_css_start _binary_prelab_readiness_css_start
 _binary_mobile_prelab_fixes_css_start _binary_product_shell_v2_css_start
 _binary_product_experience_v2_css_start _binary_commissioning_wizard_v2_css_start
 _binary_commissioning_release_v3_css_start _binary_wifi_css_start
-_binary_devices_css_start _binary_em500_css_start _binary_app_js_start
+_binary_devices_css_start _binary_em500_css_start
+_binary_industrial_operator_ui_css_start _binary_app_js_start
 _binary_theme_js_start _binary_engineering_session_resilience_js_start
 _binary_product_mode_js_start _binary_operator_view_js_start
 _binary_operator_operations_js_start _binary_operator_product_suite_js_start
@@ -24,6 +25,7 @@ _binary_inverter_telemetry_js_start _binary_em500_utils_js_start
 _binary_em500_core_js_start _binary_em500_quality_js_start
 _binary_em500_profiles_js_start _binary_em500_plan_js_start
 _binary_source_detection_js_start _binary_solar_grid_js_start
+_binary_industrial_operator_ui_js_start
 */
 
 #define DECLARE_ASSET(name) \
@@ -45,6 +47,7 @@ DECLARE_ASSET(commissioning_release_v3_css);
 DECLARE_ASSET(wifi_css);
 DECLARE_ASSET(devices_css);
 DECLARE_ASSET(em500_css);
+DECLARE_ASSET(industrial_operator_ui_css);
 DECLARE_ASSET(app_js);
 DECLARE_ASSET(theme_js);
 DECLARE_ASSET(engineering_session_resilience_js);
@@ -77,6 +80,7 @@ DECLARE_ASSET(em500_profiles_js);
 DECLARE_ASSET(em500_plan_js);
 DECLARE_ASSET(source_detection_js);
 DECLARE_ASSET(solar_grid_js);
+DECLARE_ASSET(industrial_operator_ui_js);
 
 static const char *asset(const uint8_t *start, const uint8_t *end, size_t *length)
 {
@@ -104,6 +108,7 @@ ASSET_GETTER(web_assets_commissioning_release_v3_css, commissioning_release_v3_c
 ASSET_GETTER(web_assets_wifi_css, wifi_css)
 ASSET_GETTER(web_assets_devices_css, devices_css)
 ASSET_GETTER(web_assets_em500_css, em500_css)
+ASSET_GETTER(web_assets_industrial_operator_ui_css, industrial_operator_ui_css)
 ASSET_GETTER(web_assets_js, app_js)
 ASSET_GETTER(web_assets_theme_js, theme_js)
 ASSET_GETTER(web_assets_engineering_session_resilience_js, engineering_session_resilience_js)
@@ -136,3 +141,4 @@ ASSET_GETTER(web_assets_em500_profiles_js, em500_profiles_js)
 ASSET_GETTER(web_assets_em500_plan_js, em500_plan_js)
 ASSET_GETTER(web_assets_source_detection_js, source_detection_js)
 ASSET_GETTER(web_assets_solar_grid_js, solar_grid_js)
+ASSET_GETTER(web_assets_industrial_operator_ui_js, industrial_operator_ui_js)
