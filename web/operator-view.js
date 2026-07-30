@@ -11,6 +11,12 @@
          * the chart instance operator-operations.js mounts into it survives the
          * five-second refresh with its focus, cursor and listeners intact. */
         chartHost: null,
+        /* Same arrangement for the exceptions band. operator-operations.js holds
+         * the alarm and event data, so it renders the band; this module decides
+         * WHERE it goes, which is the top of the plant overview. An exception is
+         * the first thing an operator needs and used to be the last thing on the
+         * page, below two charts and eight tiles. */
+        attentionHost: null,
         /* Site capability report (/api/telemetry): which quantities this
          * installation measures. devices.js already polls it on the dashboard
          * route, so it is consumed from that event rather than requested a
@@ -27,6 +33,23 @@
         wifi: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9a15 15 0 0 1 18 0M6 13a10 10 0 0 1 12 0m-9 4a5 5 0 0 1 6 0m-3 3h.01"/></svg>',
         shield: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3 9 8 11 5-2 8-6 8-11V5z"/><path d="m8 12 3 3 5-6"/></svg>',
         clock: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>'
+    };
+
+    /* Direction of power, drawn rather than typed. The model hands back the
+     * glyphs "→ ← ↔ ⋯ ⇢", which render at a different weight, baseline and
+     * sometimes a different width in every browser and font fallback - and on a
+     * screen whose whole job is "which way is the power going" the arrow is the
+     * measurement, not decoration. These are the same five meanings as inline
+     * SVG so they are identical everywhere and scale with the surrounding text.
+     * No emoji: emoji are re-drawn by the platform and a coloured pictogram on a
+     * control screen is at the mercy of whichever font the operator's tablet
+     * happens to ship. */
+    const FLOW_ARROWS = {
+        in: '<svg viewBox="0 0 32 16" aria-hidden="true"><path d="M2 8h24m-6-6 6 6-6 6"/></svg>',
+        out: '<svg viewBox="0 0 32 16" aria-hidden="true"><path d="M30 8H6m6-6-6 6 6 6"/></svg>',
+        balanced: '<svg viewBox="0 0 32 16" aria-hidden="true"><path d="M4 5h24m-5-4 5 4-5 4M28 11H4m5 4-5-4 5-4"/></svg>',
+        command: '<svg viewBox="0 0 32 16" aria-hidden="true"><path d="M2 8h4m4 0h4m4 0h4" stroke-dasharray="0"/><path d="m22 2 6 6-6 6"/></svg>',
+        unknown: '<svg viewBox="0 0 32 16" aria-hidden="true"><circle cx="8" cy="8" r="1.6"/><circle cx="16" cy="8" r="1.6"/><circle cx="24" cy="8" r="1.6"/></svg>'
     };
 
     /* ------------------------------------------------------------ state taxonomy
@@ -99,6 +122,11 @@
         item.innerHTML = ICONS[name] || ICONS.shield;
         return item;
     }
+    function arrow(direction) {
+        const item = node('span', `op-flow-glyph dir-${direction}`);
+        item.innerHTML = FLOW_ARROWS[direction] || FLOW_ARROWS.unknown;
+        return item;
+    }
     function finite(value) { return Number.isFinite(Number(value)); }
     function clamp(value, min, max) { return Math.min(max, Math.max(min, Number(value) || 0)); }
     function formatPower(value) {
@@ -115,12 +143,39 @@
         if (n < 60000) return `${Math.round(n / 1000)} s ago`;
         return `${(n / 60000).toFixed(1)} min ago`;
     }
-    function toneForState(ok, warning = false) { return ok ? 'good' : warning ? 'warning' : 'bad'; }
     async function api(path) {
         const response = await fetch(path, { cache: 'no-store', credentials: 'same-origin' });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
         return payload;
+    }
+
+    /* ------------------------------------------------- three presentation levels
+     *
+     * Operator / Engineering / Advanced Service. Nothing is deleted when it drops
+     * a level: it moves inside one of these, closed by default, labelled with the
+     * level it belongs to. That matters twice over. An operator screen that keeps
+     * setpoint provenance, register origins and commissioning rationale in the
+     * body text is unreadable at 3 a.m.; a product that DELETES them cannot be
+     * commissioned or serviced at all.
+     *
+     * This is a disclosure control, never an authorisation control. Everything in
+     * here is already readable by whoever loaded the page, and every action that
+     * needs authority is still refused by the controller's default-deny gateway
+     * whether or not the browser drew a button for it. */
+    function details(level, summaryText, ...children) {
+        const wrap = node('details', `op-more level-${level}`);
+        const head = node('summary', 'op-more-summary');
+        head.append(node('span', 'op-more-level', level === 'service' ? 'Service' : 'Engineering'),
+            node('span', '', summaryText));
+        wrap.append(head, ...children.filter(Boolean));
+        return wrap;
+    }
+
+    function detailLine(label, value) {
+        const row = node('div', 'op-more-row');
+        row.append(node('span', '', label), node('strong', '', value));
+        return row;
     }
 
     /* The browser-session sparkline this module used to draw is gone. It plotted
@@ -137,6 +192,14 @@
         return state.chartHost;
     }
 
+    function attentionHost() {
+        if (!state.attentionHost) {
+            state.attentionHost = node('div', 'op-attention-host');
+            state.attentionHost.id = 'operatorAttentionHost';
+        }
+        return state.attentionHost;
+    }
+
     function gauge(value, max, title, unit, tone = 'good') {
         const safeMax = Math.max(1, Number(max) || 1);
         const ratio = clamp((Math.abs(Number(value) || 0) / safeMax) * 100, 0, 100);
@@ -147,11 +210,16 @@
         return wrap;
     }
 
+    /* Label, value, and at most one status line - and the status line is omitted
+     * entirely when there is nothing exceptional to say. Printing "Normal - the
+     * plant is operating normally" under every healthy tile is how a screen
+     * teaches its reader to stop reading it. */
     function kpi(iconName, label, value, detail, tone = '') {
         const card = node('article', `op-kpi ${tone}`);
         const head = node('div', 'op-kpi-head');
         head.append(icon(iconName), node('span', '', label));
-        card.append(head, node('strong', 'op-kpi-value', value), node('small', 'op-kpi-detail', detail));
+        card.append(head, node('strong', 'op-kpi-value', value));
+        if (detail) card.append(node('small', 'op-kpi-detail', detail));
         return card;
     }
 
@@ -160,15 +228,21 @@
         const lead = node('div', 'op-status-lead');
         lead.append(icon(iconName), node('span', '', label));
         const copy = node('div', 'op-status-copy');
-        copy.append(node('strong', '', value), node('small', '', detail));
+        copy.append(node('strong', '', value));
+        if (detail) copy.append(node('small', '', detail));
         row.append(lead, copy, node('span', 'op-status-dot'));
         return row;
     }
 
-    function sectionHeader(eyebrow, title, description, actionLabel = '') {
+    /* One line of page identity at most. The shell already prints the page name,
+     * the breadcrumb and the document title from the route table, so a heading
+     * that repeats it is the third copy of the same word. Where this screen has
+     * nothing to add, it passes an empty title and gets only the refresh action. */
+    function sectionHeader(title, subtitle, actionLabel = '') {
         const head = node('div', 'op-section-head');
         const copy = node('div');
-        copy.append(node('p', 'eyebrow', eyebrow), node('h3', '', title), node('p', '', description));
+        if (title) copy.append(node('h3', '', title));
+        if (subtitle) copy.append(node('p', '', subtitle));
         head.append(copy);
         if (actionLabel) {
             const button = node('button', 'button secondary op-refresh', actionLabel);
@@ -209,7 +283,23 @@
      * the two screens cannot disagree about the plant. Its two rules are what
      * make this card trustworthy on an unattended site: a quantity that is not
      * measured says "Not measured" instead of 0 kW, and no arrow is drawn out of
-     * a node whose magnitude nobody is measuring. */
+     * a node whose magnitude nobody is measuring.
+     *
+     * What changed here is only what a node SAYS by default. It used to print a
+     * measured/commanded/not-measured pill, a sentence of detail and a
+     * provenance string ("Automatrix EM500 · unit 1 · 194 ms · Good") on every
+     * one of five nodes - fifteen lines of instrument bookkeeping, including a
+     * Modbus unit id, over a diagram whose job is to answer "where is the power
+     * coming from". The node now carries the four things the diagram is for:
+     * source, kilowatts, direction and whether it is talking. The provenance,
+     * the commissioning notes and the reasoning behind an unmeasured node are
+     * intact, one level down.
+     *
+     * The unmeasured case is stated ONCE, in the coverage line above the
+     * diagram, and the node itself reads "Not measured" as its value. It is
+     * never 0 kW: on a controller whose entire purpose is preventing reverse
+     * power, a zero where nothing is watching is the most dangerous number the
+     * product could print. */
     function flowNodeCard(entry) {
         const iconName = entry.id === 'grid' ? 'grid'
             : entry.id === 'solar' ? 'solar'
@@ -217,33 +307,44 @@
             : entry.id === 'load' ? 'shield'
             : 'control';
         const card = node('div', `op-flow-source op-flow-${entry.id}${entry.measured ? '' : ' op-flow-unmeasured'}`);
-        card.append(
-            icon(iconName),
-            node('span', '', entry.label),
-            node('strong', '', entry.value),
-            node('small', 'op-flow-kind', entry.valueKind === 'measured' ? 'Measured'
-                : entry.valueKind === 'command' ? 'Commanded, not measured'
-                : 'Not measured'),
-            node('small', '', entry.detail),
-            node('small', 'op-flow-provenance', entry.provenance)
-        );
-        (entry.notes || []).forEach((text) => card.append(node('small', 'op-flow-note', text)));
+        card.append(icon(iconName), node('span', '', entry.label), node('strong', '', entry.value));
+        const link = entry.state === 'measured' ? stateWord('communication', 'online', 'Online')
+            : entry.state === 'stale' ? stateWord('dataQuality', 'stale', 'Stale')
+            : entry.state === 'unavailable' ? stateWord('communication', 'offline', 'Offline')
+            : '';
+        if (link) card.append(node('small', 'op-flow-link', link));
         return card;
     }
 
     function flowArrow(entry) {
-        const arrow = node('div', `op-flow-arrow${entry.direction === 'unknown' ? ' op-flow-arrow-unknown' : ''}`);
-        arrow.append(node('span', '', entry.arrow), node('small', '', entry.directionLabel));
-        return arrow;
+        const wrap = node('div', `op-flow-arrow${entry.direction === 'unknown' ? ' op-flow-arrow-unknown' : ''}`);
+        wrap.append(arrow(entry.direction), node('small', '', entry.directionLabel));
+        return wrap;
+    }
+
+    /* Everything the node used to print in the operator's face. Kept verbatim -
+     * these sentences are the record of what this installation does and does not
+     * measure, and an engineer arriving after a reverse-power event needs them. */
+    function flowProvenance(model) {
+        const body = node('div', 'op-more-body');
+        model.nodes.forEach((entry) => {
+            const block = node('div', 'op-more-block');
+            block.append(node('h4', '', entry.label));
+            block.append(detailLine('Reading', `${entry.value} · ${entry.valueKind === 'measured' ? 'measured'
+                : entry.valueKind === 'command' ? 'commanded, not measured' : 'not measured'}`));
+            block.append(detailLine('Source', entry.provenance));
+            if (entry.detail) block.append(node('p', '', entry.detail));
+            (entry.notes || []).forEach((text) => block.append(node('p', 'op-more-note', text)));
+            body.append(block);
+        });
+        return details('service', 'Measurement sources for each node', body);
     }
 
     function flowCard(payload) {
         const utils = window.PvdgDeviceUtils;
         const card = node('article', 'op-card op-flow-card');
         const head = node('div', 'op-card-head');
-        const copy = node('div');
-        copy.append(node('p', 'eyebrow', 'Live power flow'), node('h3', '', 'Site energy balance'));
-        head.append(copy);
+        head.append(node('h3', '', 'Power flow'));
         if (!utils) {
             card.append(head, node('div', 'op-empty-state', 'Power-flow model unavailable in this build.'));
             return card;
@@ -255,7 +356,11 @@
         });
         head.append(node('span', `op-state-pill ${model.summary.tone === 'neutral' ? '' : model.summary.tone}`, model.summary.label));
         card.append(head);
-        card.append(node('p', 'op-flow-coverage', model.summary.coverage));
+        /* The one compact statement of what this site does not measure. It
+         * replaces a pill on every node saying the same thing five times. */
+        if (model.summary.unmeasured.length) {
+            card.append(node('p', 'op-flow-coverage', model.summary.coverage));
+        }
 
         const body = node('div', 'op-flow-body');
         const supply = node('div', 'op-flow-column');
@@ -269,140 +374,144 @@
             else hub.append(slot);
         });
         body.append(supply, hub, demand);
-        card.append(body);
+        card.append(body, flowProvenance(model));
         return card;
     }
 
+    /* ---------------------------------------------------------- plant overview
+     *
+     * Exceptions first, then the plant, then the trend. Every live kilowatt
+     * figure on this screen is rendered exactly once, by the power-flow card:
+     * the four KPI tiles that used to sit under it repeated grid exchange, solar
+     * production and control authority a second time, and the readiness list
+     * repeated control authority a third. When the same number is in three
+     * places, two of them are eventually wrong. */
     function renderDashboard(payload) {
         const view = byId('operatorDashboardView');
         if (!view) return;
-        const { status, meters, inverters, inverterTelemetry } = payload;
-        const meter = (meters?.meters || []).find((item) => item.enabled) || meters?.meters?.[0];
-        const meterRuntime = meter?.runtime || {};
-        const gridPower = finite(status?.grid_power_kw) ? Number(status.grid_power_kw) : meterRuntime.active_power_kw;
-        const gridOnline = Boolean(status?.meter_online) && !Boolean(status?.meter_stale);
+        const { status, inverters } = payload;
         const inverterSummary = inverters?.summary || {};
-        const solarPower = Number(inverterTelemetry?.summary?.telemetry_valid) > 0 ? Number(inverterTelemetry.summary.measured_total_kw) : NaN;
-        const installed = Number(inverterSummary.configured_rated_kw) || 0;
-        const utilization = installed > 0 && finite(solarPower) ? (solarPower / installed) * 100 : NaN;
-        const alarms = Array.isArray(status?.alarm_names) ? status.alarm_names : [];
-        const authority = controlAuthority(status);
-        const controlEnabled = authority.enabled;
-        const importState = finite(gridPower) ? (gridPower > 0.01 ? 'Importing' : gridPower < -0.01 ? 'Exporting' : 'Balanced') : 'Unknown';
-        const systemHealthy = Boolean(status?.network_online) && gridOnline && alarms.length === 0;
-        const quality = measurementQuality(status);
+        const gridOnline = Boolean(status?.meter_online) && !Boolean(status?.meter_stale);
         const fleetState = Number(inverterSummary.online) > 0
             ? stateWord('communication', 'online', 'Online')
             : Number(inverterSummary.enabled) > 0
                 ? stateWord('communication', 'offline', 'Offline')
                 : stateWord('commissioning', 'notConfigured', 'Not configured');
-        const alarmState = alarms.length
-            ? stateWord('alarm', 'critical', 'Critical')
-            : systemHealthy ? stateWord('alarm', 'normal', 'Normal') : stateWord('alarm', 'warning', 'Warning');
 
         view.replaceChildren();
-        view.append(sectionHeader('Plant overview', 'Energy operation at a glance', 'Only the measurements and conditions needed for day-to-day operation.', 'Refresh'));
+        view.append(sectionHeader('', '', 'Refresh'));
+        /* operator-operations.js fills this: it holds the alarm and event data. */
+        view.append(attentionHost());
+        view.append(flowCard(payload));
 
-        const hero = node('div', 'op-hero-grid');
-        const flow = flowCard(payload);
-
-        const health = node('article', 'op-card op-health-card');
-        health.append(node('div', 'op-card-title', 'System readiness'));
+        const equipment = node('article', 'op-card op-health-card');
+        equipment.append(node('div', 'op-card-title', 'Equipment availability'));
         const readiness = node('div', 'op-readiness');
         readiness.append(
             statusLine('wifi', 'Controller network',
                 status?.network_online ? stateWord('communication', 'online', 'Online') : stateWord('communication', 'offline', 'Offline'),
-                status?.ssid || 'No network', status?.network_online ? 'good' : 'bad'),
-            statusLine('meter', 'Grid measurement', quality,
-                gridOnline ? formatAge(status?.meter_age_ms) : 'Check meter communication', gridOnline ? 'good' : 'bad'),
+                status?.network_online ? '' : 'Check site network and router power',
+                status?.network_online ? 'good' : 'bad'),
+            statusLine('meter', 'Grid measurement', measurementQuality(status),
+                gridOnline ? '' : 'Check the meter and its communication path',
+                gridOnline ? 'good' : 'bad'),
             statusLine('solar', 'Solar fleet', fleetState,
-                `${Number(inverterSummary.online) || 0} of ${Number(inverterSummary.enabled) || 0} enabled online`,
-                Number(inverterSummary.online) > 0 ? 'good' : 'warning'),
-            /* The controller's own words for its command authority, and its own
-             * sentence for why it is inhibited. */
-            statusLine('shield', 'Control authority', authority.label,
-                authority.reason || (authority.commanding ? 'Automatic commands permitted' : 'No inverter commands issued'),
-                authority.commanding ? 'warning' : 'good'),
-            statusLine('alarm', 'Alarms', alarms.length ? `${alarms.length} ${stateWord('alarm', 'critical', 'Critical')}` : stateWord('alarm', 'normal', 'Normal'),
-                alarms.length ? alarms.slice(0, 2).join(', ') : 'No active alarm condition', alarms.length ? 'bad' : 'good')
+                `${Number(inverterSummary.online) || 0} of ${Number(inverterSummary.enabled) || 0} online`,
+                Number(inverterSummary.online) > 0 ? 'good' : 'warning')
         );
-        health.append(readiness);
-        hero.append(flow, health);
-        view.append(hero);
-
-        const kpis = node('div', 'op-kpi-grid');
-        kpis.append(
-            kpi('grid', 'Grid exchange', formatPower(gridPower), gridOnline ? importState : stateWord('dataQuality', 'unavailable', 'Unavailable'), gridOnline ? 'good' : 'bad'),
-            kpi('solar', 'Solar production', finite(solarPower) ? formatPower(solarPower) : stateWord('dataQuality', 'unavailable', 'Unavailable'), installed ? `${formatPercent(utilization)} of installed capacity` : stateWord('commissioning', 'notConfigured', 'Not configured'), finite(solarPower) ? 'good' : 'warning'),
-            /* Verbatim again: this tile answers "may the controller command the
-             * fleet right now", and only the controller can answer it. */
-            kpi('control', 'Control authority', authority.label, authority.reason || (authority.commanding ? 'Closed-loop control active' : 'No inverter commands issued'), authority.commanding ? 'warning' : 'good'),
-            kpi('alarm', 'Plant attention', alarmState, alarms.length ? alarms[0] : 'No active alarm condition', alarms.length ? 'bad' : systemHealthy ? 'good' : 'warning')
-        );
-        view.append(kpis);
-
-        view.append(chartHost());
+        equipment.append(readiness);
+        view.append(equipment, chartHost());
     }
 
+    /* --------------------------------------------------------------- grid power
+     *
+     * Current power and direction at the top; the range statistics (average and
+     * peak demand) come from the one shared chart below, which is where they are
+     * measured over a stated window rather than guessed from the live sample. */
     function renderMeter(payload) {
         const view = byId('operatorMeterView');
         if (!view) return;
         const status = payload.status || {};
         const meters = payload.meters?.meters || [];
-        const summary = payload.meters?.summary || {};
         const primary = meters.find((item) => item.enabled) || meters[0];
         const runtime = primary?.runtime || {};
         const power = finite(status.grid_power_kw) ? Number(status.grid_power_kw) : runtime.active_power_kw;
         const online = runtime.online === true || (status.meter_online && !status.meter_stale);
         const trendMax = Math.max(100, Math.abs(Number(power) || 0)) * 1.2;
-        const direction = finite(power) ? (power > 0.01 ? 'Importing from utility' : power < -0.01 ? 'Exporting to utility' : 'Near-zero exchange') : 'Measurement unavailable';
+        const direction = finite(power)
+            ? (power > 0.01 ? 'Importing from the utility' : power < -0.01 ? 'Exporting to the utility' : 'Near-zero exchange')
+            : stateWord('dataQuality', 'unavailable', 'Unavailable');
+        const flow = finite(power) ? (power > 0.01 ? 'in' : power < -0.01 ? 'out' : 'balanced') : 'unknown';
 
         view.replaceChildren();
-        view.append(sectionHeader('Grid Power', 'Electrical supply status', 'Live demand, direction, freshness, and meter availability—without engineering register details.', 'Refresh'));
+        view.append(sectionHeader('Electrical supply status', '', 'Refresh'));
         const overview = node('div', 'op-meter-overview');
         const gaugeCard = node('article', 'op-card op-gauge-card');
-        gaugeCard.append(gauge(power, trendMax, 'Grid power', 'kW', online ? 'good' : 'bad'), node('strong', 'op-direction', direction), node('small', '', online ? `Measurement ${formatAge(runtime.data_age_ms ?? status.meter_age_ms)}` : 'Current measurement is not available'));
+        const heading = node('div', 'op-direction');
+        heading.append(arrow(flow), node('span', '', direction));
+        gaugeCard.append(gauge(power, trendMax, 'Grid power', 'kW', online ? 'good' : 'bad'), heading);
+        if (!online) gaugeCard.append(node('small', '', 'No current measurement. Automatic control cannot use this value.'));
         const stateCard = node('article', 'op-card op-readiness-card');
         /* Merge note: the vocabulary helpers (stateWord, measurementQuality) come from
          * the terminology work; the structural change -- no local trend card, mount the
-         * shared chart instead -- comes from the chart consolidation. Both are kept.
-         * Taking either side wholesale would have silently reverted the other. */
+         * shared chart instead -- comes from the chart consolidation. Both are kept. */
         stateCard.append(node('div', 'op-card-headline', 'Measurement health'),
             statusLine('meter', 'Communication',
                 online ? stateWord('communication', 'online', 'Online') : stateWord('communication', 'offline', 'Offline'),
-                online ? 'Measurements are current' : 'Field communication needs checking', online ? 'good' : 'bad'),
+                online ? '' : 'Field communication needs checking', online ? 'good' : 'bad'),
             statusLine('clock', 'Data quality', measurementQuality(status),
-                online ? `Last sample ${formatAge(runtime.data_age_ms ?? status.meter_age_ms)} · usable for the control interlock` : 'Values cannot be used for automatic decisions',
-                online ? 'good' : 'bad'),
-            statusLine('shield', 'Enabled meters', `${Number(summary.online) || 0} ${stateWord('communication', 'online', 'Online').toLowerCase()}`, `${Number(summary.enabled) || 0} enabled meter${Number(summary.enabled) === 1 ? '' : 's'}`, Number(summary.online) > 0 ? 'good' : 'warning'));
+                `Last sample ${formatAge(runtime.data_age_ms ?? status.meter_age_ms)}`,
+                online ? 'good' : 'bad'));
         overview.append(gaugeCard, stateCard);
         view.append(overview, chartHost());
 
-        const fleet = node('article', 'op-card');
-        fleet.append(node('div', 'op-card-headline', 'Meter availability'));
-        const list = node('div', 'op-equipment-bars');
-        meters.forEach((meter, index) => {
-            const data = meter.runtime || {};
-            const healthy = data.online === true;
-            const row = node('div', 'op-equipment-bar');
-            const title = node('div', 'op-equipment-name');
-            title.append(icon('meter'), node('span', '', meter.name || `Grid meter ${index + 1}`));
-            const bar = node('div', 'op-bar-track');
-            const fill = node('span', `op-bar-fill ${healthy ? 'good' : meter.enabled ? 'warning' : ''}`);
-            fill.style.width = healthy ? '100%' : meter.enabled ? '35%' : '0%';
-            bar.append(fill);
-            row.append(title, bar,
-                node('strong', '', healthy ? formatPower(data.active_power_kw)
-                    : meter.enabled ? stateWord('communication', 'offline', 'Offline')
-                    : stateWord('commissioning', 'notConfigured', 'Not configured')),
-                node('small', '', healthy ? formatAge(data.data_age_ms) : meter.enabled ? 'No current data' : 'Not active'));
-            list.append(row);
-        });
-        if (!meters.length) list.append(node('div', 'op-empty-state', 'No grid meter has been commissioned.'));
-        fleet.append(list);
-        view.append(fleet);
+        view.append(meterTable(meters));
     }
 
+    /* Compact availability table: what is metering this site, is it talking, what
+     * does it read, how old is the reading. Anything not working sorts first. */
+    function meterTable(meters) {
+        const card = node('article', 'op-card');
+        card.append(node('div', 'op-card-headline', 'Meter availability'));
+        if (!meters.length) {
+            card.append(node('div', 'op-empty-state', 'No grid meter has been commissioned.'));
+            return card;
+        }
+        const rank = (meter) => (meter.runtime?.online === true ? 2 : meter.enabled ? 0 : 1);
+        const rows = meters.map((meter, index) => ({ meter, index })).sort((a, b) => rank(a.meter) - rank(b.meter));
+        const table = node('table', 'op-table');
+        const headRow = node('tr');
+        ['Meter', 'State', 'Power', 'Last update'].forEach((label) => headRow.append(node('th', '', label)));
+        const thead = node('thead');
+        thead.append(headRow);
+        table.append(thead);
+        const tbody = node('tbody');
+        rows.forEach(({ meter, index }) => {
+            const data = meter.runtime || {};
+            const healthy = data.online === true;
+            const row = node('tr', healthy ? '' : meter.enabled ? 'op-row-bad' : 'op-row-muted');
+            row.append(node('td', '', meter.name || `Grid meter ${index + 1}`));
+            const stateCell = node('td');
+            stateCell.append(node('span', `op-state-pill ${healthy ? 'good' : meter.enabled ? 'bad' : ''}`,
+                healthy ? stateWord('communication', 'online', 'Online')
+                    : meter.enabled ? stateWord('communication', 'offline', 'Offline')
+                    : stateWord('commissioning', 'notConfigured', 'Not configured')));
+            row.append(stateCell);
+            row.append(node('td', 'op-num', healthy ? formatPower(data.active_power_kw) : '—'));
+            row.append(node('td', '', healthy ? formatAge(data.data_age_ms) : '—'));
+            tbody.append(row);
+        });
+        table.append(tbody);
+        card.append(table);
+        return card;
+    }
+
+    /* ----------------------------------------------------------- solar fleet
+     *
+     * Fleet summary, one production chart, one dense table. The page used to
+     * draw a full-width card per inverter with its own progress bar; at the
+     * sixteen inverters this product supports that is sixteen screens of
+     * scrolling to answer "is anything down". */
     function renderInverters(payload) {
         const view = byId('operatorInverterView');
         if (!view) return;
@@ -417,43 +526,105 @@
         const utilization = installed > 0 && finite(production) ? (production / installed) * 100 : NaN;
 
         view.replaceChildren();
-        view.append(sectionHeader('Solar Inverters', 'Inverter fleet status', 'Capacity, availability, live production, and equipment attention for plant operators.', 'Refresh'));
+        view.append(sectionHeader('Inverter fleet status', '', 'Refresh'));
         const top = node('div', 'op-inverter-overview');
         const productionCard = node('article', 'op-card op-gauge-card');
-        productionCard.append(gauge(production, installed || 1, 'Solar production', 'kW', finite(production) ? 'good' : 'warning'), node('strong', 'op-direction', finite(production) ? `${formatPercent(utilization)} utilization` : stateWord('dataQuality', 'unavailable', 'Unavailable')), node('small', '', installed ? `${formatPower(installed)} installed capacity` : stateWord('commissioning', 'notConfigured', 'Not configured')));
+        productionCard.append(gauge(production, installed || 1, 'Solar production', 'kW', finite(production) ? 'good' : 'warning'),
+            node('strong', 'op-direction', finite(production) ? `${formatPercent(utilization)} of installed capacity` : stateWord('dataQuality', 'unavailable', 'Unavailable')));
         const availabilityCard = node('article', 'op-card op-gauge-card');
-        availabilityCard.append(gauge(availability, 100, 'Fleet availability', '%', availability >= 99 ? 'good' : availability > 0 ? 'warning' : 'bad'), node('strong', 'op-direction', `${Number(summary.online) || 0} of ${Number(summary.enabled) || 0} online`), node('small', '', availability >= 99 ? 'All enabled units available' : 'Review unavailable units below'));
+        availabilityCard.append(gauge(availability, 100, 'Fleet availability', '%', availability >= 99 ? 'good' : availability > 0 ? 'warning' : 'bad'),
+            node('strong', 'op-direction', `${Number(summary.online) || 0} of ${Number(summary.enabled) || 0} online`));
         top.append(productionCard, availabilityCard);
         view.append(top, chartHost());
+        view.append(inverterTable(inverters, telemetryMap));
+    }
 
-        const fleet = node('article', 'op-card');
-        fleet.append(node('div', 'op-card-headline', 'Inverter performance'));
-        const list = node('div', 'op-inverter-list');
-        inverters.forEach((inverter, index) => {
+    function inverterTable(inverters, telemetryMap) {
+        const card = node('article', 'op-card');
+        card.append(node('div', 'op-card-headline', 'Inverters'));
+        if (!inverters.length) {
+            card.append(node('div', 'op-empty-state', 'No solar inverter has been commissioned.'));
+            return card;
+        }
+        const rows = inverters.map((inverter, index) => {
             const live = telemetryMap.get(Number(inverter.index ?? index)) || {};
             const online = inverter.runtime?.online === true || live.online === true;
-            const measured = live.telemetry_valid ? Number(live.measured_power_kw) : finite(inverter.measured_power_kw) ? Number(inverter.measured_power_kw) : NaN;
+            const measured = live.telemetry_valid ? Number(live.measured_power_kw)
+                : finite(inverter.measured_power_kw) ? Number(inverter.measured_power_kw) : NaN;
             const rated = Number(inverter.rated_kw) || 0;
-            const load = rated > 0 && finite(measured) ? clamp((measured / rated) * 100, 0, 100) : 0;
-            const row = node('article', `op-inverter-row ${online ? 'good' : inverter.enabled ? 'warning' : ''}`);
-            const name = node('div', 'op-inverter-name');
-            name.append(icon('solar'), node('div', '', `<strong>${inverter.name || `Solar inverter ${index + 1}`}</strong><small>${formatPower(rated)} rated</small>`));
-            name.lastChild.innerHTML = `<strong>${inverter.name || `Solar inverter ${index + 1}`}</strong><small>${formatPower(rated)} rated</small>`;
-            const output = node('div', 'op-output-bar');
-            const bar = node('div', 'op-bar-track');
-            const fill = node('span', `op-bar-fill ${online ? 'good' : 'warning'}`);
-            fill.style.width = `${load}%`;
-            bar.append(fill);
-            output.append(bar, node('small', '', finite(measured) ? `${formatPower(measured)} · ${formatPercent(load)}` : stateWord('dataQuality', 'unavailable', 'Unavailable')));
-            row.append(name, output, node('span', `op-state-pill ${online ? 'good' : inverter.enabled ? 'warning' : ''}`,
-                online ? stateWord('communication', 'online', 'Online')
-                    : inverter.enabled ? stateWord('communication', 'offline', 'Offline')
+            return {
+                name: inverter.name || `Solar inverter ${index + 1}`,
+                enabled: inverter.enabled === true,
+                online, measured, rated,
+                age: live.data_age_ms ?? inverter.runtime?.data_age_ms,
+                /* Failed and offline first: this table is read to find the unit
+                 * that stopped, not to admire the ones that did not. */
+                rank: online ? 2 : inverter.enabled ? 0 : 1
+            };
+        }).sort((a, b) => a.rank - b.rank);
+
+        const table = node('table', 'op-table');
+        const headRow = node('tr');
+        ['Inverter', 'State', 'Now', 'Rated', 'Use', 'Last update'].forEach((label) => headRow.append(node('th', '', label)));
+        const thead = node('thead');
+        thead.append(headRow);
+        table.append(thead);
+        const tbody = node('tbody');
+        rows.forEach((entry) => {
+            const use = entry.rated > 0 && finite(entry.measured) ? clamp((entry.measured / entry.rated) * 100, 0, 100) : NaN;
+            const row = node('tr', entry.online ? '' : entry.enabled ? 'op-row-bad' : 'op-row-muted');
+            row.append(node('td', '', entry.name));
+            const stateCell = node('td');
+            stateCell.append(node('span', `op-state-pill ${entry.online ? 'good' : entry.enabled ? 'bad' : ''}`,
+                entry.online ? stateWord('communication', 'online', 'Online')
+                    : entry.enabled ? stateWord('communication', 'offline', 'Offline')
                     : stateWord('commissioning', 'notConfigured', 'Not configured')));
-            list.append(row);
+            row.append(stateCell);
+            /* Never 0 kW for an inverter nobody is measuring. */
+            row.append(node('td', 'op-num', finite(entry.measured) ? formatPower(entry.measured) : '—'));
+            row.append(node('td', 'op-num', entry.rated ? formatPower(entry.rated) : '—'));
+            row.append(node('td', 'op-num', finite(use) ? formatPercent(use) : '—'));
+            row.append(node('td', '', finite(entry.age) ? formatAge(entry.age) : '—'));
+            tbody.append(row);
         });
-        if (!inverters.length) list.append(node('div', 'op-empty-state', 'No solar inverter has been commissioned.'));
-        fleet.append(list);
-        view.append(fleet);
+        table.append(tbody);
+        card.append(table);
+        return card;
+    }
+
+    /* --------------------------------------------------------- PV-DG control
+     *
+     * One authoritative statement of control state, in the controller's own
+     * words. A reason ONLY when there is something blocking it - a screen that
+     * explains at length why a working system is working is a screen nobody
+     * reads when it stops working. At most three required actions. */
+    function controlActions(status, payload) {
+        const authority = controlAuthority(status);
+        const meterReady = Boolean(status.meter_online) && !Boolean(status.meter_stale);
+        const commandable = Number(payload.inverters?.summary?.commandable_rated_kw) || 0;
+        const actions = [];
+        if (!meterReady) {
+            actions.push({
+                condition: 'The grid measurement is not usable.',
+                why: 'Automatic control cannot verify export protection without it.',
+                action: 'Check the meter and its communication path, then ask Engineering to confirm it.'
+            });
+        }
+        if (commandable <= 0) {
+            actions.push({
+                condition: 'No inverter is approved to accept control.',
+                why: 'Automatic control has nothing it is allowed to command.',
+                action: 'Ask Engineering to commission at least one inverter for external control.'
+            });
+        }
+        if (!authority.enabled) {
+            actions.push({
+                condition: 'Automatic control is switched off.',
+                why: 'The controller is watching the plant but not acting on it.',
+                action: 'Ask Engineering to enable automatic control when the plant is ready.'
+            });
+        }
+        return actions.slice(0, 3);
     }
 
     function renderControl(payload) {
@@ -461,77 +632,78 @@
         if (!view) return;
         const status = payload.status || {};
         const authority = controlAuthority(status);
-        const enabled = authority.enabled;
-        const meterReady = Boolean(status.meter_online) && !Boolean(status.meter_stale);
-        const commandable = Number(payload.inverters?.summary?.commandable_rated_kw) || 0;
-        const ready = authority.commanding && meterReady && commandable > 0;
+        const actions = controlActions(status, payload);
+        const ready = authority.commanding && !actions.length;
+
         view.replaceChildren();
-        view.append(sectionHeader('Control', 'PV-DG operating state', 'A clear operational view of whether automatic control is active, available, or safely blocked.'));
-        const hero = node('article', `op-card op-control-hero ${ready ? 'good' : enabled ? 'warning' : ''}`);
+        view.append(sectionHeader('', '', 'Refresh'));
+
         /* The heading is the controller's own mode_label and the sentence under
          * it is its own inhibit_reason. Rewriting either would be this screen
-         * inventing a safety statement the firmware did not make. */
-        const heroDetail = authority.reason
-            || (authority.commanding ? 'The controller may issue qualified inverter commands.' : 'No inverter commands are being issued.');
+         * inventing a safety statement the firmware did not make. Nothing is
+         * printed under a mode that is not blocked. */
+        const hero = node('article', `op-card op-control-hero ${ready ? 'good' : authority.enabled ? 'warning' : ''}`);
         hero.append(icon('control'), node('div', ''));
-        hero.lastChild.append(
-            node('p', 'eyebrow', 'Control authority'),
-            node('h3', '', authority.label),
-            node('p', '', heroDetail)
-        );
+        hero.lastChild.append(node('h3', '', authority.label));
+        if (authority.reason) hero.lastChild.append(node('p', '', authority.reason));
         view.append(hero);
-        const checks = node('div', 'op-three-column');
-        checks.append(
-            kpi('meter', 'Grid measurement', measurementQuality(status), meterReady ? 'Fresh grid feedback available' : 'Meter data is not suitable for control', meterReady ? 'good' : 'bad'),
-            kpi('solar', 'Commandable solar', formatPower(commandable),
-                commandable > 0 ? stateWord('commissioning', 'qualified', 'Qualified') : stateWord('commissioning', 'notConfigured', 'Not configured'),
-                commandable > 0 ? 'good' : 'warning'),
-            kpi('shield', 'Command path',
-                authority.commanding ? stateWord('control', 'active', 'Active')
-                    : enabled ? stateWord('control', 'inhibited', 'Inhibited')
-                    : stateWord('control', 'standby', 'Standby'),
-                authority.commanding ? 'Automatic action permitted' : 'No commands issued', authority.commanding ? 'warning' : 'good')
+
+        if (actions.length) {
+            const card = node('article', 'op-card op-decision-card');
+            card.append(node('div', 'op-card-headline', 'Required action'));
+            const list = node('div', 'op-action-list');
+            actions.forEach((entry) => {
+                const row = node('div', 'op-action-row');
+                row.append(node('strong', '', entry.condition),
+                    node('small', 'op-action-why', entry.why),
+                    node('small', 'op-action-do', entry.action));
+                list.append(row);
+            });
+            card.append(list);
+            view.append(card);
+        }
+
+        /* Engineering level: the individual prerequisites behind the verdict
+         * above. An operator does not act on these; a commissioning engineer
+         * standing next to the operator does. */
+        const evidence = node('div', 'op-more-body');
+        evidence.append(
+            detailLine('Grid measurement', measurementQuality(status)),
+            detailLine('Commandable solar', formatPower(Number(payload.inverters?.summary?.commandable_rated_kw) || 0)),
+            detailLine('Command path', authority.commanding ? stateWord('control', 'active', 'Active')
+                : authority.enabled ? stateWord('control', 'inhibited', 'Inhibited')
+                : stateWord('control', 'standby', 'Standby'))
         );
-        view.append(checks);
-        const note = node('article', 'op-card op-decision-card');
-        note.append(node('div', 'op-card-headline', 'Operator guidance'), node('p', '', ready ? 'Automatic control is available. Observe alarms and power-flow behavior during operation.' : enabled ? 'Control is enabled but one or more required conditions are not ready. Engineering review is required.' : 'The controller is in a safe monitoring state. Engineering authorization is required to commission or enable automatic control.'));
-        view.append(note);
+        view.append(details('engineering', 'Control prerequisites', evidence));
     }
 
+    /* ------------------------------------------------------------- controller
+     *
+     * Which controller is this, is it reachable, and is anything wrong with it.
+     * Everything else that used to be here - what Engineering contains, how the
+     * page refreshes, the product tagline - answered a question nobody asked. */
     function renderSystem(payload) {
         const view = byId('operatorSystemView');
         if (!view) return;
         const status = payload.status || {};
         const alarms = Array.isArray(status.alarm_names) ? status.alarm_names : [];
-        const authority = controlAuthority(status);
         view.replaceChildren();
-        view.append(sectionHeader('Controller', 'System and support status', 'Product identity, connectivity, health, and service information for operators.'));
-        const grid = node('div', 'op-two-column');
-        const identity = node('article', 'op-card');
-        identity.append(node('div', 'op-card-headline', 'Controller information'),
-            statusLine('shield', 'Product', 'Automatrix PV-DG Controller', 'Industrial solar-generator-grid coordination', 'good'),
+        view.append(sectionHeader('', '', 'Refresh'));
+        const card = node('article', 'op-card');
+        card.append(node('div', 'op-card-headline', 'Controller'),
+            statusLine('shield', 'Product', 'Automatrix PV-DG Controller', '', 'good'),
             statusLine('wifi', 'Connection',
                 status.network_online ? stateWord('communication', 'online', 'Online') : stateWord('communication', 'offline', 'Offline'),
-                status.network_online ? `${status.ssid || 'Wi-Fi'} · ${status.ip || 'Address unavailable'}` : 'Network connection unavailable',
+                status.network_online ? `${status.ssid || 'Wi-Fi'} · ${status.ip || ''}`.trim() : 'Network connection unavailable',
                 status.network_online ? 'good' : 'bad'),
-            statusLine('clock', 'Last update', new Date().toLocaleTimeString(), 'Live browser refresh', 'good'));
-        const service = node('article', 'op-card');
-        service.append(node('div', 'op-card-headline', 'Service condition'),
             statusLine('alarm', 'Alarms',
                 alarms.length ? `${alarms.length} ${stateWord('alarm', 'critical', 'Critical')}` : stateWord('alarm', 'normal', 'Normal'),
-                alarms.length ? alarms.join(', ') : 'No active alarm condition', alarms.length ? 'bad' : 'good'),
-            statusLine('meter', 'Grid measurement', measurementQuality(status),
-                status.meter_online ? formatAge(status.meter_age_ms) : 'No current grid measurement',
-                status.meter_online && !status.meter_stale ? 'good' : 'warning'),
-            /* Verbatim: the controller decides what its command authority is. */
-            statusLine('control', 'Control authority', authority.label,
-                authority.reason || (authority.commanding ? 'Qualified command path active' : 'No inverter commands issued'),
-                authority.commanding ? 'warning' : 'good'));
-        grid.append(identity, service);
-        view.append(grid);
+                alarms.length ? alarms.join(', ') : '', alarms.length ? 'bad' : 'good'));
+        view.append(card);
+
         const support = node('article', 'op-card op-support-card');
-        support.append(icon('shield'), node('div', '', '<h3>Engineering and commissioning</h3><p>Network setup, meter and inverter configuration, diagnostics, register maps, scaling, and control parameters are available only through the protected Engineering area.</p>'));
-        support.lastChild.innerHTML = '<h3>Engineering and commissioning</h3><p>Network setup, meter and inverter configuration, diagnostics, register maps, scaling, and control parameters are available only through the protected Engineering area.</p>';
+        support.append(icon('shield'), node('div', '', ''));
+        support.lastChild.append(node('p', '', 'Setup, commissioning and diagnostics are in the protected Engineering area.'));
         view.append(support);
     }
 
@@ -570,10 +742,11 @@
         } catch (error) {
             const view = document.querySelector('.page.active .operator-product-view');
             if (view) {
-                view.replaceChildren(sectionHeader('Controller status', 'Live information unavailable', 'The controller did not return a valid operator response.'));
+                view.replaceChildren(sectionHeader('The controller did not answer', ''));
                 const message = node('article', 'op-card op-error-state');
-                message.append(icon('alarm'), node('div', '', `<h3>Connection problem</h3><p>${error.message}</p>`));
-                message.lastChild.innerHTML = `<h3>Connection problem</h3><p>${error.message}</p>`;
+                message.append(icon('alarm'), node('div', ''));
+                message.lastChild.append(node('p', '', String(error.message || '')),
+                    node('p', '', 'Values on this screen are not current.'));
                 view.append(message);
             }
         } finally {
@@ -590,10 +763,11 @@
         else if (current === 'inverters') renderInverters(state.lastPayload);
         else if (current === 'control') renderControl(state.lastPayload);
         else if (current === 'system') renderSystem(state.lastPayload);
-        /* This view is rebuilt every refresh. The chart is not: it lives in a
-         * node this module keeps and re-appends, so it survives the rebuild.
-         * The event tells the module that owns the chart that a mount point is
-         * available now rather than making it wait for its own next poll. */
+        /* This view is rebuilt every refresh. The chart and the exceptions band
+         * are not: they live in nodes this module keeps and re-appends, so they
+         * survive the rebuild. The event tells the module that owns them that a
+         * mount point is available now rather than making it wait for its own
+         * next poll. */
         window.dispatchEvent(new CustomEvent('amx-operator-view-rendered', { detail: { route: current } }));
     }
 
