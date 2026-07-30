@@ -1,0 +1,28 @@
+name: Industrial UI checks
+
+on:
+  pull_request:
+    paths:
+      - 'web/industrial-operator-ui.js'
+      - 'web/industrial-operator-ui.css'
+      - 'components/web_server/CMakeLists.txt'
+      - 'components/web_server/include/web_assets.h'
+      - 'components/web_server/web_assets.c'
+      - 'components/web_server/web_server.c'
+      - 'tests/industrial_operator_ui_source_contract.py'
+      - '.github/workflows/industrial-ui-checks.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  presentation-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check industrial browser module syntax
+        run: node --check web/industrial-operator-ui.js
+      - name: Check UI-only safety and asset integration contract
+        run: python3 tests/industrial_operator_ui_source_contract.py
