@@ -289,7 +289,27 @@ static const inverter_profile_t PROFILES[] = {
          *
          * No settle or response time for a percentage command is documented
          * anywhere in this manual, so power_limit_settle_ms is left at the
-         * firmware default and MUST be measured during commissioning. */
+         * firmware default and MUST be measured during commissioning.
+         *
+         * COMMISSIONING PREREQUISITE, and the reason this profile is not marked
+         * requires_prerequisite_enable: when a SmartLogger sits in the Modbus path
+         * -- which this profile's connection type assumes -- each inverter needs
+         * "Remote power schedule" set to Enable before a percentage command has any
+         * effect (SmartLogger 3000A manual pp.102/128, see
+         * docs/SMARTLOGGER_PATH_ANALYSIS.md). That is a logger MENU setting, not a
+         * register this firmware writes, so it is a one-time human commissioning
+         * step rather than a write the controller must sequence. It is therefore
+         * not the same case as Solis, Sungrow or Chint/CPS, whose setpoints need a
+         * register written and which are refused outright.
+         *
+         * The hazard is identical though: until it is enabled the setpoint
+         * register still accepts a write and still echoes it back, so a command
+         * reads as confirmed while the inverter ignores it. The controller cannot
+         * detect this. It is an explicit step in
+         * docs/SITE_COMMISSIONING_RUNBOOK.md 1.4, along with checking register
+         * 42019 (a non-zero schedule-validity period makes a commanded limit
+         * self-expire) and 40737 (anything other than remote scheduling means
+         * something else owns the plant). */
         .qualification = INVERTER_PROFILE_QUALIFICATION_DOCUMENTED,
         .manual_reference = "Huawei Inverter Modbus Interface Definitions (V3.0), "
                             "Issue 01 (2023-01-17); not qualified on hardware",

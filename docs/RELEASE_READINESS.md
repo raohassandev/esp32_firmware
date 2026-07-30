@@ -17,19 +17,84 @@ against a passing build.
 **No manufacturer profile is write-qualified. The controller cannot command a
 real inverter, and this is by design, not by omission.**
 
-| # | Manufacturer | Profile | Qualification |
-|---|---|---|---|
-| 1 | Custom | `custom.modbus-percent-v1` | Documented only (no registers configured) |
-| 2 | SolTrix Simulator | `soltrix.sim.huawei.v3` | Simulator verified |
-| 3 | SolTrix Simulator | `soltrix.sim.huawei.v1` | Simulator verified |
-| 4 | SolTrix Simulator | `soltrix.sim.goodwe.v1` | Simulator verified |
-| 5 | SolTrix Simulator | `soltrix.sim.solis.v1` | Simulator verified |
-| 6 | Huawei | `huawei.sun2000.pending` | Documented only |
-| 7 | GoodWe | `goodwe.commercial.pending` | Documented only |
-| 8 | Solis | `solis.commercial.pending` | Documented only |
-| 9 | FoxESS / Knox | `foxess.commercial.pending` | Documented only |
+The table below is generated from the compiled catalogue, so it cannot drift from
+the code. "Lab authority" is what `inverter_profile_write_permission()` returns
+when an endpoint **is** declared a simulator — i.e. the most authority the profile
+can ever obtain today.
+
+| Manufacturer | Profile | Qualification | Lab authority | Why not commandable |
+|---|---|---|---|---|
+| Custom | `custom.modbus-percent-v1` | Documented | forbidden | no registers configured |
+| SolTrix Simulator | `soltrix.sim.huawei.v3` | Simulator verified | lab only | — (measured lab contract) |
+| SolTrix Simulator | `soltrix.sim.huawei.v1` | Simulator verified | lab only | — (older lab contract) |
+| SolTrix Simulator | `soltrix.sim.goodwe.v1` | Simulator verified | lab only | — |
+| SolTrix Simulator | `soltrix.sim.solis.v1` | Simulator verified | lab only | — |
+| **Huawei** | `huawei.sun2000.pending` | Documented | **lab only** | commandable in lab; see §1.2 |
+| GoodWe | `goodwe.commercial.pending` | Documented | forbidden | no command register transcribed |
+| Solis | `solis.commercial.pending` | Documented | forbidden | needs prerequisite enable (§1.2) |
+| Growatt | `growatt.tl3x.documented` | Documented | forbidden | power-on write lock (§1.2) |
+| Growatt | `growatt.tlx.documented` | Documented | forbidden | power-on write lock (§1.2) |
+| Sungrow | `sungrow.string.documented` | Documented | forbidden | needs prerequisite enable (§1.2) |
+| Chint / CPS | `chint.cps.sch100_125ktl.documented` | Documented | forbidden | needs prerequisite enable (§1.2) |
+| FoxESS / Knox | `foxess.commercial.pending` | Documented | forbidden | no command register transcribed |
 
 Write-qualified or production-approved profiles: **0**.
+
+**Huawei is the only real-brand profile that can be exercised at all**, and only
+against a declared simulator. Everything else is refused before a command can be
+issued.
+
+### 1.2 Why four transcribed brands are still refused
+
+Transcribing the Solis, Growatt, Sungrow and Chint/CPS manuals found a failure
+mode worse than a wrong address, and it is the reason those profiles carry
+register maps yet cannot be commanded.
+
+**Solis** (tag 3070 = `0xAA`), **Sungrow** (tag 5007 = `0xAA`) and **Chint/CPS**
+(`0x2602` = 1) each require a register to be set before their power-limit setpoint
+does anything. The trap is that the setpoint register still **accepts** the write
+and still **echoes it back**. A controller would therefore see a matching readback,
+report the command **confirmed**, and the inverter would ignore the limit and keep
+generating.
+
+That is worse than a mismatch and worse than a timeout, because the readback stops
+being evidence and every layer above it — including the operator — is told the
+plant is limited when it is not. This firmware cannot sequence and verify a
+prerequisite write, so those profiles are refused write authority outright, in lab
+mode as well as production. Being unable to command is recoverable; being told a
+limit is in force when it is not is not.
+
+**Growatt** is refused for a related reason: it locks network power control after
+power-on, the manual's unlock password is **redacted**, and it **auto-relocks
+after five minutes** — so control would stop silently mid-run even if the unlock
+were known.
+
+**Huawei is not refused**, because its prerequisite is different in kind: when a
+SmartLogger is in the path, `Remote power schedule` must be set to `Enable` per
+inverter, and that is a **logger menu setting**, not a register the controller
+writes. It is a one-time human commissioning step, recorded in
+`docs/SITE_COMMISSIONING_RUNBOOK.md` §1.4 together with two related traps —
+register 42019, where a non-zero schedule-validity period makes a commanded limit
+**self-expire**, and register 40737, where anything other than remote scheduling
+means something else owns plant scheduling. **The hazard is identical if the step
+is skipped, and the controller cannot detect it.**
+
+### 1.3 Plant-level control at the logger: evaluated, not implemented
+
+The SmartLogger analysis recommends commanding the plant at the logger (`40428`,
+RW U16, percent × 10) rather than per inverter: one write instead of N behind a
+documented ≥1 s interval, and it avoids a register collision where `42017` is
+`SystemTime: year` on the logger but `active power gradient` on an inverter.
+
+It is **deliberately not implemented yet**, because reading `40428` back returns
+**the value the logger stored, not the plant's achieved state**, and an
+undocumented "Adjustment coefficient" means a commanded 80 % need not deliver
+80 %. A profile pointing its readback at `40428` would report `confirmed` on the
+strength of an echo — the identical defect described in §1.2. Logger-level control
+first needs confirmation to close on **measured** plant power (`40525`), which the
+profile structure cannot currently express.
+
+Full evidence and citations: `docs/SMARTLOGGER_PATH_ANALYSIS.md`.
 
 "Documented" means the register map was transcribed from a manual and has never
 been exercised against the physical equipment. Promoting a profile requires the

@@ -131,6 +131,22 @@ every address in §3 and §4.
     different unit id per inverter and may not expose all registers.
   - If **no**: record that the inverters are addressed directly, and by what
     transport (Modbus TCP direct, or RTU behind a generic gateway).
+- [ ] **If a SmartLogger is in the path, per-inverter power commands need it
+      enabled first.** `Remote power schedule` must be set to `Enable` for each
+      inverter you intend to command (SmartLogger 3000A user manual, pp.102/128,
+      via `docs/SMARTLOGGER_PATH_ANALYSIS.md`). This is a **logger menu setting,
+      not a Modbus register the controller writes**, so the firmware can neither
+      set it nor verify it. Until it is enabled, the inverter's setpoint register
+      will still accept a write and still echo it back, and the controller will
+      report the command **confirmed while the inverter ignores it**.
+      Enabled for each commanded inverter, recorded here: `____`
+      Who enabled it and when: `____`
+  - [ ] Also check `Schedule instruction valid duration` (register 42019). If it
+        is non-zero, a commanded limit **self-expires** after that period and PV
+        will rise again with no fault reported anywhere. Value: `____`
+  - [ ] Read the active power control mode (register `40737`). `4` is remote
+        scheduling. Any other value means something else owns plant scheduling and
+        will contend with this controller. Value: `____`
 - [ ] Is anything else already writing to these inverters — a plant SCADA, an
       energy-management system, the logger's own export limitation, a grid-code
       curtailment function? List: `____`
