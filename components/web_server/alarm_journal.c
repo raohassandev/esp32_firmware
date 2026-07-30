@@ -457,6 +457,12 @@ const char *alarm_journal_transition_name(uint8_t transition)
     case ALARM_JOURNAL_SHELVED:       return "shelved";
     case ALARM_JOURNAL_UNSHELVED:     return "unshelved";
     case ALARM_JOURNAL_SHELF_EXPIRED: return "shelf_expired";
+    /* A9. Named apart from shelving so the audit trail can still answer who
+     * decided, months later. */
+    case ALARM_JOURNAL_DESIGN_SUPPRESSED:   return "design_suppressed";
+    case ALARM_JOURNAL_DESIGN_RELEASED:     return "design_released";
+    case ALARM_JOURNAL_OUT_OF_SERVICE:      return "out_of_service";
+    case ALARM_JOURNAL_RETURNED_TO_SERVICE: return "returned_to_service";
     default:                          return "unknown";
     }
 }

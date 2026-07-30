@@ -83,6 +83,15 @@ html[data-theme="light"] {
     --prereq-confirmed: #14663f;
     --prereq-unconfirmed: #8a4b00;
     --prereq-unverifiable: #8a2a6b;
+
+    /* Light counterparts for the three ISA-18.2 suppression states. Worst measured
+       ratio across --surface-sunken, --panel, --panel-strong and --field:
+       shelved 6.27:1, by-design 7.17:1, out-of-service 7.02:1. Three distinct
+       values, as in the dark theme: an operator's expiring shelf must never look
+       like an instrument that has been taken out of service indefinitely. */
+    --suppress-shelved: #7d5300;
+    --suppress-design: #12558f;
+    --suppress-out-of-service: #8a2a8a;
 }
 
 html[data-theme="light"] body {

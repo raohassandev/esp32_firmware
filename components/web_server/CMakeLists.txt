@@ -55,6 +55,8 @@ set(WEB_SERVER_C_SOURCES
     "http_json.c"
     "operational_api.c"
     "alarm_journal.c"
+    "alarm_metrics.c"
+    "alarm_suppression.c"
     "inverter_profile_api.c"
     "inverter_config_api.c"
     "meter_config_api.c"

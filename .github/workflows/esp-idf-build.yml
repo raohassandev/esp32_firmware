@@ -226,6 +226,10 @@ jobs:
         run: python3 tests/alarm_management_source_contract.py
       - name: Check persistent alarm journal and ISA-18.2 shelving contract
         run: python3 tests/alarm_journal_shelving_source_contract.py
+      - name: Check ISA-18.2 suppressed-by-design and out-of-service contract
+        run: python3 tests/alarm_suppression_states_source_contract.py
+      - name: Check EEMUA 191 priority rationalisation and alarm-rate metrics contract
+        run: python3 tests/alarm_rate_and_priority_source_contract.py
       - name: Check HTTP route capacity leads the registered routes
         run: python3 tests/uri_handler_capacity_source_contract.py
       - name: Check no credential is shared across units
@@ -245,6 +249,24 @@ jobs:
             components/meter_manager/meter_poll_schedule.c \
             -lm -o /tmp/meter_poll_schedule_test
           /tmp/meter_poll_schedule_test
+      - name: Run EEMUA 191 alarm metrics unit tests
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -Wall -Wextra -Werror \
+            -Icomponents/web_server/include \
+            tests/alarm_metrics_test.c \
+            components/web_server/alarm_metrics.c \
+            -lm -o /tmp/alarm_metrics_test
+          /tmp/alarm_metrics_test
+      - name: Run ISA-18.2 alarm suppression state machine unit tests
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -Wall -Wextra -Werror \
+            -Icomponents/web_server/include \
+            tests/alarm_suppression_test.c \
+            components/web_server/alarm_suppression.c \
+            -lm -o /tmp/alarm_suppression_test
+          /tmp/alarm_suppression_test
       - name: Run inverter write permission unit tests
         run: |
           set -euo pipefail

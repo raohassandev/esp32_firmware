@@ -381,8 +381,8 @@ require('"shelf_remaining_ms"' in alarms_get,
 require('"suppression"' in alarms_get,
         "the ISA-18.2 suppression state must be named, not reduced to a boolean")
 require("suppressed-by-design" in API and "out-of-service" in API,
-        "the two unimplemented suppression states must be declared absent rather than "
-        "quietly collapsed into shelving")
+        "the other two suppression states must be named rather than quietly "
+        "collapsed into shelving")
 
 # The row is still emitted for a shelved alarm: prominence is the only thing given up.
 skips = re.findall(r"^\s*(?:if \()?(.*?)\)? continue;", alarms_get, re.M)
@@ -397,10 +397,22 @@ require(alarms_get.index('cJSON_AddBoolToObject(item, "shelved"') <
         "the shelf state must be attached to the row, not decide whether it exists")
 
 # ...but it does leave the counts an operator triages from.
-require("if (a->present && !a->shelved) {" in alarms_get,
-        "a shelved alarm must leave the active count")
-require("if (!a->shelved) {" in alarms_get,
-        "a shelved alarm must leave the outstanding count")
+#
+# A9 added two more suppression states, so the counting gates moved from the
+# shelved flag to the effective suppression state that shelving is now one of.
+# The guarantee being asserted is unchanged and is checked in two parts: the gate
+# is a suppression gate, and shelving is one of the things that closes it. A
+# literal "!a->shelved" would have passed while a refactor quietly dropped
+# shelving out of the derivation, which is the failure this pair catches.
+require("if (a->present && !suppressed) {" in alarms_get,
+        "a suppressed alarm must leave the active count")
+require("if (!suppressed) {" in alarms_get,
+        "a suppressed alarm must leave the outstanding count")
+require(re.search(r"suppressed\s*=\s*alarm_suppression_hidden_from_triage", alarms_get),
+        "the triage gate must be derived from the ISA-18.2 suppression state")
+require(".shelved = a->shelved" in alarms_get,
+        "shelving must still be one of the states that removes an alarm from the "
+        "triage counts; the gate is derived, so shelving has to be fed into it")
 require('"shelved"' in alarms_get and '"shelved_active"' in alarms_get,
         "shelved work must still be reported as a separate figure, never hidden entirely")
 

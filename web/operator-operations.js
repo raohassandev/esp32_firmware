@@ -18,7 +18,16 @@
         alarmBusy: false,
         filterState: 'all',
         filterSeverity: 'all',
-        sort: 'severity'
+        /* A9. Suppressed alarms are never hidden from this screen, so the filter
+         * exists to let someone REVIEW them - "show me everything that is
+         * currently quiet, and who decided" - which is the routine that keeps a
+         * suppression list from turning into a graveyard. */
+        filterSuppression: 'all',
+        sort: 'severity',
+        /* Chosen per row before the action is taken; the controller requires both
+         * and will reject a request that omits either. */
+        shelfDuration: 3600000,
+        outOfServiceReason: 0
     };
     const byId = (id) => document.getElementById(id);
     const isOperator = () => document.documentElement.dataset.access !== 'engineering';
@@ -60,6 +69,67 @@
     };
 
     const SEVERITY_RANK = { critical: 3, warning: 2, information: 1 };
+
+    /* ------------------------------------------------- ISA-18.2 suppression (A9)
+     *
+     * Three states, and the standard is explicit that they must not be drawn as
+     * one "disabled" badge, because that is what destroys the audit trail. What
+     * separates them is who decided and what ends them, so both are on the screen
+     * for every suppressed alarm rather than in a tooltip:
+     *
+     *   shelved              an operator asked for quiet. Time-limited; it ends
+     *                        by itself, and the screen shows how long is left.
+     *   suppressed_by_design the controller decided, because another live fault
+     *                        already explains this one. Nobody can lift it while
+     *                        that fault stands - and the screen says so, so an
+     *                        operator does not hunt for a button that must not
+     *                        exist.
+     *   out_of_service       a maintenance action, authorised, with a recorded
+     *                        reason. This one does NOT expire, which is exactly
+     *                        why it is drawn as the most prominent of the three
+     *                        and why the reason is always shown next to it.
+     */
+    const SUPPRESSION_STATES = {
+        none: {
+            label: 'Not suppressed',
+            tone: 'good',
+            meaning: 'This condition is counted in the triage figures.'
+        },
+        shelved: {
+            label: 'Shelved by an operator',
+            tone: 'warning',
+            meaning: 'An operator asked not to be pressed by this for a fixed time. It expires by itself and comes back into the triage counts.'
+        },
+        suppressed_by_design: {
+            label: 'Suppressed by design',
+            tone: 'warning',
+            meaning: 'The controller suppressed this because another live fault already explains it. It is released automatically when that fault clears, and it cannot be lifted by hand while the cause stands.'
+        },
+        out_of_service: {
+            label: 'Out of service',
+            tone: 'bad',
+            meaning: 'Taken out of service as a maintenance action, with a recorded reason. This does not expire: it stays quiet until somebody returns it to service.'
+        }
+    };
+
+    /* One shift is the outer bound the controller enforces. Nothing shorter than a
+     * minute is offered because a shelf that short is a mis-click, not a
+     * decision. */
+    const SHELF_DURATIONS = [
+        [900000, '15 minutes'],
+        [3600000, '1 hour'],
+        [14400000, '4 hours'],
+        [28800000, '8 hours (one shift)']
+    ];
+
+    function suppressionState(alarm) {
+        const key = String(alarm && alarm.suppression);
+        return SUPPRESSION_STATES[key] || SUPPRESSION_STATES.none;
+    }
+
+    function isSuppressed(alarm) {
+        return Boolean(alarm) && String(alarm.suppression || 'none') !== 'none';
+    }
 
     function alarmState(alarm) {
         return ALARM_STATES[String(alarm && alarm.state)] || ALARM_STATES.unacknowledged;
@@ -200,6 +270,14 @@
         const list = Array.isArray(state.alarms?.alarms) ? state.alarms.alarms.slice() : [];
         const visible = list.filter((alarm) => {
             if (state.filterSeverity !== 'all' && String(alarm.severity) !== state.filterSeverity) return false;
+            /* A9: a review filter, not a hiding filter. 'all' shows suppressed
+             * rows exactly as it shows every other row - suppression removes an
+             * alarm from the triage counts and never from this list. */
+            if (state.filterSuppression === 'suppressed' && !isSuppressed(alarm)) return false;
+            if (state.filterSuppression === 'unsuppressed' && isSuppressed(alarm)) return false;
+            if (state.filterSuppression !== 'all' && state.filterSuppression !== 'suppressed'
+                && state.filterSuppression !== 'unsuppressed'
+                && String(alarm.suppression) !== state.filterSuppression) return false;
             if (state.filterState === 'active') return isActive(alarm);
             /* "Outstanding" deliberately keeps returned-to-normal rows that were
              * never acknowledged. Filtering them out with the resolved ones is
@@ -257,6 +335,175 @@
         return tiles;
     }
 
+    /* ------------------------------------------------- A10: EEMUA rate metrics
+     *
+     * EEMUA 191 gives two numbers a control room can be held to - fewer than one
+     * alarm per operator per ten minutes in steady state, and no more than ten in
+     * the first ten minutes of an upset - and until they are on a screen there is
+     * no evidence this alarm system is usable, only a claim.
+     *
+     * Two honesty rules are enforced here rather than in the styling. A verdict is
+     * only shown once the window it is measured over has actually elapsed; before
+     * that the tile says so instead of extrapolating from four minutes of uptime.
+     * And the peak is never reported as a pass, only as "no breach observed",
+     * because a flood that has not happened yet cannot be disproved by waiting.
+     */
+    function formatRatePerWindow(milli) {
+        const value = Number(milli);
+        if (!Number.isFinite(value)) return '—';
+        return `${(value / 1000).toFixed(2)} / 10 min`;
+    }
+
+    function alarmRateSection(rate) {
+        const section = node('section', 'alarm-metrics');
+        const head = node('div', 'alarm-metrics-head');
+        head.append(
+            node('p', 'eyebrow', 'EEMUA 191 · measured'),
+            node('h4', '', 'Alarm rate')
+        );
+        section.append(head);
+        if (!rate || typeof rate !== 'object') {
+            section.append(node('p', 'alarm-metrics-note',
+                'The controller did not report alarm-rate metrics.'));
+            return section;
+        }
+        const steadyObserved = rate.steady_window_observed === true;
+        const meetsSteady = rate.meets_steady_target === true;
+        const peakBreached = rate.peak_target_breached === true;
+        const tiles = node('div', 'alarm-metrics-grid');
+        tiles.append(
+            metricTile('Last 10 minutes', `${Number(rate.last_10_min) || 0} alarm(s)`,
+                       'EEMUA measures both of its targets over ten minutes.', ''),
+            metricTile('Steady-state rate',
+                       steadyObserved ? formatRatePerWindow(rate.per_10_min_from_60_min_milli)
+                                      : 'Not yet measured',
+                       steadyObserved
+                           ? `Target: under ${formatRatePerWindow(rate.steady_limit_milli)}. ${meetsSteady ? 'Met.' : 'Not met.'}`
+                           : 'The controller has not been running for a full hour, so this would be an extrapolation rather than a measurement.',
+                       steadyObserved ? (meetsSteady ? 'good' : 'bad') : ''),
+            metricTile('Worst 10 minutes seen',
+                       `${Number(rate.peak_per_10_min) || 0} alarm(s)`,
+                       `Ceiling: ${Number(rate.peak_limit) || 10} in the first ten minutes of an upset. `
+                       + (peakBreached ? 'Exceeded.' : 'No breach observed.'),
+                       peakBreached ? 'bad' : ''),
+            metricTile('Last 24 hours', `${Number(rate.last_24_h) || 0} alarm(s)`,
+                       rate.last_24_h_truncated === true
+                           ? 'At least this many: the controller ran out of room to record them all, so this is a lower bound.'
+                           : 'Every raise in the window is counted.',
+                       rate.last_24_h_truncated === true ? 'warning' : '')
+        );
+        section.append(tiles);
+        /* The controller has no real-time clock. Saying so is the difference
+         * between evidence and a fabricated timeline, and it is the same
+         * convention the alarm journal already declares. */
+        section.append(node('p', 'alarm-metrics-note',
+            'Measured against controller uptime, not calendar time: this controller has no real-time clock, '
+            + 'and a restart resets these counters. '
+            + String(rate.note || '')));
+        return section;
+    }
+
+    /* ------------------------------------ A6: the priority distribution, as found
+     *
+     * Reported rather than tidied. EEMUA's 5/15/80 is not met on this controller
+     * and cannot be, because with a handful of conditions the smallest non-zero
+     * share is already far above 5%. The screen says the target is missed AND says
+     * it is arithmetically out of reach, in that order, so nobody reads the miss as
+     * an invitation to demote an alarm that genuinely stops the plant being
+     * controlled safely. */
+    function distributionBar(census) {
+        const bar = node('div', 'alarm-dist-bar');
+        [['high', census.high_percent], ['medium', census.medium_percent],
+         ['low', census.low_percent]].forEach(([band, percent]) => {
+            const value = Math.max(0, Number(percent) || 0);
+            if (!value) return;
+            const part = node('span', `alarm-dist-part band-${band}`);
+            part.style.flexGrow = String(value);
+            part.title = `${band}: ${value}%`;
+            bar.append(part);
+        });
+        bar.setAttribute('role', 'img');
+        bar.setAttribute('aria-label',
+            `High ${Number(census.high_percent) || 0}%, medium ${Number(census.medium_percent) || 0}%, `
+            + `low ${Number(census.low_percent) || 0}%`);
+        return bar;
+    }
+
+    function distributionBlock(title, census, target, explanation) {
+        const block = node('div', 'alarm-dist-block');
+        block.append(node('h5', '', title));
+        block.append(distributionBar(census));
+        const figures = node('div', 'alarm-dist-figures');
+        figures.append(
+            distributionFigure('High', census.high, census.high_percent, target?.high_percent),
+            distributionFigure('Medium', census.medium, census.medium_percent, target?.medium_percent),
+            distributionFigure('Low', census.low, census.low_percent, target?.low_percent)
+        );
+        block.append(figures);
+        const verdict = node('p', `alarm-dist-verdict ${census.meets_target === true ? 'tone-good' : 'tone-warning'}`,
+            census.meets_target === true
+                ? `Meets the EEMUA target across ${Number(census.total) || 0} condition(s).`
+                : `Does not meet the EEMUA target across ${Number(census.total) || 0} condition(s).`);
+        block.append(verdict);
+        if (census.target_representable === false) {
+            block.append(node('p', 'alarm-dist-reason',
+                `Not reachable either: the smallest share ${Number(census.total) || 0} condition(s) can express is `
+                + `${Number(census.smallest_representable_percent) || 0}%, so a ${Number(target?.high_percent) || 5}% high band does not exist here. `
+                + 'Demoting a condition to move this number would make the alarm system worse, not better.'));
+        }
+        if (explanation) block.append(node('p', 'alarm-dist-reason', explanation));
+        return block;
+    }
+
+    function distributionFigure(label, count, percent, targetPercent) {
+        const item = node('div', 'alarm-dist-figure');
+        item.append(
+            node('span', '', label),
+            node('strong', '', `${Number(percent) || 0}%`),
+            node('small', '', `${Number(count) || 0} condition(s) · target ${Number(targetPercent) || 0}%`)
+        );
+        return item;
+    }
+
+    function alarmRationalisationSection(rationalisation) {
+        const section = node('section', 'alarm-metrics');
+        const head = node('div', 'alarm-metrics-head');
+        head.append(
+            node('p', 'eyebrow', 'EEMUA 191 · rationalised'),
+            node('h4', '', 'Priority distribution')
+        );
+        section.append(head);
+        if (!rationalisation || typeof rationalisation !== 'object') {
+            section.append(node('p', 'alarm-metrics-note',
+                'The controller did not report a priority distribution.'));
+            return section;
+        }
+        const blocks = node('div', 'alarm-dist-grid');
+        if (rationalisation.alarms) {
+            blocks.append(distributionBlock('Alarms an operator must acknowledge',
+                rationalisation.alarms, rationalisation.target,
+                'This is the population EEMUA’s distribution is about.'));
+        }
+        if (rationalisation.conditions) {
+            blocks.append(distributionBlock('All tracked conditions',
+                rationalisation.conditions, rationalisation.target,
+                'Adds the records rationalised out of the alarm table and into the event log, '
+                + 'which is where this controller’s low-priority band lives.'));
+        }
+        section.append(blocks);
+        if (rationalisation.note) {
+            section.append(node('p', 'alarm-metrics-note', String(rationalisation.note)));
+        }
+        return section;
+    }
+
+    function metricTile(label, value, meaning, tone) {
+        const tile = node('div', `alarm-metric${tone ? ` tone-${tone}` : ''}`);
+        tile.append(node('span', '', label), node('strong', '', value));
+        if (meaning) tile.append(node('small', '', meaning));
+        return tile;
+    }
+
     function alarmMetaRow(label, value) {
         const item = node('div', 'alarm-meta-item');
         item.append(node('span', '', label), node('strong', '', value));
@@ -291,6 +538,109 @@
         return button;
     }
 
+    /* ------------------------------------------- A9: suppression, on every row
+     *
+     * All three flags are drawn, not just the effective state, because an alarm can
+     * be in more than one at once and collapsing them is the specific mistake
+     * ISA-18.2 warns against. What each line answers is who decided and what ends
+     * it. */
+    function suppressionBlock(alarm) {
+        const block = node('div', 'alarm-suppression');
+        const meta = suppressionState(alarm);
+        const key = String(alarm.suppression || 'none');
+        const pill = node('span', `alarm-suppression-pill tone-${meta.tone} suppression-${key}`, meta.label);
+        block.append(pill);
+        if (key === 'none') return block;
+
+        block.append(node('small', 'alarm-suppression-meaning', meta.meaning));
+        const facts = node('div', 'alarm-suppression-facts');
+        facts.append(alarmMetaRow('Decided by',
+            String(alarm.suppression_authority || 'unknown')));
+        facts.append(alarmMetaRow('Ends by itself',
+            alarm.suppression_expires === true ? 'Yes, on expiry' : 'No — someone must end it'));
+        if (Number(alarm.suppression_count) > 1) {
+            /* Two suppressions at once is exactly the case a single flag hides. */
+            facts.append(alarmMetaRow('Suppressions in force',
+                `${Number(alarm.suppression_count)} at once`));
+        }
+        if (alarm.shelved === true) {
+            facts.append(alarmMetaRow('Shelf remaining', formatDuration(alarm.shelf_remaining_ms)));
+        }
+        if (alarm.suppressed_by_design === true) {
+            facts.append(alarmMetaRow('Explained by',
+                String(alarm.design_suppressed_by || 'another condition')));
+        }
+        if (alarm.out_of_service === true) {
+            facts.append(alarmMetaRow('Out of service since', formatAge(alarm.out_of_service_age_ms)));
+        }
+        block.append(facts);
+        if (alarm.out_of_service === true && alarm.out_of_service_reason_text) {
+            block.append(node('small', 'alarm-suppression-reason',
+                `Recorded reason: ${alarm.out_of_service_reason_text}`));
+        }
+        return block;
+    }
+
+    function suppressionControls(alarm) {
+        const wrap = node('div', 'alarm-suppress-actions');
+        if (!engineeringAuthorized()) {
+            /* No dead buttons: suppression is an engineering action and a control
+             * that can only return 401 teaches an operator that the page is
+             * broken. */
+            wrap.append(node('small', '',
+                'Shelving and out-of-service are engineering actions and need a session.'));
+            return wrap;
+        }
+        if (alarm.shelved === true) {
+            wrap.append(actionButton('Unshelve', 'secondary', () => unshelveAlarm(alarm)));
+        } else {
+            const picker = selectControl(`alarmShelfDuration-${alarm.code}`, 'Shelve for',
+                String(state.shelfDuration), SHELF_DURATIONS.map(([ms, label]) => [String(ms), label]),
+                (value) => { state.shelfDuration = Number(value); });
+            wrap.append(picker);
+            wrap.append(actionButton('Shelve', 'secondary', () => shelveAlarm(alarm)));
+        }
+        if (alarm.out_of_service === true) {
+            wrap.append(actionButton('Return to service', 'secondary',
+                () => setOutOfService(alarm, false)));
+        } else {
+            const reasons = Array.isArray(state.alarms?.out_of_service_reasons)
+                ? state.alarms.out_of_service_reasons
+                : OUT_OF_SERVICE_FALLBACK;
+            const picker = selectControl(`alarmOosReason-${alarm.code}`, 'Out of service because',
+                String(state.outOfServiceReason),
+                reasons.map((entry) => [String(entry.reason), String(entry.text || entry.name)]),
+                (value) => { state.outOfServiceReason = Number(value); });
+            wrap.append(picker);
+            wrap.append(actionButton('Take out of service', 'secondary',
+                () => setOutOfService(alarm, true)));
+        }
+        if (alarm.suppressed_by_design === true) {
+            /* Stated rather than implied by an absent button: the controller owns
+             * this decision and releases it when the plant recovers. */
+            wrap.append(node('small', '',
+                'The suppressed-by-design state cannot be lifted here. It clears when the fault that explains this one clears.'));
+        }
+        return wrap;
+    }
+
+    /* Used only until the controller's own list arrives, so the picker is never
+     * empty on first paint. The controller validates the value regardless. */
+    const OUT_OF_SERVICE_FALLBACK = [
+        { reason: 0, name: 'field_device_maintenance', text: 'Field device maintenance' },
+        { reason: 1, name: 'field_device_replacement', text: 'Field device replacement' },
+        { reason: 2, name: 'site_commissioning_work', text: 'Site commissioning work' },
+        { reason: 3, name: 'awaiting_repair', text: 'Awaiting repair' },
+        { reason: 4, name: 'plant_change_pending_rationalisation', text: 'Plant change pending rationalisation' }
+    ];
+
+    function actionButton(label, variant, onClick) {
+        const button = node('button', `button ${variant} alarm-ack-button`, label);
+        button.type = 'button';
+        button.addEventListener('click', onClick);
+        return button;
+    }
+
     function alarmRow(alarm) {
         const meta = alarmState(alarm);
         const severity = String(alarm.severity || 'information');
@@ -298,7 +648,10 @@
         const row = node('article',
             `alarm-row severity-${severity} state-${String(alarm.state)}`
             + `${isOutstanding(alarm) ? ' alarm-outstanding' : ''}`
-            + `${returned ? ' alarm-returned' : ''}`);
+            + `${returned ? ' alarm-returned' : ''}`
+            /* A suppressed row is marked, never faded: it is still a real
+             * condition and still has to be readable. */
+            + `${isSuppressed(alarm) ? ` alarm-suppressed suppression-${String(alarm.suppression)}` : ''}`);
 
         const marker = node('span', 'alarm-marker', severityIcon(severity));
         marker.setAttribute('aria-hidden', 'true');
@@ -315,7 +668,19 @@
             node('span', `alarm-state-pill tone-${meta.tone}`, meta.label),
             node('small', 'alarm-state-meaning', meta.meaning)
         );
-        copy.append(heading, stateLine);
+        copy.append(heading, stateLine, suppressionBlock(alarm));
+        /* A6: the priority and the reason it was assigned, on the row. The
+         * rationalisation is only reviewable if the reasoning travels with the
+         * alarm instead of living in a spreadsheet nobody opens. */
+        if (alarm.priority) {
+            const priorityLine = node('div', 'alarm-priority-line');
+            priorityLine.append(
+                node('span', `alarm-priority-pill priority-${String(alarm.priority)}`,
+                     `${String(alarm.priority)} priority`),
+                node('small', 'alarm-priority-rationale', String(alarm.priority_rationale || ''))
+            );
+            copy.append(priorityLine);
+        }
         if (alarm.detail) copy.append(node('p', '', alarm.detail));
         if (alarm.recommended_action) copy.append(node('small', 'alarm-action', `Recommended action: ${alarm.recommended_action}`));
 
@@ -331,7 +696,7 @@
         copy.append(metaGrid);
 
         const actions = node('div', 'alarm-actions');
-        actions.append(acknowledgeControl(alarm));
+        actions.append(acknowledgeControl(alarm), suppressionControls(alarm));
         row.append(marker, copy, actions);
         return row;
     }
@@ -365,6 +730,11 @@
             + 'An acknowledged condition that is still present stays on this list and still counts as active.'));
 
         view.append(alarmSummaryTiles(alarms, summary));
+        /* A10 then A6: what the alarm system is doing to the operator, then how its
+         * priorities are distributed. Both above the list, because both are
+         * properties of the whole system and cannot be seen from any single row. */
+        view.append(alarmRateSection(payload.rate));
+        view.append(alarmRationalisationSection(payload.rationalisation));
 
         const controls = node('div', 'alarm-controls');
         controls.append(
@@ -379,6 +749,14 @@
                 ['warning', 'Warning'],
                 ['information', 'Information']
             ], (value) => { state.filterSeverity = value; renderAlarmConsole(); }),
+            selectControl('alarmFilterSuppression', 'Suppression', state.filterSuppression, [
+                ['all', 'All conditions'],
+                ['suppressed', 'Suppressed (any state)'],
+                ['unsuppressed', 'Not suppressed'],
+                ['shelved', 'Shelved by an operator'],
+                ['suppressed_by_design', 'Suppressed by design'],
+                ['out_of_service', 'Out of service']
+            ], (value) => { state.filterSuppression = value; renderAlarmConsole(); }),
             selectControl('alarmSort', 'Sort by', state.sort, [
                 ['severity', 'Severity, then outstanding'],
                 ['recent', 'Most recent occurrence'],
@@ -433,6 +811,57 @@
             state.alarmBusy = false;
         }
         await refreshAlarms();
+    }
+
+    /* One path for every suppression mutation, because they share every failure
+     * mode: an engineering session is required, the controller's own wording is
+     * the only trustworthy description of what happened, and a failure must say
+     * plainly that nothing changed. Paraphrasing a suppression decision is how an
+     * interface starts lying about what is being watched. */
+    async function suppressionRequest(alarm, path, body, pending) {
+        if (state.alarmBusy) return;
+        state.alarmBusy = true;
+        state.alarmError = null;
+        state.alarmMessage = `${pending} ${alarm.id || alarm.code}…`;
+        renderAlarmConsole();
+        try {
+            const result = await api(path, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            state.alarmMessage = result.note || 'The controller recorded the change.';
+        } catch (error) {
+            if (error.status === 401) {
+                state.alarmError = 'Changing alarm suppression requires an authenticated engineering session. '
+                    + 'Open Engineering and sign in, then try again. Nothing was changed.';
+            } else {
+                state.alarmError = `The controller refused the change: ${error.message}. Nothing was changed.`;
+            }
+            state.alarmMessage = null;
+        } finally {
+            state.alarmBusy = false;
+        }
+        await refreshAlarms();
+    }
+
+    function shelveAlarm(alarm) {
+        return suppressionRequest(alarm, '/api/operator/alarms/shelve',
+            { code: Number(alarm.code), duration_ms: Number(state.shelfDuration) }, 'Shelving');
+    }
+
+    function unshelveAlarm(alarm) {
+        return suppressionRequest(alarm, '/api/operator/alarms/unshelve',
+            { code: Number(alarm.code) }, 'Unshelving');
+    }
+
+    function setOutOfService(alarm, wanted) {
+        const body = { code: Number(alarm.code), out_of_service: Boolean(wanted) };
+        /* The reason is required on the way out and meaningless on the way back,
+         * and the controller enforces exactly that. */
+        if (wanted) body.reason = Number(state.outOfServiceReason);
+        return suppressionRequest(alarm, '/api/operator/alarms/out-of-service', body,
+            wanted ? 'Taking out of service' : 'Returning to service');
     }
 
     async function refreshAlarms() {
