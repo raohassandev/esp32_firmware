@@ -71,6 +71,11 @@
         if (alarms && system && alarms.nextElementSibling !== system) system.before(alarms);
         ensureEngineeringEntry();
         ensureMobileNavigation();
+        /* Signing in and out changes which entries the bar may offer, and this
+         * function is what the data-access observer in start() re-runs.
+         * ensureMobileNavigation() only builds the bar once, so without this
+         * the bar kept whatever it was given at load. */
+        updateMobileNavigation();
     }
 
     function ensureEngineeringEntry() {
@@ -108,9 +113,24 @@
         updateMobileNavigation();
     }
 
+    /* Selection, and whether the entry may be offered at all.
+     *
+     * The bar carried PV-DG control unconditionally. That route is protected,
+     * so a signed-out operator who tapped it was answered with the Engineering
+     * sign-in page: the one navigation entry in the product that could not
+     * reach the page it named. It is now hidden exactly while it is
+     * unreachable, from the same set web/product-mode.js enforces, so the two
+     * cannot drift. Routes that are merely engineering-flavoured but openable -
+     * grid power, solar inverters - are untouched here; what an operator should
+     * be offered is a product decision, not this function's. */
     function updateMobileNavigation() {
         const route = currentRoute();
-        document.querySelectorAll('.product-mobile-link').forEach((link) => link.classList.toggle('active', link.dataset.route === route));
+        const access = window.AutomatrixEngineeringAccess;
+        document.querySelectorAll('.product-mobile-link').forEach((link) => {
+            link.classList.toggle('active', link.dataset.route === route);
+            const unreachable = Boolean(access?.isProtectedRoute?.(link.dataset.route)) && !isEngineering();
+            if (link.hidden !== unreachable) link.hidden = unreachable;
+        });
     }
 
     function ensureTopbarControls() {
@@ -257,13 +277,27 @@
         });
     }
 
+    /* The page and its navigation entry are established independently.
+     *
+     * These two used to share one guard: an early return on the page already
+     * existing skipped the navigation entry as well. Commissioning is not the
+     * only module that creates [data-page="commissioning"] -
+     * web/commissioning-release-v3.js builds the same section whenever it
+     * starts on that route, and it starts from an access-scope change - so
+     * whichever ran first decided whether Commissioning appeared in the
+     * sidebar at all. A page reached only by typing its URL is a page the
+     * operator reports as missing, and nothing about the ordering that
+     * currently saves us is guaranteed. web/operator-operations.js and
+     * web/prelab-readiness.js already keep the two checks apart; this matches
+     * them. Placement within the sidebar remains app.js's decision. */
     function ensureCommissioningPage() {
         const main = byId('mainContent');
-        if (!main || main.querySelector('[data-page="commissioning"]')) return;
-        const page = node('section', 'page engineering-only');
-        page.dataset.page = 'commissioning';
-        page.innerHTML = '<div id="commissioningWizard" class="commissioning-wizard"></div>';
-        main.append(page);
+        if (main && !main.querySelector('[data-page="commissioning"]')) {
+            const page = node('section', 'page engineering-only');
+            page.dataset.page = 'commissioning';
+            page.innerHTML = '<div id="commissioningWizard" class="commissioning-wizard"></div>';
+            main.append(page);
+        }
         const nav = document.querySelector('.nav-list');
         if (nav && !nav.querySelector('[data-route="commissioning"]')) {
             const link = node('a', 'nav-link engineering-only');
@@ -271,6 +305,7 @@
             link.dataset.route = 'commissioning';
             link.innerHTML = '<span aria-hidden="true">✓</span><span>Commissioning</span>';
             nav.append(link);
+            window.AutomatrixUi?.ensureNavigationHierarchy();
         }
     }
 

@@ -140,7 +140,11 @@ html[data-theme="dark"] .engineering-page .engineering-console .panel {
     border-color: var(--line);
 }
 
-body.product-shell-v2 .product-mobile-nav { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+/* Must not reimpose the five-track list operator-product-suite.css moved off:
+ * one of the five entries is withheld while it is unreachable, and a fixed
+ * five columns would hold its cell open. Auto columns match the number of
+ * entries actually offered. */
+body.product-shell-v2 .product-mobile-nav { grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
 
 /* Screenshot-driven dashboard corrections. */
 body.product-shell-v2 [data-page="dashboard"] .experience-masthead { margin-bottom: 14px; }

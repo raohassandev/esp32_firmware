@@ -277,7 +277,14 @@ body.modal-open {
         right: 10px;
         bottom: max(10px, env(safe-area-inset-bottom));
         display: grid;
-        grid-template-columns: repeat(5, 1fr);
+        /* Sized from the entries actually offered, not from a hardcoded five.
+         * PV-DG control is withheld from a signed-out operator (it is a
+         * protected route, and the tap only ever reached the sign-in page), and
+         * a fixed five-track list answered that by leaving an empty cell where
+         * the entry used to be. Auto columns are identical to repeat(N, 1fr)
+         * for N visible children and stay correct as that number changes. */
+        grid-auto-flow: column;
+        grid-auto-columns: minmax(0, 1fr);
         gap: 4px;
         padding: 6px;
         border: 1px solid var(--line);
@@ -285,6 +292,13 @@ body.modal-open {
         background: color-mix(in srgb, var(--panel) 92%, transparent);
         box-shadow: 0 14px 42px rgba(0, 0, 0, .24);
         backdrop-filter: blur(12px);
+    }
+
+    /* This sheet gives every entry `display: grid`, which outranks the
+     * user-agent rule behind the `hidden` attribute. Without this the JS that
+     * withholds an unreachable entry would set `hidden` and change nothing. */
+    .product-mobile-link[hidden] {
+        display: none;
     }
 
     .product-mobile-link {

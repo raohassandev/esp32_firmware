@@ -474,6 +474,13 @@
         renew: renewEngineeringSession,
         requireRoute: enforceRoute,
         currentRoute,
+        /* Read-only view of the set enforceRoute() already applies. It decides
+         * nothing; it lets a navigation surface avoid OFFERING a route that
+         * will only answer with the sign-in page. The product mobile bar
+         * offered PV-DG control to a signed-out operator, and the tap landed on
+         * Engineering sign in - a navigation entry that cannot reach its own
+         * target. Authorisation stays here; presentation asks. */
+        isProtectedRoute: (route) => PROTECTED_ROUTES.has(String(route)),
         mayRequest,
         mayUseEngineering: (...routes) => engineeringScopeAllows(routes.flat()),
         onScopeChange,
