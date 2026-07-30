@@ -1,0 +1,7 @@
+dashboard [{"impl":"browser-session","headline":"Grid power trend","before":6,"after":24,"delta":18},{"impl":"browser-session","headline":"Solar production trend","before":0,"after":0,"delta":0}]
+  session sparklines: 2, controller-history charts: 0, history panel present in 45% of 60 samples, both on screen together in 27
+meters [{"impl":"browser-session","headline":"Recent demand trend","before":2,"after":8,"delta":6}]
+  session sparklines: 1, controller-history charts: 0, history panel present in 45% of 60 samples, both on screen together in 27
+inverters [{"impl":"browser-session","headline":"Solar production trend","before":0,"after":0,"delta":0}]
+  session sparklines: 1, controller-history charts: 0, history panel present in 43.3% of 60 samples, both on screen together in 26
+done -> chart-duplication.json
