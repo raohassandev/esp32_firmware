@@ -156,6 +156,8 @@ jobs:
         run: python3 tests/inverter_profile_catalogue_source_contract.py
       - name: Check brand register-map evidence contract
         run: python3 tests/brand_profile_evidence_source_contract.py
+      - name: Check brand register-map evidence contract (round 2)
+        run: python3 tests/brand_profile_evidence_round2_source_contract.py
       - name: Check inverter profile catalogue API contract
         run: python3 tests/inverter_profile_api_source_contract.py
       - name: Check inverter profile picker contract
