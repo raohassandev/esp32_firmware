@@ -502,6 +502,7 @@ static void control_task(void *argument)
             .command_authority = commissioning.commissioned && control_enabled &&
                                  policy.valid && alarm_flags == 0U && !confirmation_fault,
             .commissioned = commissioning.commissioned,
+            .commissioning_scope = (uint8_t)commissioning.scope,
             .commissioning_unmet_count = commissioning.unmet_count,
             .commissioning_first_unmet = commissioning.first_unmet,
             .write_confirmation = (uint8_t)fleet_confirmation,
@@ -588,6 +589,7 @@ esp_err_t control_engine_init(void)
     s_commissioning_inputs.inverter_fleet_known = fleet.known;
     s_commissioning_inputs.enabled_inverter_count = fleet.enabled_count;
     s_commissioning_inputs.write_qualified_inverter_count = fleet.write_qualified_count;
+    s_commissioning_inputs.lab_only_inverter_count = fleet.lab_only_count;
     s_commissioning_inputs.readback_capable_inverter_count = fleet.readback_capable_count;
     s_commissioning_inputs.commissioned_capacity_kw = fleet.commissioned_capacity_kw;
 

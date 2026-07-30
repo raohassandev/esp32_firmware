@@ -53,6 +53,11 @@ static const char *DEFAULT_PROFILE_ID = "custom.modbus-percent-v1";
 typedef struct {
     inverter_config_t config;
     const inverter_profile_t *profile;
+    /* How far a command to this inverter may go. write_allowed is kept as the
+     * single boolean the command path tests, and is derived from this so the two
+     * can never disagree. */
+    inverter_write_permission_t permission;
+    bool lab_target;
     bool write_allowed;
     bool identity_checked;
     uint32_t last_identity_ms;
@@ -615,7 +620,13 @@ esp_err_t inverter_manager_init(void)
         }
         runtime->profile = inverter_profiles_find(profile_id);
         if (!runtime->profile) runtime->profile = inverter_profiles_find(DEFAULT_PROFILE_ID);
-        runtime->write_allowed = inverter_profile_allows_write(runtime->profile);
+        /* Fail closed if the declaration cannot be read: an unreadable store
+         * means "not a lab target", never "assume it is one". */
+        bool lab_target = false;
+        if (inverter_profile_store_lab_target_get(i, &lab_target) != ESP_OK) lab_target = false;
+        runtime->lab_target = lab_target;
+        runtime->permission = inverter_profile_write_permission(runtime->profile, lab_target);
+        runtime->write_allowed = runtime->permission != INVERTER_WRITE_FORBIDDEN;
         runtime->data.identity_supported = runtime->profile && runtime->profile->has_identity_probe;
         runtime->data.telemetry_supported = runtime->profile && runtime->profile->has_active_power;
         runtime->data.status_supported = inverter_profile_has_status_register(runtime->profile);
@@ -646,10 +657,19 @@ esp_err_t inverter_manager_init(void)
         }
         runtime->data.connection_initialized = true;
 
-        if (!runtime->write_allowed) {
+        const char *resolved_profile_id = runtime->profile ? runtime->profile->id : "missing";
+        if (runtime->permission == INVERTER_WRITE_FORBIDDEN) {
             ESP_LOGW(TAG,
-                     "inverter %u profile '%s' is not production-approved; command path remains locked",
-                     i, runtime->profile ? runtime->profile->id : "missing");
+                     "inverter %u profile '%s' is not production-approved and no simulator has "
+                     "been declared; command path remains locked", i, resolved_profile_id);
+        } else if (runtime->permission == INVERTER_WRITE_LAB_ONLY) {
+            /* Logged at warning level on every start, deliberately: a controller
+             * commanding a declared simulator must never look like a controller
+             * commanding a plant. */
+            ESP_LOGW(TAG,
+                     "inverter %u profile '%s' is commandable ONLY because its endpoint is "
+                     "declared a lab simulator. This is not production control and is not "
+                     "evidence about physical equipment.", i, resolved_profile_id);
         }
     }
     free(cfg);
@@ -686,8 +706,18 @@ void inverter_manager_commissioning_summary(inverter_fleet_commissioning_t *out_
         if (profile && profile->has_power_limit_readback) {
             out_summary->readback_capable_count++;
         }
-        if (!inverter_profile_allows_write(profile)) continue;
-        out_summary->write_qualified_count++;
+        switch (runtime->permission) {
+            case INVERTER_WRITE_PRODUCTION:
+                out_summary->write_qualified_count++;
+                break;
+            case INVERTER_WRITE_LAB_ONLY:
+                out_summary->lab_only_count++;
+                out_summary->lab_mode = true;
+                break;
+            case INVERTER_WRITE_FORBIDDEN:
+            default:
+                continue;
+        }
         if (isfinite(runtime->config.rated_power_kw) &&
             runtime->config.rated_power_kw > 0.0f) {
             out_summary->commissioned_capacity_kw += runtime->config.rated_power_kw;

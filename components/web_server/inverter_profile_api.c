@@ -233,12 +233,43 @@ static esp_err_t profile_assignment_post(httpd_req_t *request)
                                    "Unknown inverter profile");
     }
 
+    /* Optional, and absent means "leave the declaration alone" rather than
+     * "revoke it": a client that does not know about lab targets must not
+     * silently clear one, and must not silently create one either. Only an
+     * explicit boolean changes the declaration.
+     *
+     * This rides the profile-assignment endpoint because declaring an endpoint a
+     * simulator is the same class of commissioning act as choosing its register
+     * map: both are engineer-only, both invalidate any running control loop, and
+     * both are refused once automatic control is live. */
+    cJSON *lab_item = cJSON_GetObjectItemCaseSensitive(json, "lab_target");
+    bool lab_requested = false;
+    bool lab_present = cJSON_IsBool(lab_item);
+    if (lab_item && !lab_present) {
+        cJSON_Delete(json);
+        return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST,
+                                   "lab_target must be true or false when present");
+    }
+    if (lab_present) lab_requested = cJSON_IsTrue(lab_item);
+
     esp_err_t err = inverter_profile_store_set(inverter_index, profile->id);
+    if (err == ESP_OK && lab_present) {
+        err = inverter_profile_store_lab_target_set(inverter_index, lab_requested);
+    }
     cJSON_Delete(json);
     if (err != ESP_OK) {
         return httpd_resp_send_err(request, HTTPD_500_INTERNAL_SERVER_ERROR,
                                    "Failed to save inverter profile assignment");
     }
+
+    /* Report the stored declaration, not the requested one, so the response
+     * cannot claim a state the controller did not persist. */
+    bool lab_target = false;
+    if (inverter_profile_store_lab_target_get(inverter_index, &lab_target) != ESP_OK) {
+        lab_target = false;
+    }
+    const inverter_write_permission_t permission =
+        inverter_profile_write_permission(profile, lab_target);
 
     cJSON *response = cJSON_CreateObject();
     if (!response) return httpd_resp_send_500(request);
@@ -250,6 +281,15 @@ static esp_err_t profile_assignment_post(httpd_req_t *request)
     cJSON_AddBoolToObject(response, "restart_required", true);
     cJSON_AddBoolToObject(response, "write_allowed_after_restart",
                           inverter_profile_allows_write(profile));
+    cJSON_AddBoolToObject(response, "lab_target", lab_target);
+    cJSON_AddStringToObject(response, "write_permission_after_restart",
+                            inverter_write_permission_label(permission));
+    if (permission == INVERTER_WRITE_LAB_ONLY) {
+        cJSON_AddStringToObject(response, "lab_target_notice",
+                                "This inverter is commandable only because its endpoint is "
+                                "declared a Modbus simulator. Commands are not production "
+                                "control and are not evidence about physical equipment.");
+    }
     return send_json(request, response);
 }
 

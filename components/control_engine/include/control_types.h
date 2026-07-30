@@ -54,6 +54,12 @@ typedef struct {
      * is read with control_engine_get_commissioning(); these fields exist so a
      * single status poll can say whether the plant is commissioned at all. */
     bool commissioned;
+    /* What a commissioned gate authorises: a commissioning_scope_t. LAB means at
+     * least one commanded inverter is a declared Modbus simulator, so nothing
+     * observed is evidence about physical equipment. Carried in the one-poll
+     * summary precisely so that no caller can report "commissioned" without also
+     * being able to report whether the target was real. */
+    uint8_t commissioning_scope;
     uint8_t commissioning_unmet_count;
     uint8_t commissioning_first_unmet;  /* commissioning_prereq_t */
 

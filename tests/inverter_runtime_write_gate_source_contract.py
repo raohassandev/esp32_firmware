@@ -15,7 +15,13 @@ PROFILES = (ROOT / "components/inverter_manager/inverter_profiles.c").read_text(
 REQUIRED = [
     '#include "inverter_profiles.h"',
     '#include "inverter_write_confirmation.h"',
-    'inverter_profile_allows_write',
+    # The runtime decides authority through the permission gate, which folds in
+    # the production predicate and the lab-simulator declaration. Asserting the
+    # old boolean alone would now pass while permitting an ungated write, so the
+    # gate itself is asserted here and its properties are executed by
+    # tests/inverter_write_permission_test.c.
+    'inverter_profile_write_permission',
+    'INVERTER_WRITE_FORBIDDEN',
     'write_allowed',
     'no online production-approved inverter profile is commandable',
     'runtime->data.online',

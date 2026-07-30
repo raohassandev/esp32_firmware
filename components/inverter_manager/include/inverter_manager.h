@@ -38,7 +38,18 @@ typedef struct {
     uint8_t write_qualified_count;
     /* Enabled inverters whose assigned profile carries a readback register. */
     uint8_t readback_capable_count;
-    /* Configured rated power summed over write-qualified enabled inverters. */
+    /* Enabled inverters commandable ONLY because an engineer declared their
+     * endpoint a simulator. These are counted separately from
+     * write_qualified_count and never added to it: a lab declaration is not a
+     * qualification, and conflating the two is how a lab result gets mistaken
+     * for evidence about physical equipment. */
+    uint8_t lab_only_count;
+    /* True when any commandable inverter is a declared lab target. Every layer
+     * above -- the commissioning gate, the status API, the UI -- must surface
+     * this so a lab run can never be read as production control. */
+    bool lab_mode;
+    /* Configured rated power summed over inverters this controller may actually
+     * command, whether by production qualification or lab declaration. */
     float commissioned_capacity_kw;
 } inverter_fleet_commissioning_t;
 

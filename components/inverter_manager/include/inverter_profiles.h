@@ -84,7 +84,43 @@ size_t inverter_profiles_count(void);
 const inverter_profile_t *inverter_profiles_get(size_t index);
 const inverter_profile_t *inverter_profiles_find(const char *id);
 bool inverter_profile_allows_read(const inverter_profile_t *profile);
+
+/* True only for a profile qualified to command physical equipment. Unchanged in
+ * meaning: a lab-target declaration never makes this true. */
 bool inverter_profile_allows_write(const inverter_profile_t *profile);
+
+/* How far a command may go. Ordered by increasing authority, and FORBIDDEN is
+ * zero so that a zeroed or uninitialised value denies the write. */
+typedef enum {
+    INVERTER_WRITE_FORBIDDEN = 0,
+    /* Permitted only because an engineer declared this endpoint a simulator.
+     * Never valid against physical equipment, and never a production release. */
+    INVERTER_WRITE_LAB_ONLY,
+    /* Permitted against physical equipment: the profile passed readback
+     * qualification on real hardware. */
+    INVERTER_WRITE_PRODUCTION
+} inverter_write_permission_t;
+
+/* Decides whether a power-limit command may be issued, and under what authority.
+ *
+ * A write requires a power-limit register AND its readback register in every
+ * case: a command that cannot be read back cannot be confirmed, and an
+ * unconfirmable command to a 100 kW machine is not a feature.
+ *
+ * PRODUCTION additionally requires a profile that is not simulator-only and has
+ * been qualified against physical hardware.
+ *
+ * LAB_ONLY requires the engineer's explicit per-inverter simulator declaration.
+ * It deliberately does not also require a high qualification level, because
+ * raising a documented register map to simulator-verified is precisely what lab
+ * testing is for -- demanding the qualification first would make it
+ * unobtainable. The declaration is the control, and it is a statement a human
+ * must make about physical reality.
+ *
+ * Returns FORBIDDEN for a NULL profile. */
+inverter_write_permission_t inverter_profile_write_permission(const inverter_profile_t *profile,
+                                                              bool declared_lab_target);
+const char *inverter_write_permission_label(inverter_write_permission_t permission);
 const char *inverter_profile_qualification_label(inverter_profile_qualification_t qualification);
 const char *inverter_profile_connection_label(inverter_profile_connection_t connection);
 bool inverter_profile_has_status_register(const inverter_profile_t *profile);

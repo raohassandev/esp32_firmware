@@ -33,6 +33,73 @@ static const inverter_profile_t PROFILES[] = {
         .telemetry_poll_ms = 1000,
         .telemetry_stale_timeout_ms = 5000,
     },
+    /*
+     * Contract for the SolTrix ESP firmware lab simulator (huawei-v3 profile),
+     * which models the Huawei SUN2000 register layout behind a closed-loop plant
+     * model. Every field below was measured against the running simulator, not
+     * copied from a manual and not copied from the older v1 entry, whose probe
+     * addresses (40000, 40010) this simulator does not implement at all.
+     *
+     * Measured 2026-07-30 against config.esp-firmware-lab.json, unit 1:
+     *   FC03 30000  -> "SUN2000-SIM"; first word 0x5355 ("SU") is the identity
+     *   FC03 32080  -> I32 watts, high word first (85102 = 85.102 kW)
+     *   FC03 32089  -> operating state; the simulator reports 0x0200 on grid
+     *   FC06 40125  -> percentage limit, raw = percent x 10
+     *   FC03 40125  -> readback of the ACTIVE limit, percent x 10
+     *
+     * IMPORTANT, and the reason this profile exists separately from any
+     * manufacturer entry: the simulator applies a 40125 write ~1500 ms LATER,
+     * and until then the readback still reports the previous active limit. A
+     * correct controller must therefore treat that window as pending rather than
+     * as a mismatch. Whether real SUN2000 hardware behaves the same way is NOT
+     * established here and must be confirmed on site.
+     *
+     * simulator_only stays true: this validates the controller's logic against a
+     * model, which is not evidence about physical equipment. It must never be
+     * promoted, and must never be used as a manufacturer register reference.
+     */
+    {
+        .id = "soltrix.sim.huawei.v3",
+        .manufacturer = "SolTrix Simulator",
+        .model_family = "Huawei SUN2000 layout, closed-loop plant model",
+        .protocol = "Modbus TCP simulator",
+        .connection = INVERTER_PROFILE_CONNECTION_MODBUS_TCP,
+        .qualification = INVERTER_PROFILE_QUALIFICATION_SIMULATOR_VERIFIED,
+        .manual_reference = "Measured against SolTrix inverter-simulator huawei-v3; "
+                            "not a manufacturer manual",
+        .simulator_only = true,
+        .has_identity_probe = true,
+        .identity_function = 3,
+        .identity_address = 30000,
+        .identity_words = 1,
+        /* First two characters of the model string, "SU". */
+        .identity_expected = 0x5355,
+        .identity_mask = 0xFFFF,
+        .has_active_power = true,
+        .active_power_function = 3,
+        .active_power_address = 32080,
+        .active_power_words = 2,
+        .active_power_type = INVERTER_VALUE_S32,
+        .active_power_word_order = INVERTER_WORD_ORDER_AB,
+        .active_power_scale = 0.001f,
+        .has_power_limit = true,
+        .power_limit_function = 6,
+        .power_limit_address = 40125,
+        .power_limit_words = 1,
+        .raw_units_per_percent = 10.0f,
+        .minimum_percent = 0.0f,
+        .maximum_percent = 100.0f,
+        .has_power_limit_readback = true,
+        .power_limit_readback_function = 3,
+        .power_limit_readback_address = 40125,
+        .power_limit_readback_words = 1,
+        .power_limit_readback_type = INVERTER_VALUE_S16,
+        .power_limit_readback_word_order = INVERTER_WORD_ORDER_AB,
+        .power_limit_readback_scale = 0.1f,
+        .readback_tolerance_percent = 0.2f,
+        .telemetry_poll_ms = 500,
+        .telemetry_stale_timeout_ms = 3000,
+    },
     {
         .id = "soltrix.sim.huawei.v1",
         .manufacturer = "SolTrix Simulator",
@@ -233,6 +300,29 @@ bool inverter_profile_allows_write(const inverter_profile_t *profile)
     return profile && !profile->simulator_only && profile->has_power_limit &&
            profile->has_power_limit_readback &&
            profile->qualification == INVERTER_PROFILE_QUALIFICATION_PRODUCTION_APPROVED;
+}
+
+inverter_write_permission_t inverter_profile_write_permission(const inverter_profile_t *profile,
+                                                              bool declared_lab_target)
+{
+    if (!profile) return INVERTER_WRITE_FORBIDDEN;
+    /* Confirmability is not negotiable in either mode: without a readback there
+     * is no way to tell a command that landed from one that was ignored. */
+    if (!profile->has_power_limit || !profile->has_power_limit_readback) {
+        return INVERTER_WRITE_FORBIDDEN;
+    }
+    if (inverter_profile_allows_write(profile)) return INVERTER_WRITE_PRODUCTION;
+    if (declared_lab_target) return INVERTER_WRITE_LAB_ONLY;
+    return INVERTER_WRITE_FORBIDDEN;
+}
+
+const char *inverter_write_permission_label(inverter_write_permission_t permission)
+{
+    switch (permission) {
+        case INVERTER_WRITE_PRODUCTION: return "production";
+        case INVERTER_WRITE_LAB_ONLY: return "lab_simulator_only";
+        case INVERTER_WRITE_FORBIDDEN: default: return "forbidden";
+    }
 }
 
 const char *inverter_profile_qualification_label(inverter_profile_qualification_t qualification)

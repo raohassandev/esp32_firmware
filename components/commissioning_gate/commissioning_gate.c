@@ -55,7 +55,16 @@ static commissioning_prereq_result_t evaluate_profiles(const commissioning_input
     if (in->enabled_inverter_count == 0U) {
         return unmet(COMMISSIONING_REASON_NO_ENABLED_INVERTER);
     }
-    if (in->write_qualified_inverter_count != in->enabled_inverter_count) {
+    /* Every enabled inverter must be commandable, by production qualification or
+     * by an explicit lab-simulator declaration. Summing the two counts is the
+     * only place they are combined, and it is done here rather than upstream so
+     * that the distinction survives into the reported result: the caller still
+     * sees how many are merely lab targets and reports LAB commissioning
+     * accordingly. Overflow is impossible -- both counts are bounded by the
+     * enabled count, which is itself bounded by APP_MAX_INVERTERS. */
+    const unsigned commandable =
+        (unsigned)in->write_qualified_inverter_count + (unsigned)in->lab_only_inverter_count;
+    if (commandable != (unsigned)in->enabled_inverter_count) {
         return unmet(COMMISSIONING_REASON_PROFILE_NOT_WRITE_QUALIFIED);
     }
     return met();
@@ -205,7 +214,27 @@ commissioning_status_t commissioning_gate_evaluate(const commissioning_inputs_t 
         }
     }
     status.commissioned = status.unmet_count == 0U;
+    /* Scope is decided by the weakest link, and only ever after the gate is
+     * otherwise satisfied. A single declared simulator anywhere in the commanded
+     * fleet makes the whole verdict LAB, because the plant's behaviour has then
+     * not been demonstrated against real equipment. */
+    if (!status.commissioned) {
+        status.scope = COMMISSIONING_SCOPE_NONE;
+    } else if (inputs->lab_only_inverter_count > 0U) {
+        status.scope = COMMISSIONING_SCOPE_LAB;
+    } else {
+        status.scope = COMMISSIONING_SCOPE_PRODUCTION;
+    }
     return status;
+}
+
+const char *commissioning_scope_label(commissioning_scope_t scope)
+{
+    switch (scope) {
+        case COMMISSIONING_SCOPE_PRODUCTION: return "production";
+        case COMMISSIONING_SCOPE_LAB: return "lab_simulator_only";
+        case COMMISSIONING_SCOPE_NONE: default: return "none";
+    }
 }
 
 static const char *const PREREQ_IDS[COMMISSIONING_PREREQ_COUNT] = {

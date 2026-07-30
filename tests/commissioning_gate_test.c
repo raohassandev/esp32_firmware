@@ -349,6 +349,65 @@ static void test_labels_are_complete_and_bounded(void)
     }
 }
 
+/* Lab-target declarations satisfy the profile prerequisite, but must never be
+ * reported as production commissioning. These execute the real evaluator. */
+static void test_lab_scope(void)
+{
+    /* A fully production-qualified fleet is PRODUCTION scope. */
+    commissioning_inputs_t in = good_inputs();
+    commissioning_status_t status = commissioning_gate_evaluate(&in);
+    assert(status.commissioned);
+    assert(status.scope == COMMISSIONING_SCOPE_PRODUCTION);
+
+    /* An entirely simulated fleet commissions, but only for the lab. */
+    in = good_inputs();
+    in.write_qualified_inverter_count = 0;
+    in.lab_only_inverter_count = in.enabled_inverter_count;
+    status = commissioning_gate_evaluate(&in);
+    assert(status.commissioned);
+    assert(status.scope == COMMISSIONING_SCOPE_LAB);
+
+    /* One simulator among production-qualified machines drags the whole verdict
+     * down to LAB. The weakest link decides. */
+    in = good_inputs();
+    in.write_qualified_inverter_count = (uint8_t)(in.enabled_inverter_count - 1);
+    in.lab_only_inverter_count = 1;
+    status = commissioning_gate_evaluate(&in);
+    assert(status.commissioned);
+    assert(status.scope == COMMISSIONING_SCOPE_LAB);
+
+    /* Counts that do not cover every enabled inverter still fail, whichever
+     * kind is short. */
+    in = good_inputs();
+    in.write_qualified_inverter_count = 1;
+    in.lab_only_inverter_count = 1; /* 2 of 3 */
+    status = commissioning_gate_evaluate(&in);
+    assert(!status.commissioned);
+    assert(status.scope == COMMISSIONING_SCOPE_NONE);
+
+    /* A lab declaration cannot substitute for a readback register: an
+     * unconfirmable command stays blocked even in the lab. */
+    in = good_inputs();
+    in.write_qualified_inverter_count = 0;
+    in.lab_only_inverter_count = in.enabled_inverter_count;
+    in.readback_capable_inverter_count = 0;
+    status = commissioning_gate_evaluate(&in);
+    assert(!status.commissioned);
+
+    /* An uncommissioned gate never authorises anything, and a zeroed status
+     * authorises nothing. */
+    commissioning_status_t zeroed;
+    memset(&zeroed, 0, sizeof(zeroed));
+    assert(zeroed.scope == COMMISSIONING_SCOPE_NONE);
+    assert(commissioning_gate_evaluate(NULL).scope == COMMISSIONING_SCOPE_NONE);
+
+    assert(strcmp(commissioning_scope_label(COMMISSIONING_SCOPE_NONE), "none") == 0);
+    assert(strcmp(commissioning_scope_label(COMMISSIONING_SCOPE_LAB), "lab_simulator_only") == 0);
+    assert(strcmp(commissioning_scope_label(COMMISSIONING_SCOPE_PRODUCTION), "production") == 0);
+    /* Out-of-range must not report production. */
+    assert(strcmp(commissioning_scope_label((commissioning_scope_t)99), "none") == 0);
+}
+
 int main(void)
 {
     test_zeroed_input_is_never_commissioned();
@@ -357,6 +416,7 @@ int main(void)
     test_each_unknown_group_closes_the_gate();
     test_meter_roles();
     test_partially_qualified_fleet_is_rejected();
+    test_lab_scope();
     test_missing_readback_blocks_commissioning();
     test_capacity();
     test_ramp_policy();

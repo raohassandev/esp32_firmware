@@ -95,6 +95,11 @@ typedef struct {
     /* Enabled inverters whose assigned profile passes the production write gate
      * (production-approved AND carrying a manual-verified readback register). */
     uint8_t write_qualified_inverter_count;
+    /* Enabled inverters commandable ONLY because an engineer declared their
+     * endpoint a Modbus simulator. Counted separately from the qualified count
+     * and never merged into it: this satisfies the gate for LAB commissioning
+     * only, and can never produce a production-commissioned verdict. */
+    uint8_t lab_only_inverter_count;
     /* Enabled inverters whose assigned profile carries a readback register. */
     uint8_t readback_capable_inverter_count;
     /* Sum of the configured rated power of write-qualified enabled inverters.
@@ -130,9 +135,27 @@ typedef struct {
     uint8_t reason; /* commissioning_reason_t */
 } commissioning_prereq_result_t;
 
+/* What a satisfied gate actually authorises. NONE is zero so a zeroed status
+ * authorises nothing. */
+typedef enum {
+    COMMISSIONING_SCOPE_NONE = 0,
+    /* Commandable only against declared Modbus simulators. Valid for lab
+     * validation; not evidence about physical equipment and never a production
+     * release. */
+    COMMISSIONING_SCOPE_LAB,
+    /* Every commanded inverter passed production write qualification. */
+    COMMISSIONING_SCOPE_PRODUCTION
+} commissioning_scope_t;
+
 typedef struct {
-    /* True only when every prerequisite is satisfied. */
+    /* True only when every prerequisite is satisfied. Says nothing about whether
+     * the target is real equipment -- read `scope` for that. */
     bool commissioned;
+    /* NONE unless commissioned. LAB whenever any commanded inverter is a
+     * declared simulator, even if every other inverter is production-qualified:
+     * the weakest link decides, because one simulated machine means the fleet's
+     * behaviour has not been demonstrated on real equipment. */
+    commissioning_scope_t scope;
     uint8_t satisfied_count;
     uint8_t unmet_count;
     /* Lowest-numbered unmet prerequisite; only meaningful when !commissioned. */
@@ -142,6 +165,9 @@ typedef struct {
 
 /* Evaluates the gate. A NULL input yields the fully fail-closed result. */
 commissioning_status_t commissioning_gate_evaluate(const commissioning_inputs_t *inputs);
+
+/* Stable lowercase slug for a commissioning scope, for the API and logs. */
+const char *commissioning_scope_label(commissioning_scope_t scope);
 
 /* Stable lowercase slug used as the API key for a prerequisite. */
 const char *commissioning_prereq_id(uint8_t prereq);

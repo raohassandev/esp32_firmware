@@ -50,6 +50,19 @@ static esp_err_t gate_get(httpd_req_t *request)
 
     cJSON_AddBoolToObject(root, "modbus_io_in_http_handler", false);
     cJSON_AddBoolToObject(root, "commissioned", status.commissioned);
+    /* Scope travels with the verdict. "commissioned": true on its own is not a
+     * meaningful answer -- it does not say whether the plant behind it is real. */
+    cJSON_AddStringToObject(root, "scope", commissioning_scope_label(status.scope));
+    cJSON_AddBoolToObject(root, "lab_simulator_mode",
+                          status.scope == COMMISSIONING_SCOPE_LAB);
+    cJSON_AddBoolToObject(root, "production_qualified",
+                          status.scope == COMMISSIONING_SCOPE_PRODUCTION);
+    if (status.scope == COMMISSIONING_SCOPE_LAB) {
+        cJSON_AddStringToObject(root, "scope_notice",
+                                "Commissioned for lab validation only: at least one commanded "
+                                "inverter is a declared Modbus simulator. Physical readback "
+                                "qualification on real equipment has not been performed.");
+    }
     cJSON_AddNumberToObject(root, "prerequisite_count", COMMISSIONING_PREREQ_COUNT);
     cJSON_AddNumberToObject(root, "satisfied_count", status.satisfied_count);
     cJSON_AddNumberToObject(root, "unmet_count", status.unmet_count);

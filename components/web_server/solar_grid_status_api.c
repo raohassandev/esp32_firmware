@@ -76,6 +76,22 @@ static esp_err_t status_get(httpd_req_t *request)
      * has to guess why control is inhibited. The per-prerequisite detail lives
      * at /api/commissioning/gate. */
     cJSON_AddBoolToObject(root, "commissioned", status.commissioned);
+    /* Always published alongside `commissioned`, never conditionally: a client
+     * that reads one must be able to read the other, or "commissioned" will be
+     * shown for a plant made entirely of simulators. */
+    cJSON_AddStringToObject(root, "commissioning_scope",
+                            commissioning_scope_label(
+                                (commissioning_scope_t)status.commissioning_scope));
+    const bool lab_only = (commissioning_scope_t)status.commissioning_scope ==
+                          COMMISSIONING_SCOPE_LAB;
+    cJSON_AddBoolToObject(root, "lab_simulator_mode", lab_only);
+    if (lab_only) {
+        cJSON_AddStringToObject(root, "lab_simulator_notice",
+                                "At least one commanded inverter is a declared Modbus "
+                                "simulator. This is lab validation, not production control, "
+                                "and nothing observed here is evidence about physical "
+                                "equipment.");
+    }
     cJSON_AddNumberToObject(root, "commissioning_unmet_count",
                             status.commissioning_unmet_count);
     cJSON_AddStringToObject(root, "commissioning_first_unmet",

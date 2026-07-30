@@ -190,6 +190,16 @@ jobs:
         run: python3 tests/alarm_journal_shelving_source_contract.py
       - name: Check HTTP route capacity leads the registered routes
         run: python3 tests/uri_handler_capacity_source_contract.py
+      - name: Run inverter write permission unit tests
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -Wall -Wextra -Werror \
+            -Itests/support -Icomponents/inverter_manager/include \
+            tests/inverter_write_permission_test.c \
+            components/inverter_manager/inverter_profiles.c \
+            components/inverter_manager/inverter_status.c \
+            -lm -o /tmp/inverter_write_permission_test
+          /tmp/inverter_write_permission_test
       - name: Check complete operator product suite
         run: python3 tests/operator_product_suite_source_contract.py
       - name: Check pre-lab readiness workspace
