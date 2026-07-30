@@ -230,10 +230,93 @@ static const inverter_profile_t PROFILES[] = {
         .model_family = "SUN2000 family",
         .protocol = "Modbus",
         .connection = INVERTER_PROFILE_CONNECTION_LOGGER_GATEWAY,
+        /* DOCUMENTED, not qualified. Every field below is transcribed from the
+         * manufacturer manual and NONE of it has been exercised against physical
+         * hardware, so the production write gate still refuses this profile. It
+         * becomes commandable only against an endpoint an engineer has declared a
+         * simulator, which is how the map gets validated before anyone travels.
+         * Raising this profile to production approval requires physical readback
+         * evidence from the machine itself.
+         *
+         * Source: "Huawei Inverter Modbus Interface Definitions (V3.0)",
+         * Issue 01 (2023-01-17).
+         *
+         * Addressing: the manual's decimal addresses are the raw on-the-wire
+         * register addresses, not 1-based tag numbers. It states a command
+         * "register address: 40200/0X9D08", and 0x9D08 == 40200, so the decimal
+         * values are used directly with no offset. This is the trap that has bitten
+         * this project before, and it is settled by that line.
+         *
+         * Register 1 "Model", RO STR, 30000, 15 registers ("Nameplate name of
+         * machine"). The identity probe reads the first word only: "SU" = 0x5355,
+         * the start of every SUN2000 nameplate.
+         *
+         * Signal 171 "active power", RO I32, unit kW, gain 1000, 32080, 2
+         * registers. Gain 1000 means raw watts, hence scale 0.001.
+         *
+         * Signal 409 "Active Power Percentage Derating [Low Precision]", RW I16,
+         * unit %, gain 10, 40125, 1 register, described as the "Active fine
+         * adjustment interface". Used here as the command register because it is
+         * the conventional third-party derating interface.
+         *
+         * NOT YET DECIDED, and a site-verification item: signal 419 "Active Power
+         * Percentage Control [Low Precision]", RW I16, %, gain 10, 40199, is
+         * described by Huawei as the interface "used in distributed mode ... in
+         * anti-backcurrent control to control the upper limit of the output active
+         * power". Anti-backcurrent is exactly this product's application, so 40199
+         * may be the more correct register. Both encode percent x10. The lab
+         * simulator applies 40125 with a delay and 40199 immediately, which hints
+         * that 40199 is the control-rate interface, but a hint from a model is not
+         * evidence. Confirm on the physical machine before promoting either.
+         *
+         * Signal 432 "active power gradient", RW U32, unit %/s, gain 1000, 42017,
+         * 2 registers, "Limiting the speed of power change". The inverter has its
+         * own ramp limiter; this firmware ramps in the control engine and does not
+         * write it. Worth reconciling on site so the two do not fight.
+         *
+         * Signal 178 "Device Status", RO E16, at 32089, 1 register. The manual
+         * defers the code table to a separate "Inverter Key Signal Extension
+         * Description" that is NOT among the manuals available, so the meaning of
+         * the codes is unknown and no operating-state description is set here.
+         * Every inverter therefore reports INVERTER_STATE_UNKNOWN rather than a
+         * guessed state.
+         *
+         * No settle or response time for a percentage command is documented
+         * anywhere in this manual, so power_limit_settle_ms is left at the
+         * firmware default and MUST be measured during commissioning. */
         .qualification = INVERTER_PROFILE_QUALIFICATION_DOCUMENTED,
-        .manual_reference = "SolTrix/Manuals — exact model/manual revision extraction pending",
+        .manual_reference = "Huawei Inverter Modbus Interface Definitions (V3.0), "
+                            "Issue 01 (2023-01-17); not qualified on hardware",
+        .has_identity_probe = true,
+        .identity_function = 3,
+        .identity_address = 30000,
+        .identity_words = 1,
+        .identity_expected = 0x5355, /* "SU" */
+        .identity_mask = 0xFFFF,
+        .has_active_power = true,
+        .active_power_function = 3,
+        .active_power_address = 32080,
+        .active_power_words = 2,
+        .active_power_type = INVERTER_VALUE_S32,
+        .active_power_word_order = INVERTER_WORD_ORDER_AB,
+        .active_power_scale = 0.001f,
+        .has_power_limit = true,
+        .power_limit_function = 6,
+        .power_limit_address = 40125,
+        .power_limit_words = 1,
+        .raw_units_per_percent = 10.0f,
         .minimum_percent = 0.0f,
         .maximum_percent = 100.0f,
+        .has_power_limit_readback = true,
+        .power_limit_readback_function = 3,
+        .power_limit_readback_address = 40125,
+        .power_limit_readback_words = 1,
+        .power_limit_readback_type = INVERTER_VALUE_S16,
+        .power_limit_readback_word_order = INVERTER_WORD_ORDER_AB,
+        .power_limit_readback_scale = 0.1f,
+        .readback_tolerance_percent = 0.2f,
+        .telemetry_poll_ms = 500,
+        .telemetry_stale_timeout_ms = 3000,
     },
     {
         .id = "goodwe.commercial.pending",

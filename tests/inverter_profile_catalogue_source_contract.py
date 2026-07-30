@@ -47,9 +47,30 @@ for profile_id in [
     require(profile_id in SOURCE, f"{profile_id} picker entry missing")
     start = SOURCE.index(f'.id = "{profile_id}"')
     block = SOURCE[start:SOURCE.find("    },", start)]
-    require(".has_power_limit = true" not in block,
-            f"{profile_id} must stay write-locked until manual extraction and qualification")
+
+    # A manufacturer profile must never be production-approved without physical
+    # readback evidence. This, not the absence of a register address, is what
+    # keeps unqualified equipment safe: inverter_profile_allows_write() requires
+    # PRODUCTION_APPROVED, and tests/inverter_write_permission_test.c EXECUTES the
+    # gate over this whole catalogue and asserts that no shipped profile can
+    # command production.
     require("PRODUCTION_APPROVED" not in block,
             f"{profile_id} must not claim production approval")
+
+    # Register addresses transcribed from a manual are permitted -- validating a
+    # documented map against a declared simulator is how it gets qualified before
+    # anyone travels to site. Two conditions make that safe:
+    if ".has_power_limit = true" in block:
+        # A command register is useless and dangerous without a readback: an
+        # unconfirmable setpoint on real equipment must never be possible.
+        require(".has_power_limit_readback = true" in block,
+                f"{profile_id} declares a command register but no readback register; "
+                "a command that cannot be confirmed must not be issuable")
+        # And the map must cite the document it came from, so a reviewer can check
+        # it rather than trust it.
+        require(".manual_reference" in block and "pending" not in
+                block.split(".manual_reference", 1)[1].split(",", 1)[0],
+                f"{profile_id} carries register addresses but no concrete manual "
+                "reference; transcribed values must be attributable")
 
 print("Inverter profile catalogue safety contract passed")
