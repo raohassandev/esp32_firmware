@@ -97,6 +97,39 @@
     --quality-unavailable: var(--muted-2);
     --quality-gap: var(--bad);
 
+    /* Lab simulator mode. A separate hue from every status colour on purpose:
+       "commanding a declared simulator" is not a severity, and painting it
+       yellow or red would put it into the alarm vocabulary where an operator
+       would read it as a fault that can be cleared. It cannot be cleared - it
+       is what the controller is currently authorised to do. Declared in full in
+       both themes; a token defined in one theme only is exactly how this
+       codebase produced 1.10:1 and 1.17:1 text twice.
+       Measured against --lab-surface: text 13.16:1, muted 9.25:1, boundary
+       4.94:1 (and 6.01:1 against the page background it butts onto). */
+    --lab-surface: #2c1b45;
+    --lab-line: #a77fd8;
+    --lab-text: #f2e8ff;
+    --lab-muted: #d3bff0;
+    --lab-pill-surface: #4a2d70;
+    --lab-pill-text: #f2e8ff;
+
+    /* Setpoint write confirmation and the commissioning gate. Both panels set
+       --confirm-surface explicitly rather than inheriting the .panel gradient,
+       so the contrast arithmetic in tests/lab_control_ui_source_contract.py is
+       exact rather than approximate.
+       Measured against --confirm-surface: confirmed 9.42:1, pending 8.24:1,
+       mismatched 6.67:1, unverified 8.54:1, gate-unmet 11.13:1,
+       boundary 3.94:1. --muted-2 reaches only 4.39:1 here and is therefore not
+       used for text inside these panels. */
+    --confirm-surface: #0d1f34;
+    --confirm-confirmed: #4ddb96;
+    --confirm-pending: #79bdf5;
+    --confirm-mismatched: #ff7b84;
+    --confirm-unverified: #a9bccf;
+    --gate-met: #4ddb96;
+    --gate-unmet: #f6cf6a;
+    --gate-boundary: #5b7ea6;
+
     /* Page widths by page type, set from the route table in app.js. Operational
        screens are read across; forms and guided workflows are read down a
        column and get worse, not better, when stretched to 1550px. */
@@ -293,6 +326,7 @@ input:disabled, select:disabled, textarea:disabled {
 .toast { padding: 12px 14px; border: 1px solid var(--line); border-radius: 11px; color: var(--text); background: var(--surface-overlay); box-shadow: var(--shadow); font-size: 12px; animation: toast-in 180ms ease; }
 .toast.good { border-color: rgba(67, 209, 139, 0.35); }
 .toast.bad { border-color: rgba(255, 107, 116, 0.35); }
+.toast.warning { border-color: var(--gate-unmet); }
 @keyframes toast-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
 .good-text { color: var(--green) !important; }
@@ -424,6 +458,177 @@ input:disabled, select:disabled, textarea:disabled {
 @media (max-width: 900px) {
     .engineering-session-banner { padding: 12px 18px; }
     .esb-timer { justify-items: start; }
+}
+
+/* ====================================================== lab simulator banner
+ *
+ * Present on every route while the controller reports lab_simulator_mode. It
+ * sits in the shell above the routed content, so there is no page a user can be
+ * on where "commands are going to a declared simulator" is not on screen.
+ *
+ * Every colour resolves through a token declared in BOTH themes. The measured
+ * ratios are recorded next to the token declarations in :root and in theme.css.
+ * The left rule is 5px rather than the session banner's 4px so the two banners
+ * are distinguishable at a glance when both are present. */
+.lab-simulator-banner {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 18px;
+    align-items: center;
+    padding: 13px 28px;
+    border-bottom: 1px solid var(--lab-line);
+    border-left: 5px solid var(--lab-line);
+    color: var(--lab-text);
+    background: var(--lab-surface);
+}
+.lab-simulator-banner[hidden] { display: none; }
+.lsb-mark { font-size: 22px; line-height: 1; }
+.lsb-copy { display: grid; gap: 4px; min-width: 240px; flex: 1 1 380px; }
+/* 15px and 800 weight: this is the sentence that must not be missed, and it is
+ * held to the 4.5:1 body-text threshold rather than the 3:1 large-text one. */
+.lsb-copy strong { color: var(--lab-text); font-size: 15px; font-weight: 800; line-height: 1.35; }
+.lsb-copy span { color: var(--lab-muted); font-size: 12px; line-height: 1.5; }
+/* The controller's own wording. Hidden until it arrives rather than filled with
+ * a placeholder, so an empty line never reads as a notice the firmware gave. */
+.lsb-notice { padding-top: 4px; border-top: 1px solid var(--lab-line); }
+.lsb-notice[hidden] { display: none; }
+.lsb-scope { display: grid; gap: 3px; justify-items: end; min-width: 170px; }
+.lsb-scope-label {
+    color: var(--lab-muted);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+/* The firmware's scope slug, verbatim, in a monospace-ish tabular treatment so
+ * it reads as a value the controller published rather than prose. */
+.lsb-scope strong {
+    padding: 4px 10px;
+    border: 1px solid var(--lab-line);
+    border-radius: 999px;
+    color: var(--lab-pill-text);
+    background: var(--lab-pill-surface);
+    font-size: 13px;
+    font-weight: 800;
+    overflow-wrap: anywhere;
+}
+
+@media (max-width: 900px) {
+    .lab-simulator-banner { padding: 13px 18px; }
+    .lsb-scope { justify-items: start; }
+}
+
+/* ============================================ commissioning gate and confirmation
+ *
+ * Both panels set their own surface so the token contrast arithmetic is exact.
+ * Neither uses --muted-2 for text: it reaches 4.39:1 dark and 3.56:1 light on
+ * --confirm-surface, which is below AA for text under 18px. */
+.gate-panel, .confirm-panel, .lab-target-panel {
+    margin-top: 14px;
+    border-color: var(--gate-boundary);
+    background: var(--confirm-surface);
+}
+.gate-authority { display: grid; gap: 0; }
+.gate-authority-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 18px;
+    align-items: baseline;
+    padding: 11px 0;
+    border-bottom: 1px solid var(--gate-boundary);
+}
+.gate-authority-row:last-child { border-bottom: 0; }
+.gate-authority-row span { color: var(--muted); font-size: 12px; }
+.gate-authority-row strong { max-width: 62%; color: var(--text); font-size: 12px; text-align: right; word-break: break-word; }
+.gate-summary, .confirm-lead { margin: 13px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.gate-message, .confirm-message { min-height: 16px; margin: 12px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.gate-message.bad, .confirm-message.bad { color: var(--confirm-mismatched); }
+
+.gate-checklist { display: grid; gap: 8px; margin: 14px 0 0; padding: 0; list-style: none; }
+/* State is carried by the word, the marker glyph AND the colour - never colour
+ * alone. A satisfied and an unmet row differ in all three. */
+.gate-item {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr);
+    gap: 4px 10px;
+    padding: 11px 13px;
+    border: 1px solid var(--gate-boundary);
+    border-radius: 11px;
+}
+.gate-item-mark { grid-row: 1 / span 3; font-size: 15px; font-weight: 900; line-height: 1.3; }
+.gate-item-title { color: var(--text); font-size: 13px; font-weight: 750; }
+.gate-item-state { font-size: 11px; font-weight: 850; letter-spacing: 0.07em; text-transform: uppercase; }
+.gate-item-detail { color: var(--muted); font-size: 11px; line-height: 1.5; }
+.gate-item-reason { color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.gate-item.met { border-color: var(--gate-met); }
+.gate-item.met .gate-item-mark, .gate-item.met .gate-item-state { color: var(--gate-met); }
+/* Unmet is outstanding commissioning work, not a fault, so it takes the
+ * workflow-blocked treatment and a heavier rule rather than the fault colour. */
+.gate-item.unmet { border-color: var(--gate-unmet); border-left-width: 4px; }
+.gate-item.unmet .gate-item-mark, .gate-item.unmet .gate-item-state { color: var(--gate-unmet); }
+
+.confirm-legend { display: grid; gap: 6px; margin-top: 13px; }
+.confirm-legend-item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 9px; align-items: baseline; font-size: 11px; line-height: 1.5; }
+.confirm-legend-item small { color: var(--muted); }
+.confirm-list { display: grid; gap: 10px; margin-top: 14px; }
+.confirm-row { padding: 13px; border: 1px solid var(--gate-boundary); border-radius: 12px; }
+.confirm-row-head { display: flex; flex-wrap: wrap; gap: 9px; justify-content: space-between; align-items: center; }
+.confirm-row-title { color: var(--text); font-size: 13px; font-weight: 800; }
+/* The state pill's own colour is its border and its text; the background stays
+ * --confirm-surface so the measured ratio is the one that applies. */
+.confirm-state-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 30px;
+    padding: 0 11px;
+    border: 1px solid var(--gate-boundary);
+    border-radius: 999px;
+    background: transparent;
+    font-size: 12px;
+    font-weight: 850;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+}
+.confirm-state-confirmed { color: var(--confirm-confirmed); border-color: var(--confirm-confirmed); }
+/* A fault. Heavier rule as well as the fault colour. */
+.confirm-state-mismatched { color: var(--confirm-mismatched); border-color: var(--confirm-mismatched); border-width: 2px; }
+/* Accepted, not confirmed. Deliberately NOT the success colour and not a solid
+ * fill: a filled green pill is how "the transport took it" becomes "it worked". */
+.confirm-state-pending { color: var(--confirm-pending); border-color: var(--confirm-pending); }
+/* Confirmation is impossible. Dashed, as elsewhere in this application for
+ * "not measured" - neither success nor failure, and never dimmed to the point
+ * of reading as resolved. */
+.confirm-state-unverified { color: var(--confirm-unverified); border-color: var(--confirm-unverified); border-style: dashed; }
+.confirm-row.state-mismatched { border-color: var(--confirm-mismatched); border-left-width: 4px; }
+.confirm-row.state-unverified { border-style: dashed; }
+.confirm-row-meaning { margin: 9px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+/* Requested and confirmed are two columns of one grid and are never combined
+ * into a single figure: on a controller that writes power limits, "45%" with no
+ * statement of whether that is what was asked or what came back is the defect. */
+.confirm-values { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 11px; }
+.confirm-value { padding: 9px 11px; border: 1px solid var(--gate-boundary); border-radius: 10px; }
+.confirm-value span { display: block; margin-bottom: 4px; color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: 0.07em; text-transform: uppercase; }
+.confirm-value strong { color: var(--text); font-size: 16px; font-variant-numeric: tabular-nums; }
+.confirm-value small { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.confirm-counters { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+
+/* -------------------------------------------------------- lab target control */
+.lab-consequence { border-color: var(--confirm-mismatched); }
+.lab-consequence-item { display: block; margin-top: 5px; }
+.lab-consequence-item:first-child { margin-top: 0; }
+.lab-target-ack { margin-top: 14px; min-height: 44px; }
+.lab-target-caveat { margin: 12px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.lab-target-panel .button { min-height: 44px; min-width: 44px; }
+.lab-target-result { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr); gap: 8px 14px; margin: 14px 0 0; padding: 13px; border: 1px solid var(--gate-boundary); border-radius: 12px; }
+.lab-target-result[hidden] { display: none; }
+.lab-target-result dt { color: var(--muted); font-size: 11px; font-weight: 750; }
+.lab-target-result dd { margin: 0; color: var(--text); font-size: 11px; line-height: 1.55; overflow-wrap: anywhere; }
+
+@media (max-width: 650px) {
+    .confirm-values { grid-template-columns: 1fr; }
+    .lab-target-result { grid-template-columns: 1fr; }
+    .lab-target-result dt { margin-top: 6px; }
 }
 
 /* Measurement provenance: source, age and quality shown with every live value.

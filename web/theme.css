@@ -52,6 +52,29 @@ html[data-theme="light"] {
     --chart-axis: #7089a0;
     --chart-tick: #46596d;
     --nav-group-text: #4f6274;
+
+    /* Light counterparts for the lab-simulator banner and the confirmation /
+       commissioning-gate panels. Measured against --lab-surface: text 13.89:1,
+       muted 9.39:1, boundary 6.28:1 (6.61:1 against the light page background).
+       Measured against --confirm-surface: confirmed 6.56:1, pending 7.23:1,
+       mismatched 6.61:1, unverified 6.19:1, gate-unmet 6.11:1,
+       boundary 3.72:1. --muted-2 reaches only 3.56:1 on --confirm-surface and
+       is therefore not used for text inside these panels. */
+    --lab-surface: #f2e9fd;
+    --lab-line: #6b3fa0;
+    --lab-text: #2a1348;
+    --lab-muted: #4a2d70;
+    --lab-pill-surface: #4a2d70;
+    --lab-pill-text: #f7f2ff;
+
+    --confirm-surface: #f4f8fc;
+    --confirm-confirmed: #14663f;
+    --confirm-pending: #12558f;
+    --confirm-mismatched: #a52a33;
+    --confirm-unverified: #4a5f74;
+    --gate-met: #14663f;
+    --gate-unmet: #7a5800;
+    --gate-boundary: #6c8299;
 }
 
 html[data-theme="light"] body {
