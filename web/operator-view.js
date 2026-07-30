@@ -200,13 +200,22 @@
         return state.attentionHost;
     }
 
+    /* An unmeasured quantity draws NO value arc and reads "—". It used to fall
+     * back to Number(value) || 0, which drew the needle hard against the bottom
+     * of the scale - visually identical to a genuine zero. On a controller whose
+     * purpose is preventing reverse power, "nothing is measuring this" and "this
+     * is zero" are the two readings that must never look alike. */
     function gauge(value, max, title, unit, tone = 'good') {
+        const known = finite(value);
         const safeMax = Math.max(1, Number(max) || 1);
-        const ratio = clamp((Math.abs(Number(value) || 0) / safeMax) * 100, 0, 100);
+        const ratio = known ? clamp((Math.abs(Number(value)) / safeMax) * 100, 0, 100) : 0;
         const circumference = 251.2;
         const offset = circumference - (circumference * ratio / 100);
-        const wrap = node('div', `op-gauge ${tone}`);
-        wrap.innerHTML = `<svg viewBox="0 0 120 72" role="img" aria-label="${title}"><path class="op-gauge-track" d="M18 62a42 42 0 0 1 84 0"/><path class="op-gauge-value" style="stroke-dashoffset:${offset}" d="M18 62a42 42 0 0 1 84 0"/></svg><div class="op-gauge-copy"><span>${title}</span><strong>${finite(value) ? Math.abs(Number(value)).toFixed(Math.abs(Number(value)) >= 100 ? 1 : 2) : '—'}</strong><small>${unit}</small></div>`;
+        const wrap = node('div', `op-gauge ${tone}${known ? '' : ' op-gauge-unmeasured'}`);
+        const value_arc = known
+            ? `<path class="op-gauge-value" style="stroke-dashoffset:${offset}" d="M18 62a42 42 0 0 1 84 0"/>`
+            : '';
+        wrap.innerHTML = `<svg viewBox="0 0 120 72" role="img" aria-label="${title}"><path class="op-gauge-track" d="M18 62a42 42 0 0 1 84 0"/>${value_arc}</svg><div class="op-gauge-copy"><span>${title}</span><strong>${known ? Math.abs(Number(value)).toFixed(Math.abs(Number(value)) >= 100 ? 1 : 2) : '—'}</strong><small>${known ? unit : 'Not measured'}</small></div>`;
         return wrap;
     }
 
