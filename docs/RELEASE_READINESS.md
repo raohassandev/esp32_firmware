@@ -31,6 +31,7 @@ can ever obtain today.
 | SolTrix Simulator | `soltrix.sim.goodwe.v1` | Simulator verified | lab only | — |
 | SolTrix Simulator | `soltrix.sim.solis.v1` | Simulator verified | lab only | — |
 | **Huawei** | `huawei.sun2000.pending` | Documented | **lab only** | commandable in lab; see §1.2 |
+| **Huawei (plant, via SmartLogger)** | `huawei.smartlogger.plant` | Documented | **lab only** | plant command at `40428` confirmed on **measured** power at `40525`, never on the stored-command echo; nothing exercised against a physical logger (§1.3) |
 | GoodWe | `goodwe.commercial.pending` | Documented | forbidden | command/readback at 42407 transcribed, but the register is **flash-backed** with no documented write rate (see §1.2) |
 | Solis | `solis.commercial.pending` | Documented | lab only | prerequisite enable at PDU 3069 is now described and **verified by readback** before any command (§1.2) |
 | Growatt | `growatt.tl3x.documented` | Documented | forbidden | power-on write lock (§1.2) |
@@ -92,20 +93,42 @@ register 42019, where a non-zero schedule-validity period makes a commanded limi
 means something else owns plant scheduling. **The hazard is identical if the step
 is skipped, and the controller cannot detect it.**
 
-### 1.3 Plant-level control at the logger: evaluated, not implemented
+### 1.3 Plant-level control at the logger: implemented, on measured power
 
-The SmartLogger analysis recommends commanding the plant at the logger (`40428`,
-RW U16, percent × 10) rather than per inverter: one write instead of N behind a
-documented ≥1 s interval, and it avoids a register collision where `42017` is
-`SystemTime: year` on the logger but `active power gradient` on an inverter.
+Commanding the plant at the logger (`40428`, RW U16, percent x10) rather than per
+inverter is one write instead of N behind a documented >=1 s interval, and it avoids
+a register collision where `42017` is `SystemTime: year` on the logger but
+`active power gradient` on an inverter.
 
-It is **deliberately not implemented yet**, because reading `40428` back returns
-**the value the logger stored, not the plant's achieved state**, and an
-undocumented "Adjustment coefficient" means a commanded 80 % need not deliver
-80 %. A profile pointing its readback at `40428` would report `confirmed` on the
-strength of an echo — the identical defect described in §1.2. Logger-level control
-first needs confirmation to close on **measured** plant power (`40525`), which the
-profile structure cannot currently express.
+It was previously refused because reading `40428` back returns **the value the logger
+stored, not the plant's achieved state**, and an undocumented "Adjustment
+coefficient" means a commanded 80 % need not deliver 80 %. Confirming on that echo
+would report `confirmed` for a limit that is not in force.
+
+**Confirmation can now close on measured plant power** (`40525`, RO I32, raw watts),
+and the honest part is what it refuses to claim:
+
+| Situation | Verdict |
+|---|---|
+| Output was **above** the new limit before the command, at or below it after | **confirmed** — the limit is demonstrated |
+| Output **above** the limit past the settle window | **mismatched** + safe-zero. Unambiguous: no change in irradiance can lift a plant above a limit in force |
+| Output below the limit, but it was **already** below beforehand | **unverified** — equally consistent with the limit working and with the sun going in |
+| No pre-command baseline (e.g. after a restart) | **unverified** |
+| A commanded 100 % | **unverified, permanently** — the baseline can never be above it |
+
+Verified independently of the implementation: a cloudy plant whose setpoint echo
+matches perfectly is correctly **not** confirmed, which is the exact trap this
+mechanism exists to avoid.
+
+Two consequences to be aware of. The ambiguous verdict deliberately does **not**
+demand a safe-zero — doing so would drive PV to zero every time irradiance dipped
+below the commanded limit, most of a working day — so escalation waits for the next
+sample. And under ambiguity no commanded value advances, so the control engine sees
+no confirmed command, which is honest rather than convenient.
+
+A demonstrated limit still says only that output is at or below what was asked. It
+says **nothing** about the Adjustment coefficient, which has no register and is
+invisible to a Modbus client.
 
 Full evidence and citations: `docs/SMARTLOGGER_PATH_ANALYSIS.md`.
 
