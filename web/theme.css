@@ -25,7 +25,7 @@ html[data-theme="light"] {
     --green: #18784d;
     --yellow: #8d6800;
     --red: #b8323b;
-    --shadow: 0 14px 36px rgba(31, 55, 78, 0.09);
+    --shadow: 0 1px 2px rgba(31, 55, 78, 0.14);
 
     /* Light counterparts for the semantic surface tokens declared in app.css.
        Without these, hardcoded dark hex left var(--text) sitting on a navy
@@ -45,18 +45,16 @@ html[data-theme="light"] {
     --action-solid-text: #ffffff;
 }
 
-html[data-theme="light"] body {
-    background: radial-gradient(circle at 80% 0%, rgba(76, 167, 255, 0.1), transparent 30%), var(--bg);
-}
+/* Decorative gradients, glows and blur washes removed throughout: they cost
+   bytes, blur panel edges into each other and add visual noise that competes
+   with the one thing colour is reserved for here - abnormal conditions. */
+html[data-theme="light"] body { background: var(--bg); }
 
-html[data-theme="light"] .sidebar {
-    background: linear-gradient(180deg, #ffffff 0%, #f5f8fb 100%);
-    box-shadow: 10px 0 34px rgba(39, 65, 95, 0.08);
-}
+html[data-theme="light"] .sidebar { background: var(--sidebar); }
 
 html[data-theme="light"] .topbar {
-    border-bottom-color: rgba(183, 197, 212, 0.9);
-    background: rgba(244, 247, 251, 0.94);
+    border-bottom-color: var(--line-soft);
+    background: var(--bg);
 }
 
 html[data-theme="light"] .status-strip { background: var(--surface-sunken); }
@@ -65,11 +63,7 @@ html[data-theme="light"] .metric-card,
 html[data-theme="light"] .panel,
 html[data-theme="light"] .device-runtime-card {
     color: var(--text);
-    background: linear-gradient(180deg, #ffffff, #f8fafc);
-}
-
-html[data-theme="light"] .metric-card.emphasis {
-    background: linear-gradient(160deg, rgba(242, 138, 43, 0.13), #ffffff 48%);
+    background: var(--panel);
 }
 
 html[data-theme="light"] .flow-node,
@@ -100,19 +94,23 @@ html[data-theme="light"] textarea {
     background: var(--field);
 }
 
-html[data-theme="light"] .notice,
+/* :not(.danger) so the danger notice keeps the tint app.css gives it - a
+   plain .notice selector here outranks .notice.danger and would strip it. */
+html[data-theme="light"] .notice:not(.danger),
 html[data-theme="light"] .device-empty,
 html[data-theme="light"] .em500-table-wrap {
-    background: rgba(255, 255, 255, 0.72);
+    background: var(--panel);
 }
 
-.theme-toggle-button { font-size: 19px; line-height: 1; }
+.theme-toggle-button { font-size: 18px; line-height: 1; }
 
-/* Desktop density and long commissioning pages */
+/* Desktop density and long commissioning pages. The sticky offsets track the
+   topbar height; they were 82/92px against the old 78px bar and are now 68/80
+   against a 64px bar, so no strip of content scrolls in the gap below it. */
 .content { max-width: 1480px; }
 .em500-workspace { align-content: start; }
-.em500-panel { scroll-margin-top: 92px; }
-.em500-tabs { position: sticky; top: 82px; z-index: 8; }
+.em500-panel { scroll-margin-top: 80px; }
+.em500-tabs { position: sticky; top: 68px; z-index: 8; }
 .device-runtime-card, .panel, .metric-card { min-width: 0; }
 
 @media (max-width: 1200px) {
@@ -124,32 +122,32 @@ html[data-theme="light"] .em500-table-wrap {
 }
 
 @media (max-width: 860px) {
-    .sidebar { width: 230px; transform: translateX(-100%); transition: transform 180ms ease; }
+    .sidebar { width: 240px; transform: translateX(-100%); transition: transform 180ms ease; }
     .workspace { margin-left: 0; }
     body.menu-open .sidebar { transform: translateX(0); }
     .menu-button { display: inline-grid; place-items: center; }
     .topbar { padding-inline: 16px; }
-    .content { padding: 18px 16px 30px; }
+    .content { padding: 16px 16px 32px; }
     .status-strip { grid-template-columns: repeat(3, minmax(150px, 1fr)); }
-    .em500-tabs { top: 76px; }
+    .em500-tabs { top: 64px; }
 }
 
 @media (max-width: 620px) {
-    .topbar { min-height: 68px; gap: 9px; padding: 10px 12px; }
+    .topbar { min-height: 56px; gap: 8px; padding: 8px 12px; }
     .page-heading h1 { font-size: 18px; }
     .breadcrumb { display: none; }
-    .topbar-actions { gap: 6px; }
-    .live-pill { max-width: 145px; overflow: hidden; text-overflow: ellipsis; }
+    .topbar-actions { gap: 8px; }
+    .live-pill { max-width: 144px; overflow: hidden; text-overflow: ellipsis; }
     .metric-grid, .device-summary, .em500-summary, .connection-overview { grid-template-columns: 1fr; }
-    .status-strip { grid-template-columns: repeat(2, minmax(145px, 1fr)); }
+    .status-strip { grid-template-columns: repeat(2, minmax(144px, 1fr)); }
     .page-intro { flex-direction: column; }
     .mode-panel { width: 100%; min-width: 0; }
     .power-flow { grid-template-columns: 1fr; }
-    .flow-line { min-height: 28px; transform: none; }
+    .flow-line { min-height: 32px; transform: none; }
     .flow-secondary { grid-template-columns: 1fr; }
-    .panel, .metric-card, .device-runtime-card { padding: 15px; border-radius: 13px; }
-    .em500-table { min-width: 590px; }
-    .em500-tabs { top: 68px; }
+    .panel, .metric-card, .device-runtime-card { padding: 16px; }
+    .em500-table { min-width: 592px; }
+    .em500-tabs { top: 56px; }
 }
 
 @media (prefers-reduced-motion: no-preference) {
