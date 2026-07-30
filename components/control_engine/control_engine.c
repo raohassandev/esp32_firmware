@@ -3,11 +3,13 @@
 #include <math.h>
 #include <stdlib.h>
 
+#include "commissioning_gate.h"
 #include "config_manager.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "generator_fleet_limit.h"
 #include "grid_control_gate.h"
 #include "inverter_manager.h"
 #include "meter_manager.h"
@@ -41,24 +43,223 @@ typedef struct {
 static grid_evidence_runtime_t s_evidence;
 static meter_role_assignment_t s_roles;
 
+/*
+ * COMMISSIONING GATE (P0-6).
+ *
+ * s_commissioning_inputs holds the parts of the evidence that come from
+ * persisted configuration. They are resolved once in control_engine_init(),
+ * because meter and inverter configuration changes already require a restart
+ * and an app_config_t must never go on the control task's 4 kB stack.
+ *
+ * It is deliberately NOT pre-initialised to anything permissive. Until init
+ * fills it in, every `known` flag is false and the gate evaluates to "not
+ * commissioned" with reason "state unreadable", which is the correct answer for
+ * a controller that has not yet read its own configuration. If init returns
+ * early on an error, it STAYS that way and automatic control cannot engage.
+ */
+static commissioning_inputs_t s_commissioning_inputs;
+static commissioning_status_t s_commissioning;
+static bool s_commissioning_valid;
+static portMUX_TYPE s_commissioning_lock = portMUX_INITIALIZER_UNLOCKED;
+
+/* The generator fleet verdict the CONTROL LOOP actually acted on, published so an
+ * engineer can see the floor that inhibited PV rather than a floor recomputed
+ * elsewhere from configuration.
+ *
+ * That distinction is the whole reason this exists. A second computation over the
+ * commissioned set answers a different question -- "what would the floor be if every
+ * in-service engine were on the bus" -- and presenting it as the runtime answer would
+ * misreport why the plant is being held down. `valid` stays false until the loop has
+ * evaluated once, so a caller can tell "no verdict yet" from "a verdict of zero". */
+static generator_fleet_limit_t s_fleet_limit;
+static bool s_fleet_limit_valid;
+static portMUX_TYPE s_fleet_lock = portMUX_INITIALIZER_UNLOCKED;
+
+static void store_fleet_limit(const generator_fleet_limit_t *limit)
+{
+    portENTER_CRITICAL(&s_fleet_lock);
+    s_fleet_limit = *limit;
+    s_fleet_limit_valid = true;
+    portEXIT_CRITICAL(&s_fleet_lock);
+}
+
+bool control_engine_get_generator_fleet(generator_fleet_limit_t *out_limit)
+{
+    if (!out_limit) return false;
+    portENTER_CRITICAL(&s_fleet_lock);
+    const bool valid = s_fleet_limit_valid;
+    *out_limit = s_fleet_limit;
+    portEXIT_CRITICAL(&s_fleet_lock);
+    return valid;
+}
+
+static void store_commissioning(const commissioning_status_t *status)
+{
+    portENTER_CRITICAL(&s_commissioning_lock);
+    s_commissioning = *status;
+    s_commissioning_valid = true;
+    portEXIT_CRITICAL(&s_commissioning_lock);
+}
+
+/* Completes the evidence with the parts that can change while running, then
+ * evaluates. Called every control cycle; the evaluation is a pure function over
+ * already-acquired state and performs no I/O. */
+static commissioning_status_t evaluate_commissioning(bool source_detection_configured)
+{
+    commissioning_inputs_t inputs = s_commissioning_inputs;
+    if (inputs.source_detection_known) {
+        inputs.source_detection_configured = source_detection_configured;
+    }
+    return commissioning_gate_evaluate(&inputs);
+}
+
 _Static_assert(APP_MAX_GENERATORS == SOURCE_MAX_GENERATORS,
                "meter generator slots and source-mode generator channels must agree");
+_Static_assert(APP_MAX_GENERATORS == SOLAR_GRID_MAX_GENERATORS,
+               "meter generator slots and commissioned engine limits must agree");
+_Static_assert(APP_MAX_GENERATORS == GENERATOR_FLEET_MAX_ENGINES,
+               "meter generator slots and aggregate limit engines must agree");
+_Static_assert(APP_MAX_GENERATORS == COMMISSIONING_MAX_GENERATORS,
+               "meter generator slots and commissioning gate engine slots must agree");
+
+/* The kW load-sharing vocabulary is declared three times -- once in the persisted
+ * policy, once in the pure limit module, once in the pure gate -- because each of
+ * those components deliberately depends on nothing. This file is the one place that
+ * copies the value between them, so this is where the three must be proved
+ * numerically identical. Without these, renumbering one enum would silently turn a
+ * commissioned "base load" into "isochronous" and compute a floor for a plant that
+ * is not sharing load that way. */
+_Static_assert((int)SOLAR_GRID_LOAD_SHARING_UNSET == (int)GENERATOR_SHARING_UNSET &&
+                   (int)SOLAR_GRID_LOAD_SHARING_UNSET == (int)COMMISSIONING_SHARING_UNSET,
+               "the uncommissioned load-sharing mode must be the same value everywhere");
+_Static_assert((int)SOLAR_GRID_LOAD_SHARING_ISOCHRONOUS == (int)GENERATOR_SHARING_ISOCHRONOUS &&
+                   (int)SOLAR_GRID_LOAD_SHARING_ISOCHRONOUS == (int)COMMISSIONING_SHARING_ISOCHRONOUS,
+               "isochronous load sharing must be the same value everywhere");
+_Static_assert((int)SOLAR_GRID_LOAD_SHARING_BASE_LOAD == (int)GENERATOR_SHARING_BASE_LOAD &&
+                   (int)SOLAR_GRID_LOAD_SHARING_BASE_LOAD == (int)COMMISSIONING_SHARING_BASE_LOAD,
+               "base-load sharing must be the same value everywhere");
+_Static_assert((int)SOLAR_GRID_LOAD_SHARING_DROOP == (int)GENERATOR_SHARING_DROOP &&
+                   (int)SOLAR_GRID_LOAD_SHARING_DROOP == (int)COMMISSIONING_SHARING_DROOP,
+               "droop sharing must be the same value everywhere, including where it is refused");
+_Static_assert((int)SOLAR_GRID_LOAD_SHARING_COUNT == (int)GENERATOR_SHARING_MODE_COUNT &&
+                   (int)SOLAR_GRID_LOAD_SHARING_COUNT == (int)COMMISSIONING_SHARING_COUNT,
+               "a load-sharing mode added to one enum must be added to all three");
+_Static_assert((int)SOLAR_GRID_ENGINE_ROLE_UNSET == (int)GENERATOR_ENGINE_ROLE_UNSET &&
+                   (int)SOLAR_GRID_ENGINE_ROLE_UNSET == (int)COMMISSIONING_ENGINE_ROLE_UNSET,
+               "the undeclared engine role must be the same value everywhere");
+_Static_assert((int)SOLAR_GRID_ENGINE_ROLE_SWING == (int)GENERATOR_ENGINE_ROLE_SWING &&
+                   (int)SOLAR_GRID_ENGINE_ROLE_SWING == (int)COMMISSIONING_ENGINE_ROLE_SWING,
+               "the swing engine role must be the same value everywhere");
+_Static_assert((int)SOLAR_GRID_ENGINE_ROLE_BASE_LOAD == (int)GENERATOR_ENGINE_ROLE_BASE_LOAD &&
+                   (int)SOLAR_GRID_ENGINE_ROLE_BASE_LOAD == (int)COMMISSIONING_ENGINE_ROLE_BASE_LOAD,
+               "the base-loaded engine role must be the same value everywhere");
+_Static_assert((int)SOLAR_GRID_ENGINE_ROLE_COUNT == (int)GENERATOR_ENGINE_ROLE_COUNT &&
+                   (int)SOLAR_GRID_ENGINE_ROLE_COUNT == (int)COMMISSIONING_ENGINE_ROLE_COUNT,
+               "an engine role added to one enum must be added to all three");
+
+/* Smallest increase worth a Modbus write, in kW. Below this a re-command carries
+ * no information the inverter can act on, and at a fast control period it is pure
+ * traffic. Decreases bypass this entirely -- reducing PV protects the generator
+ * and must never be withheld for being small.
+ *
+ * Deliberately coarse relative to a 100 kW machine: the readback tolerance in the
+ * profiles is 0.2 % (0.2 kW at 100 kW), so a threshold below that would command
+ * changes finer than the device can be confirmed to have applied. */
+#define CONTROL_COMMAND_EPSILON_KW 0.05f
+
+/* How often an UNCHANGED setpoint is refreshed. A commanded limit can expire on
+ * its own: the SmartLogger's schedule-validity period (register 42019) drops it
+ * after a configured time and PV rises again with nothing reported. This is
+ * comfortably inside any such window while staying far above the documented
+ * one-second minimum between adjustments. */
+#define CONTROL_COMMAND_KEEPALIVE_MS 2000U
 
 /* Converts a ramp profile into the kW/s the policy layer expects.
  *
- * A disabled ramp yields a rate large enough that the policy's rate limiter can
- * never bind, which lets the command step straight to the allowed target. It
- * does NOT bypass the policy: the export/import target, the generator limit and
- * every safety clamp are applied first and still hold. */
+ * A disabled ramp must let the command step straight to the allowed target in a
+ * SINGLE cycle. The policy limits movement to rate x interval, so the rate for a
+ * disabled ramp has to be scaled by the interval: returning fleet_capacity_kw
+ * alone means "full range per second", which at the shipped 250 ms interval
+ * clamps each cycle to a quarter of the range and takes four cycles to reach
+ * target. That was wrong twice over -- it is not the documented behaviour, and it
+ * coupled the ramp to the poll rate in the worst direction, so polling faster for
+ * fresher data made the effective ramp slower as a fraction of range.
+ *
+ * It does NOT bypass the policy: the export/import target, the generator limit
+ * and every safety clamp are applied before the rate limiter and still hold. A
+ * disabled ramp removes a rate limit, not a safety limit.
+ *
+ * An enabled ramp is a true rate: percent of fleet capacity per second,
+ * independent of the interval, which is what makes it a commissioning value an
+ * engineer can reason about. */
 static float ramp_kw_per_second(const ramp_profile_t *ramp, bool upward,
-                                float fleet_capacity_kw, bool fleet_valid)
+                                float fleet_capacity_kw, bool fleet_valid,
+                                float interval_seconds)
 {
     if (!fleet_valid) return 0.0f;
-    if (!ramp->enabled) return fleet_capacity_kw;   /* full range within one second */
+    if (!ramp->enabled) {
+        /* Full range within one cycle, whatever the interval. Guarded so a
+         * nonsensical interval cannot produce a non-finite rate, which the policy
+         * would reject as invalid input and refuse to command at all. */
+        if (!isfinite(interval_seconds) || interval_seconds <= 0.0f) {
+            return fleet_capacity_kw;
+        }
+        return fleet_capacity_kw / interval_seconds;
+    }
     const float percent = upward ? ramp->up_percent_per_second
                                  : ramp->down_percent_per_second;
     if (!isfinite(percent) || percent <= 0.0f) return 0.0f;
     return fleet_capacity_kw * percent * 0.01f;
+}
+
+/* One sentence per way the aggregate generator limit can fail closed, so an
+ * engineer is told which piece of evidence is missing rather than a generic
+ * "no valid command".
+ *
+ * THREE REASONS DELIBERATELY HAVE NO SENTENCE HERE YET, and fall to the default: the
+ * base-load setpoint-agreement tolerance being uncommissioned, a base-loaded engine
+ * having no usable measurement, and a base-loaded engine's measured power disagreeing
+ * with its setpoint. That is not an oversight, and it is not a judgement that they do
+ * not deserve one -- the drift reason in particular is the most operationally useful
+ * sentence in this list. tests/multi_engine_commissioning_source_contract.py requires
+ * every sentence in this function to be carried verbatim by web/solar-grid.js, and this
+ * change is not permitted to edit web assets. Adding the sentences here without the
+ * browser's copies would fail that contract, and a paraphrase in the browser would fail
+ * it for a better reason. The commissioning gate DOES carry a full operator sentence
+ * for the uncommissioned tolerance, which is where an engineer meets it first; the two
+ * runtime reasons currently read as "the aggregate generator limit could not be
+ * established, so PV is held at zero", which is true but not specific.
+ *
+ * WHAT THE WEB OWNER NEEDS: three entries in FLEET_REASON_SENTENCES keyed
+ * base_load_tolerance_unset, base_load_unmeasured and base_load_setpoint_drift, and the
+ * matching switch arms added here, in the same commit. The exact wording is in the
+ * handover notes; the slugs are already published by generator_fleet_reason_id(). */
+static const char *generator_fleet_inhibit(uint8_t reason)
+{
+    switch (reason) {
+    case GENERATOR_FLEET_NO_ENGINE_CONFIGURED:
+        return "No generator engine is commissioned, so no minimum-loading floor can be computed.";
+    case GENERATOR_FLEET_RATING_UNKNOWN:
+        return "A commissioned generator engine has no usable rating or minimum-loading figure.";
+    case GENERATOR_FLEET_RUNNING_SET_UNKNOWN:
+        return "Which generator engines are online cannot be determined, so PV is held at zero.";
+    case GENERATOR_FLEET_NO_ENGINE_ONLINE:
+        return "A generator is carrying the plant but no commissioned engine is measured online.";
+    case GENERATOR_FLEET_LOAD_UNKNOWN:
+        return "The plant load behind the generator limit is missing or non-finite.";
+    case GENERATOR_FLEET_SHARING_MODE_UNSET:
+        return "More than one generator engine is online and no kW load-sharing mode is commissioned, so which engine sets the minimum-loading floor is unknown.";
+    case GENERATOR_FLEET_SHARING_MODE_UNSUPPORTED:
+        return "The commissioned kW load-sharing mode is not one a defensible minimum-loading floor can be computed for; droop sharing is refused rather than approximated.";
+    case GENERATOR_FLEET_BASE_LOAD_UNKNOWN:
+        return "Base-load sharing is commissioned but an online engine has no declared role, or a base-loaded engine has no fixed kW setpoint.";
+    case GENERATOR_FLEET_BASE_LOAD_BELOW_MINIMUM:
+        return "A base-loaded engine's fixed kW setpoint is below its own minimum loading, which no PV limit can correct.";
+    case GENERATOR_FLEET_NO_SWING_ENGINE:
+        return "Every online engine is held at a fixed kW, so nothing on the bus would absorb the load the controller shapes.";
+    default:
+        return "The aggregate generator limit could not be established, so PV is held at zero.";
+    }
 }
 
 static meter_role_assignment_t current_role_assignment(void)
@@ -229,6 +430,11 @@ static void control_task(void *argument)
     uint32_t previous_ms = now_ms();
     bool previous_cycle_valid = false;
     grid_gate_memory_t gate_memory = {0};
+    /* Command-issue bookkeeping. The loop recomputes every cycle but only writes
+     * on a change or when the keepalive falls due; see the write site below. */
+    float last_commanded_kw = 0.0f;
+    uint32_t last_command_issued_ms = 0U;
+    bool command_ever_issued = false;
 
     while (true) {
         uint32_t timestamp = now_ms();
@@ -262,6 +468,7 @@ static void control_task(void *argument)
          * identity, which says only which source is carrying load - it never
          * claims a breaker position or that two sources are synchronised. */
         source_mode_result_t source;
+        bool detection_configured = false;
         if (evidence.configured) {
             source_evidence_t source_evidence = {
                 .evidence_fresh = evidence_fresh,
@@ -280,6 +487,7 @@ static void control_task(void *argument)
             if (source_detection_get_status(&detection) == ESP_OK) {
                 measured_fresh = detection.configured && detection.evidence_fresh &&
                                  !detection.fail_closed && !detection.transition_pending;
+                detection_configured = detection.configured;
                 if (detection.state == SOURCE_STATE_GRID) measured = MEASURED_SOURCE_GRID;
                 else if (detection.state == SOURCE_STATE_GENERATOR) measured = MEASURED_SOURCE_GENERATOR;
             }
@@ -297,6 +505,41 @@ static void control_task(void *argument)
         };
         grid_gate_output_t gate = grid_control_gate_step(&gate_memory, &gate_input);
 
+        /* THE COMMISSIONING GATE (P0-6).
+         *
+         * Applied to the control task's own enable, not merely reported: while
+         * the gate is closed the policy is never stepped, so there is no
+         * command to clamp and no path by which automatic control can engage.
+         * Unknown or unreadable configuration evaluates to "not commissioned",
+         * so this fails closed rather than open. */
+        const commissioning_status_t commissioning =
+            evaluate_commissioning(detection_configured);
+        store_commissioning(&commissioning);
+        if (!commissioning.commissioned) control_enabled = false;
+
+        /* P0-9: a setpoint that could not be confirmed by readback latches its
+         * inverter out of the commandable fleet, which is what actually stops
+         * the command. This is the operator-facing statement of that fact. */
+        const bool confirmation_fault = inverter_manager_write_confirmation_fault();
+        const inverter_write_state_t fleet_confirmation =
+            inverter_manager_fleet_write_confirmation();
+
+        /* The prerequisite enable register is observed the same way and for the
+         * same structural reason, but it is NOT the same fault and is never
+         * merged into the one above. A confirmation fault says the setpoint read
+         * back wrong. A prerequisite fault says the setpoint will read back
+         * RIGHT and be ignored anyway, because the register that arms the limit
+         * is not confirmed to hold. An engineer told only "unconfirmed setpoint"
+         * would go looking at the setpoint register, which is working.
+         *
+         * Both calls read already-acquired state. Neither performs Modbus I/O,
+         * so the loop gains no blocking transaction at its 20 ms period. The
+         * summary struct is a couple of dozen bytes and is safe on this task's
+         * 4 kB stack, unlike an app_config_t. */
+        const bool prerequisite_fault = inverter_manager_prerequisite_enable_fault();
+        inverter_fleet_commissioning_t fleet_prerequisite;
+        inverter_manager_commissioning_summary(&fleet_prerequisite);
+
         /* While a generator carries the plant, PV must leave enough load on the
          * machine to satisfy its minimum loading and stay clear of reverse
          * power. An uncommissioned rating yields zero, which holds PV off rather
@@ -311,18 +554,78 @@ static void control_task(void *argument)
         const ramp_profile_t ramp = generator_carrying ? s_config.generator_ramp
                                                        : s_config.grid_ramp;
 
+        /* WHICH ENGINES ARE RUNNING IS A RUNTIME FACT, NOT CONFIGURATION.
+         *
+         * The commissioned ratings say what machines exist; the generator-role
+         * meters say which of them are on the bus right now. Both are needed,
+         * because the minimum-loading floor is computed against the aggregate
+         * rating of the engines actually online -- with two engines running and a
+         * rating for one, the denominator is wrong in the permissive direction and
+         * the controller would allow far more PV than the plant can carry.
+         *
+         * Every read here is of already-acquired cached state:
+         * solar_grid_config_generator() reads the static snapshot taken at init,
+         * and meter_manager_get_data() returns the last poll result. No Modbus
+         * transaction is issued, so the 20 ms loop gains no blocking I/O. */
         float generator_safe_limit_kw = 0.0f;
+        generator_fleet_limit_t fleet_limit = {0};
         if (source.mode == SOURCE_MODE_GENERATOR_ONLY) {
-            const generator_limit_input_t limit_input = {
+            generator_fleet_input_t fleet_input = {
                 .evidence_fresh = measurement_fresh,
                 .facility_load_kw = fabsf(measured_grid_kw),
-                .running_generator_rated_kw = s_grid_config.generator_rated_kw,
-                .minimum_loading_percent = s_grid_config.generator_minimum_loading_percent,
-                .reserve_kw = s_grid_config.generator_reserve_kw,
-                .reverse_power_margin_kw = s_grid_config.generator_reverse_power_margin_kw,
+                /* Only when the site has no generator-role meter at all: then a
+                 * single commissioned engine is unambiguous, which is the legacy
+                 * single-generator behaviour. */
+                .allow_unmetered_single_engine = roles.generator_count == 0U,
+                /* Copied straight through: the persisted accessor already reports an
+                 * unrecognised stored value as UNSET, and the limit module refuses
+                 * anything it does not model. Nothing here interprets the mode. */
+                .sharing_mode = solar_grid_config_load_sharing_mode(&s_grid_config),
+                .engine_count = APP_MAX_GENERATORS,
+                /* The commissioned band within which a base-loaded engine's measured
+                 * power must agree with its setpoint. Copied straight through: the
+                 * persisted accessors already report anything that is not a usable
+                 * tolerance as zero, and zero in both means NOT COMMISSIONED, on which
+                 * the limit module refuses base-load sharing rather than computing a
+                 * floor from a setpoint nobody has been shown to be holding. Nothing
+                 * here invents a band, and nothing here reads the measurement -- both
+                 * belong to the pure function that can be unit tested. */
+                .base_load_tolerance_kw =
+                    solar_grid_config_base_load_tolerance_kw(&s_grid_config),
+                .base_load_tolerance_percent_of_rating =
+                    solar_grid_config_base_load_tolerance_percent(&s_grid_config),
             };
-            generator_safe_limit_kw = source_mode_generator_safe_pv_kw(&limit_input);
+            for (uint8_t slot = 0U; slot < APP_MAX_GENERATORS; ++slot) {
+                const solar_grid_generator_limits_t limits =
+                    solar_grid_config_generator(&s_grid_config, slot);
+                generator_engine_input_t *engine = &fleet_input.engines[slot];
+                engine->configured = limits.enabled;
+                engine->rated_kw = limits.rated_kw;
+                engine->minimum_loading_percent = limits.minimum_loading_percent;
+                engine->reserve_kw = limits.reserve_kw;
+                engine->reverse_power_margin_kw = limits.reverse_power_margin_kw;
+                engine->role = solar_grid_config_engine_role(&s_grid_config, slot);
+                engine->base_load_kw =
+                    solar_grid_config_engine_base_load_kw(&s_grid_config, slot);
+
+                const uint8_t meter_index = roles.generator_index[slot];
+                engine->metered = roles.valid && meter_index != METER_ROLE_INDEX_NONE;
+                if (!engine->metered) continue;
+                meter_data_t generator_meter = {0};
+                if (!meter_manager_get_data(meter_index, &generator_meter)) continue;
+                /* The same freshness rule the grid meter is held to, so one
+                 * definition of "fresh" governs the whole loop. */
+                engine->sample_fresh = meter_sample_fresh(&generator_meter, timestamp);
+                engine->measured_kw = generator_meter.active_power_kw;
+            }
+            fleet_limit = generator_fleet_limit_evaluate(&fleet_input);
+            /* An unknown running set yields zero, which holds PV off rather than
+             * commanding against a plant of unknown capacity. */
+            generator_safe_limit_kw = fleet_limit.known ? fleet_limit.safe_pv_kw : 0.0f;
         }
+        /* Published every cycle, in generator mode or not, so a verdict from a
+         * previous source mode is never left standing as if it were current. */
+        store_fleet_limit(&fleet_limit);
 
         power_control_input_t input = {
             .measurement_fresh = measurement_fresh && fleet_valid && gate.control_allowed,
@@ -337,8 +640,10 @@ static void control_task(void *argument)
             .ki = s_config.ki,
             .deadband_kw = s_config.deadband_kw,
             .interval_seconds = interval_seconds,
-            .ramp_up_kw_per_second = ramp_kw_per_second(&ramp, true, fleet_capacity_kw, fleet_valid),
-            .ramp_down_kw_per_second = ramp_kw_per_second(&ramp, false, fleet_capacity_kw, fleet_valid),
+            .ramp_up_kw_per_second = ramp_kw_per_second(&ramp, true, fleet_capacity_kw,
+                                                        fleet_valid, interval_seconds),
+            .ramp_down_kw_per_second = ramp_kw_per_second(&ramp, false, fleet_capacity_kw,
+                                                          fleet_valid, interval_seconds),
             .integral_kw = integral_kw,
             .generator_safe_limit_kw = generator_safe_limit_kw,
         };
@@ -367,7 +672,42 @@ static void control_task(void *argument)
         bool command_accepted = false;
         if (control_enabled) {
             mode = policy.valid && alarm_flags == 0U ? APP_MODE_GRID : APP_MODE_FAILSAFE;
-            esp_err_t write_result = inverter_manager_set_total_power_kw(applied_kw);
+            /* Issue a command when the setpoint has actually moved, or when the
+             * keepalive is due -- not on every cycle.
+             *
+             * Every cycle was survivable at a 250 ms period. It is not once the
+             * loop runs at the rate measurements arrive: a 20 ms period would push
+             * 50 writes per second at equipment for which no manual sanctions any
+             * rate, and the Huawei SmartLogger explicitly documents a minimum of
+             * one second between adjustments. Recomputing fast and commanding only
+             * on change keeps the fast reaction while removing traffic that carries
+             * no information.
+             *
+             * The keepalive is not decoration. A commanded limit can EXPIRE: the
+             * SmartLogger's schedule-validity period (register 42019) drops it
+             * after a configured time, and PV rises again with nothing reported.
+             * Refreshing an unchanged setpoint periodically is what keeps a
+             * standing limit standing.
+             *
+             * A change of any size in the REDUCING direction always writes
+             * immediately, because that is the direction that protects the
+             * generator. The threshold only suppresses insignificant increases. */
+            const bool first_command = !command_ever_issued;
+            const float delta_kw = applied_kw - last_commanded_kw;
+            const bool keepalive_due =
+                timestamp - last_command_issued_ms >= CONTROL_COMMAND_KEEPALIVE_MS;
+            const bool changed = delta_kw < 0.0f
+                                     ? true
+                                     : delta_kw > CONTROL_COMMAND_EPSILON_KW;
+            esp_err_t write_result = ESP_OK;
+            if (first_command || changed || keepalive_due) {
+                write_result = inverter_manager_set_total_power_kw(applied_kw);
+                if (write_result == ESP_OK) {
+                    last_commanded_kw = applied_kw;
+                    last_command_issued_ms = timestamp;
+                    command_ever_issued = true;
+                }
+            }
             if (write_result != ESP_OK) {
                 if (applied_kw > 0.0f) {
                     ESP_LOGW(TAG, "inverter fleet command failed: %s",
@@ -436,19 +776,71 @@ static void control_task(void *argument)
             .grid_breaker_raw = evidence.grid_breaker_raw,
             .alarm_flags = alarm_flags,
             .last_cycle_ms = timestamp,
-            .command_authority = control_enabled && policy.valid && alarm_flags == 0U,
+            /* Commissioning is part of the authority answer, not a footnote to
+             * it: an uncommissioned controller has no authority to command. */
+            /* An unconfirmed prerequisite withdraws authority for exactly the
+             * reason an unconfirmed setpoint does, and is treated identically
+             * rather than more leniently: while it holds, this controller cannot
+             * know that a limit it writes will be honoured, and reporting
+             * authority in that state is the false-confirmation trap the
+             * prerequisite sequencing exists to prevent.
+             *
+             * Worth being explicit, because it looks alarming on a MIXED fleet:
+             * this field is a REPORT, not a gate. Nothing gates a command on it.
+             * Commanding is gated by control_enabled above, and which inverters
+             * get commanded is decided per inverter inside inverter_manager,
+             * where an unverified prerequisite excludes only that machine. So one
+             * unconfirmed Solis does not stop a healthy Huawei being reduced --
+             * which matters, because withholding a REDUCTION is the harm this
+             * product exists to prevent, and it would be an unacceptable price
+             * for a tidier status field. */
+            .command_authority = commissioning.commissioned && control_enabled &&
+                                 policy.valid && alarm_flags == 0U &&
+                                 !confirmation_fault && !prerequisite_fault,
+            .commissioned = commissioning.commissioned,
+            .commissioning_scope = (uint8_t)commissioning.scope,
+            .commissioning_unmet_count = commissioning.unmet_count,
+            .commissioning_first_unmet = commissioning.first_unmet,
+            .write_confirmation = (uint8_t)fleet_confirmation,
+            .write_confirmation_fault = confirmation_fault,
+            .prerequisite_enable_fault = prerequisite_fault,
+            .prerequisite_required_count = fleet_prerequisite.prerequisite_required_count,
+            .prerequisite_unconfirmed_count =
+                fleet_prerequisite.prerequisite_unconfirmed_count,
+            .prerequisite_unverifiable_count =
+                fleet_prerequisite.prerequisite_unverifiable_count,
         };
         /* One authoritative answer, in the firmware's own words, rather than the
          * interface inferring intent from several scattered flags. Ordered most
          * specific first so the operator is told the thing they can act on. */
         const char *inhibit =
-            !control_enabled          ? "Automatic control is disabled; engineering authorisation is required."
+            !commissioning.commissioned ? commissioning_gate_summary(&commissioning)
+            : !control_enabled        ? "Automatic control is disabled; engineering authorisation is required."
             : alarm_flags != 0U       ? "An active safety alarm is blocking commands."
+            /* Both prerequisite reasons sit AHEAD of the confirmation fault
+             * because they are the more specific and the more dangerous answer.
+             * A prerequisite fault does not show up in the setpoint readback at
+             * all: the setpoint is accepted, echoed back and ignored, so the
+             * readback looks perfect while the inverter runs unlimited. Reporting
+             * only "unconfirmed setpoint" would send an engineer to the register
+             * that is working. The unverifiable case is stated first because it
+             * is permanent -- no amount of polling resolves it, and the remedy is
+             * a manual citation rather than waiting. */
+            : prerequisite_fault &&
+              fleet_prerequisite.prerequisite_unverifiable_count > 0U
+                                      ? "An inverter enable register cannot be read back; its setpoint would read back correctly and be ignored."
+            : prerequisite_fault      ? "An inverter prerequisite enable register is not confirmed to hold; its setpoint would read back correctly and be ignored."
+            : confirmation_fault      ? "An inverter setpoint could not be confirmed by readback; that inverter is held at zero and excluded from the fleet."
             : !roles.valid            ? "No single enabled meter is assigned the grid role."
             : !measurement_fresh      ? "The grid measurement is missing, stale or non-finite."
             : !fleet_valid            ? "No commissioned inverter capacity is available to command."
             : !gate.control_allowed   ? "The grid-evidence gate has not confirmed a stable source."
             : !source.control_allowed ? "The source carrying the plant is not settled."
+            /* Ahead of the generic policy answer: while a generator carries the
+             * plant, an unestablished running set is the specific and actionable
+             * reason PV is held at zero. */
+            : source.mode == SOURCE_MODE_GENERATOR_ONLY && !fleet_limit.known
+                                      ? generator_fleet_inhibit(fleet_limit.reason)
             : !policy.valid           ? "The control policy produced no valid command this cycle."
                                       : "";
         strlcpy(next.inhibit_reason, inhibit, sizeof(next.inhibit_reason));
@@ -489,7 +881,44 @@ esp_err_t control_engine_init(void)
     portENTER_CRITICAL(&s_lock);
     s_roles = roles;
     portEXIT_CRITICAL(&s_lock);
+
+    /* Commissioning evidence from persisted configuration. Each `known` flag is
+     * set only now that the corresponding state has actually been read. */
+    s_commissioning_inputs.meter_roles_known = true;
+    s_commissioning_inputs.meter_roles_valid = roles.valid;
+    s_commissioning_inputs.grid_meter_count = roles.grid_count;
+    s_commissioning_inputs.duplicate_generator_slot = roles.duplicate_generator;
+
+    s_commissioning_inputs.ramp_policy_known = true;
+    s_commissioning_inputs.generator_ramp_enabled = s_config.generator_ramp.enabled;
+    s_commissioning_inputs.generator_ramp_up_percent_per_second =
+        s_config.generator_ramp.up_percent_per_second;
+    s_commissioning_inputs.generator_ramp_down_percent_per_second =
+        s_config.generator_ramp.down_percent_per_second;
+
+    s_commissioning_inputs.control_tuning_known = true;
+    s_commissioning_inputs.kp = s_config.kp;
+    s_commissioning_inputs.ki = s_config.ki;
+    s_commissioning_inputs.deadband_kw = s_config.deadband_kw;
+    s_commissioning_inputs.interval_ms = s_config.interval_ms;
+    s_commissioning_inputs.meter_stale_timeout_ms = s_config.meter_stale_timeout_ms;
     free(config);
+
+    inverter_fleet_commissioning_t fleet = {0};
+    inverter_manager_commissioning_summary(&fleet);
+    s_commissioning_inputs.inverter_fleet_known = fleet.known;
+    s_commissioning_inputs.enabled_inverter_count = fleet.enabled_count;
+    s_commissioning_inputs.write_qualified_inverter_count = fleet.write_qualified_count;
+    s_commissioning_inputs.lab_only_inverter_count = fleet.lab_only_count;
+    s_commissioning_inputs.readback_capable_inverter_count = fleet.readback_capable_count;
+    s_commissioning_inputs.commissioned_capacity_kw = fleet.commissioned_capacity_kw;
+
+    /* Publish the fail-closed evaluation immediately. If any step below returns
+     * early, this is what the API and the control task will keep seeing. */
+    {
+        const commissioning_status_t initial = commissioning_gate_evaluate(&s_commissioning_inputs);
+        store_commissioning(&initial);
+    }
 
     if (!roles.valid) {
         ESP_LOGW(TAG, "Automatic Solar-Grid control remains fail-closed: %s",
@@ -501,6 +930,66 @@ esp_err_t control_engine_init(void)
     }
 
     error = solar_grid_config_get_snapshot(&s_grid_config);
+    /* The snapshot was read, so this part of the state is now KNOWN even when it
+     * turns out to be invalid - that is a specific, reportable failure rather
+     * than an unreadable one. A failed read leaves the flag false. */
+    s_commissioning_inputs.grid_policy_known = error == ESP_OK;
+    s_commissioning_inputs.grid_policy_valid =
+        error == ESP_OK && solar_grid_config_valid(&s_grid_config);
+    /* Per-engine generator policy. `referenced_by_meter` is what makes a hole
+     * visible: a meter attributed to a generator slot that carries no commissioned
+     * rating means the site can run an engine the policy does not describe, and no
+     * aggregate minimum-loading floor can be computed for that configuration. */
+    s_commissioning_inputs.generator_limits_known = error == ESP_OK;
+    /* A failed read leaves the mode UNSET rather than whatever was there before, so
+     * an unreadable configuration can never present itself as a commissioned one. */
+    s_commissioning_inputs.generator_load_sharing_mode =
+        error == ESP_OK ? solar_grid_config_load_sharing_mode(&s_grid_config)
+                        : (uint8_t)COMMISSIONING_SHARING_UNSET;
+    /* A failed read leaves the base-load setpoint-agreement tolerance uncommissioned
+     * rather than whatever was there before, for the same reason as the mode above: an
+     * unreadable configuration must never present itself as a commissioned one. */
+    s_commissioning_inputs.generator_base_load_tolerance_kw =
+        error == ESP_OK ? solar_grid_config_base_load_tolerance_kw(&s_grid_config) : 0.0f;
+    s_commissioning_inputs.generator_base_load_tolerance_percent_of_rating =
+        error == ESP_OK ? solar_grid_config_base_load_tolerance_percent(&s_grid_config)
+                        : 0.0f;
+    for (uint8_t slot = 0U; slot < APP_MAX_GENERATORS; ++slot) {
+        const solar_grid_generator_limits_t limits =
+            error == ESP_OK ? solar_grid_config_generator(&s_grid_config, slot)
+                            : (solar_grid_generator_limits_t){0};
+        s_commissioning_inputs.generators[slot].enabled = limits.enabled;
+        s_commissioning_inputs.generators[slot].rated_kw = limits.rated_kw;
+        s_commissioning_inputs.generators[slot].minimum_loading_percent =
+            limits.minimum_loading_percent;
+        s_commissioning_inputs.generators[slot].referenced_by_meter =
+            roles.generator_index[slot] != METER_ROLE_INDEX_NONE;
+        s_commissioning_inputs.generators[slot].role =
+            error == ESP_OK ? solar_grid_config_engine_role(&s_grid_config, slot)
+                            : (uint8_t)COMMISSIONING_ENGINE_ROLE_UNSET;
+        s_commissioning_inputs.generators[slot].base_load_kw =
+            error == ESP_OK ? solar_grid_config_engine_base_load_kw(&s_grid_config, slot)
+                            : 0.0f;
+    }
+    s_commissioning_inputs.source_detection_known = true;
+    s_commissioning_inputs.grid_evidence_configured =
+        error == ESP_OK && solar_grid_config_evidence_complete(&s_grid_config);
+    /* The whole collection succeeded, so the gate may now distinguish a specific
+     * unmet prerequisite from "unreadable". */
+    s_commissioning_inputs.state_readable = true;
+    {
+        const commissioning_status_t collected =
+            commissioning_gate_evaluate(&s_commissioning_inputs);
+        store_commissioning(&collected);
+        if (!collected.commissioned) {
+            ESP_LOGW(TAG,
+                     "Automatic control remains gated: %u of %u commissioning prerequisites unmet, first is '%s' - %s",
+                     (unsigned)collected.unmet_count,
+                     (unsigned)COMMISSIONING_PREREQ_COUNT,
+                     commissioning_prereq_id(collected.first_unmet),
+                     commissioning_gate_summary(&collected));
+        }
+    }
     if (error != ESP_OK || !solar_grid_config_valid(&s_grid_config)) {
         ESP_LOGE(TAG, "Solar-Grid configuration unavailable or invalid");
         return error == ESP_OK ? ESP_ERR_INVALID_STATE : error;
@@ -533,10 +1022,12 @@ esp_err_t control_engine_init(void)
     portEXIT_CRITICAL(&s_lock);
 
     if (evidence.configured &&
-        xTaskCreate(grid_evidence_task, "grid_evidence", 4096, NULL, 9, NULL) != pdPASS) {
+        xTaskCreatePinnedToCore(grid_evidence_task, "grid_evidence", 4096, NULL, 9, NULL,
+                                PVDG_CONTROL_CORE) != pdPASS) {
         return ESP_ERR_NO_MEM;
     }
-    if (xTaskCreate(control_task, "pvdg_control", 4096, NULL, 10, NULL) != pdPASS) {
+    if (xTaskCreatePinnedToCore(control_task, "pvdg_control", 4096, NULL, 10, NULL,
+                            PVDG_CONTROL_CORE) != pdPASS) {
         return ESP_ERR_NO_MEM;
     }
 
@@ -555,6 +1046,21 @@ void control_engine_get_status(control_status_t *out_status)
     portENTER_CRITICAL(&s_lock);
     *out_status = s_status;
     portEXIT_CRITICAL(&s_lock);
+}
+
+void control_engine_get_commissioning(commissioning_status_t *out_status)
+{
+    if (!out_status) return;
+    commissioning_status_t snapshot;
+    bool valid;
+    portENTER_CRITICAL(&s_commissioning_lock);
+    snapshot = s_commissioning;
+    valid = s_commissioning_valid;
+    portEXIT_CRITICAL(&s_commissioning_lock);
+    /* Nothing has been evaluated yet, so report the fully fail-closed answer
+     * rather than a zeroed struct that would read as "no unmet prerequisites". */
+    if (!valid) snapshot = commissioning_gate_evaluate(NULL);
+    *out_status = snapshot;
 }
 
 void control_engine_force_disable(void)

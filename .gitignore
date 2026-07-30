@@ -25,3 +25,17 @@ managed_components/
 .vscode/
 *.code-workspace
 .DS_Store
+
+# Subagent worktrees; live checkouts, never part of the repo
+.claude/worktrees/
+
+# Full baseline screenshot set (130 files, ~30 MB). Regenerable from the
+# committed harness in evidence/ui-baseline/. A diagnostic selection IS tracked;
+# the bulk is not, following the precedent of evidence/ui-audit-2026-07-29.
+evidence/ui-baseline/shots/*.png
+!evidence/ui-baseline/shots/dashboard-*.png
+!evidence/ui-baseline/shots/alarms-*.png
+!evidence/ui-baseline/shots/readiness-1440x900-dark-operator.png
+!evidence/ui-baseline/shots/meters-1440x900-light-operator.png
+!evidence/ui-baseline/shots/inverters-1440x900-light-operator.png
+!evidence/ui-baseline/shots/control-1440x900-light-operator.png

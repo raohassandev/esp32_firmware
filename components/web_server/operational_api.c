@@ -4,6 +4,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "alarm_journal.h"
+#include "alarm_metrics.h"
+#include "alarm_suppression.h"
 #include "cJSON.h"
 #include "control_engine.h"
 #include "esp_check.h"
@@ -22,7 +25,10 @@
 #define EVENT_COUNT 96
 #define SAMPLE_INTERVAL_MS 5000U
 #define MINUTE_INTERVAL_MS 60000U
-#define METER_FRESH_MS 5000U
+/* Staleness is NOT defined here. It comes from safety_manager, which owns the one
+ * configured definition -- see safety_manager_meter_stale_timeout_ms(). A local
+ * constant here is what produced a window where control was inhibited for staleness
+ * while this alarm path still considered the sample fresh. */
 
 /* --- A4: nuisance-alarm suppression -------------------------------------
  * ISA-18.2 and EEMUA 191 both require time delays on alarm conditions so a
@@ -60,8 +66,41 @@
  * uint32 milliseconds wrap at ~49.7 days, far beyond this threshold. */
 #define ALARM_STALE_THRESHOLD_MS 86400000U
 
+/* --- A3: shelving ---------------------------------------------------------
+ * ISA-18.2 keeps three suppression states apart and they must not collapse
+ * into one "disabled" flag: Shelved is the operator's own decision, is
+ * time-limited and expires by itself; Suppressed by design is the system's
+ * decision; Out of service is a maintenance action. All three are implemented -
+ * shelving here, the other two under A9 below - and they are kept apart as three
+ * independent facts rather than one flag with three labels. Shelving came first
+ * because the reason operators reach for "disable" is that shelving was not
+ * offered.
+ *
+ * The expiry is REQUIRED and BOUNDED, and those two properties are the whole
+ * safety argument. An indefinite shelf is a disabled alarm wearing a different
+ * name: it survives the shift that created it, nobody remembers it, and the
+ * alarm system quietly decays until an incident finds the gap. A shelf that
+ * expires by itself cannot outlive the operator's attention.
+ *
+ * Eight hours is one shift. It is long enough to work through a known nuisance
+ * without re-shelving every few minutes, and short enough that the shelf cannot
+ * be inherited by someone who never agreed to it. One minute is the floor -
+ * below that the shelf is not a decision, it is a mis-click.
+ *
+ * Shelving changes prominence only. Condition detection, the on/off delays,
+ * occurrence counting, root-cause attribution and the journal all continue
+ * exactly as before while an alarm is shelved: the operator has asked not to be
+ * pressed by it, not to stop the controller from noticing it. */
+#define ALARM_SHELF_MIN_MS 60000U
+#define ALARM_SHELF_MAX_MS 28800000U
+
 /* Sentinel for "this alarm has no upstream cause" (see alarm_cause_of). */
 #define ALARM_NO_CAUSE 0xFFU
+
+/* Staging depth for journal records produced inside a critical section. Alarm
+ * transitions are rare - a flood is single figures - and the ring is drained on
+ * every observation tick and after every operator action. */
+#define ALARM_JOURNAL_STAGE_DEPTH 32U
 
 typedef struct {
     uint32_t timestamp_ms;
@@ -140,17 +179,66 @@ typedef struct {
     bool present;               /* confirmed state, after the A4 delays */
     bool candidate;             /* raw state as last observed */
     bool acknowledged;
+    /* A3. Shelving is a separate axis from presence and acknowledgement on
+     * purpose: an alarm can be present, unacknowledged and shelved all at once,
+     * and each of those three facts is something different an operator needs. */
+    bool shelved;
+    /* A9. Two more suppression axes, kept as separate booleans rather than folded
+     * into one "disabled" flag or one enum. ISA-18.2 is explicit that the three
+     * states must stay distinguishable, because months later "an operator shelved
+     * this for an hour", "the controller stopped raising it while the network it
+     * depends on was down" and "a technician took this instrument out of service,
+     * authorised, reason recorded" are three different findings and only one of
+     * them is a defect. An alarm can be in more than one at once, so one field
+     * cannot carry them. */
+    bool suppressed_by_design;
+    bool out_of_service;
+    uint8_t out_of_service_reason;
     uint8_t severity;
     uint16_t occurrences;
     uint16_t suppressed_transitions;
+    uint16_t shelf_count;
+    uint16_t design_suppression_count;
+    uint16_t out_of_service_count;
+    uint32_t design_suppressed_ms;
+    uint32_t out_of_service_ms;
     uint32_t candidate_since_ms;
     uint32_t first_raised_ms;
     uint32_t last_raised_ms;
     uint32_t cleared_ms;
     uint32_t acknowledged_ms;
+    uint32_t shelved_ms;
+    uint32_t shelf_expires_ms;
+    uint32_t shelf_duration_ms;
 } operational_alarm_t;
 
 static operational_alarm_t s_alarms[EVENT_METER_STALE_ALARM + 1U];
+
+/* --- A10: alarm-rate measurement -----------------------------------------
+ * EEMUA 191 gives two testable numbers - fewer than one alarm per operator per
+ * ten minutes in steady state, and no more than ten in the first ten minutes of
+ * an upset - and until something measures them there is no evidence this alarm
+ * system is usable, only a claim that it is.
+ *
+ * Every confirmed raise is counted here, including raises that were suppressed
+ * at the time. That is deliberate. The metric is meant to expose an unusable
+ * alarm system, so it must not be possible to improve it by suppressing more
+ * alarms: what it reports is an upper bound on the load an operator can see, and
+ * an upper bound that meets the target is proof, whereas a figure that shrinks
+ * every time somebody shelves something is not evidence of anything.
+ *
+ * The window arithmetic lives in alarm_metrics.c because it is pure and can
+ * therefore be executed on a host rather than read and hoped about; the wrap and
+ * saturation cases in particular cannot be provoked on hardware in a useful
+ * time. See tests/alarm_metrics_test.c. */
+static alarm_rate_t s_rate;
+
+/* Defined below, with the causality table it encodes. Declared here because A9's
+ * suppressed-by-design rule is driven by exactly that table: the system's own
+ * suppression decision and the root-cause attribution an operator reads must come
+ * from one place, or the alarm list will say "consequence of NET-001" while the
+ * suppression state disagrees. */
+static uint8_t alarm_cause_of(uint8_t code, const operational_alarm_t *table);
 
 /* --- A6: priority rationalisation ----------------------------------------
  * EEMUA 191's target distribution is roughly 5% high, 15% medium, 80% low.
@@ -181,7 +269,20 @@ static operational_alarm_t s_alarms[EVENT_METER_STALE_ALARM + 1U];
  *     inspectable, but it must not compete for attention at the same priority
  *     as its own cause.
  * Nothing here is rated low, because nothing that reaches the alarm table is
- * informational; informational records are events. */
+ * informational; informational records are events.
+ *
+ * These assignments were re-audited condition by condition against the 5% high /
+ * 15% medium / 80% low target, and the resulting distribution is computed from
+ * this same table and published - see priority_census() and the "rationalisation"
+ * object in the alarm payload. It does not meet the target and the payload says
+ * so. Nothing here was moved to make the numbers look better. The one candidate
+ * for change was MTR-001, which is arguably high whenever it stands alone with no
+ * live cause, since the operator's action is then the same as for MTR-002. It was
+ * deliberately left at medium: it remains the derived view of a fault normally
+ * raised at its own priority, and promoting it would move the distribution
+ * further from the target rather than closer - which is the clearest possible
+ * sign that the distribution is the wrong thing to optimise on a controller with
+ * four alarms. */
 static uint8_t alarm_priority(uint8_t code)
 {
     switch ((operational_event_code_t)code) {
@@ -214,11 +315,157 @@ static const char *priority_label(uint8_t priority)
     return priority >= 2 ? "high" : priority == 1 ? "medium" : "low";
 }
 
+/* --- A6: the resulting distribution, measured rather than asserted ----------
+ * The assignments above were rationalised one condition at a time against what
+ * each means for the plant. That is half the work; the other half is checking
+ * what the assignments add up to, because EEMUA's 5/15/80 is a property of the
+ * whole alarm system and cannot be seen from any single row.
+ *
+ * So the census is computed from the same alarm_priority() table the alarm list
+ * is served from - there is no second, hand-maintained copy of the numbers to
+ * drift out of date - and published with the target next to it and a plain
+ * statement of whether it is met. It is not met on this controller, and the
+ * payload says so rather than rounding towards the answer somebody wants.
+ *
+ * Two populations are reported because two different questions are being asked.
+ * The alarm population is the four conditions an operator has to acknowledge,
+ * which is the population EEMUA's distribution is about. The condition
+ * population adds the three records that were rationalised OUT of the alarm
+ * table and into the event log - controller start, control mode change, solar
+ * fleet availability - which is where this controller's low-priority band
+ * actually lives. Reporting only the first would hide the low band entirely;
+ * reporting only the second would count things an operator never acknowledges as
+ * if they were alarms. Both are stated, and neither meets the target.
+ *
+ * The honest reason it cannot be met is arithmetic, not assignment: with a
+ * population this small the smallest non-zero share is far above 5%, so the high
+ * band cannot be represented at all. That is published too, precisely so that
+ * nobody reads the miss as an invitation to demote a condition that genuinely
+ * stops the plant being controlled safely. */
+static alarm_priority_census_t priority_census(bool alarms_only)
+{
+    alarm_priority_census_t census = {0};
+    for (size_t code = 0; code < sizeof(s_alarms) / sizeof(s_alarms[0]); ++code) {
+        if (alarms_only && !event_is_alarm_condition((uint8_t)code)) continue;
+        switch (alarm_priority((uint8_t)code)) {
+        case 2:  census.high++;   break;
+        case 1:  census.medium++; break;
+        default: census.low++;    break;
+        }
+    }
+    return census;
+}
+
+static void add_priority_census(cJSON *parent, const char *name,
+                                const alarm_priority_census_t *census)
+{
+    cJSON *object = cJSON_AddObjectToObject(parent, name);
+    if (!object) return;
+    const uint16_t total = alarm_priority_total(census);
+    cJSON_AddNumberToObject(object, "high", census->high);
+    cJSON_AddNumberToObject(object, "medium", census->medium);
+    cJSON_AddNumberToObject(object, "low", census->low);
+    cJSON_AddNumberToObject(object, "total", total);
+    cJSON_AddNumberToObject(object, "high_percent",
+                            alarm_priority_percent(census->high, total));
+    cJSON_AddNumberToObject(object, "medium_percent",
+                            alarm_priority_percent(census->medium, total));
+    cJSON_AddNumberToObject(object, "low_percent",
+                            alarm_priority_percent(census->low, total));
+    cJSON_AddBoolToObject(object, "meets_target", alarm_priority_meets_target(census));
+    /* Whether the target is even reachable for a population this size. A miss
+     * that is arithmetically unavoidable is a different finding from a miss
+     * caused by careless assignment, and only the second is worth acting on. */
+    cJSON_AddBoolToObject(object, "target_representable",
+                          alarm_priority_target_representable(total));
+    cJSON_AddNumberToObject(object, "smallest_representable_percent",
+                            alarm_priority_min_representable_percent(total));
+}
+
+/* --- A2: staging between the alarm table and the persistent journal ---------
+ * The alarm table is updated inside a critical section, which is where the
+ * lifecycle transitions worth journalling become known. Interrupts are disabled
+ * there, so a flash write in that window would stall the control loop for as
+ * long as the filesystem felt like taking - and the control path must never
+ * wait on storage.
+ *
+ * So the two halves are split. Under the lock the transition is copied into
+ * this small RAM ring, which costs a handful of stores and cannot fail. Outside
+ * the lock, journal_flush() drains it one record at a time and writes each to
+ * flash. alarm_journal_append() is therefore never reachable from inside a
+ * critical section, and the contract test asserts exactly that.
+ *
+ * If the ring overflows - the journal is stalled, or an implausible burst of
+ * transitions - the oldest staged record is discarded and counted rather than
+ * silently lost, and rather than blocking the caller. Losing the oldest few
+ * records of a flood is survivable; stalling the control loop is not. */
+typedef struct {
+    uint32_t uptime_ms;
+    uint16_t detail;
+    uint8_t code;
+    uint8_t transition;
+} journal_stage_t;
+
+static journal_stage_t s_stage[ALARM_JOURNAL_STAGE_DEPTH];
+static uint8_t s_stage_head;
+static uint8_t s_stage_tail;
+static uint8_t s_stage_fill;
+static uint32_t s_stage_dropped;
+
+/* Caller holds s_lock. No allocation, no logging, no file access: this is the
+ * only journal-related code permitted to run with interrupts disabled. */
+static void journal_stage_locked(uint8_t code, uint8_t transition, uint32_t timestamp,
+                                 uint16_t detail)
+{
+    if (s_stage_fill >= ALARM_JOURNAL_STAGE_DEPTH) {
+        s_stage_tail = (uint8_t)((s_stage_tail + 1U) % ALARM_JOURNAL_STAGE_DEPTH);
+        s_stage_fill--;
+        s_stage_dropped++;
+    }
+    journal_stage_t *slot = &s_stage[s_stage_head];
+    slot->uptime_ms = timestamp;
+    slot->detail = detail;
+    slot->code = code;
+    slot->transition = transition;
+    s_stage_head = (uint8_t)((s_stage_head + 1U) % ALARM_JOURNAL_STAGE_DEPTH);
+    s_stage_fill++;
+}
+
+/* Caller holds NO lock. Each record is lifted out under a very short critical
+ * section and written to flash with the lock released, so the write can take as
+ * long as it needs without interrupts being off for any of it. */
+static void journal_flush(void)
+{
+    if (!alarm_journal_ready()) return;
+    for (;;) {
+        journal_stage_t staged = {0};
+        bool pending = false;
+        portENTER_CRITICAL(&s_lock);
+        if (s_stage_fill > 0U) {
+            staged = s_stage[s_stage_tail];
+            s_stage_tail = (uint8_t)((s_stage_tail + 1U) % ALARM_JOURNAL_STAGE_DEPTH);
+            s_stage_fill--;
+            pending = true;
+        }
+        portEXIT_CRITICAL(&s_lock);
+        if (!pending) return;
+
+        const alarm_journal_entry_t entry = {
+            .sequence = 0U,     /* assigned by the journal itself */
+            .uptime_ms = staged.uptime_ms,
+            .detail = staged.detail,
+            .code = staged.code,
+            .transition = staged.transition,
+        };
+        (void)alarm_journal_append(&entry);
+    }
+}
+
 /* Caller holds s_lock. Promotes the pending candidate into the confirmed
  * state. The raise/clear instant recorded is candidate_since_ms - when the
  * condition actually appeared - not when the delay expired, so durations stay
  * truthful and the delay does not quietly shorten a reported outage. */
-static void commit_alarm_locked(operational_alarm_t *alarm)
+static void commit_alarm_locked(uint8_t code, operational_alarm_t *alarm)
 {
     if (alarm->candidate == alarm->present) return;
     if (alarm->candidate) {
@@ -232,9 +479,20 @@ static void commit_alarm_locked(operational_alarm_t *alarm)
         alarm->acknowledged_ms = 0U;
         alarm->present = true;
         alarm->cleared_ms = 0U;
+        /* A2: staged, not written. The flash write happens outside this lock.
+         * Note this runs whether or not the alarm is shelved - shelving hides
+         * an alarm from the operator's attention, never from the record. */
+        journal_stage_locked(code, (uint8_t)ALARM_JOURNAL_RAISED,
+                             alarm->last_raised_ms, 0U);
+        /* A10: this is the one place a confirmed raise becomes real, so it is the
+         * only honest place to count one. Pure arithmetic on a fixed ring - no
+         * allocation, no logging - so it is safe with interrupts disabled. */
+        alarm_rate_record(&s_rate, alarm->last_raised_ms);
     } else {
         alarm->present = false;
         alarm->cleared_ms = alarm->candidate_since_ms;
+        journal_stage_locked(code, (uint8_t)ALARM_JOURNAL_CLEARED,
+                             alarm->cleared_ms, 0U);
         /* ISA-18.2 keeps a condition that returned to normal without ever being
          * acknowledged in its own state, "RTN Unacknowledged", rather than
          * treating it as resolved. A fault that appears and clears itself
@@ -247,11 +505,89 @@ static void commit_alarm_locked(operational_alarm_t *alarm)
 }
 
 /* Caller holds s_lock. Promotes a candidate whose on/off delay has elapsed. */
-static void service_alarm_locked(operational_alarm_t *alarm, uint32_t timestamp)
+static void service_alarm_locked(uint8_t code, operational_alarm_t *alarm, uint32_t timestamp)
 {
     if (alarm->candidate == alarm->present) return;
     const uint32_t delay = alarm->candidate ? ALARM_ON_DELAY_MS : ALARM_OFF_DELAY_MS;
-    if ((uint32_t)(timestamp - alarm->candidate_since_ms) >= delay) commit_alarm_locked(alarm);
+    if ((uint32_t)(timestamp - alarm->candidate_since_ms) >= delay) {
+        commit_alarm_locked(code, alarm);
+    }
+}
+
+/* Caller holds s_lock. A3: a shelf is time-limited, so something has to end it
+ * without an operator being present. That is the entire difference between
+ * shelving and disabling, so the expiry runs on the observation tick and again
+ * whenever the alarm list is read - an expired shelf can never be observed as
+ * still shelved. The auto-unshelve is journalled like any other transition,
+ * because "the suppression ended and nobody was told" is exactly the hole that
+ * audited shelving exists to close. */
+static void service_shelf_locked(uint8_t code, operational_alarm_t *alarm, uint32_t timestamp)
+{
+    if (!alarm->shelved) return;
+    /* Signed difference: uptime milliseconds wrap at ~49.7 days and a shelf
+     * must not become permanent because the counter rolled over. */
+    if ((int32_t)(timestamp - alarm->shelf_expires_ms) < 0) return;
+    alarm->shelved = false;
+    alarm->shelf_expires_ms = 0U;
+    alarm->shelf_duration_ms = 0U;
+    journal_stage_locked(code, (uint8_t)ALARM_JOURNAL_SHELF_EXPIRED, timestamp, 0U);
+}
+
+/* Caller holds s_lock. A9: suppressed by design - the system's own suppression
+ * decision, as distinct from an operator's shelf and from a maintenance
+ * out-of-service.
+ *
+ * The rule is the causality table the root-cause work already established: a
+ * condition with a live upstream cause is a consequence of that cause, not an
+ * independent fault. Losing the site network takes the grid meter with it, so
+ * "meter offline" while the network is down carries no information the operator
+ * does not already have from "network offline" - and EEMUA's ceiling of ten
+ * alarms in the first ten minutes of an upset is spent four times over by that
+ * one physical event unless something says so.
+ *
+ * Three properties make this a suppression state rather than a mute:
+ *
+ *  - It is evaluated from plant state on every observation, never chosen for an
+ *    alarm individually, which is what makes it the system's decision. No
+ *    endpoint can set it and no operator can lift it while the cause stands.
+ *  - It releases the instant the cause clears, so a suppression can never outlive
+ *    the plant state that justified it.
+ *  - Both edges are journalled, which is the difference between a suppression
+ *    state and a quiet omission.
+ *
+ * It runs after the presence delays for the whole table have settled, because a
+ * cause that is itself still pending must not suppress anything yet. */
+static void service_design_suppression_locked(uint32_t timestamp)
+{
+    for (size_t code = 0; code < sizeof(s_alarms) / sizeof(s_alarms[0]); ++code) {
+        if (!event_is_alarm_condition((uint8_t)code)) continue;
+        operational_alarm_t *alarm = &s_alarms[code];
+        /* A condition that is not present has nothing to suppress: reporting it
+         * as suppressed by design would claim the controller decided to hide
+         * something that was never there. */
+        const uint8_t cause = alarm_cause_of((uint8_t)code, s_alarms);
+        const bool cause_present = alarm->present && cause != ALARM_NO_CAUSE;
+        switch (alarm_design_suppression_step(alarm->suppressed_by_design, cause_present)) {
+        case ALARM_DESIGN_STEP_ENGAGE:
+            alarm->suppressed_by_design = true;
+            alarm->design_suppressed_ms = timestamp;
+            if (alarm->design_suppression_count < UINT16_MAX) alarm->design_suppression_count++;
+            /* The cause travels in the journal record, so the controller's own
+             * decision can be checked afterwards rather than taken on trust. */
+            journal_stage_locked((uint8_t)code, (uint8_t)ALARM_JOURNAL_DESIGN_SUPPRESSED,
+                                 timestamp, cause);
+            break;
+        case ALARM_DESIGN_STEP_RELEASE:
+            alarm->suppressed_by_design = false;
+            alarm->design_suppressed_ms = 0U;
+            journal_stage_locked((uint8_t)code, (uint8_t)ALARM_JOURNAL_DESIGN_RELEASED,
+                                 timestamp, 0U);
+            break;
+        case ALARM_DESIGN_STEP_NONE:
+        default:
+            break;
+        }
+    }
 }
 
 /* Caller holds s_lock. Run once per observation so a condition that simply
@@ -261,8 +597,13 @@ static void service_alarms_locked(uint32_t timestamp)
 {
     for (size_t code = 0; code < sizeof(s_alarms) / sizeof(s_alarms[0]); ++code) {
         if (!event_is_alarm_condition((uint8_t)code)) continue;
-        service_alarm_locked(&s_alarms[code], timestamp);
+        service_alarm_locked((uint8_t)code, &s_alarms[code], timestamp);
+        service_shelf_locked((uint8_t)code, &s_alarms[code], timestamp);
     }
+    /* Second pass, after every presence delay in the table has been resolved:
+     * design suppression reads the whole table and must not see a half-updated
+     * one. */
+    service_design_suppression_locked(timestamp);
 }
 
 /* Caller holds s_lock. */
@@ -291,8 +632,8 @@ static void update_alarm_locked(operational_event_code_t code, bool present,
         alarm->candidate = present;
         alarm->candidate_since_ms = timestamp;
     }
-    if (bypass_on_delay) commit_alarm_locked(alarm);
-    else service_alarm_locked(alarm, timestamp);
+    if (bypass_on_delay) commit_alarm_locked((uint8_t)code, alarm);
+    else service_alarm_locked((uint8_t)code, alarm, timestamp);
 }
 
 static void append_event_ex(operational_event_code_t code, bool active, uint8_t severity,
@@ -348,7 +689,7 @@ static void collect_sample(operational_sample_t *sample, observed_state_t *state
     bool meter_has_data = meter.last_update_ms != 0;
     uint32_t meter_age = meter_has_data ? sample->timestamp_ms - meter.last_update_ms : UINT32_MAX;
     state->network_online = network.network_ready;
-    state->meter_online = meter.online && meter_has_data && meter_age <= METER_FRESH_MS &&
+    state->meter_online = meter.online && meter_has_data && meter_age <= safety_manager_meter_stale_timeout_ms() &&
                           isfinite(meter.active_power_kw);
     state->control_enabled = control.enabled;
     state->alarm_flags = safety_manager_get_alarm_flags();
@@ -436,6 +777,10 @@ static void detect_events(const observed_state_t *next, uint32_t timestamp)
 static void operational_task(void *argument)
 {
     (void)argument;
+    /* Mounting and scanning the journal reads a quarter of a megabyte, so it is
+     * done here rather than during HTTP registration: a diagnostic feature must
+     * not delay the controller coming up, and if it fails it must not stop it. */
+    alarm_journal_open();
     for (;;) {
         operational_sample_t sample;
         observed_state_t observed;
@@ -451,6 +796,8 @@ static void operational_task(void *argument)
             s_last_minute_ms = sample.timestamp_ms;
         }
         portEXIT_CRITICAL(&s_lock);
+        /* Interrupts are back on before a single byte reaches flash. */
+        journal_flush();
         vTaskDelay(pdMS_TO_TICKS(SAMPLE_INTERVAL_MS));
     }
 }
@@ -810,6 +1157,11 @@ static uint8_t alarm_cause_of(uint8_t code, const operational_alarm_t *table)
     return ALARM_NO_CAUSE;
 }
 
+/* Defined with the out-of-service endpoint it belongs to. Declared here so the
+ * alarm listing can publish the same reason list the endpoint will accept: a
+ * caller must never have to guess the vocabulary of a mandatory field. */
+static void add_out_of_service_reasons(cJSON *parent, const char *name);
+
 /* The alarm condition table: what is wrong now, since when, how often, and
  * whether anyone has taken responsibility. Cleared-but-unacknowledged rows are
  * still returned, because an operator needs to see that something happened
@@ -817,11 +1169,42 @@ static uint8_t alarm_cause_of(uint8_t code, const operational_alarm_t *table)
 static esp_err_t alarms_get(httpd_req_t *request)
 {
     operational_alarm_t snapshot[sizeof(s_alarms) / sizeof(s_alarms[0])];
-    portENTER_CRITICAL(&s_lock);
-    memcpy(snapshot, s_alarms, sizeof(snapshot));
-    portEXIT_CRITICAL(&s_lock);
-
     const uint32_t current = now_ms();
+    /* A10: the window counts are lifted under the same lock as the table, so the
+     * rate an operator reads cannot describe a different instant from the alarms
+     * next to it. Scalars rather than a copy of the ring: 192 timestamps is more
+     * stack than an HTTP handler on an 8 kB stack should spend, and the counting
+     * is a few hundred integer comparisons with no allocation. */
+    uint16_t rate_10min = 0, rate_hour = 0, rate_day = 0, rate_peak = 0;
+    uint32_t rate_total = 0, rate_discarded = 0, rate_peak_age = 0;
+    bool rate_day_truncated = false;
+    portENTER_CRITICAL(&s_lock);
+    /* A3: expire shelves before the snapshot is taken, so a shelf whose time
+     * ran out can never be reported as still in force. Reading the alarm list
+     * is the moment it matters most. */
+    for (size_t code = 0; code < sizeof(s_alarms) / sizeof(s_alarms[0]); ++code) {
+        service_shelf_locked((uint8_t)code, &s_alarms[code], current);
+    }
+    /* A9: and re-evaluate the system's own suppression decision, for the same
+     * reason. Design suppression is derived from the causality table that this
+     * response also reports as `caused_by`; if it were only refreshed on the
+     * five-second tick the two could disagree in the same payload. */
+    service_design_suppression_locked(current);
+    memcpy(snapshot, s_alarms, sizeof(snapshot));
+    rate_10min = alarm_rate_window_count(&s_rate, current, ALARM_RATE_WINDOW_MS);
+    rate_hour = alarm_rate_window_count(&s_rate, current, ALARM_RATE_HOUR_MS);
+    rate_day = alarm_rate_window_count(&s_rate, current, ALARM_RATE_DAY_MS);
+    rate_day_truncated = alarm_rate_window_truncated(&s_rate, current, ALARM_RATE_DAY_MS);
+    rate_peak = s_rate.peak_per_window;
+    rate_peak_age = current - s_rate.peak_at_ms;
+    rate_total = s_rate.total;
+    rate_discarded = s_rate.discarded;
+    portEXIT_CRITICAL(&s_lock);
+    /* The auto-unshelve and the design-suppression edges above may have staged
+     * audit records; write them now that interrupts are enabled again, before
+     * anything is serialized. */
+    journal_flush();
+
     cJSON *root = cJSON_CreateObject();
     if (!root) return httpd_resp_send_500(request);
     cJSON_AddNumberToObject(root, "generated_ms", current);
@@ -830,10 +1213,27 @@ static esp_err_t alarms_get(httpd_req_t *request)
     cJSON_AddNumberToObject(root, "on_delay_ms", ALARM_ON_DELAY_MS);
     cJSON_AddNumberToObject(root, "off_delay_ms", ALARM_OFF_DELAY_MS);
     cJSON_AddNumberToObject(root, "stale_threshold_ms", ALARM_STALE_THRESHOLD_MS);
+    /* A3: the bounds on a shelf are published for the same reason the delays
+     * are. An operator is entitled to know how long suppression can last before
+     * being asked to accept it, and a reviewer is entitled to check that the
+     * bound exists at all. */
+    cJSON_AddNumberToObject(root, "shelf_minimum_ms", ALARM_SHELF_MIN_MS);
+    cJSON_AddNumberToObject(root, "shelf_maximum_ms", ALARM_SHELF_MAX_MS);
+    cJSON_AddBoolToObject(root, "shelf_expiry_required", true);
+    /* A9: out of service has no expiry, so the reason is mandatory. The vocabulary
+     * is published with the alarm list rather than only on rejection, so a caller
+     * can offer the choice instead of discovering it from a 400. */
+    cJSON_AddBoolToObject(root, "out_of_service_expires", false);
+    cJSON_AddBoolToObject(root, "out_of_service_reason_required", true);
+    add_out_of_service_reasons(root, "out_of_service_reasons");
     cJSON *items = cJSON_AddArrayToObject(root, "alarms");
     uint16_t active = 0, unacknowledged = 0;
     uint16_t primary_active = 0, consequential_active = 0, primary_unacknowledged = 0;
     uint16_t stale_count = 0, suppressed_total = 0;
+    uint16_t shelved_count = 0, shelved_active = 0;
+    uint16_t design_suppressed_count = 0, design_suppressed_active = 0;
+    uint16_t out_of_service_count = 0;
+    uint16_t suppressed_count = 0, suppressed_active = 0;
 
     for (size_t code = 0; code < sizeof(snapshot) / sizeof(snapshot[0]); ++code) {
         const operational_alarm_t *a = &snapshot[code];
@@ -903,9 +1303,101 @@ static esp_err_t alarms_get(httpd_req_t *request)
         /* A4: transitions that never survived their delay. Zero is the healthy
          * value; a rising number is a chattering signal. */
         cJSON_AddNumberToObject(item, "suppressed_transitions", a->suppressed_transitions);
+
+        /* A3 and A9: a suppressed alarm stays in the list, keeps its state, its
+         * duration, its cause attribution and its acknowledgement - everything
+         * except its claim on the operator's attention. All three ISA-18.2
+         * suppression states are now implemented, and they are reported as three
+         * independent facts plus one effective state rather than as a single
+         * boolean, so "an operator shelved this until 14:00", "the controller
+         * suppressed this because the network it depends on is down" and "a
+         * technician took this out of service to replace the meter" can never be
+         * mistaken for one another - or for "someone turned this off". */
+        const alarm_suppression_flags_t suppression_flags = {
+            .shelved = a->shelved,
+            .by_design = a->suppressed_by_design,
+            .out_of_service = a->out_of_service,
+        };
+        const alarm_suppression_t suppression = alarm_suppression_effective(suppression_flags);
+        const bool suppressed = alarm_suppression_hidden_from_triage(suppression);
+        cJSON_AddBoolToObject(item, "shelved", a->shelved);
+        /* A9: all three flags travel separately, and the effective state travels
+         * with them. Publishing only the effective state would collapse exactly
+         * the distinction ISA-18.2 forbids collapsing as soon as an alarm is in
+         * two of them at once - an instrument out for replacement that an
+         * operator also shelved must not stop reporting the shelf. */
+        cJSON_AddBoolToObject(item, "suppressed_by_design", a->suppressed_by_design);
+        cJSON_AddBoolToObject(item, "out_of_service", a->out_of_service);
+        cJSON_AddStringToObject(item, "suppression", alarm_suppression_name(suppression));
+        /* Who decided, whether it ends by itself, and how many independent
+         * suppressions are in force. These three answer the questions an audit
+         * asks, and none of them can be reconstructed from a boolean. */
+        cJSON_AddStringToObject(item, "suppression_authority",
+                                alarm_suppression_authority(suppression));
+        cJSON_AddBoolToObject(item, "suppression_expires",
+                              alarm_suppression_expires(suppression));
+        cJSON_AddNumberToObject(item, "suppression_count",
+                                alarm_suppression_active_count(suppression_flags));
+        if (a->suppressed_by_design) {
+            /* Named, not implied: the system suppressed this because another
+             * fault explains it, and the reader is entitled to know which. */
+            cJSON_AddStringToObject(item, "design_suppressed_by",
+                                    consequential ? alarm_code_id(cause) : "GEN-000");
+            cJSON_AddNumberToObject(item, "design_suppressed_age_ms",
+                                    (double)(current - a->design_suppressed_ms));
+        } else {
+            cJSON_AddNullToObject(item, "design_suppressed_by");
+            cJSON_AddNullToObject(item, "design_suppressed_age_ms");
+        }
+        cJSON_AddNumberToObject(item, "design_suppression_count", a->design_suppression_count);
+        if (a->out_of_service) {
+            cJSON_AddStringToObject(item, "out_of_service_reason",
+                                    alarm_out_of_service_reason_name(a->out_of_service_reason));
+            cJSON_AddStringToObject(item, "out_of_service_reason_text",
+                                    alarm_out_of_service_reason_text(a->out_of_service_reason));
+            cJSON_AddNumberToObject(item, "out_of_service_age_ms",
+                                    (double)(current - a->out_of_service_ms));
+        } else {
+            cJSON_AddNullToObject(item, "out_of_service_reason");
+            cJSON_AddNullToObject(item, "out_of_service_reason_text");
+            cJSON_AddNullToObject(item, "out_of_service_age_ms");
+        }
+        cJSON_AddNumberToObject(item, "out_of_service_count", a->out_of_service_count);
+        if (a->shelved) {
+            cJSON_AddNumberToObject(item, "shelf_remaining_ms",
+                                    (double)(a->shelf_expires_ms - current));
+            cJSON_AddNumberToObject(item, "shelf_duration_ms", (double)a->shelf_duration_ms);
+            cJSON_AddNumberToObject(item, "shelved_age_ms", (double)(current - a->shelved_ms));
+        } else {
+            cJSON_AddNullToObject(item, "shelf_remaining_ms");
+            cJSON_AddNullToObject(item, "shelf_duration_ms");
+            cJSON_AddNullToObject(item, "shelved_age_ms");
+        }
+        cJSON_AddNumberToObject(item, "shelf_count", a->shelf_count);
         cJSON_AddItemToArray(items, item);
 
-        if (a->present) {
+        /* Suppression changes the counts an operator triages from, and nothing
+         * else. The row above was emitted in full either way: prominence is the
+         * only thing given up, by whichever of the three states is in force.
+         *
+         * Each state is counted separately as well as together, because "three
+         * alarms are quiet" is not a reviewable fact - "one was shelved by an
+         * operator, one is a consequence of a live network fault, and one
+         * instrument is out of service for replacement" is. */
+        if (a->shelved) {
+            shelved_count++;
+            if (a->present) shelved_active++;
+        }
+        if (a->suppressed_by_design) {
+            design_suppressed_count++;
+            if (a->present) design_suppressed_active++;
+        }
+        if (a->out_of_service) out_of_service_count++;
+        if (suppressed) {
+            suppressed_count++;
+            if (a->present) suppressed_active++;
+        }
+        if (a->present && !suppressed) {
             active++;
             if (consequential) consequential_active++;
             else primary_active++;
@@ -913,10 +1405,12 @@ static esp_err_t alarms_get(httpd_req_t *request)
         /* Counts work outstanding, not just live conditions: a fault that came
          * and went unnoticed still needs someone to see it. */
         if (!a->acknowledged) {
-            unacknowledged++;
-            /* Consequential rows must not inflate the number an operator
-             * triages from - that is the whole point of the grouping. */
-            if (!consequential) primary_unacknowledged++;
+            if (!suppressed) {
+                unacknowledged++;
+                /* Consequential rows must not inflate the number an operator
+                 * triages from - that is the whole point of the grouping. */
+                if (!consequential) primary_unacknowledged++;
+            }
         }
         if (stale) stale_count++;
         if (a->suppressed_transitions > 0U &&
@@ -935,8 +1429,132 @@ static esp_err_t alarms_get(httpd_req_t *request)
     cJSON_AddNumberToObject(summary, "primary_unacknowledged", primary_unacknowledged);
     cJSON_AddNumberToObject(summary, "stale", stale_count);
     cJSON_AddNumberToObject(summary, "suppressed_transitions", suppressed_total);
+    /* Shelved work is reported, never hidden. The counts above are what an
+     * operator triages from; these two say how much was deliberately taken out
+     * of that view and is still waiting underneath it. */
+    cJSON_AddNumberToObject(summary, "shelved", shelved_count);
+    cJSON_AddNumberToObject(summary, "shelved_active", shelved_active);
+    /* A9: each suppression state counted on its own, plus the total. The total
+     * alone would be the collapsed "disabled" figure ISA-18.2 warns about. */
+    cJSON_AddNumberToObject(summary, "suppressed_by_design", design_suppressed_count);
+    cJSON_AddNumberToObject(summary, "suppressed_by_design_active", design_suppressed_active);
+    cJSON_AddNumberToObject(summary, "out_of_service", out_of_service_count);
+    cJSON_AddNumberToObject(summary, "suppressed", suppressed_count);
+    cJSON_AddNumberToObject(summary, "suppressed_active", suppressed_active);
     cJSON_AddStringToObject(summary, "state_model", "ISA-18.2");
     cJSON_AddStringToObject(summary, "priority_model", "EEMUA-191");
+    /* Named so the distinction ISA-18.2 draws cannot quietly collapse. All three
+     * states now exist, and the point of saying so here is that they are three
+     * states and not one flag with three labels: shelving is the operator's, is
+     * time-limited and expires by itself; suppressed-by-design is the
+     * controller's, driven by plant state, and releases when the plant does;
+     * out-of-service is a maintenance action, carries a recorded reason, and
+     * deliberately does not expire. */
+    cJSON_AddStringToObject(summary, "suppression_model",
+                            "ISA-18.2 shelving (operator, expiring), "
+                            "suppressed-by-design (system, plant-state driven) and "
+                            "out-of-service (maintenance, authorised, non-expiring) "
+                            "are tracked separately and never collapsed into one "
+                            "disabled flag");
+    cJSON_AddStringToObject(summary, "suppression_states",
+                            "none, shelved, suppressed_by_design, out_of_service");
+
+    /* --- A6: the distribution, published next to the target ---------------- */
+    cJSON *rationalisation = cJSON_AddObjectToObject(root, "rationalisation");
+    if (rationalisation) {
+        cJSON_AddStringToObject(rationalisation, "model", "EEMUA-191");
+        cJSON *target = cJSON_AddObjectToObject(rationalisation, "target");
+        if (target) {
+            cJSON_AddNumberToObject(target, "high_percent",
+                                    ALARM_PRIORITY_TARGET_HIGH_PERCENT);
+            cJSON_AddNumberToObject(target, "medium_percent",
+                                    ALARM_PRIORITY_TARGET_MEDIUM_PERCENT);
+            cJSON_AddNumberToObject(target, "low_percent",
+                                    ALARM_PRIORITY_TARGET_LOW_PERCENT);
+            cJSON_AddNumberToObject(target, "tolerance_percent",
+                                    ALARM_PRIORITY_TARGET_TOLERANCE_PERCENT);
+            cJSON_AddNumberToObject(target, "minimum_population",
+                                    ALARM_PRIORITY_TARGET_MIN_POPULATION);
+        }
+        const alarm_priority_census_t alarm_census = priority_census(true);
+        const alarm_priority_census_t condition_census = priority_census(false);
+        add_priority_census(rationalisation, "alarms", &alarm_census);
+        add_priority_census(rationalisation, "conditions", &condition_census);
+        /* Said in words as well as numbers, because a bare "meets_target: false"
+         * reads as a defect to be closed, and the correct response here is not to
+         * demote an alarm. */
+        cJSON_AddStringToObject(rationalisation, "note",
+            "Every condition was rationalised individually against one test: does it stop "
+            "the plant being controlled safely (high), does it degrade control or need "
+            "attention soon (medium), or is it informational (low). EEMUA 191's 5/15/80 "
+            "distribution is not met and cannot be, because this controller has too few "
+            "conditions for a 5% band to exist: the smallest non-zero share of its alarm "
+            "population is far above 5%. The low band is carried by the event log rather "
+            "than the alarm table, which is itself an outcome of rationalisation - an "
+            "operator does not acknowledge a controller start, so it is not an alarm. "
+            "The honest spread is published above; no severity was adjusted to move it.");
+    }
+
+    /* --- A10: the measured rate, against EEMUA's two numbers --------------- */
+    cJSON *rate = cJSON_AddObjectToObject(root, "rate");
+    if (rate) {
+        /* Same convention the journal already declares. This controller has no
+         * real-time clock, so every window here is measured against uptime and
+         * says so rather than implying a calendar time it does not have. */
+        cJSON_AddStringToObject(rate, "time_base", "uptime_ms");
+        cJSON_AddNumberToObject(rate, "uptime_ms", current);
+        cJSON_AddNumberToObject(rate, "window_ms", ALARM_RATE_WINDOW_MS);
+        cJSON_AddNumberToObject(rate, "raises_total", rate_total);
+        cJSON_AddNumberToObject(rate, "last_10_min", rate_10min);
+        cJSON_AddNumberToObject(rate, "last_60_min", rate_hour);
+        cJSON_AddNumberToObject(rate, "last_24_h", rate_day);
+        /* Normalised to EEMUA's own unit - alarms per ten minutes - so the
+         * comparison is arithmetic rather than mental. Scaled by 1000 because
+         * the interesting values are below one. */
+        const uint32_t observed_hour = current < ALARM_RATE_HOUR_MS ? current : ALARM_RATE_HOUR_MS;
+        const uint32_t observed_day = current < ALARM_RATE_DAY_MS ? current : ALARM_RATE_DAY_MS;
+        const uint32_t per_window_hour =
+            alarm_rate_per_window_milli(rate_hour, observed_hour, ALARM_RATE_WINDOW_MS);
+        const uint32_t per_window_day =
+            alarm_rate_per_window_milli(rate_day, observed_day, ALARM_RATE_WINDOW_MS);
+        cJSON_AddNumberToObject(rate, "per_10_min_from_60_min_milli", per_window_hour);
+        cJSON_AddNumberToObject(rate, "per_10_min_from_24_h_milli", per_window_day);
+        cJSON_AddNumberToObject(rate, "steady_limit_milli", ALARM_RATE_STEADY_LIMIT_MILLI);
+        cJSON_AddNumberToObject(rate, "peak_limit", ALARM_RATE_UPSET_LIMIT);
+        cJSON_AddNumberToObject(rate, "peak_per_10_min", rate_peak);
+        if (rate_peak > 0U) cJSON_AddNumberToObject(rate, "peak_age_ms", rate_peak_age);
+        else cJSON_AddNullToObject(rate, "peak_age_ms");
+        /* A verdict is only worth reporting once the window it is measured over
+         * has actually elapsed. Before that the honest answer is "not yet
+         * measured", not a number extrapolated from three minutes of uptime. */
+        const bool hour_observed = alarm_rate_window_observed(current, ALARM_RATE_HOUR_MS);
+        const bool day_observed = alarm_rate_window_observed(current, ALARM_RATE_DAY_MS);
+        cJSON_AddBoolToObject(rate, "steady_window_observed", hour_observed);
+        cJSON_AddBoolToObject(rate, "day_window_observed", day_observed);
+        if (hour_observed) {
+            cJSON_AddBoolToObject(rate, "meets_steady_target",
+                                  alarm_rate_meets_steady_target(per_window_hour));
+        } else {
+            cJSON_AddNullToObject(rate, "meets_steady_target");
+        }
+        /* The peak verdict needs no elapsed window: a flood that has already
+         * happened is measured, and one that has not cannot be disproved by
+         * waiting - so this is reported as "no breach observed", never as a pass. */
+        cJSON_AddBoolToObject(rate, "peak_target_breached",
+                              !alarm_rate_meets_peak_target(rate_peak));
+        /* Losses are admitted rather than absorbed: a rate metric that silently
+         * under-reports a flood is worse than no metric. */
+        cJSON_AddNumberToObject(rate, "discarded", rate_discarded);
+        cJSON_AddBoolToObject(rate, "last_24_h_truncated", rate_day_truncated);
+        cJSON_AddNumberToObject(rate, "capacity", ALARM_RATE_CAPACITY);
+        cJSON_AddStringToObject(rate, "note",
+            "Counts every confirmed alarm raise, including raises that were suppressed at "
+            "the time, so the figure is an upper bound on what an operator can be shown "
+            "and cannot be improved by suppressing more alarms. EEMUA 191 targets fewer "
+            "than 1 alarm per operator per 10 minutes in steady state and no more than 10 "
+            "in the first 10 minutes of an upset. A reboot resets these counters: there is "
+            "no real-time clock and no persisted rate history.");
+    }
     return send_json(request, root);
 }
 
@@ -946,23 +1564,36 @@ static esp_err_t alarms_get(httpd_req_t *request)
  * condition - only the plant can do that. */
 static esp_err_t alarms_ack_post(httpd_req_t *request)
 {
-    /* This translation unit is deliberately outside the authorization gateway so
-     * operator history and events stay readable without a session. That makes
-     * this POST the one mutating endpoint here, and it must not be anonymous:
-     * an unattributable acknowledgement is a way to make an active condition
-     * look attended to. The check is therefore explicit rather than inherited.
+    /* Acknowledgement is an OPERATOR action and is deliberately not gated behind
+     * an engineering session. This was the reverse for a while, and the reverse
+     * was wrong in a way that mattered:
      *
-     * Note the controller has no operator identity model, so an acknowledgement
-     * records that an authenticated engineering session did it, not which
-     * person. Reporting a name would be inventing one. */
-    if (!engineering_auth_is_authorized(request)) {
-        cJSON *err = cJSON_CreateObject();
-        if (!err) return httpd_resp_send_500(request);
-        cJSON_AddStringToObject(err, "error", "engineering_authentication_required");
-        cJSON_AddStringToObject(err, "message",
-                                "Acknowledging an alarm requires an authenticated engineering session.");
-        return send_json_status(request, "401 Unauthorized", err);
-    }
+     * ISA-18.2 assigns acknowledgement to the operator, and the whole point of
+     * the RTN-Unacknowledged state is that an operator discharges it. Requiring
+     * engineering credentials made that impossible for the only person normally
+     * present, so in practice nothing was ever acknowledged: a fault that
+     * appeared and cleared itself overnight stayed outstanding indefinitely, and
+     * the outstanding list -- the thing an operator triages from -- grew without
+     * bound and stopped meaning anything. A safeguard that guarantees the record
+     * is never maintained is not protecting the record.
+     *
+     * What the gate was actually protecting was attribution, and attribution is
+     * preserved directly instead: `detail` carries the actor class, so the
+     * durable journal distinguishes an acknowledgement made from an authenticated
+     * engineering session from one made by an unauthenticated operator. Nothing
+     * is lost from the evidence trail; only the refusal is gone.
+     *
+     * Note the deliberate asymmetry with the endpoints below. Shelving and
+     * out-of-service stay gated, because they REMOVE a live condition from the
+     * operator's view -- a suppression is a decision someone must be accountable
+     * for. Acknowledgement suppresses nothing: it hides no alarm, silences no
+     * condition, and cannot clear a fault the plant still has. It records that
+     * somebody looked. The two are not comparable risks and no longer share a
+     * gate.
+     *
+     * The controller has no operator identity model, so this records the class of
+     * session, not which person. Reporting a name would be inventing one. */
+    const bool by_engineering = engineering_auth_is_authorized(request);
 
     cJSON *root = NULL;
     const esp_err_t read_error = http_json_parse_bounded(request, 256U, 3000ULL, 4U, &root);
@@ -1006,14 +1637,26 @@ static esp_err_t alarms_ack_post(httpd_req_t *request)
     if (was_outstanding) {
         alarm->acknowledged = true;
         alarm->acknowledged_ms = timestamp;
+        /* detail = actor class, so the durable record says who acknowledged in the
+         * only terms this controller can honestly report. See ALARM_JOURNAL_ACTOR_*. */
+        journal_stage_locked((uint8_t)code, (uint8_t)ALARM_JOURNAL_ACKNOWLEDGED, timestamp,
+                             by_engineering ? (uint16_t)ALARM_JOURNAL_ACTOR_ENGINEERING
+                                            : (uint16_t)ALARM_JOURNAL_ACTOR_OPERATOR);
     }
     portEXIT_CRITICAL(&s_lock);
+    /* Written to flash with interrupts back on. An acknowledgement that only
+     * ever existed in RAM is not evidence of anything after a restart. */
+    journal_flush();
 
     cJSON *reply = cJSON_CreateObject();
     if (!reply) return httpd_resp_send_500(request);
     cJSON_AddBoolToObject(reply, "acknowledged", was_outstanding);
     cJSON_AddNumberToObject(reply, "code", code);
     cJSON_AddBoolToObject(reply, "present", present);
+    /* Echoed so the caller can see what was recorded against the act, and so a
+     * test can assert the two classes are distinguished rather than collapsed. */
+    cJSON_AddStringToObject(reply, "acknowledged_by",
+                            by_engineering ? "engineering_session" : "operator");
     /* Say which of the two acknowledgements this was. They mean different
      * things: one accepts a live condition, the other discharges a fault that
      * already came and went. */
@@ -1024,8 +1667,471 @@ static esp_err_t alarms_ack_post(httpd_req_t *request)
     return send_json(request, reply);
 }
 
+/* --- A3: shelving endpoints ----------------------------------------------
+ * Both of these mutate suppression state, so both demand the same
+ * authenticated engineering session that acknowledgement demands. This
+ * translation unit sits outside the authorization gateway - operator history
+ * has to stay readable without a session - so the check is written out here
+ * rather than inherited. An anonymous shelf would be worse than an anonymous
+ * acknowledgement: it removes a live condition from the operator's view and
+ * leaves no one accountable for having done it. */
+/* Shared by shelve, unshelve and out-of-service: all three name one condition, and
+ * all three must reject a code this controller does not have rather than mutating
+ * a neighbouring row. */
+static esp_err_t alarm_target_code(httpd_req_t *request, const cJSON *root, int *out_code)
+{
+    const cJSON *code_item = cJSON_GetObjectItemCaseSensitive(root, "code");
+    const bool have_code = cJSON_IsNumber(code_item);
+    const int code = have_code ? code_item->valueint : -1;
+    if (!have_code || code < 0 ||
+        (size_t)code >= sizeof(s_alarms) / sizeof(s_alarms[0]) ||
+        !event_is_alarm_condition((uint8_t)code)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    (void)request;
+    *out_code = code;
+    return ESP_OK;
+}
+
+static esp_err_t alarms_shelve_post(httpd_req_t *request)
+{
+    if (!engineering_auth_is_authorized(request)) {
+        cJSON *err = cJSON_CreateObject();
+        if (!err) return httpd_resp_send_500(request);
+        cJSON_AddStringToObject(err, "error", "engineering_authentication_required");
+        cJSON_AddStringToObject(err, "message",
+                                "Shelving an alarm requires an authenticated engineering session.");
+        return send_json_status(request, "401 Unauthorized", err);
+    }
+
+    cJSON *root = NULL;
+    if (http_json_parse_bounded(request, 256U, 3000ULL, 4U, &root) != ESP_OK) {
+        cJSON *err = cJSON_CreateObject();
+        if (!err) return httpd_resp_send_500(request);
+        cJSON_AddStringToObject(err, "error", "Shelve request must be valid bounded JSON");
+        return send_json_status(request, "400 Bad Request", err);
+    }
+
+    int code = -1;
+    const esp_err_t code_error = alarm_target_code(request, root, &code);
+    /* The expiry is required, not defaulted. Defaulting it would let a caller
+     * that never thought about duration create a shelf anyway, and an
+     * unconsidered shelf is how suppression becomes permanent. */
+    const cJSON *duration_item = cJSON_GetObjectItemCaseSensitive(root, "duration_ms");
+    const bool have_duration = cJSON_IsNumber(duration_item);
+    const double requested = have_duration ? duration_item->valuedouble : 0.0;
+    cJSON_Delete(root);
+
+    if (code_error != ESP_OK) {
+        cJSON *err = cJSON_CreateObject();
+        if (!err) return httpd_resp_send_500(request);
+        cJSON_AddStringToObject(err, "error", "A known alarm code is required");
+        return send_json_status(request, "400 Bad Request", err);
+    }
+    if (!have_duration || !(requested >= (double)ALARM_SHELF_MIN_MS) ||
+        !(requested <= (double)ALARM_SHELF_MAX_MS)) {
+        cJSON *err = cJSON_CreateObject();
+        if (!err) return httpd_resp_send_500(request);
+        cJSON_AddStringToObject(err, "error", "shelf_duration_out_of_range");
+        cJSON_AddStringToObject(err, "message",
+            "A shelf must carry an explicit expiry within the published bounds. "
+            "An indefinite shelf is a disabled alarm under another name.");
+        cJSON_AddNumberToObject(err, "shelf_minimum_ms", ALARM_SHELF_MIN_MS);
+        cJSON_AddNumberToObject(err, "shelf_maximum_ms", ALARM_SHELF_MAX_MS);
+        return send_json_status(request, "400 Bad Request", err);
+    }
+
+    const uint32_t duration_ms = (uint32_t)requested;
+    const uint32_t timestamp = now_ms();
+    /* Seconds in the journal record: 8 h fits a uint16 and the audit trail does
+     * not need millisecond precision on a shift-length decision. */
+    const uint16_t duration_s = (uint16_t)(duration_ms / 1000U);
+    bool present = false;
+    uint16_t shelf_count = 0;
+    portENTER_CRITICAL(&s_lock);
+    operational_alarm_t *alarm = &s_alarms[code];
+    present = alarm->present;
+    alarm->shelved = true;
+    alarm->shelved_ms = timestamp;
+    alarm->shelf_duration_ms = duration_ms;
+    alarm->shelf_expires_ms = timestamp + duration_ms;
+    if (alarm->shelf_count < UINT16_MAX) alarm->shelf_count++;
+    shelf_count = alarm->shelf_count;
+    journal_stage_locked((uint8_t)code, (uint8_t)ALARM_JOURNAL_SHELVED, timestamp, duration_s);
+    portEXIT_CRITICAL(&s_lock);
+    /* The audit record is what makes suppression safe, so it is written before
+     * the operator is told the shelf took effect. */
+    journal_flush();
+
+    cJSON *reply = cJSON_CreateObject();
+    if (!reply) return httpd_resp_send_500(request);
+    cJSON_AddBoolToObject(reply, "shelved", true);
+    cJSON_AddNumberToObject(reply, "code", code);
+    cJSON_AddBoolToObject(reply, "present", present);
+    cJSON_AddNumberToObject(reply, "shelf_duration_ms", (double)duration_ms);
+    cJSON_AddNumberToObject(reply, "shelf_expires_in_ms", (double)duration_ms);
+    cJSON_AddNumberToObject(reply, "shelf_count", shelf_count);
+    cJSON_AddStringToObject(reply, "note",
+        "Shelved: the condition is still detected, still recorded and still listed, "
+        "and it leaves the triage counts until the shelf expires by itself.");
+    return send_json(request, reply);
+}
+
+static esp_err_t alarms_unshelve_post(httpd_req_t *request)
+{
+    if (!engineering_auth_is_authorized(request)) {
+        cJSON *err = cJSON_CreateObject();
+        if (!err) return httpd_resp_send_500(request);
+        cJSON_AddStringToObject(err, "error", "engineering_authentication_required");
+        cJSON_AddStringToObject(err, "message",
+                                "Unshelving an alarm requires an authenticated engineering session.");
+        return send_json_status(request, "401 Unauthorized", err);
+    }
+
+    cJSON *root = NULL;
+    if (http_json_parse_bounded(request, 256U, 3000ULL, 4U, &root) != ESP_OK) {
+        cJSON *err = cJSON_CreateObject();
+        if (!err) return httpd_resp_send_500(request);
+        cJSON_AddStringToObject(err, "error", "Unshelve request must be valid bounded JSON");
+        return send_json_status(request, "400 Bad Request", err);
+    }
+    int code = -1;
+    const esp_err_t code_error = alarm_target_code(request, root, &code);
+    cJSON_Delete(root);
+    if (code_error != ESP_OK) {
+        cJSON *err = cJSON_CreateObject();
+        if (!err) return httpd_resp_send_500(request);
+        cJSON_AddStringToObject(err, "error", "A known alarm code is required");
+        return send_json_status(request, "400 Bad Request", err);
+    }
+
+    const uint32_t timestamp = now_ms();
+    bool was_shelved = false;
+    portENTER_CRITICAL(&s_lock);
+    operational_alarm_t *alarm = &s_alarms[code];
+    was_shelved = alarm->shelved;
+    if (was_shelved) {
+        alarm->shelved = false;
+        alarm->shelf_expires_ms = 0U;
+        alarm->shelf_duration_ms = 0U;
+        journal_stage_locked((uint8_t)code, (uint8_t)ALARM_JOURNAL_UNSHELVED, timestamp, 0U);
+    }
+    portEXIT_CRITICAL(&s_lock);
+    journal_flush();
+
+    cJSON *reply = cJSON_CreateObject();
+    if (!reply) return httpd_resp_send_500(request);
+    cJSON_AddBoolToObject(reply, "unshelved", was_shelved);
+    cJSON_AddNumberToObject(reply, "code", code);
+    cJSON_AddStringToObject(reply, "note",
+        was_shelved ? "Shelf ended early; the alarm is back in the triage counts."
+                    : "This alarm was not shelved.");
+    return send_json(request, reply);
+}
+
+/* --- A9: out of service ----------------------------------------------------
+ * The third ISA-18.2 suppression state, and the one that has to be hardest to
+ * reach, because it is the only one with no expiry. A shelf ends by itself and a
+ * design suppression ends when the plant recovers; an out-of-service alarm stays
+ * quiet until somebody puts it back. That is the correct behaviour for an
+ * instrument that has been physically removed, and it is also exactly the shape
+ * of the "disabled alarm" that makes alarm systems decay, so the three things
+ * that make it defensible are all required rather than optional:
+ *
+ *  - An authenticated engineering session, like every other mutation here. This
+ *    translation unit sits outside the authorization gateway so operator history
+ *    stays readable without a session, which is why the check is written out.
+ *  - A reason, from a fixed list. Not free text: the journal record carries a
+ *    single uint16 of detail, so an enumerated reason survives a reboot and a
+ *    sentence does not, and a reason that vanishes on restart is not an audit
+ *    trail. The list is published by the endpoint so a caller can offer it.
+ *  - Both edges journalled, with the reason on the way in.
+ *
+ * It is deliberately NOT time-limited. Adding an expiry would make it a longer
+ * shelf, and the standard keeps them apart precisely because one is an operator
+ * asking for quiet and the other is a statement that the measurement does not
+ * currently exist. What replaces the expiry is that the state is reported
+ * permanently and prominently: every alarm listing carries the count, the reason
+ * and how long it has been in force, so an out-of-service alarm cannot be
+ * forgotten the way a disabled one can. */
+static void add_out_of_service_reasons(cJSON *parent, const char *name)
+{
+    cJSON *reasons = cJSON_AddArrayToObject(parent, name);
+    if (!reasons) return;
+    for (uint8_t reason = 0; reason <= ALARM_OUT_OF_SERVICE_REASON_MAX; ++reason) {
+        cJSON *item = cJSON_CreateObject();
+        if (!item) continue;
+        cJSON_AddNumberToObject(item, "reason", reason);
+        cJSON_AddStringToObject(item, "name", alarm_out_of_service_reason_name(reason));
+        cJSON_AddStringToObject(item, "text", alarm_out_of_service_reason_text(reason));
+        cJSON_AddItemToArray(reasons, item);
+    }
+}
+
+static esp_err_t alarms_out_of_service_post(httpd_req_t *request)
+{
+    if (!engineering_auth_is_authorized(request)) {
+        cJSON *err = cJSON_CreateObject();
+        if (!err) return httpd_resp_send_500(request);
+        cJSON_AddStringToObject(err, "error", "engineering_authentication_required");
+        cJSON_AddStringToObject(err, "message",
+                                "Taking an alarm out of service is a maintenance action and "
+                                "requires an authenticated engineering session.");
+        return send_json_status(request, "401 Unauthorized", err);
+    }
+
+    cJSON *root = NULL;
+    if (http_json_parse_bounded(request, 256U, 3000ULL, 4U, &root) != ESP_OK) {
+        cJSON *err = cJSON_CreateObject();
+        if (!err) return httpd_resp_send_500(request);
+        cJSON_AddStringToObject(err, "error", "Out-of-service request must be valid bounded JSON");
+        return send_json_status(request, "400 Bad Request", err);
+    }
+
+    int code = -1;
+    const esp_err_t code_error = alarm_target_code(request, root, &code);
+    /* Explicit in both directions. A missing flag must not default to "take it
+     * out of service": suppression is never the safe default. */
+    const cJSON *flag_item = cJSON_GetObjectItemCaseSensitive(root, "out_of_service");
+    const bool have_flag = cJSON_IsBool(flag_item);
+    const bool wanted = have_flag && cJSON_IsTrue(flag_item);
+    const cJSON *reason_item = cJSON_GetObjectItemCaseSensitive(root, "reason");
+    const bool have_reason = cJSON_IsNumber(reason_item);
+    const double requested_reason = have_reason ? reason_item->valuedouble : -1.0;
+    cJSON_Delete(root);
+
+    if (code_error != ESP_OK || !have_flag) {
+        cJSON *err = cJSON_CreateObject();
+        if (!err) return httpd_resp_send_500(request);
+        cJSON_AddStringToObject(err, "error",
+                                "A known alarm code and an explicit out_of_service flag are required");
+        return send_json_status(request, "400 Bad Request", err);
+    }
+    if (wanted && (!have_reason || !(requested_reason >= 0.0) ||
+                   !alarm_out_of_service_reason_valid((uint32_t)requested_reason))) {
+        cJSON *err = cJSON_CreateObject();
+        if (!err) return httpd_resp_send_500(request);
+        cJSON_AddStringToObject(err, "error", "out_of_service_reason_required");
+        cJSON_AddStringToObject(err, "message",
+            "Taking an alarm out of service has no expiry, so it must carry a recorded "
+            "reason from the published list. An unexplained out-of-service alarm is a "
+            "disabled alarm under another name.");
+        add_out_of_service_reasons(err, "reasons");
+        return send_json_status(request, "400 Bad Request", err);
+    }
+
+    const uint8_t reason = wanted ? (uint8_t)requested_reason : 0U;
+    const uint32_t timestamp = now_ms();
+    bool changed = false;
+    bool present = false;
+    uint16_t out_of_service_count = 0;
+    portENTER_CRITICAL(&s_lock);
+    operational_alarm_t *alarm = &s_alarms[code];
+    present = alarm->present;
+    changed = alarm->out_of_service != wanted;
+    if (changed) {
+        alarm->out_of_service = wanted;
+        if (wanted) {
+            alarm->out_of_service_reason = reason;
+            alarm->out_of_service_ms = timestamp;
+            if (alarm->out_of_service_count < UINT16_MAX) alarm->out_of_service_count++;
+            journal_stage_locked((uint8_t)code, (uint8_t)ALARM_JOURNAL_OUT_OF_SERVICE,
+                                 timestamp, reason);
+        } else {
+            alarm->out_of_service_ms = 0U;
+            journal_stage_locked((uint8_t)code, (uint8_t)ALARM_JOURNAL_RETURNED_TO_SERVICE,
+                                 timestamp, alarm->out_of_service_reason);
+        }
+    }
+    out_of_service_count = alarm->out_of_service_count;
+    portEXIT_CRITICAL(&s_lock);
+    /* The audit record is the whole justification for allowing a non-expiring
+     * suppression, so it reaches flash before the caller is told it took effect. */
+    journal_flush();
+
+    cJSON *reply = cJSON_CreateObject();
+    if (!reply) return httpd_resp_send_500(request);
+    cJSON_AddBoolToObject(reply, "out_of_service", wanted);
+    cJSON_AddBoolToObject(reply, "changed", changed);
+    cJSON_AddNumberToObject(reply, "code", code);
+    cJSON_AddBoolToObject(reply, "present", present);
+    cJSON_AddNumberToObject(reply, "out_of_service_count", out_of_service_count);
+    cJSON_AddStringToObject(reply, "suppression",
+                            alarm_suppression_name(wanted ? ALARM_SUPPRESSION_OUT_OF_SERVICE
+                                                          : ALARM_SUPPRESSION_NONE));
+    cJSON_AddStringToObject(reply, "authority",
+                            alarm_suppression_authority(ALARM_SUPPRESSION_OUT_OF_SERVICE));
+    cJSON_AddBoolToObject(reply, "expires", alarm_suppression_expires(ALARM_SUPPRESSION_OUT_OF_SERVICE));
+    if (wanted) {
+        cJSON_AddStringToObject(reply, "reason", alarm_out_of_service_reason_name(reason));
+        cJSON_AddStringToObject(reply, "reason_text", alarm_out_of_service_reason_text(reason));
+    } else {
+        cJSON_AddNullToObject(reply, "reason");
+        cJSON_AddNullToObject(reply, "reason_text");
+    }
+    add_out_of_service_reasons(reply, "reasons");
+    cJSON_AddStringToObject(reply, "note",
+        wanted ? "Out of service: the condition is still detected, still recorded and still "
+                 "listed, and it stays out of the triage counts until somebody returns it to "
+                 "service. This does NOT expire by itself - that is the difference between "
+                 "out of service and shelving."
+               : "Returned to service: the condition is back in the triage counts.");
+    return send_json(request, reply);
+}
+
+/* --- A2: the journal endpoint ---------------------------------------------
+ * Paged, and paged for a physical reason rather than a stylistic one. The
+ * journal holds far more than this controller can serialize: its minimum free
+ * internal heap has been measured close to its own critical threshold, and one
+ * response carrying the whole history would exhaust it. So the caller asks for
+ * a window and is told, honestly, whether more remains behind it. */
+#define ALARM_JOURNAL_PAGE_DEFAULT 50U
+#define ALARM_JOURNAL_PAGE_MAX 100U
+
+static esp_err_t alarms_journal_get(httpd_req_t *request)
+{
+    char query[64] = {0};
+    char value[16] = {0};
+    uint32_t offset = 0U;
+    uint32_t limit = ALARM_JOURNAL_PAGE_DEFAULT;
+    if (httpd_req_get_url_query_str(request, query, sizeof(query)) == ESP_OK) {
+        if (httpd_query_key_value(query, "offset", value, sizeof(value)) == ESP_OK) {
+            offset = (uint32_t)strtoul(value, NULL, 10);
+        }
+        if (httpd_query_key_value(query, "limit", value, sizeof(value)) == ESP_OK) {
+            const unsigned long parsed = strtoul(value, NULL, 10);
+            limit = parsed == 0UL ? ALARM_JOURNAL_PAGE_DEFAULT : (uint32_t)parsed;
+        }
+    }
+    if (limit > ALARM_JOURNAL_PAGE_MAX) limit = ALARM_JOURNAL_PAGE_MAX;
+
+    alarm_journal_entry_t *page = calloc(limit, sizeof(*page));
+    if (!page) return httpd_resp_send_500(request);
+    bool has_more = false;
+    const size_t returned = alarm_journal_read_page(offset, limit, page, &has_more);
+
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        free(page);
+        return httpd_resp_send_500(request);
+    }
+    const uint32_t current = now_ms();
+    cJSON_AddNumberToObject(root, "generated_ms", current);
+    /* This controller has no wall clock. Every time in this payload is
+     * milliseconds since the controller last started, and saying so is the
+     * difference between evidence and a fabricated date. Sequence numbers do
+     * survive a restart, so ordering across reboots is still answerable even
+     * though "when" is not. */
+    cJSON_AddStringToObject(root, "time_base", "uptime_ms");
+    cJSON_AddStringToObject(root, "time_note",
+        "Times are milliseconds since the controller started, not calendar times: "
+        "this controller has no real-time clock. A restart resets the time base; "
+        "the sequence number does not, so records remain ordered across reboots.");
+    cJSON_AddBoolToObject(root, "storage_ready", alarm_journal_ready());
+    cJSON_AddStringToObject(root, "storage_status", alarm_journal_status());
+    cJSON_AddBoolToObject(root, "persistent", true);
+    cJSON_AddNumberToObject(root, "capacity", ALARM_JOURNAL_CAPACITY);
+    cJSON_AddNumberToObject(root, "stored", alarm_journal_stored());
+    cJSON_AddNumberToObject(root, "next_sequence", alarm_journal_next_sequence());
+    /* Losses are reported rather than hidden. A history that quietly drops
+     * records is worse than one that admits it dropped them. */
+    cJSON_AddNumberToObject(root, "unreadable_skipped", alarm_journal_invalid_skipped());
+    cJSON_AddNumberToObject(root, "write_failures", alarm_journal_write_failures());
+    cJSON_AddNumberToObject(root, "staging_dropped", s_stage_dropped);
+    cJSON_AddNumberToObject(root, "offset", offset);
+    cJSON_AddNumberToObject(root, "limit", limit);
+    cJSON_AddNumberToObject(root, "returned", (double)returned);
+    cJSON_AddBoolToObject(root, "has_more", has_more);
+    if (has_more) cJSON_AddNumberToObject(root, "next_offset", offset + (uint32_t)returned);
+    else cJSON_AddNullToObject(root, "next_offset");
+
+    cJSON *entries = cJSON_AddArrayToObject(root, "entries");
+    for (size_t index = 0; index < returned; ++index) {
+        const alarm_journal_entry_t *entry = &page[index];
+        cJSON *item = cJSON_CreateObject();
+        if (!item) continue;
+        const operational_event_t probe = {
+            .code = entry->code,
+            .active = event_condition_present(entry->code, 1U) ? 1U : 0U,
+        };
+        const char *title, *detail, *action;
+        event_text(&probe, &title, &detail, &action);
+        cJSON_AddNumberToObject(item, "sequence", entry->sequence);
+        cJSON_AddNumberToObject(item, "code", entry->code);
+        cJSON_AddStringToObject(item, "id", alarm_code_id(entry->code));
+        cJSON_AddStringToObject(item, "title", title);
+        cJSON_AddStringToObject(item, "transition",
+                                alarm_journal_transition_name(entry->transition));
+        cJSON_AddNumberToObject(item, "uptime_ms", entry->uptime_ms);
+        cJSON_AddNumberToObject(item, "age_ms", (double)(current - entry->uptime_ms));
+        if (entry->transition == (uint8_t)ALARM_JOURNAL_SHELVED) {
+            cJSON_AddNumberToObject(item, "shelf_duration_ms",
+                                    (double)entry->detail * 1000.0);
+        } else {
+            cJSON_AddNullToObject(item, "shelf_duration_ms");
+        }
+        /* A9: the suppression records say who decided and, for out of service,
+         * why. A journal that recorded only "suppressed" would answer whether the
+         * alarm was quiet while destroying the question an audit actually asks. */
+        const bool suppression_record =
+            entry->transition == (uint8_t)ALARM_JOURNAL_SHELVED ||
+            entry->transition == (uint8_t)ALARM_JOURNAL_UNSHELVED ||
+            entry->transition == (uint8_t)ALARM_JOURNAL_SHELF_EXPIRED ||
+            entry->transition == (uint8_t)ALARM_JOURNAL_DESIGN_SUPPRESSED ||
+            entry->transition == (uint8_t)ALARM_JOURNAL_DESIGN_RELEASED ||
+            entry->transition == (uint8_t)ALARM_JOURNAL_OUT_OF_SERVICE ||
+            entry->transition == (uint8_t)ALARM_JOURNAL_RETURNED_TO_SERVICE;
+        if (suppression_record) {
+            alarm_suppression_t state = ALARM_SUPPRESSION_SHELVED;
+            if (entry->transition == (uint8_t)ALARM_JOURNAL_DESIGN_SUPPRESSED ||
+                entry->transition == (uint8_t)ALARM_JOURNAL_DESIGN_RELEASED) {
+                state = ALARM_SUPPRESSION_BY_DESIGN;
+            } else if (entry->transition == (uint8_t)ALARM_JOURNAL_OUT_OF_SERVICE ||
+                       entry->transition == (uint8_t)ALARM_JOURNAL_RETURNED_TO_SERVICE) {
+                state = ALARM_SUPPRESSION_OUT_OF_SERVICE;
+            }
+            cJSON_AddStringToObject(item, "suppression", alarm_suppression_name(state));
+            cJSON_AddStringToObject(item, "suppression_authority",
+                                    alarm_suppression_authority(state));
+        } else {
+            cJSON_AddNullToObject(item, "suppression");
+            cJSON_AddNullToObject(item, "suppression_authority");
+        }
+        if (entry->transition == (uint8_t)ALARM_JOURNAL_OUT_OF_SERVICE ||
+            entry->transition == (uint8_t)ALARM_JOURNAL_RETURNED_TO_SERVICE) {
+            cJSON_AddStringToObject(item, "out_of_service_reason",
+                                    alarm_out_of_service_reason_name((uint8_t)entry->detail));
+        } else {
+            cJSON_AddNullToObject(item, "out_of_service_reason");
+        }
+        if (entry->transition == (uint8_t)ALARM_JOURNAL_DESIGN_SUPPRESSED) {
+            /* The cause that justified the suppression, so a reader can check the
+             * controller's own decision rather than take it on trust. */
+            cJSON_AddStringToObject(item, "design_suppressed_by",
+                                    alarm_code_id((uint8_t)entry->detail));
+        } else {
+            cJSON_AddNullToObject(item, "design_suppressed_by");
+        }
+        /* Acknowledgement is not credential-gated, so the class of actor is the
+         * whole of the attribution and has to be readable, not merely stored. A
+         * field written to flash and never rendered is not an audit trail. */
+        if (entry->transition == (uint8_t)ALARM_JOURNAL_ACKNOWLEDGED) {
+            cJSON_AddStringToObject(item, "acknowledged_by",
+                                    entry->detail == (uint16_t)ALARM_JOURNAL_ACTOR_OPERATOR
+                                        ? "operator"
+                                        : "engineering_session");
+        } else {
+            cJSON_AddNullToObject(item, "acknowledged_by");
+        }
+        cJSON_AddItemToArray(entries, item);
+    }
+    free(page);
+    return send_json(request, root);
+}
+
 esp_err_t operational_api_register(httpd_handle_t server)
 {
+    alarm_journal_init();
     if (!s_task) {
         BaseType_t created = xTaskCreate(operational_task, "op_history", 5120, NULL, 4, &s_task);
         if (created != pdPASS) return ESP_ERR_NO_MEM;
@@ -1035,6 +2141,15 @@ esp_err_t operational_api_register(httpd_handle_t server)
         {.uri = "/api/operator/events", .method = HTTP_GET, .handler = events_get},
         {.uri = "/api/operator/alarms", .method = HTTP_GET, .handler = alarms_get},
         {.uri = "/api/operator/alarms/ack", .method = HTTP_POST, .handler = alarms_ack_post},
+        {.uri = "/api/operator/alarms/journal", .method = HTTP_GET, .handler = alarms_journal_get},
+        {.uri = "/api/operator/alarms/shelve", .method = HTTP_POST, .handler = alarms_shelve_post},
+        {.uri = "/api/operator/alarms/unshelve", .method = HTTP_POST, .handler = alarms_unshelve_post},
+        /* A9. One route in both directions rather than two: taking an alarm out of
+         * service and returning it are the same decision with opposite sign, and
+         * an explicit boolean makes "which did I just call" unambiguous in the
+         * request as well as in the journal. */
+        {.uri = "/api/operator/alarms/out-of-service", .method = HTTP_POST,
+         .handler = alarms_out_of_service_post},
     };
     for (size_t i = 0; i < sizeof(handlers) / sizeof(handlers[0]); ++i) {
         ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &handlers[i]), "operational_api", "handler registration failed");

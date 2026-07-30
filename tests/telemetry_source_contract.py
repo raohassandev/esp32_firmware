@@ -34,17 +34,21 @@ assert "command_target_t targets[APP_MAX_INVERTERS]" in INVERTER_MANAGER, \
     "fleet command must use one immutable eligible-target snapshot"
 assert "float commanded_kw = target->rated_kw * percent / 100.0f;" in INVERTER_MANAGER, \
     "commanded kW must be derived from the validated percentage and snapshot rating"
-assert "target->runtime->data.commanded_power_kw = target->commanded_kw;" in INVERTER_MANAGER, \
-    "runtime diagnostics must store only the readback-confirmed command"
-assert "target->runtime->data.commanded_power_kw = 0.0f;" in INVERTER_MANAGER, \
-    "confirmed rollback must be represented explicitly as zero applied command"
 assert "runtime->data.commanded_power_kw = share_kw;" not in INVERTER_MANAGER, \
     "pre-validation requested share must not be reported as the sent command"
-assert "inverter_command_decide(&evidence)" in INVERTER_MANAGER
-assert "decision.action == INVERTER_COMMAND_CONFIRMED && decision.confirmed" in INVERTER_MANAGER
-assert INVERTER_MANAGER.index("inverter_command_decide(&evidence)") < INVERTER_MANAGER.index(
-    "target->runtime->data.commanded_power_kw = target->commanded_kw;"
-), "command telemetry must be committed only after readback confirmation"
+
+# Write confirmation is deferred to the background acquisition task (P0-9), so
+# the committed command telemetry must be written by the confirmation evaluator
+# and nowhere else. An issued write may only record requested_percent.
+assert "inverter_write_confirmation_evaluate(&evidence)" in INVERTER_MANAGER
+assert "verdict.state == INVERTER_WRITE_CONFIRMED" in INVERTER_MANAGER
+assert INVERTER_MANAGER.count("data.commanded_power_kw =") == 1, \
+    "committed command telemetry must have exactly one writer, the confirmation evaluator"
+assert INVERTER_MANAGER.index("inverter_write_confirmation_evaluate(&evidence)") < \
+    INVERTER_MANAGER.index("data.commanded_power_kw ="), \
+    "command telemetry must be committed only after readback confirmation"
+assert "note_write_issued" in INVERTER_MANAGER, \
+    "an issued but unconfirmed write must be recorded separately from a commanded value"
 
 required_ui_fragments = [
     "Measured production",

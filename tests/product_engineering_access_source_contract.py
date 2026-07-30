@@ -8,6 +8,11 @@ SERVER = (ROOT / "components/web_server/web_server.c").read_text(encoding="utf-8
 CMAKE = (ROOT / "components/web_server/CMakeLists.txt").read_text(encoding="utf-8")
 JS = (ROOT / "web/product-mode.js").read_text(encoding="utf-8")
 OPERATOR = (ROOT / "web/operator-view.js").read_text(encoding="utf-8")
+# The operator view no longer draws its own trend: it provides the single
+# mount point that the shared chart component is placed into. The trend
+# titles are therefore asserted in the component that now renders them.
+CHART = (ROOT / "web/pvdg-chart.js").read_text(encoding="utf-8")
+OPERATIONS = (ROOT / "web/operator-operations.js").read_text(encoding="utf-8")
 CSS = (ROOT / "web/product-mode.css").read_text(encoding="utf-8")
 
 
@@ -63,11 +68,53 @@ require("X-Engineering-Token" not in JS,
 
 for token in [
     "Electrical supply status", "Inverter fleet status", "installed capacity",
-    "Solar production", "Grid Power", "Solar Inverters", "/api/meters",
-    "/api/inverters", "/api/inverter-telemetry", "op-gauge", "sparkline",
-    "Grid power trend", "Fleet availability", "Operator guidance",
+    "Solar production", "/api/meters",
+    "/api/inverters", "/api/inverter-telemetry", "op-gauge",
+    "operatorTrendHost", "Fleet availability",
 ]:
     require(token in OPERATOR, f"operator product view missing {token}")
+
+# "Grid Power" and "Solar Inverters" used to be on the list above. They were the
+# operator-only spellings of two page names, printed as an eyebrow over each
+# screen - and tests/ia_taxonomy_source_contract.py now forbids exactly that:
+# one durable name per page, "Grid power" and "Solar inverters", owned by the
+# route table in web/app.js and applied to the sidebar, the title, the breadcrumb
+# and document.title from one place. Asserting the capitalised variants here was
+# pulling against that rule and pinning a third spelling of each page name into
+# the operator screen. The property is stronger stated as a prohibition.
+#
+# Only the operator-side variants are listed. "Inverters" as the heading of a
+# table of inverters is a noun, not a second name for a page.
+for invented in ["'Grid Power'", "'Solar Inverters'", "'Meters'"]:
+    require(invented not in OPERATOR,
+            f"the operator view spells a page name of its own ({invented}); page "
+            "names come from the route table in web/app.js so that an instruction "
+            "given over the phone matches what is on the screen")
+
+# "Operator guidance" was the headline of a card that printed a paragraph in
+# every state, including the state where nothing is wrong. It is now a card that
+# appears ONLY when something is blocking automatic control, and says what to do
+# rather than describing the situation. The assertion follows the requirement:
+# this screen must tell an operator what action is required.
+require("'Required action'" in OPERATOR and "function controlActions" in OPERATOR,
+        "the control screen must state the required action when automatic control "
+        "is blocked")
+require("action:" in OPERATOR and "why:" in OPERATOR and "condition:" in OPERATOR,
+        "an operator message must carry all three beats - what is true now, why it "
+        "matters, and what to do - not just a description")
+require(".slice(0, 3)" in OPERATOR,
+        "the required actions must be bounded; an unbounded list of things to do "
+        "is a list nobody does")
+
+# The operator trend is still present on the dashboard, the grid page and the
+# solar page - it is now one shared component rather than a second chart
+# implementation copied into this file.
+require("function sparkline" not in OPERATOR,
+        "the operator view must not carry a second chart implementation")
+for token in ["Grid power trend", "Solar production trend", "Plant power trend"]:
+    require(token in OPERATIONS, f"operator trend chart missing {token}")
+require("PvdgChart" in OPERATIONS and "create" in CHART,
+        "the operator screens must mount the shared chart component")
 
 for forbidden in ["PDU", "function code", "raw words", "meterScale", "meterAddress", "limit register"]:
     require(forbidden.lower() not in OPERATOR.lower(),

@@ -69,6 +69,7 @@ The embedded bundle is modular, but responsibilities must remain singular:
 - `product-mode.js` — single owner of Engineering authentication state and protected-route enforcement
 - `product-shell-v2.js` / `product-experience-v2.js` — product shell, navigation and page composition
 - `operator-operations.js` / `operator-product-suite.js` — operator dashboards, history and alarms
+- `pvdg-chart.js` / `pvdg-chart.css` — the only time-series chart. Every trend on every screen is one instance of this component, moved between pages and reconfigured. Nothing else may draw a chart: a second implementation is how the product ended up with two disagreeing trends on one dashboard, neither of which showed a missing measurement as missing.
 - `commissioning-release-v3.js` — active seven-step commissioning workflow
 - `network-commissioning-fix.js` — resilient Wi-Fi save/restart/reconnect flow
 - `em500-core.js` and related EM500 modules — Engineering-only detailed meter diagnostics

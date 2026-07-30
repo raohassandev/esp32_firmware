@@ -11,6 +11,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "lwip/inet.h"
+#include "meter_poll_schedule.h"
 #include "modbus_decoder.h"
 #include "modbus_tcp.h"
 #include "network_manager.h"
@@ -26,6 +27,16 @@ typedef struct {
     SemaphoreHandle_t io_mutex;
     uint32_t recent_results;
     uint8_t recent_count;
+    /* Number of non-poll callers currently waiting for this meter's transport.
+     *
+     * With a zero poll interval the poll task finishes a transaction and
+     * immediately wants the bus again. A FreeRTOS mutex is granted by priority,
+     * not fairness, and the poll task runs above every UI and cache task, so
+     * those callers would wait until their 5 s lock timeout and the EM500 pages
+     * would simply stop working. Counting waiters lets the poll loop stand aside
+     * for one tick, which costs one sample and keeps the rest of the product
+     * alive. */
+    volatile uint8_t io_waiters;
 } meter_runtime_t;
 
 static meter_runtime_t s_meters[APP_MAX_METERS];
@@ -37,7 +48,7 @@ static uint8_t s_meter_count;
 #define METER_QUALITY_WINDOW 20U
 #define METER_MIN_QUALITY_SAMPLES 5U
 #define METER_MIN_SUCCESS_PERCENT 80U
-#define METER_MAX_BACKOFF_MS 10000U
+
 
 static uint32_t now_ms(void)
 {
@@ -117,20 +128,14 @@ static bool sample_is_fresh(const meter_data_t *data, uint32_t timestamp)
            timestamp - data->last_update_ms <= METER_FRESH_GRACE_MS;
 }
 
+/* Delay to insert after a completed transaction. The rule and its invariants live
+ * in meter_poll_schedule so host tests can execute them; see that header. */
 static uint32_t bounded_poll_delay(const meter_runtime_t *meter,
                                    const meter_data_t *data)
 {
-    uint32_t base = meter->config.poll_interval_ms;
-    if (base < 100U) base = 100U;
-    if (!data->degraded && data->consecutive_failures == 0U) return base;
-
-    uint32_t multiplier = data->degraded ? 2U : 1U;
-    uint32_t failure_steps = data->consecutive_failures > 3U ? 3U : data->consecutive_failures;
-    multiplier <<= failure_steps;
-    uint64_t delay = (uint64_t)base * multiplier;
-    uint32_t ceiling = base > METER_MAX_BACKOFF_MS ? base : METER_MAX_BACKOFF_MS;
-    if (delay > ceiling) return ceiling;
-    return delay < base ? base : (uint32_t)delay;
+    return meter_poll_delay_ms(meter->config.poll_interval_ms,
+                               data->degraded,
+                               data->consecutive_failures);
 }
 
 static void update_quality(meter_runtime_t *meter, meter_data_t *data, bool success)
@@ -169,14 +174,39 @@ static void capture_modbus_exception(meter_runtime_t *meter)
     store_data(meter, &next);
 }
 
+/* Registers interest in the transport before contending for it, so the poll loop
+ * can see that someone else is waiting and stand aside. `announce` is false for
+ * the poll task itself: it must not count itself as a waiter, or it would yield
+ * to nobody forever. */
+static esp_err_t serialized_read_announced(meter_runtime_t *meter,
+                                           uint8_t function_code,
+                                           uint16_t address,
+                                           uint16_t count,
+                                           uint16_t *registers,
+                                           bool announce);
+
 static esp_err_t serialized_read(meter_runtime_t *meter,
                                  uint8_t function_code,
                                  uint16_t address,
                                  uint16_t count,
                                  uint16_t *registers)
 {
+    /* Every caller other than the poll loop reaches the transport through here,
+     * so this is where interest is announced. */
+    return serialized_read_announced(meter, function_code, address, count, registers, true);
+}
+
+static esp_err_t serialized_read_announced(meter_runtime_t *meter,
+                                           uint8_t function_code,
+                                           uint16_t address,
+                                           uint16_t count,
+                                           uint16_t *registers,
+                                           bool announce)
+{
     if (!meter || !meter->io_mutex) return ESP_ERR_INVALID_STATE;
+    if (announce && meter->io_waiters < UINT8_MAX) meter->io_waiters++;
     if (xSemaphoreTake(meter->io_mutex, pdMS_TO_TICKS(METER_IO_LOCK_TIMEOUT_MS)) != pdTRUE) {
+        if (announce && meter->io_waiters > 0U) meter->io_waiters--;
         ESP_LOGW(TAG, "%s: Modbus transaction queue timeout", meter->config.name);
         return ESP_ERR_TIMEOUT;
     }
@@ -188,6 +218,7 @@ static esp_err_t serialized_read(meter_runtime_t *meter,
                                               registers);
     capture_modbus_exception(meter);
     xSemaphoreGive(meter->io_mutex);
+    if (announce && meter->io_waiters > 0U) meter->io_waiters--;
     return err;
 }
 
@@ -226,11 +257,12 @@ static void meter_task(void *argument)
         }
 
         uint32_t started_ms = now_ms();
-        esp_err_t err = serialized_read(meter,
-                                        meter->config.function_code,
-                                        meter->config.active_power_address,
-                                        count,
-                                        registers);
+        esp_err_t err = serialized_read_announced(meter,
+                                                 meter->config.function_code,
+                                                 meter->config.active_power_address,
+                                                 count,
+                                                 registers,
+                                                 false);
         uint32_t completed_ms = now_ms();
         meter_data_t next = data_snapshot(meter);
         uint32_t previous_failures = next.consecutive_failures;
@@ -278,7 +310,26 @@ static void meter_task(void *argument)
         }
 
         store_data(meter, &next);
-        vTaskDelay(pdMS_TO_TICKS(next.current_poll_delay_ms));
+
+        /* Poll-on-completion when the configured delay is zero: the next request
+         * goes out as soon as this one finished, so the sample rate is set by the
+         * device and the network rather than by an arbitrary period.
+         *
+         * Two things still get a turn. A non-zero configured delay is honoured
+         * exactly, because an engineer may need to slow the bus for a device or a
+         * gateway that cannot sustain the rate. And if any other caller is waiting
+         * for this transport, one tick is given up so it can proceed -- without
+         * that, a continuously polling task at priority 8 starves every UI and
+         * cache reader beneath it and the EM500 pages stop responding.
+         *
+         * vTaskDelay(0) is a yield, not a sleep, so an equal-priority task on this
+         * core still gets a turn even in the zero-delay case. */
+        const uint32_t delay_ms = next.current_poll_delay_ms;
+        if (delay_ms == 0U && meter->io_waiters > 0U) {
+            vTaskDelay(1);
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(delay_ms));
+        }
     }
 }
 
@@ -338,7 +389,8 @@ esp_err_t meter_manager_init(void)
 
         char task_name[16];
         snprintf(task_name, sizeof(task_name), "meter_%u", i);
-        if (xTaskCreate(meter_task, task_name, 4096, runtime, 8, NULL) != pdPASS) {
+        if (xTaskCreatePinnedToCore(meter_task, task_name, 4096, runtime, 8, NULL,
+                                    PVDG_CONTROL_CORE) != pdPASS) {
             runtime->data.last_error = ESP_ERR_NO_MEM;
             if (first_error == ESP_OK) first_error = ESP_ERR_NO_MEM;
             ESP_LOGE(TAG, "meter %u task creation failed", i);

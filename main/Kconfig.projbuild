@@ -37,6 +37,45 @@ config PVDG_WIFI_PROVISION_ID
       PVDG_APPLY_BUILD_WIFI_PROVISIONING is explicitly enabled. Each approved
       factory credential set must use a strictly increasing positive value.
 
+config PVDG_RECOVERY_AP_PASSWORD
+    string "Recovery access point password"
+    default ""
+    help
+      Leave EMPTY. An empty value makes each unit generate its own random
+      recovery-AP password on first start and print it once to the serial console.
+
+      A non-empty value here is shipped identically on every unit built from this
+      tree, and this repository is public, so anyone able to read it could join the
+      setup network of any controller in the field. That is what the previous
+      hard-coded default did, and it is why this is now a deliberate, documented
+      choice rather than a constant in the source.
+
+      Set it only for a closed bench or factory batch whose units never leave your
+      control, and never for anything shipped to a customer.
+
+config PVDG_ENGINEERING_CREDENTIAL_RESET_ID
+    int "Engineering credential reset generation"
+    default 0
+    help
+      Physical-recovery generation for a lost Engineering password. Leave at 0
+      for every normal, field, customer and unattended build.
+
+      When this value is positive and strictly greater than the generation
+      already recorded on the device, the stored Engineering credential is
+      deleted once during start-up. The controller then reports that setup is
+      required and prints a one-time setup code to the serial console, exactly
+      as an uncommissioned unit does, so a new password must be chosen before
+      any engineering endpoint can be used again.
+
+      No password is ever compiled into the firmware by this option: it removes
+      a credential, it does not install one. Recovery therefore requires
+      physical access to reflash the board and physical access to read its
+      serial console, which is the same trust boundary the one-time setup code
+      already relies on. Nothing about it is reachable over the network.
+
+      Each use must take a strictly increasing positive value, so that leaving a
+      recovery build installed cannot wipe the new password on every reboot.
+
 config PVDG_DEFAULT_ZLAN_HOST
     string "Default ZLAN5143D IP address"
     default "192.168.100.200"

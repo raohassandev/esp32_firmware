@@ -98,10 +98,27 @@ require("isfinite(decoded)" in METER,
         "meter boundary must reject non-finite decoded data")
 require("s_meter_count = cfg->meter_count <= APP_MAX_METERS" in METER,
         "meter runtime count is not clamped")
-require("uint32_t ceiling = base > METER_MAX_BACKOFF_MS ? base : METER_MAX_BACKOFF_MS" in METER,
-        "degraded backoff can still poll faster than the configured healthy interval")
-require("return delay < base ? base" in METER,
-        "degraded backoff must never be shorter than the normal interval")
+# Failure backoff must never poll FASTER than the configured healthy interval, and
+# must still back off when that interval is zero.
+#
+# Zero is now a legal healthy interval meaning "poll again as soon as the previous
+# transaction completes". That makes the backoff safety-relevant: scaling zero
+# yields zero, and a refused connection returns almost instantly, so a loop with no
+# floor would spin at CPU speed.
+#
+# The rule itself is a pure function EXECUTED by tests/meter_poll_schedule_test.c,
+# which proves the invariants across intervals from 0 to 2^32-1: healthy honours
+# the configured value exactly, failure always waits, backoff is never shorter than
+# the configured interval, it is bounded, and it cannot overflow. Two earlier
+# assertions here pattern-matched the old expression text and broke on a
+# legitimate refactor while every guarantee still held. This contract now only
+# checks that the runtime still DELEGATES to that rule rather than growing a second
+# private copy of it.
+require("meter_poll_delay_ms(" in METER,
+        "the meter runtime must obtain its poll delay from the pure, tested rule")
+require("METER_FAILURE_BASE_MS" not in METER,
+        "the failure floor must live in meter_poll_schedule, not be re-declared in "
+        "the runtime where it could drift from the tested rule")
 
 require("if (!isfinite(value) || !isfinite(maximum)" in POLICY,
         "power policy clamp must fail closed for non-finite input")

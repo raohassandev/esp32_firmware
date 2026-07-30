@@ -29,6 +29,17 @@ float safety_manager_limit_target_kw(float requested_kw, const meter_data_t *met
     return s_alarm_flags ? 0.0f : requested_kw;
 }
 
+/* Floor used before init, and if a configuration ever carries zero. Zero would
+ * mean "every sample is stale", which would inhibit control permanently. */
+#define SAFETY_MIN_STALE_TIMEOUT_MS 100U
+
+uint32_t safety_manager_meter_stale_timeout_ms(void)
+{
+    const uint32_t configured = s_control.meter_stale_timeout_ms;
+    return configured >= SAFETY_MIN_STALE_TIMEOUT_MS ? configured
+                                                     : SAFETY_MIN_STALE_TIMEOUT_MS;
+}
+
 uint32_t safety_manager_get_alarm_flags(void)
 {
     return s_alarm_flags;

@@ -1,0 +1,122 @@
+{
+  "_comment": [
+    "WORKING LAB CONFIGURATION -- Automatrix PV-DG Controller.",
+    "",
+    "Points the controller at the SolTrix Modbus simulator so the control loop can",
+    "be exercised end to end without touching a real inverter. Every value here is",
+    "either measured against that simulator or a firmware default; nothing is a",
+    "guess about site equipment.",
+    "",
+    "This configures a LAB target. The controller will report",
+    "commissioning_scope = lab_simulator_only and lab_simulator_mode = true, and",
+    "nothing observed while running it is evidence about physical equipment.",
+    "",
+    "Apply with docs/SAMPLE_CONFIGURATION.md; the sections map to separate",
+    "authenticated endpoints and cannot be posted as one document."
+  ],
+
+  "meters": {
+    "_endpoint": "POST /api/meters/config",
+    "meters": [
+      {
+        "_comment": "The simulated EM500. Its map matches the real meter: FC03, PDU 57, signed int32, high word first, 1e-5 kW per raw unit.",
+        "enabled": true,
+        "name": "LAB SIM EM500",
+        "host": "192.168.100.11",
+        "port": 1502,
+        "unit_id": 10,
+        "role": 1,
+        "_role_meaning": "0 unassigned, 1 grid, 2 generator, 3 load, 4 pv",
+        "function": 3,
+        "active_power_address": 57,
+        "data_type": 3,
+        "_data_type_meaning": "0 uint16, 1 int16, 2 uint32, 3 int32, 4 float32 -- int32 is REQUIRED because grid power is negative when exporting",
+        "word_order": 0,
+        "_word_order_meaning": "0 ABCD (high word first)",
+        "scale": 0.00001,
+        "poll_ms": 0,
+        "_poll_ms_meaning": "0 = issue the next read as soon as the previous transaction completes. Any positive value is honoured exactly, for a device or gateway that cannot sustain the rate.",
+        "timeout_ms": 800,
+        "_timeout_meaning": "Measured on the real gateway: mean 93 ms, max 319 ms. 300 ms sat inside that tail and marked ~3% of good reads as failures. See docs/ACQUISITION_TIMING_MEASUREMENTS.md."
+      }
+    ]
+  },
+
+  "inverters": {
+    "_endpoint": "POST /api/inverters/config",
+    "inverters": [
+      {
+        "_comment": "The simulated Huawei-layout inverter, unit 1 on the same simulator.",
+        "enabled": true,
+        "name": "LAB SIM HUAWEI",
+        "host": "192.168.100.11",
+        "port": 1502,
+        "unit_id": 1,
+        "rated_kw": 100.0,
+        "timeout_ms": 800
+      }
+    ]
+  },
+
+  "profile_assignment": {
+    "_endpoint": "POST /api/inverter-profile-assignment",
+    "_comment": [
+      "soltrix.sim.huawei.v3 was measured against this simulator, not copied from a",
+      "manual. It declares a 2500 ms settle window because the simulator applies a",
+      "40125 write about 1500 ms later and reports the PREVIOUS limit until it does.",
+      "The older v1 profile probes 40000/40010, which this simulator does not",
+      "implement, so it would simply fail.",
+      "",
+      "lab_target = true is what unlocks commanding through a profile that has not",
+      "passed physical qualification. It grants LAB authority only, never production,",
+      "and it disables automatic control when set so it cannot take effect under a",
+      "running loop -- re-enable control afterwards."
+    ],
+    "inverter_index": 0,
+    "profile_id": "soltrix.sim.huawei.v3",
+    "lab_target": true
+  },
+
+  "solar_grid": {
+    "_endpoint": "POST /api/solar-grid/config",
+    "_comment": [
+      "LAB values for the simulator's modelled plant (70 kW load, 100 kW PV, no",
+      "generator running). These are NOT site data and must not be copied to a real",
+      "plant -- the site template leaves them blank on purpose."
+    ],
+    "enabled": true,
+    "minimum_import_kw": 5.0,
+    "export_limit_kw": 0.0,
+    "generator_rated_kw": 70.0,
+    "generator_minimum_loading_percent": 30.0,
+    "generator_reserve_kw": 5.0,
+    "generator_reverse_power_margin_kw": 2.0
+  },
+
+  "control": {
+    "_endpoint": "POST /api/config (control object)",
+    "_comment": [
+      "interval_ms is FIXED and fast, deliberately not poll-on-completion like",
+      "acquisition: a jittering control period gives a jittering integral term, and",
+      "determinism is worth more here than the last few milliseconds. Commands are",
+      "issued on change plus a keepalive, so a fast loop does not mean fast writes.",
+      "",
+      "grid_ramp disabled = reach the allowed target in ONE cycle, which is the",
+      "grid-mode requirement. It removes a rate limit only; the export/import",
+      "target, the generator minimum-loading limit and every safety clamp still",
+      "apply. generator_ramp is a true rate in percent of fleet capacity per second,",
+      "independent of the loop period, with the down rate faster than the up rate",
+      "because reducing PV is the direction that protects the generator."
+    ],
+    "enabled": false,
+    "_enabled_comment": "Left FALSE. Enable only after the commissioning gate reports satisfied and you have read its scope.",
+    "grid_import_target_kw": 5.0,
+    "deadband_kw": 0.5,
+    "kp": 0.6,
+    "ki": 0.05,
+    "interval_ms": 20,
+    "meter_stale_timeout_ms": 1000,
+    "grid_ramp": { "enabled": false, "up_pct_s": 0.0, "down_pct_s": 0.0 },
+    "generator_ramp": { "enabled": true, "up_pct_s": 5.0, "down_pct_s": 20.0 }
+  }
+}

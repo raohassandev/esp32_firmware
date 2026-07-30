@@ -5,9 +5,11 @@
 #include <stdlib.h>
 
 #include "cJSON.h"
+#include "commissioning_gate.h"
 #include "config_manager.h"
 #include "control_engine.h"
 #include "esp_check.h"
+#include "generator_fleet_limit.h"
 #include "http_json.h"
 #include "solar_grid_config.h"
 
@@ -21,6 +23,33 @@
 #define SOLAR_GRID_KW_MAX 1000000.0f
 #define SOLAR_GRID_PERCENT_MAX 100.0f
 #define SOLAR_GRID_FIELD_ERROR_MAX 160U
+
+/* Enumerated ceilings, derived from the enums rather than written as literals so
+ * that appending a sharing mode or an engine role cannot leave this API silently
+ * refusing the new value. solar_grid_config_valid() applies the same ceilings. */
+#define SOLAR_GRID_SHARING_MODE_MAX ((uint32_t)SOLAR_GRID_LOAD_SHARING_COUNT - 1U)
+#define SOLAR_GRID_ENGINE_ROLE_MAX ((uint32_t)SOLAR_GRID_ENGINE_ROLE_COUNT - 1U)
+
+/* The two enums this API reports across are kept numerically identical by
+ * _Static_asserts in the control engine, which is what lets one slug vocabulary
+ * and one "is this mode supported" predicate serve both layers. Restated here
+ * because this file reads the persisted value and asks the control engine's
+ * predicate about it: if they ever diverged, this API would report a mode as
+ * supported while the controller refused it, which is the one answer an
+ * interface must never give. */
+_Static_assert((int)SOLAR_GRID_LOAD_SHARING_UNSET == (int)GENERATOR_SHARING_UNSET &&
+                   (int)SOLAR_GRID_LOAD_SHARING_ISOCHRONOUS == (int)GENERATOR_SHARING_ISOCHRONOUS &&
+                   (int)SOLAR_GRID_LOAD_SHARING_BASE_LOAD == (int)GENERATOR_SHARING_BASE_LOAD &&
+                   (int)SOLAR_GRID_LOAD_SHARING_DROOP == (int)GENERATOR_SHARING_DROOP &&
+                   (int)SOLAR_GRID_LOAD_SHARING_COUNT == (int)GENERATOR_SHARING_MODE_COUNT,
+               "the persisted load-sharing enum and the control engine's must agree "
+               "value for value, or this API would report a refused mode as supported");
+_Static_assert((int)SOLAR_GRID_ENGINE_ROLE_UNSET == (int)GENERATOR_ENGINE_ROLE_UNSET &&
+                   (int)SOLAR_GRID_ENGINE_ROLE_SWING == (int)GENERATOR_ENGINE_ROLE_SWING &&
+                   (int)SOLAR_GRID_ENGINE_ROLE_BASE_LOAD == (int)GENERATOR_ENGINE_ROLE_BASE_LOAD &&
+                   (int)SOLAR_GRID_ENGINE_ROLE_COUNT == (int)GENERATOR_ENGINE_ROLE_COUNT,
+               "the persisted engine-role enum and the control engine's must agree "
+               "value for value");
 
 static esp_err_t send_root(httpd_req_t *request, cJSON *root, const char *status)
 {
@@ -55,6 +84,143 @@ static void signal_to_json(cJSON *parent, const char *name,
     cJSON_AddNumberToObject(object, "address", signal->address);
     cJSON_AddNumberToObject(object, "mask", signal->mask);
     cJSON_AddNumberToObject(object, "active_value", signal->active_value);
+}
+
+/*
+ * WHY A REFUSED MODE MUST BE REPORTED AS REFUSED, AND WITH THE FIRMWARE'S REASON.
+ *
+ * The control engine computes a minimum-loading floor for isochronous and base-load
+ * sharing and REFUSES droop, permanently and deliberately. An interface that offered
+ * the four stored values as four equally selectable options would let an engineer
+ * commission droop, get a stored configuration that validates, and then find the
+ * plant will not command PV with nothing on screen connecting the two.
+ *
+ * So each mode is published with `supported` from the control engine's own predicate
+ * -- never from a list maintained here -- and, when it is not supported, with the
+ * sentence the commissioning gate itself would print. Nothing on this path
+ * paraphrases a safety decision: generator_sharing_mode_supported() decides, and
+ * commissioning_reason_message() supplies the words.
+ */
+static const char *sharing_mode_refusal(uint8_t mode)
+{
+    if (generator_sharing_mode_supported(mode)) return "";
+    if (mode == (uint8_t)SOLAR_GRID_LOAD_SHARING_UNSET) {
+        return commissioning_reason_message(
+            (uint8_t)COMMISSIONING_REASON_GENERATOR_SHARING_MODE_UNSET);
+    }
+    return commissioning_reason_message(
+        (uint8_t)COMMISSIONING_REASON_GENERATOR_SHARING_MODE_UNSUPPORTED);
+}
+
+static void sharing_modes_json(cJSON *parent, uint8_t selected)
+{
+    cJSON *modes = cJSON_AddArrayToObject(parent, "load_sharing_modes");
+    if (!modes) return;
+    for (uint8_t mode = 0U; mode < (uint8_t)SOLAR_GRID_LOAD_SHARING_COUNT; ++mode) {
+        cJSON *entry = cJSON_CreateObject();
+        if (!entry) continue;
+        cJSON_AddNumberToObject(entry, "value", mode);
+        cJSON_AddStringToObject(entry, "id", solar_grid_load_sharing_name(mode));
+        /* The control engine's own predicate. Never a list kept in this file: a
+         * mode added there and forgotten here would be offered as if selecting it
+         * would work. */
+        const bool supported = generator_sharing_mode_supported(mode);
+        cJSON_AddBoolToObject(entry, "supported", supported);
+        cJSON_AddBoolToObject(entry, "refused", !supported);
+        cJSON_AddBoolToObject(entry, "selected", mode == selected);
+        cJSON_AddStringToObject(entry, "reason", sharing_mode_refusal(mode));
+        cJSON_AddItemToArray(modes, entry);
+    }
+}
+
+/* One engine slot, as the uniform sequence solar_grid_config_generator() presents
+ * rather than as the two halves it is stored in. `in_service_derived` marks slot 0,
+ * whose in-service flag is not a stored field: it is in service exactly when its
+ * rating is positive, which is what "commissioned" has meant for the
+ * single-generator configuration since schema 2. Saying so in the payload is what
+ * lets an interface show the slot-0 control as derived instead of offering a
+ * checkbox that cannot be honoured. */
+static void engines_json(cJSON *parent, const solar_grid_config_t *config)
+{
+    cJSON *engines = cJSON_AddArrayToObject(parent, "engines");
+    if (!engines) return;
+    for (uint8_t slot = 0U; slot < SOLAR_GRID_MAX_GENERATORS; ++slot) {
+        const solar_grid_generator_limits_t limits =
+            solar_grid_config_generator(config, slot);
+        cJSON *entry = cJSON_CreateObject();
+        if (!entry) continue;
+        cJSON_AddNumberToObject(entry, "slot", slot);
+        cJSON_AddBoolToObject(entry, "in_service", limits.enabled);
+        cJSON_AddBoolToObject(entry, "in_service_derived", slot == 0U);
+        cJSON_AddNumberToObject(entry, "rated_kw", limits.rated_kw);
+        cJSON_AddNumberToObject(entry, "minimum_loading_percent",
+                                limits.minimum_loading_percent);
+        cJSON_AddNumberToObject(entry, "reserve_kw", limits.reserve_kw);
+        cJSON_AddNumberToObject(entry, "reverse_power_margin_kw",
+                                limits.reverse_power_margin_kw);
+        /* This engine's OWN minimum in kW. Arithmetic on two commissioned numbers,
+         * not a new commissioned quantity, and it is the figure a base-load setpoint
+         * has to reach: a setpoint below it is a commissioning fault no plant load
+         * can correct, because a base-loaded engine's load does not follow the
+         * total. */
+        cJSON_AddNumberToObject(entry, "minimum_loading_kw",
+                                limits.rated_kw * limits.minimum_loading_percent / 100.0f);
+        const uint8_t role = solar_grid_config_engine_role(config, slot);
+        cJSON_AddNumberToObject(entry, "role", role);
+        cJSON_AddStringToObject(entry, "role_name", solar_grid_engine_role_name(role));
+        /* Zero means "not commissioned", reported as-is. No setpoint is invented:
+         * a guessed fixed kW would be a commissioning fact nobody supplied. */
+        cJSON_AddNumberToObject(entry, "base_load_kw",
+                                solar_grid_config_engine_base_load_kw(config, slot));
+        cJSON_AddItemToArray(engines, entry);
+    }
+}
+
+/* The multi-engine generator policy: the kW load-sharing mode, which modes the
+ * firmware will actually compute a floor for, and every engine slot.
+ *
+ * Until this existed the API carried engine slot 0 only, so a plant that can run
+ * two or three gensets in parallel could not be commissioned through the product at
+ * all: the commissioning gate correctly refused to command PV and no engineer had
+ * any way to supply what it was asking for. */
+static void generator_policy_json(cJSON *root, const solar_grid_config_t *config)
+{
+    const uint8_t mode = solar_grid_config_load_sharing_mode(config);
+    cJSON_AddNumberToObject(root, "load_sharing_mode", mode);
+    cJSON_AddStringToObject(root, "load_sharing_mode_name",
+                            solar_grid_load_sharing_name(mode));
+    cJSON_AddBoolToObject(root, "load_sharing_mode_supported",
+                          generator_sharing_mode_supported(mode));
+    cJSON_AddStringToObject(root, "load_sharing_mode_reason", sharing_mode_refusal(mode));
+    sharing_modes_json(root, mode);
+    cJSON_AddNumberToObject(root, "engine_slot_count", SOLAR_GRID_MAX_GENERATORS);
+    cJSON_AddNumberToObject(root, "engines_in_service",
+                            solar_grid_config_enabled_generator_count(config));
+    engines_json(root, config);
+    /* Two consequences an interface must be able to state without composing them
+     * itself, both in the firmware's own words.
+     *
+     * A sharing mode is required only once the plant can run two or more engines:
+     * with one engine on the bus there is no load to share and every sharing law
+     * gives it the whole plant load, which is the exemption that keeps a
+     * commissioned single-generator site behaving exactly as it did before. */
+    cJSON_AddBoolToObject(root, "load_sharing_mode_required",
+                          solar_grid_config_enabled_generator_count(config) > 1U);
+    cJSON_AddStringToObject(root, "load_sharing_unset_reason",
+                            commissioning_reason_message(
+                                (uint8_t)COMMISSIONING_REASON_GENERATOR_SHARING_MODE_UNSET));
+    cJSON_AddStringToObject(root, "base_load_unknown_reason",
+                            commissioning_reason_message(
+                                (uint8_t)COMMISSIONING_REASON_GENERATOR_BASE_LOAD_UNKNOWN));
+    /* A base-loaded engine held below its own minimum loading is a commissioning
+     * fault, not a floor to compute around. Published so the interface states the
+     * consequence with the gate's own sentence. */
+    cJSON_AddStringToObject(root, "base_load_below_minimum_reason",
+                            commissioning_reason_message(
+                                (uint8_t)COMMISSIONING_REASON_GENERATOR_BASE_LOAD_BELOW_MINIMUM));
+    cJSON_AddStringToObject(root, "no_swing_engine_reason",
+                            commissioning_reason_message(
+                                (uint8_t)COMMISSIONING_REASON_GENERATOR_NO_SWING_ENGINE));
 }
 
 static cJSON *config_json(const solar_grid_config_t *config)
@@ -95,6 +261,10 @@ static cJSON *config_json(const solar_grid_config_t *config)
                             config->generator_reverse_power_margin_kw);
     cJSON_AddBoolToObject(root, "generator_commissioned",
                           config->generator_rated_kw > 0.0f);
+    /* Engine slots 1.. and the kW load-sharing mode (schema 3 and 4). The four
+     * scalars above remain engine slot 0 and keep meaning exactly what they meant
+     * before, so a client that reads and writes only them is unaffected. */
+    generator_policy_json(root, config);
     cJSON_AddBoolToObject(root, "evidence_complete",
                           solar_grid_config_evidence_complete(config));
     cJSON_AddBoolToObject(root, "control_requires_restart", true);
@@ -179,6 +349,156 @@ static bool parse_signal(cJSON *object, solar_grid_signal_config_t *signal)
     value = signal->active_value;
     if (!read_uint(object, "active_value", UINT16_MAX, &value)) return false;
     signal->active_value = (uint16_t)value;
+    return true;
+}
+
+/* read_limit, with the engine slot named in the rejection. Two engines carry the
+ * same field names, so "rated_kw is out of range" without a slot number sends an
+ * engineer to the wrong machine. */
+static bool engine_limit(cJSON *object, const char *key, float maximum, float *value,
+                         uint8_t slot, char *error, size_t error_size)
+{
+    char detail[SOLAR_GRID_FIELD_ERROR_MAX] = {0};
+    if (read_limit(object, key, maximum, value, detail, sizeof(detail))) return true;
+    snprintf(error, error_size, "Solar-Grid engine %u rejected: %s", (unsigned)slot, detail);
+    return false;
+}
+
+/*
+ * One engine slot from the request body.
+ *
+ * ABSENT MEANS UNCHANGED, everywhere, for the same reason it does for the engine-0
+ * scalars: silently zeroing a generator rating would close the commissioning gate on
+ * a working plant, and silently zeroing a base-load setpoint would do it for a
+ * base-loaded engine. Every read below goes through a helper that returns success
+ * without touching the stored value when the key is missing.
+ *
+ * SLOT 0 IS NOT AN ORDINARY SLOT. Its numbers are the four legacy scalars and its
+ * in-service flag is not stored at all -- it is in service exactly when its rating
+ * is positive. A body asking for anything else is refused with the reason, never
+ * accepted and quietly ignored: an interface that appeared to take an instruction
+ * the firmware discarded would show a slot out of service that the controller still
+ * counts.
+ */
+static bool parse_engine(cJSON *item, solar_grid_config_t *next, char *error,
+                         size_t error_size)
+{
+    if (!cJSON_IsObject(item)) {
+        snprintf(error, error_size,
+                 "Each entry of Solar-Grid 'engines' must be an object carrying a 'slot'");
+        return false;
+    }
+    uint32_t raw = 0U;
+    if (!cJSON_GetObjectItemCaseSensitive(item, "slot") ||
+        !read_uint(item, "slot", SOLAR_GRID_MAX_GENERATORS - 1U, &raw)) {
+        snprintf(error, error_size,
+                 "Each Solar-Grid engine needs a whole-number 'slot' between 0 and %u",
+                 (unsigned)(SOLAR_GRID_MAX_GENERATORS - 1U));
+        return false;
+    }
+    const uint8_t slot = (uint8_t)raw;
+
+    float *rated = NULL;
+    float *loading = NULL;
+    float *reserve = NULL;
+    float *margin = NULL;
+    bool *stored_in_service = NULL;
+    if (slot == 0U) {
+        rated = &next->generator_rated_kw;
+        loading = &next->generator_minimum_loading_percent;
+        reserve = &next->generator_reserve_kw;
+        margin = &next->generator_reverse_power_margin_kw;
+    } else {
+        /* Index i of the appended array is engine slot i + 1; see the schema 3
+         * comment in solar_grid_config.h for why slot 0 is not in it. */
+        solar_grid_generator_limits_t *extra = &next->generator_extra[slot - 1U];
+        rated = &extra->rated_kw;
+        loading = &extra->minimum_loading_percent;
+        reserve = &extra->reserve_kw;
+        margin = &extra->reverse_power_margin_kw;
+        stored_in_service = &extra->enabled;
+    }
+
+    /* Bounded by exactly the ceilings the engine-0 scalars use, and zero stays a
+     * legal value for every one of them: a zero rating is the uncommissioned state
+     * that holds PV at zero while a generator carries the plant. Zero is the safe
+     * state, not an error. */
+    if (!engine_limit(item, "rated_kw", SOLAR_GRID_KW_MAX, rated, slot, error, error_size) ||
+        !engine_limit(item, "minimum_loading_percent", SOLAR_GRID_PERCENT_MAX, loading,
+                      slot, error, error_size) ||
+        !engine_limit(item, "reserve_kw", SOLAR_GRID_KW_MAX, reserve, slot, error,
+                      error_size) ||
+        !engine_limit(item, "reverse_power_margin_kw", SOLAR_GRID_KW_MAX, margin, slot,
+                      error, error_size) ||
+        !engine_limit(item, "base_load_kw", SOLAR_GRID_KW_MAX,
+                      &next->engine_base_load_kw[slot], slot, error, error_size)) {
+        return false;
+    }
+
+    raw = next->engine_role[slot];
+    if (!read_uint(item, "role", SOLAR_GRID_ENGINE_ROLE_MAX, &raw)) {
+        snprintf(error, error_size,
+                 "Solar-Grid engine %u: 'role' must be 0 (unset), 1 (swing) or 2 (base load)",
+                 (unsigned)slot);
+        return false;
+    }
+    next->engine_role[slot] = (uint8_t)raw;
+
+    /* The in-service flag last, so slot 0's consistency check sees the rating this
+     * same request settled on rather than the one it started with. */
+    if (!cJSON_GetObjectItemCaseSensitive(item, "in_service")) return true;
+    const bool derived = isfinite(*rated) && *rated > 0.0f;
+    bool requested = stored_in_service ? *stored_in_service : derived;
+    if (!read_bool(item, "in_service", &requested)) {
+        snprintf(error, error_size,
+                 "Solar-Grid engine %u: 'in_service' must be true or false",
+                 (unsigned)slot);
+        return false;
+    }
+    if (!stored_in_service) {
+        if (requested != derived) {
+            snprintf(error, error_size,
+                     "Solar-Grid engine 0 is in service exactly when its rated_kw is "
+                     "above zero; set rated_kw instead of 'in_service'");
+            return false;
+        }
+        return true;
+    }
+    *stored_in_service = requested;
+    return true;
+}
+
+/* The kW load-sharing mode and the engine slots. Both optional: a body carrying
+ * only the engine-0 scalars this API has always accepted leaves every value here
+ * untouched and means exactly what it meant before. */
+static bool parse_generator_policy(cJSON *root, solar_grid_config_t *next, char *error,
+                                   size_t error_size)
+{
+    uint32_t raw = next->load_sharing_mode;
+    if (!read_uint(root, "load_sharing_mode", SOLAR_GRID_SHARING_MODE_MAX, &raw)) {
+        snprintf(error, error_size,
+                 "Solar-Grid 'load_sharing_mode' must be 0 (unset), 1 (isochronous), "
+                 "2 (base load) or 3 (droop, which the controller refuses to model)");
+        return false;
+    }
+    /* Droop is STORED and REPORTED, and refused by the control engine. It is
+     * accepted here rather than rejected so that an engineer who states the plant is
+     * droop-shared has that fact recorded instead of overwritten -- the GET response
+     * reports it as unsupported with the firmware's own reason, and the gate stays
+     * closed. Silently substituting a mode the controller can compute would be
+     * writing a commissioning fact nobody supplied. */
+    next->load_sharing_mode = (uint8_t)raw;
+
+    cJSON *engines = cJSON_GetObjectItemCaseSensitive(root, "engines");
+    if (!engines) return true;
+    if (!cJSON_IsArray(engines)) {
+        snprintf(error, error_size, "Solar-Grid 'engines' must be an array of engine slots");
+        return false;
+    }
+    cJSON *item = NULL;
+    cJSON_ArrayForEach(item, engines) {
+        if (!parse_engine(item, next, error, error_size)) return false;
+    }
     return true;
 }
 
@@ -274,6 +594,19 @@ static esp_err_t config_post(httpd_req_t *request)
                         SOLAR_GRID_KW_MAX,
                         &next.generator_reverse_power_margin_kw, field_error,
                         sizeof(field_error));
+
+    /* Engine slots 1.. and the kW load-sharing mode (schema 3 and 4). Applied AFTER
+     * the engine-0 scalars above so that a body carrying both the legacy scalar and
+     * an engines[] entry for slot 0 settles on the per-engine value, which is the
+     * more specific statement of the same fact.
+     *
+     * BACKWARD COMPATIBILITY. Every key here is optional and absent means unchanged,
+     * so a body carrying only today's engine-0 fields writes exactly what it wrote
+     * before: no engine slot changes state, no rating is zeroed, no sharing mode is
+     * invented. Until this existed a multi-engine plant could not be commissioned
+     * through the product at all. */
+    parsed = parsed && parse_generator_policy(root, &next, field_error,
+                                              sizeof(field_error));
     cJSON_Delete(root);
 
     next.magic = SOLAR_GRID_CONFIG_MAGIC;

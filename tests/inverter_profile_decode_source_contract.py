@@ -10,6 +10,14 @@ required = [
     "INVERTER_VALUE_S16",
     "INVERTER_VALUE_U32",
     "INVERTER_VALUE_S32",
+    # IEEE-754 float32, needed because some manufacturers document their dispatch
+    # register as a float. Writing a percentage into one as an integer produces
+    # ~7e-44 -- effectively zero output -- and the readback decodes the same bytes
+    # the same wrong way and reports the command confirmed. See
+    # tests/inverter_float_register_test.c, which executes the arithmetic, and
+    # tests/inverter_float_register_source_contract.py for the structural half.
+    "INVERTER_VALUE_FLOAT32",
+    "inverter_profile_encode_value",
     "INVERTER_WORD_ORDER_AB",
     "INVERTER_WORD_ORDER_BA",
     "inverter_profile_decode_value",

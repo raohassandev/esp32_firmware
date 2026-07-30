@@ -1,0 +1,1108 @@
+{
+  "base": "http://192.168.100.14",
+  "generated": "2026-07-30T16:36:01.009Z",
+  "routes": {
+    "dashboard": {
+      "presenceSamples": 60,
+      "historyPanelPresentSamples": 27,
+      "historyPanelPresentPct": 45,
+      "bothImplementationsOnScreenSamples": 27,
+      "presence": [
+        {
+          "t": 1785429372587,
+          "history": 0,
+          "session": 2
+        },
+        {
+          "t": 1785429373093,
+          "history": 0,
+          "session": 2
+        },
+        {
+          "t": 1785429373604,
+          "history": 0,
+          "session": 2
+        },
+        {
+          "t": 1785429374120,
+          "history": 0,
+          "session": 2
+        },
+        {
+          "t": 1785429374636,
+          "history": 0,
+          "session": 2
+        },
+        {
+          "t": 1785429375150,
+          "history": 2,
+          "session": 2
+        },
+        {
+          "t": 1785429375661,
+          "history": 2,
+          "session": 2
+        },
+        {
+          "t": 1785429376174,
+          "history": 2,
+          "session": 2
+        },
+        {
+          "t": 1785429376689,
+          "history": 2,
+          "session": 2
+        },
+        {
+          "t": 1785429377201,
+          "history": 2,
+          "session": 2
+        },
+        {
+          "t": 1785429377717,
+          "history": 2,
+          "session": 2
+        },
+        {
+          "t": 1785429378228,
+          "history": 2,
+          "session": 2
+        },
+        {
+          "t": 1785429378742,
+          "history": 2,
+          "session": 2
+        },
+        {
+          "t": 1785429379253,
+          "history": 2,
+          "session": 2
+        },
+        {
+          "t": 1785429379759,
+          "history": 0,
+          "session": 2
+        },
+        {
+          "t": 1785429380267,
+          "history": 0,
+          "session": 2
+        },
+        {
+          "t": 1785429380779,
+          "history": 0,
+          "session": 2
+        },
+        {
+          "t": 1785429381293,
+          "history": 0,
+          "session": 2
+        },
+        {
+          "t": 1785429381806,
+          "history": 0,
+          "session": 2
+        },
+        {
+          "t": 1785429382317,
+          "history": 0,
+          "session": 2
+        },
+        {
+          "t": 1785429382830,
+          "history": 0,
+          "session": 2
+        },
+        {
+          "t": 1785429383345,
+          "history": 0,
+          "session": 2
+        },
+        {
+          "t": 1785429383860,
+          "history": 0,
+          "session": 2
+        },
+        {
+          "t": 1785429384375,
+          "history": 0,
+          "session": 2
+        },
+        {
+          "t": 1785429384882,
+          "history": 0,
+          "session": 2
+        },
+        {
+          "t": 1785429385386,
+          "history": 2,
+          "session": 2
+        },
+        {
+          "t": 1785429385896,
+          "history": 2,
+          "session": 2
+        },
+        {
+          "t": 1785429386407,
+          "history": 2,
+          "session": 2
+        },
+        {
+          "t": 1785429386919,
+          "history": 2,
+          "session": 2
+        },
+        {
+          "t": 1785429387432,
+          "history": 2,
+          "session": 2
+        },
+        {
+          "t": 1785429387944,
+          "history": 2,
+          "session": 2
+        },
+        {
+          "t": 1785429388452,
+          "history": 2,
+          "session": 2
+        },
+        {
+          "t": 1785429388962,
+          "history": 2,
+          "session": 2
+        },
+        {
+          "t": 1785429389477,
+          "history": 2,
+          "session": 2
+        },
+        {
+          "t": 1785429389989,
+          "history": 0,
+          "session": 2
+        },
+        {
+          "t": 1785429390501,
+          "history": 0,
+          "session": 2
+        },
+        {
+          "t": 1785429391013,
+          "history": 0,
+          "session": 2
+        },
+        {
+          "t": 1785429391527,
+          "history": 0,
+          "session": 2
+        },
+        {
+          "t": 1785429392040,
+          "history": 0,
+          "session": 2
+        },
+        {
+          "t": 1785429392553,
+          "history": 0,
+          "session": 2
+        },
+        {
+          "t": 1785429393064,
+          "history": 0,
+          "session": 2
+        },
+        {
+          "t": 1785429393577,
+          "history": 0,
+          "session": 2
+        },
+        {
+          "t": 1785429394087,
+          "history": 0,
+          "session": 2
+        },
+        {
+          "t": 1785429394604,
+          "history": 0,
+          "session": 2
+        },
+        {
+          "t": 1785429395109,
+          "history": 2,
+          "session": 2
+        },
+        {
+          "t": 1785429395613,
+          "history": 2,
+          "session": 2
+        },
+        {
+          "t": 1785429396126,
+          "history": 2,
+          "session": 2
+        },
+        {
+          "t": 1785429396641,
+          "history": 2,
+          "session": 2
+        },
+        {
+          "t": 1785429397151,
+          "history": 2,
+          "session": 2
+        },
+        {
+          "t": 1785429397666,
+          "history": 2,
+          "session": 2
+        },
+        {
+          "t": 1785429398183,
+          "history": 2,
+          "session": 2
+        },
+        {
+          "t": 1785429398698,
+          "history": 2,
+          "session": 2
+        },
+        {
+          "t": 1785429399213,
+          "history": 2,
+          "session": 2
+        },
+        {
+          "t": 1785429399727,
+          "history": 0,
+          "session": 2
+        },
+        {
+          "t": 1785429400239,
+          "history": 0,
+          "session": 2
+        },
+        {
+          "t": 1785429400752,
+          "history": 0,
+          "session": 2
+        },
+        {
+          "t": 1785429401265,
+          "history": 0,
+          "session": 2
+        },
+        {
+          "t": 1785429401774,
+          "history": 0,
+          "session": 2
+        },
+        {
+          "t": 1785429402289,
+          "history": 0,
+          "session": 2
+        },
+        {
+          "t": 1785429402803,
+          "history": 0,
+          "session": 2
+        }
+      ],
+      "elapsedMs": 30728,
+      "expectedCyclesAt5s": 6,
+      "first": {
+        "t": 1785429372584,
+        "charts": [
+          {
+            "impl": "browser-session",
+            "headline": "Grid power trend",
+            "note": "Recent live samples stored in this browser session",
+            "points": 6,
+            "rect": {
+              "x": 285,
+              "y": 1624,
+              "w": 525,
+              "h": 92
+            }
+          },
+          {
+            "impl": "browser-session",
+            "headline": "Solar production trend",
+            "note": "Trend appears after inverter telemetry is commissioned",
+            "points": 0,
+            "rect": {
+              "x": 868,
+              "y": 1624,
+              "w": 525,
+              "h": 88
+            }
+          }
+        ],
+        "sessionCharts": 2,
+        "historyCharts": 0
+      },
+      "second": {
+        "t": 1785429403312,
+        "charts": [
+          {
+            "impl": "browser-session",
+            "headline": "Grid power trend",
+            "note": "Recent live samples stored in this browser session",
+            "points": 24,
+            "rect": {
+              "x": 285,
+              "y": 1624,
+              "w": 525,
+              "h": 92
+            }
+          },
+          {
+            "impl": "browser-session",
+            "headline": "Solar production trend",
+            "note": "Trend appears after inverter telemetry is commissioned",
+            "points": 0,
+            "rect": {
+              "x": 868,
+              "y": 1624,
+              "w": 525,
+              "h": 88
+            }
+          }
+        ],
+        "sessionCharts": 2,
+        "historyCharts": 0
+      },
+      "growth": [
+        {
+          "impl": "browser-session",
+          "headline": "Grid power trend",
+          "before": 6,
+          "after": 24,
+          "delta": 18
+        },
+        {
+          "impl": "browser-session",
+          "headline": "Solar production trend",
+          "before": 0,
+          "after": 0,
+          "delta": 0
+        }
+      ]
+    },
+    "meters": {
+      "presenceSamples": 60,
+      "historyPanelPresentSamples": 27,
+      "historyPanelPresentPct": 45,
+      "bothImplementationsOnScreenSamples": 27,
+      "presence": [
+        {
+          "t": 1785429417985,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429418500,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429419009,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429419527,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429420038,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429420553,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429421060,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429421569,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429422082,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429422594,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429423106,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429423620,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429424128,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429424642,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429425151,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429425654,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429426165,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429426683,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429427197,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429427713,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429428228,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429428742,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429429255,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429429768,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429430272,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429430781,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429431298,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429431810,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429432322,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429432833,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429433344,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429433857,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429434370,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429434883,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429435397,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429435907,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429436424,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429436938,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429437451,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429437965,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429438478,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429438983,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429439495,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429440008,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429440520,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429441035,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429441550,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429442062,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429442575,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429443087,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429443600,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429444112,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429444619,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429445128,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429445640,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429446154,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429446673,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429447176,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429447689,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429448203,
+          "history": 0,
+          "session": 1
+        }
+      ],
+      "elapsedMs": 30730,
+      "expectedCyclesAt5s": 6,
+      "first": {
+        "t": 1785429417983,
+        "charts": [
+          {
+            "impl": "browser-session",
+            "headline": "Recent demand trend",
+            "note": "Use the trend to identify rapid load changes and demand peaks",
+            "points": 2,
+            "rect": {
+              "x": 600,
+              "y": 288,
+              "w": 417,
+              "h": 92
+            }
+          }
+        ],
+        "sessionCharts": 1,
+        "historyCharts": 0
+      },
+      "second": {
+        "t": 1785429448713,
+        "charts": [
+          {
+            "impl": "browser-session",
+            "headline": "Recent demand trend",
+            "note": "Use the trend to identify rapid load changes and demand peaks",
+            "points": 8,
+            "rect": {
+              "x": 600,
+              "y": 288,
+              "w": 417,
+              "h": 92
+            }
+          }
+        ],
+        "sessionCharts": 1,
+        "historyCharts": 0
+      },
+      "growth": [
+        {
+          "impl": "browser-session",
+          "headline": "Recent demand trend",
+          "before": 2,
+          "after": 8,
+          "delta": 6
+        }
+      ]
+    },
+    "inverters": {
+      "presenceSamples": 60,
+      "historyPanelPresentSamples": 26,
+      "historyPanelPresentPct": 43.3,
+      "bothImplementationsOnScreenSamples": 26,
+      "presence": [
+        {
+          "t": 1785429462076,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429462586,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429463100,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429463612,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429464127,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429464640,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429465143,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429465652,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429466166,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429466678,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429467192,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429467702,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429468217,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429468727,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429469240,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429469751,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429470265,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429470778,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429471287,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429471800,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429472313,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429472823,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429473337,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429473850,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429474355,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429474860,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429475373,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429475884,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429476394,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429476908,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429478088,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429478621,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429479135,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429479648,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429480163,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429480676,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429481191,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429481704,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429482219,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429482735,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429483247,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429483756,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429484268,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429484782,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429485298,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429485812,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429486323,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429486833,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429487348,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429487860,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429488375,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429488889,
+          "history": 1,
+          "session": 1
+        },
+        {
+          "t": 1785429489400,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429489914,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429490430,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429490942,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429491453,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429491956,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429492472,
+          "history": 0,
+          "session": 1
+        },
+        {
+          "t": 1785429492986,
+          "history": 0,
+          "session": 1
+        }
+      ],
+      "elapsedMs": 31424,
+      "expectedCyclesAt5s": 6,
+      "first": {
+        "t": 1785429462074,
+        "charts": [
+          {
+            "impl": "browser-session",
+            "headline": "Solar production trend",
+            "note": "Available after telemetry commissioning",
+            "points": 0,
+            "rect": {
+              "x": 919,
+              "y": 288,
+              "w": 474,
+              "h": 88
+            }
+          }
+        ],
+        "sessionCharts": 1,
+        "historyCharts": 0
+      },
+      "second": {
+        "t": 1785429493498,
+        "charts": [
+          {
+            "impl": "browser-session",
+            "headline": "Solar production trend",
+            "note": "Available after telemetry commissioning",
+            "points": 0,
+            "rect": {
+              "x": 919,
+              "y": 288,
+              "w": 474,
+              "h": 88
+            }
+          }
+        ],
+        "sessionCharts": 1,
+        "historyCharts": 0
+      },
+      "growth": [
+        {
+          "impl": "browser-session",
+          "headline": "Solar production trend",
+          "before": 0,
+          "after": 0,
+          "delta": 0
+        }
+      ]
+    }
+  }
+}

@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
+"""Runtime inverter write gate.
+
+Pins down which inverters may be written to at all, and - since P0-9 - that the
+write path itself issues the write and nothing more. Confirmation lives in the
+background acquisition path and is covered by
+tests/inverter_write_readback_source_contract.py.
+"""
 from pathlib import Path
-import subprocess
-import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = (ROOT / "components/inverter_manager/inverter_manager.c").read_text(encoding="utf-8")
@@ -9,28 +14,29 @@ PROFILES = (ROOT / "components/inverter_manager/inverter_profiles.c").read_text(
 
 REQUIRED = [
     '#include "inverter_profiles.h"',
-    '#include "inverter_command_policy.h"',
-    'inverter_profile_allows_write',
+    '#include "inverter_write_confirmation.h"',
+    # The runtime decides authority through the permission gate, which folds in
+    # the production predicate and the lab-simulator declaration. Asserting the
+    # old boolean alone would now pass while permitting an ungated write, so the
+    # gate itself is asserted here and its properties are executed by
+    # tests/inverter_write_permission_test.c.
+    'inverter_profile_write_permission',
+    'INVERTER_WRITE_FORBIDDEN',
     'write_allowed',
     'no online production-approved inverter profile is commandable',
     'runtime->data.online',
     'runtime->data.telemetry_valid',
     '!runtime->data.telemetry_stale',
+    '!runtime->data.confirmation_fault',
     'identity_is_current(runtime, timestamp)',
     'recompute_commandable_capacity',
     'command_target_t targets[APP_MAX_INVERTERS]',
     'Build and validate the complete immutable fleet plan',
     'planned_total_kw + commanded_kw > target_kw + 0.01f',
     'write_profile_command',
-    'read_limit_percent',
-    'inverter_command_decide(&evidence)',
     'INVERTER_COMMAND_MAX_ATTEMPTS 2U',
-    'INVERTER_COMMAND_READBACK_DELAY_MS',
     'rollback_targets(targets, (uint8_t)(i + 1U))',
-    'rollback_confirmed ? final_error : ESP_FAIL',
-    'target->runtime->data.commanded_power_kw = target->commanded_kw;',
-    'target->runtime->data.command_mismatch = false;',
-    'inverter_profile_readback_matches',
+    'issue_safe_zero',
     'invalidate_identity(target->runtime)',
 ]
 
@@ -54,24 +60,29 @@ found = [token for token in FORBIDDEN_COMMAND_TOKENS if token in SOURCE]
 if found:
     raise SystemExit(f"legacy or unconfirmed command-state path remains: {found}")
 
-# Command state may only be stored inside the explicit confirmed or confirmed
-# fallback branches, never immediately after a successful Modbus write.
-assert SOURCE.index('inverter_command_decide(&evidence)') < SOURCE.index(
-    'target->runtime->data.commanded_power_kw = target->commanded_kw;'
-)
-assert SOURCE.index('bool confirmed = write_error == ESP_OK') < SOURCE.index(
-    'target->runtime->data.commanded_power_kw = 0.0f;'
-)
+# The confirmation_fault latch must gate BOTH the advertised commandable
+# capacity and the per-call target selection. Gating only one of them would let
+# the control engine keep commanding an inverter it can no longer verify.
+if SOURCE.count('!runtime->data.confirmation_fault') < 2:
+    raise SystemExit(
+        "confirmation_fault must exclude an inverter from both the commandable "
+        "capacity and the command target selection"
+    )
 
-with tempfile.TemporaryDirectory() as directory:
-    binary = Path(directory) / "inverter_command_policy_test"
-    subprocess.run([
-        "gcc", "-std=c11", "-Wall", "-Wextra", "-Werror",
-        "-I", str(ROOT / "components/inverter_manager/include"),
-        str(ROOT / "tests/inverter_command_policy_test.c"),
-        str(ROOT / "components/inverter_manager/inverter_command_policy.c"),
-        "-lm", "-o", str(binary),
-    ], check=True)
-    subprocess.run([str(binary)], check=True)
+# The write path runs on the control task. It must not sleep and must not read.
+COMMAND_PATH = SOURCE[SOURCE.index('esp_err_t inverter_manager_set_total_power_kw'):
+                      SOURCE.index('inverter_write_state_t inverter_manager_fleet_write_confirmation')]
+for forbidden in ('vTaskDelay', 'read_profile_block', 'read_limit_percent'):
+    if forbidden in COMMAND_PATH:
+        raise SystemExit(
+            f"the inverter command path must not '{forbidden}': it runs on the "
+            "control period and Modbus speed is the highest priority requirement"
+        )
 
-print("transactional inverter write, readback, retry, and rollback tests passed")
+# The safe-zero path is allowed exactly one write per inverter and no sleep.
+ROLLBACK = SOURCE[SOURCE.index('static bool rollback_targets'):
+                  SOURCE.index('esp_err_t inverter_manager_set_total_power_kw')]
+if 'vTaskDelay' in ROLLBACK:
+    raise SystemExit("the safe-zero rollback must not sleep on the control period")
+
+print("runtime inverter write-gate contract passed")

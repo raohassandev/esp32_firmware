@@ -7,6 +7,13 @@ CMAKE = (ROOT / "components/web_server/CMakeLists.txt").read_text(encoding="utf-
 ASSETS = (ROOT / "components/web_server/web_assets.c").read_text(encoding="utf-8")
 UI = (ROOT / "web/operator-operations.js").read_text(encoding="utf-8")
 CSS = (ROOT / "web/operator-operations.css").read_text(encoding="utf-8")
+# The range selector and the range statistics moved out of this screen and
+# into the one shared chart component when the two competing chart
+# implementations were consolidated. They are still operator-facing UI and
+# still asserted; they are simply asserted where they now live.
+CHART = (ROOT / "web/pvdg-chart.js").read_text(encoding="utf-8")
+CHART_CSS = (ROOT / "web/pvdg-chart.css").read_text(encoding="utf-8")
+OPERATOR_VIEW = (ROOT / "web/operator-view.js").read_text(encoding="utf-8")
 
 
 def require(condition: bool, message: str) -> None:
@@ -64,15 +71,118 @@ require("web_assets_operator_operations_js" in SERVER and
         "operator history/event assets are not served")
 require("operator_operations_js_start" in ASSETS and "operator_operations_css_start" in ASSETS,
         "operator history/event embedded symbols are missing")
-require("Alarm and event center" in UI and "Active conditions" in UI,
-        "dedicated operator alarm center is missing")
+# The operator alarm centre exists and shows both populations it is responsible
+# for: the live condition table, and the controller's event ring.
+#
+# This used to assert the literal heading "Alarm and event center". That heading
+# is gone, and its removal is the point rather than a regression: the route table
+# in web/app.js already names this page "Alarms and events" in the sidebar, the
+# title, the breadcrumb and document.title, so a section heading underneath it
+# was a fifth copy of the same words at the top of a triage screen. The three
+# summary tiles that followed it repeated the condition counts tiled directly
+# above, and the "Active conditions" card below listed the same conditions as the
+# alarm table - a second, subtly different rendering of the row an operator is
+# meant to act on. Asserting the heading string would now protect the duplication
+# instead of the screen.
+#
+# What the assertion is actually for is that this module renders BOTH the alarm
+# condition table and the recent-event history, and that the active population is
+# reachable. That is asserted directly, and it survives a rename.
+require("renderAlarmConsole" in UI and "renderAlarmPage" in UI,
+        "the operator alarm centre must render both the condition table and the "
+        "controller event history")
+require("Recent events" in UI,
+        "the controller event ring is not surfaced; it answers a question the "
+        "condition table does not - what has been happening here recently")
+require("'Active conditions'" in UI and "'Active only'" in UI,
+        "the active population must be both counted and filterable, or a live "
+        "condition cannot be separated from a returned one")
 require("requestAnimationFrame" in UI and "subtree: true" not in UI,
         "operator alarm enhancement must be deduplicated and must not observe its own subtree output")
 require("AbortController" in UI and "Controller request timed out" in UI,
         "operator history/event fetches need bounded request timeouts")
-for label in ["15 min", "1 hour", "24 hours", "Minimum", "Average", "Peak"]:
-    require(label in UI, f"operator history UI missing {label}")
+for label in ["15 min", "1 hour", "24 hours", "Minimum", "Average", "Peak", "Current"]:
+    require(label in CHART, f"operator history chart missing {label}")
 require("op-event-row" in CSS and "op-range-selector" in CSS,
         "operator history/event styling is incomplete")
+
+# ------------------------------------------------------- one chart, and only one
+#
+# The product used to carry two chart implementations that both drew this
+# data and both appeared on the dashboard at the same time: a browser-session
+# sparkline in operator-view.js and a controller-history sparkline in
+# operator-operations.js. Neither had a time axis and both compacted the
+# samples with .filter(Number.isFinite) before drawing, which deleted the
+# missing readings rather than showing them.
+#
+# On a reverse-power controller that is safety-relevant: a straight line
+# across an unmeasured interval, or an unmeasured sample drawn at 0 kW, reads
+# as "no power" when the truth is "no measurement". These assertions exist so
+# that behaviour cannot come back.
+for source, name in [(UI, "operator-operations.js"), (OPERATOR_VIEW, "operator-view.js")]:
+    require("function sparkline" not in source,
+            f"{name} must not carry its own chart implementation")
+    require("op-spark" not in source,
+            f"{name} must not render the retired sparkline markup")
+require("PvdgChart" in UI and "mountChart" in UI,
+        "the operator screens must draw the shared chart component")
+require("root.PvdgChart = api" in CHART,
+        "the chart component must publish itself as the shared PvdgChart module")
+require("pvdg-chart.js" in CMAKE and "pvdg-chart.css" in CMAKE,
+        "the chart component is not embedded")
+require("web_assets_pvdg_chart_js" in SERVER and "web_assets_pvdg_chart_css" in SERVER,
+        "the chart component is not served")
+require("pvdg_chart_js_start" in ASSETS and "pvdg_chart_css_start" in ASSETS,
+        "the chart component embedded symbols are missing")
+
+# A missing sample stays missing: it is never dropped, interpolated across,
+# or coerced to zero.
+require(".filter(Number.isFinite)" not in CHART and ".filter(Number.isFinite)" not in UI,
+        "missing samples must not be compacted away before drawing")
+require("function segments" in CHART and "function gaps" in CHART,
+        "the chart must split its line at a gap rather than bridge one")
+segment_body = CHART[CHART.index("function segments"):CHART.index("function gaps")]
+require("point.v === null" in segment_body,
+        "a null value must end a drawn run")
+stats_body = CHART[CHART.index("function stats"):CHART.index("function niceStep")]
+require("if (value === null) continue;" in stats_body,
+        "the range statistics must be computed from measured samples only")
+require("currentMissing" in CHART,
+        "a stale reading must not be presented as the current value")
+
+# X is a real timestamp. The retired charts used the array index.
+require("base - age" in CHART, "sample timestamps must be reconstructed from age_ms")
+require("points.sort((a, b) => a.t - b.t)" in CHART,
+        "samples must be ordered by time, not by array position")
+
+# The controller substitutes 15m for any range it does not know, so no other
+# value may ever be requested.
+require("function normalizeRange" in CHART, "the range value must be constrained before it is sent")
+require("state.range = window.PvdgChart.normalizeRange(value)" in UI,
+        "the requested range must pass through the constrained set")
+
+# Series identity may not rest on colour alone (WCAG 2.2 1.4.1), and the
+# chart must have a text alternative that states its coverage.
+require("glyph:" in CHART and "dash:" in CHART,
+        "series must be distinguishable without colour")
+require("function summaryText" in CHART and "aria-live" in CHART,
+        "the chart needs a text summary and keyboard-accessible point details")
+require("ArrowRight" in CHART and "ArrowLeft" in CHART,
+        "chart points must be reachable from the keyboard")
+
+# The plot must dominate its card. The retired trend card was 220 px tall
+# with a 92 px drawing area.
+require("--pvc-plot-height" in CHART_CSS and "height: var(--pvc-plot-height, 500px)" in CHART_CSS,
+        "the chart plot area is not sized by the component")
+
+# The chart's pure logic - the scale, the statistics, the bucketing and above all
+# the gap handling - is unit tested, and that test runs in CI.
+WORKFLOW = (ROOT / ".github/workflows/esp-idf-build.yml").read_text(encoding="utf-8")
+require((ROOT / "web/tests/chart-utils.test.js").exists(),
+        "the chart logic has no unit test")
+require("node web/tests/chart-utils.test.js" in WORKFLOW,
+        "the chart unit test is not registered in the build workflow")
+require("node --check web/pvdg-chart.js" in WORKFLOW,
+        "the chart component is not syntax checked in the build workflow")
 
 print("Operator history and event center source contract passed")

@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "audit_log.h"
 #include "cJSON.h"
 #include "esp_log.h"
 #include "esp_random.h"
@@ -16,6 +17,9 @@
 
 #define AUTH_NAMESPACE "eng_auth"
 #define AUTH_RECORD_KEY "credential"
+/* Records the highest applied credential-reset generation, so a recovery build
+ * that stays installed resets the password once and not on every boot. */
+#define AUTH_RESET_GENERATION_KEY "reset_gen"
 #define AUTH_RECORD_MAGIC 0x41555448u
 #define AUTH_RECORD_VERSION 1u
 #define AUTH_SALT_BYTES 16u
@@ -419,15 +423,31 @@ static bool login_locked(uint64_t *remaining_ms)
     return locked;
 }
 
+/* A failed sign-in is recorded unconditionally, and the record carries nothing
+ * but the fact of the failure: no password, no fragment of one, no length, no
+ * token, no client-supplied text of any kind. audit_entry_t has no character
+ * field, so there is no place for such a value to be added later. This
+ * repository is public. */
 static void record_login_failure(void)
 {
     uint64_t lockout_until = now_ms() + AUTH_LOCKOUT_MS;
     portENTER_CRITICAL(&s_lock);
+    bool lockout_engaged = false;
     if (++s_failed_attempts >= AUTH_MAX_FAILURES) {
         s_lockout_until_ms = lockout_until;
         s_failed_attempts = 0;
+        lockout_engaged = true;
     }
     portEXIT_CRITICAL(&s_lock);
+
+    /* Deliberately outside the critical section above: audit recording takes
+     * its own spinlock, and nesting them would extend the interrupt-disabled
+     * window on the authentication path for no benefit. */
+    audit_log_record(AUDIT_CATEGORY_AUTHENTICATION, AUDIT_ACTION_LOGIN, AUDIT_OUTCOME_FAILURE);
+    if (lockout_engaged) {
+        audit_log_record(AUDIT_CATEGORY_AUTHENTICATION, AUDIT_ACTION_LOGIN,
+                         AUDIT_OUTCOME_LOCKED_OUT);
+    }
 }
 
 static void clear_login_failures(void)
@@ -489,6 +509,10 @@ static esp_err_t login_post(httpd_req_t *request)
 {
     uint64_t remaining = 0;
     if (login_locked(&remaining)) {
+        /* An attempt refused by the lockout is evidence of an ongoing attack
+         * and must appear in the trail as its own event, not be swallowed. */
+        audit_log_record(AUDIT_CATEGORY_AUTHENTICATION, AUDIT_ACTION_LOGIN,
+                         AUDIT_OUTCOME_LOCKED_OUT);
         cJSON *root = cJSON_CreateObject();
         if (!root) return httpd_resp_send_500(request);
         cJSON_AddStringToObject(root, "error", "engineering_login_temporarily_locked");
@@ -525,6 +549,10 @@ static esp_err_t login_post(httpd_req_t *request)
     }
 
     clear_login_failures();
+    audit_log_record(AUDIT_CATEGORY_AUTHENTICATION, AUDIT_ACTION_LOGIN, AUDIT_OUTCOME_SUCCESS);
+    /* cookie_header is a handler-owned buffer on purpose: httpd_resp_set_hdr()
+     * stores the pointer without copying, and a buffer that dies before the
+     * response is sent makes login silently impossible. Do not narrow it. */
     char cookie[AUTH_SESSION_HEX_BYTES + 1u];
     char cookie_header[AUTH_COOKIE_HEADER_BYTES];
     create_session(cookie);
@@ -542,6 +570,7 @@ static esp_err_t login_post(httpd_req_t *request)
 static esp_err_t logout_post(httpd_req_t *request)
 {
     invalidate_session();
+    audit_log_record(AUDIT_CATEGORY_AUTHENTICATION, AUDIT_ACTION_LOGOUT, AUDIT_OUTCOME_SUCCESS);
     clear_session_cookie(request);
     cJSON *root = cJSON_CreateObject();
     if (!root) return httpd_resp_send_500(request);
@@ -552,13 +581,22 @@ static esp_err_t logout_post(httpd_req_t *request)
 
 static esp_err_t password_post(httpd_req_t *request)
 {
-    if (!session_cookie_valid(request, true)) return engineering_auth_require(request);
+    if (!session_cookie_valid(request, true)) {
+        audit_log_record(AUDIT_CATEGORY_AUTHENTICATION, AUDIT_ACTION_PASSWORD_CHANGE,
+                         AUDIT_OUTCOME_DENIED);
+        return engineering_auth_require(request);
+    }
     cJSON *body = parse_body(request);
     const char *current_password = body ? required_string(body, "current_password") : NULL;
     const char *new_password = body ? required_string(body, "new_password") : NULL;
     if (!current_password || !new_password || strlen(new_password) < AUTH_MIN_PASSWORD_LENGTH ||
         strlen(new_password) > AUTH_MAX_PASSWORD_LENGTH) {
         cJSON_Delete(body);
+        /* The rejection reason is a policy message to the caller only. The audit
+         * entry records that a password change failed and nothing about the
+         * candidate password - in particular, not whether it was too short. */
+        audit_log_record(AUDIT_CATEGORY_AUTHENTICATION, AUDIT_ACTION_PASSWORD_CHANGE,
+                         AUDIT_OUTCOME_FAILURE);
         cJSON *root = cJSON_CreateObject();
         if (!root) return httpd_resp_send_500(request);
         cJSON_AddStringToObject(root, "error", "New password must contain 10-64 characters");
@@ -576,6 +614,8 @@ static esp_err_t password_post(httpd_req_t *request)
     memset(setup_code, 0, sizeof(setup_code));
     if (!current_valid) {
         cJSON_Delete(body);
+        audit_log_record(AUDIT_CATEGORY_AUTHENTICATION, AUDIT_ACTION_PASSWORD_CHANGE,
+                         AUDIT_OUTCOME_FAILURE);
         cJSON *root = cJSON_CreateObject();
         if (!root) return httpd_resp_send_500(request);
         cJSON_AddStringToObject(root, "error", "Current Engineering password is incorrect");
@@ -586,6 +626,8 @@ static esp_err_t password_post(httpd_req_t *request)
     esp_err_t err = store_password(new_password, &record);
     cJSON_Delete(body);
     if (err != ESP_OK) {
+        audit_log_record(AUDIT_CATEGORY_AUTHENTICATION, AUDIT_ACTION_PASSWORD_CHANGE,
+                         AUDIT_OUTCOME_FAILURE);
         cJSON *root = cJSON_CreateObject();
         if (!root) return httpd_resp_send_500(request);
         cJSON_AddStringToObject(root, "error", "Engineering password could not be persisted");
@@ -598,6 +640,8 @@ static esp_err_t password_post(httpd_req_t *request)
     memset(s_setup_code, 0, sizeof(s_setup_code));
     portEXIT_CRITICAL(&s_lock);
     memset(&record, 0, sizeof(record));
+    audit_log_record(AUDIT_CATEGORY_AUTHENTICATION, AUDIT_ACTION_PASSWORD_CHANGE,
+                     AUDIT_OUTCOME_SUCCESS);
 
     char cookie[AUTH_SESSION_HEX_BYTES + 1u];
     char cookie_header[AUTH_COOKIE_HEADER_BYTES];
@@ -612,8 +656,66 @@ static esp_err_t password_post(httpd_req_t *request)
     return send_json(request, NULL, root);
 }
 
+/* One-shot physical recovery for a lost Engineering password.
+ *
+ * Deletes the stored credential when the build carries a reset generation
+ * strictly greater than the one already recorded on the device, then records the
+ * new generation so a recovery build left installed cannot wipe the replacement
+ * password on every reboot. Start-up then takes the ordinary
+ * "no password configured" path: setup is required and a one-time setup code is
+ * printed to the serial console.
+ *
+ * This installs nothing. It removes a credential, so no secret exists in the
+ * firmware image, and it is unreachable over the network -- using it costs
+ * physical access to reflash the board plus physical access to read its console.
+ * That is the same trust boundary the existing one-time setup code already uses.
+ *
+ * Compiled out entirely at the default of 0, so a normal build does not merely
+ * decline to reset a credential -- it contains no code that can. */
+#if CONFIG_PVDG_ENGINEERING_CREDENTIAL_RESET_ID > 0
+static void apply_credential_reset(void)
+{
+    nvs_handle_t handle;
+    if (nvs_open(AUTH_NAMESPACE, NVS_READWRITE, &handle) != ESP_OK) return;
+
+    uint32_t applied = 0;
+    (void)nvs_get_u32(handle, AUTH_RESET_GENERATION_KEY, &applied);
+    if ((uint32_t)CONFIG_PVDG_ENGINEERING_CREDENTIAL_RESET_ID <= applied) {
+        nvs_close(handle);
+        return;
+    }
+
+    /* Erase only the credential key inside this namespace. Wi-Fi credentials,
+     * the commissioned configuration and the inverter profile assignments live
+     * elsewhere and are not touched. */
+    esp_err_t erased = nvs_erase_key(handle, AUTH_RECORD_KEY);
+    if (erased == ESP_ERR_NVS_NOT_FOUND) erased = ESP_OK; /* already absent */
+    if (erased == ESP_OK) {
+        erased = nvs_set_u32(handle, AUTH_RESET_GENERATION_KEY,
+                             (uint32_t)CONFIG_PVDG_ENGINEERING_CREDENTIAL_RESET_ID);
+    }
+    if (erased == ESP_OK) erased = nvs_commit(handle);
+    nvs_close(handle);
+
+    if (erased == ESP_OK) {
+        ESP_LOGW(TAG, "Engineering credential reset generation %d applied: the stored password "
+                      "was deleted. A new password must be set before any engineering endpoint "
+                      "can be used. Configuration and Wi-Fi credentials were not touched.",
+                 CONFIG_PVDG_ENGINEERING_CREDENTIAL_RESET_ID);
+    } else {
+        ESP_LOGE(TAG, "Engineering credential reset generation %d failed: %s",
+                 CONFIG_PVDG_ENGINEERING_CREDENTIAL_RESET_ID, esp_err_to_name(erased));
+    }
+}
+#else
+/* Recovery is not compiled into this build. */
+static inline void apply_credential_reset(void) {}
+#endif
+
 esp_err_t engineering_auth_init(void)
 {
+    apply_credential_reset();
+
     auth_record_t record = {0};
     esp_err_t err = load_record(&record);
     portENTER_CRITICAL(&s_lock);

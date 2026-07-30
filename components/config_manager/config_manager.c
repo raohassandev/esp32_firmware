@@ -1,6 +1,8 @@
 #include "config_manager.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include "esp_mac.h"
+#include "esp_random.h"
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -149,8 +151,24 @@ static void defaults(app_config_t *c)
 
     c->wifi.scan_before_connect = true;
     c->wifi.fallback_ap_enabled = true;
-    strlcpy(c->wifi.fallback_ap_ssid, "Automatrix-PVDG-Setup", sizeof(c->wifi.fallback_ap_ssid));
-    strlcpy(c->wifi.fallback_ap_password, "automatrix123", sizeof(c->wifi.fallback_ap_password));
+    /* Recovery access point.
+     *
+     * The password is deliberately left EMPTY here and generated per device on
+     * first use (see ensure_recovery_ap_secret). It used to be a literal shared by
+     * every unit, committed to a public repository -- which meant anyone who read
+     * the repository could join the setup network of any controller in the field.
+     * A default credential is not a default: it is a published one.
+     *
+     * The SSID carries the last three bytes of the station MAC so that units are
+     * distinguishable on site. That is an identifier, not a secret, and it is safe
+     * to derive from the MAC; the password is not, precisely because the
+     * derivation would be public. */
+    uint8_t mac[6] = {0};
+    if (esp_read_mac(mac, ESP_MAC_WIFI_STA) != ESP_OK) memset(mac, 0, sizeof(mac));
+    snprintf(c->wifi.fallback_ap_ssid, sizeof(c->wifi.fallback_ap_ssid),
+             "Automatrix-PVDG-%02X%02X%02X", mac[3], mac[4], mac[5]);
+    strlcpy(c->wifi.fallback_ap_password, CONFIG_PVDG_RECOVERY_AP_PASSWORD,
+            sizeof(c->wifi.fallback_ap_password));
     c->wifi.max_retries_per_profile = 5;
     c->wifi.reconnect_backoff_ms = 2000;
 
@@ -167,20 +185,34 @@ static void defaults(app_config_t *c)
     strlcpy(m->endpoint.host, CONFIG_PVDG_DEFAULT_ZLAN_HOST, sizeof(m->endpoint.host));
     m->endpoint.port = CONFIG_PVDG_DEFAULT_ZLAN_PORT;
     m->endpoint.unit_id = 1;
-    /* Sized against the measured link rather than left at a value that would
-     * stall several control cycles: median transaction 28 ms, p90 37 ms. A read
-     * that overruns this is abandoned and retried on the next poll instead of
-     * holding the loop. */
-    m->endpoint.timeout_ms = 300;
+    /* Measured against the site EM500 through its ZLAN gateway, 129 back-to-back
+     * transactions: mean 93 ms, p50 29 ms, p90 294 ms, max 319 ms. The latency is
+     * bimodal -- 74 % complete under 50 ms and 24 % take over 250 ms -- which looks
+     * like a periodic stall in the gateway or the meter's own update cycle rather
+     * than jitter.
+     *
+     * The previous 300 ms was set from best-case figures and sat inside that tail:
+     * about 3 % of perfectly good responses overran it and were recorded as
+     * failures, which wastes the full timeout, triggers backoff, and feeds the
+     * quality window that blocks control input when success drops below 80 %. A
+     * healthy meter was being intermittently reported as unhealthy.
+     *
+     * 800 ms clears the measured tail with margin. It does not slow the control
+     * loop: control reads the cached sample and applies its own staleness rule, and
+     * the poll task runs below control on the same core. The cost is that a
+     * genuinely dead endpoint takes 800 ms to declare, which the failure backoff
+     * then spaces out anyway. */
+    m->endpoint.timeout_ms = 800;
     m->function_code = 3;
     m->active_power_address = 57;
     m->active_power_type = MODBUS_DATA_INT32;
     m->active_power_order = MODBUS_ORDER_ABCD;
     m->active_power_scale = 0.00001f;
-    /* The control loop runs every 250 ms. Polling slower than that made it act
-     * on the same sample repeatedly, so the default matches the loop and the
-     * measured link, which sustains a transaction in about 28 ms. */
-    m->poll_interval_ms = 250;
+    /* Zero: issue the next read as soon as the previous transaction completes, so
+     * the sample rate is set by the device and the network rather than by an
+     * arbitrary period. An engineer can set any positive value to slow a bus or a
+     * gateway that cannot sustain the rate. */
+    m->poll_interval_ms = 0;
 
     c->inverter_count = 1;
     inverter_config_t *i = &c->inverters[0];
@@ -212,7 +244,13 @@ static void defaults(app_config_t *c)
     c->control.generator_ramp.enabled = true;
     c->control.generator_ramp.up_percent_per_second = 5.0f;
     c->control.generator_ramp.down_percent_per_second = 20.0f;
-    c->control.interval_ms = 250;
+    /* Fast but FIXED. A measured EM500 answers in under 40 ms, so 250 ms threw
+     * most of the available responsiveness away. Deliberately not
+     * poll-on-completion like acquisition: a control loop with a jittering period
+     * has a jittering integral term, and determinism is worth more here than the
+     * last few milliseconds. Commands are issued on change plus a keepalive, so a
+     * fast loop does not mean fast Modbus writes. */
+    c->control.interval_ms = 20;
     /* Four missed polls at the 250 ms default. Tightened from 3000 ms because
      * the measurement is now much fresher: a stale gate far longer than the
      * poll interval lets control keep acting on an old sample. Shorter is the
@@ -285,7 +323,12 @@ static bool meter_valid(const meter_config_t *m)
     return endpoint_valid(&m->endpoint) && (m->function_code == 3 || m->function_code == 4) &&
            m->active_power_type <= MODBUS_DATA_FLOAT32 && m->active_power_order <= MODBUS_ORDER_DCBA &&
            isfinite(m->active_power_scale) && m->active_power_scale != 0.0f &&
-           m->poll_interval_ms >= 100U;
+           /* Zero is legal and means "poll again as soon as the previous
+            * transaction completes", so acquisition runs at the rate the device
+            * answers rather than at an arbitrary period. The old 100 ms floor made
+            * that unconfigurable. The upper bound is a sanity limit, not policy:
+            * an hour between polls is a typo, not an intention. */
+           m->poll_interval_ms <= 3600000U;
 }
 
 /* Deliberately NOT part of valid(): a configuration that fails the role rules is
@@ -460,6 +503,75 @@ static void set_active(const app_config_t *c)
     portEXIT_CRITICAL(&s_lock);
 }
 
+/* Gives this unit its own recovery-AP password if it does not have one.
+ *
+ * Generated randomly, per device, on first use -- NOT derived from the MAC or any
+ * other published value, because the derivation would itself be in this public
+ * repository and a computable password is not a password.
+ *
+ * It is logged once, at the moment of generation, and never again. That is a
+ * deliberate exception to "never log a credential": the operator has to learn it
+ * somehow, and the serial console is the same physical-presence channel the
+ * one-time Engineering setup code already uses. Reading it costs physical access to
+ * the board.
+ *
+ * Returns true if the configuration was changed and needs saving. */
+/* FNV-1a 64 of the recovery-AP password this firmware used to ship with, which was
+ * identical on every unit and published in a public repository.
+ *
+ * Held as a hash rather than the string so the retired credential is not printed in
+ * this source again, while a unit already carrying it can still recognise and rotate
+ * it. Without this a commissioned unit would keep the published password forever,
+ * because it is stored and therefore not empty -- fixing the default alone fixes
+ * only units that have never been commissioned. */
+#define RETIRED_RECOVERY_AP_PASSWORD_FNV1A64 0x70D9019AAA1F69DDULL
+
+static uint64_t fnv1a64(const char *text)
+{
+    uint64_t hash = 0xcbf29ce484222325ULL;
+    for (const unsigned char *p = (const unsigned char *)text; *p; ++p) {
+        hash ^= (uint64_t)*p;
+        hash *= 0x100000001b3ULL;
+    }
+    return hash;
+}
+
+static bool ensure_recovery_ap_secret(app_config_t *c)
+{
+    if (!c->wifi.fallback_ap_enabled) return false;
+
+    const bool absent = c->wifi.fallback_ap_password[0] == '\0';
+    const bool retired = !absent &&
+                         fnv1a64(c->wifi.fallback_ap_password) ==
+                             RETIRED_RECOVERY_AP_PASSWORD_FNV1A64;
+    if (retired) {
+        ESP_LOGW(TAG, "This unit is using the retired shared recovery-AP password, which "
+                      "was published. Rotating it to one unique to this unit.");
+    }
+    if (!absent && !retired) return false;
+
+    /* Character set excludes look-alikes (0/O, 1/l/I) because this gets read off a
+     * console and typed into a phone. */
+    static const char alphabet[] = "abcdefghijkmnpqrstuvwxyzACDEFGHJKLMNPQRSTUVWXYZ23456789";
+    char secret[17];
+    uint8_t random_bytes[sizeof(secret) - 1];
+    esp_fill_random(random_bytes, sizeof(random_bytes));
+    for (size_t i = 0; i < sizeof(secret) - 1U; ++i) {
+        secret[i] = alphabet[random_bytes[i] % (sizeof(alphabet) - 1U)];
+    }
+    secret[sizeof(secret) - 1U] = '\0';
+    strlcpy(c->wifi.fallback_ap_password, secret, sizeof(c->wifi.fallback_ap_password));
+
+    ESP_LOGW(TAG, "Recovery access point '%s' had no password. Generated one unique to "
+                  "this unit and stored it. Record it now -- it is printed only once:",
+             c->wifi.fallback_ap_ssid);
+    ESP_LOGW(TAG, "    recovery AP password: %s", secret);
+    ESP_LOGW(TAG, "It can be changed through the Wi-Fi configuration page at any time.");
+    memset(secret, 0, sizeof(secret));
+    memset(random_bytes, 0, sizeof(random_bytes));
+    return true;
+}
+
 esp_err_t config_manager_init(void)
 {
     esp_err_t err = nvs_flash_init();
@@ -594,6 +706,11 @@ esp_err_t config_manager_init(void)
     } else if (apply_build_provisioning(loaded)) {
         stored_matches = false;
     }
+
+    /* Applies to a freshly defaulted unit AND to a commissioned one carrying the
+     * old shared password, so an existing unit in the field stops using the
+     * published credential the first time it runs this firmware. */
+    if (ensure_recovery_ap_secret(loaded)) stored_matches = false;
 
     set_active(loaded);
     if (!stored_matches) {

@@ -49,4 +49,45 @@ typedef struct {
     char inhibit_reason[128];
     uint32_t last_command_ms;       /* last accepted inverter write, 0 = never */
     uint32_t last_authority_change_ms;
+
+    /* Commissioning gate (P0-6), summarised. The full per-prerequisite detail
+     * is read with control_engine_get_commissioning(); these fields exist so a
+     * single status poll can say whether the plant is commissioned at all. */
+    bool commissioned;
+    /* What a commissioned gate authorises: a commissioning_scope_t. LAB means at
+     * least one commanded inverter is a declared Modbus simulator, so nothing
+     * observed is evidence about physical equipment. Carried in the one-poll
+     * summary precisely so that no caller can report "commissioned" without also
+     * being able to report whether the target was real. */
+    uint8_t commissioning_scope;
+    uint8_t commissioning_unmet_count;
+    uint8_t commissioning_first_unmet;  /* commissioning_prereq_t */
+
+    /* Write confirmation (P0-9). write_confirmation is an
+     * inverter_write_state_t rolled up worst-first across the fleet, so it is
+     * never a silently optimistic answer. */
+    uint8_t write_confirmation;
+    bool write_confirmation_fault;
+
+    /* Prerequisite enable registers, kept strictly apart from the write
+     * confirmation above. Both remove an inverter from the commandable fleet,
+     * so from the outside they look the same, but they are different failures
+     * with different remedies:
+     *
+     *   write_confirmation_fault   - the SETPOINT register did not read back the
+     *                                commanded value, or could not be read.
+     *   prerequisite_enable_fault  - the ENABLE register is not confirmed to
+     *                                hold, so the setpoint is accepted, echoed
+     *                                back and then ignored. The setpoint
+     *                                readback looks perfect.
+     *
+     * The second is the more dangerous, which is why it is reported separately
+     * rather than folded into the first. Counts are the fleet roll-up from
+     * inverter_manager_commissioning_summary(); unconfirmed is transient and
+     * will be retried, unverifiable is permanent and needs a manual citation
+     * for the register and its readback. */
+    bool prerequisite_enable_fault;
+    uint8_t prerequisite_required_count;
+    uint8_t prerequisite_unconfirmed_count;
+    uint8_t prerequisite_unverifiable_count;
 } control_status_t;

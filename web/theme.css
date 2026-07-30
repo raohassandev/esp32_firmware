@@ -43,6 +43,87 @@ html[data-theme="light"] {
     --action-solid: #1c4a78;
     --action-solid-hover: #163c63;
     --action-solid-text: #ffffff;
+
+    /* Light counterparts for the session banner and trend plot surfaces added
+       with the navigation/taxonomy/trend work. Every one of these is declared in
+       both themes; a token defined in only one theme is how --panel-bg and
+       --good/--bad produced unreadable text twice in this codebase. */
+    --session-surface: #e6eff9;
+    --session-line: #3f6f9f;
+    --session-text: #16283c;
+    --session-muted: #40566c;
+    --session-warn-surface: #fdf0dd;
+    --session-warn-line: #b9762a;
+    --session-warn-text: #653a04;
+
+    --chart-plot: #f7fafc;
+    --chart-gridline: #dae4ee;
+    --chart-axis: #7089a0;
+    --chart-tick: #46596d;
+    --nav-group-text: #4f6274;
+
+    /* Light counterparts for the lab-simulator banner and the confirmation /
+       commissioning-gate panels. Measured against --lab-surface: text 13.89:1,
+       muted 9.39:1, boundary 6.28:1 (6.61:1 against the light page background).
+       Measured against --confirm-surface: confirmed 6.56:1, pending 7.23:1,
+       mismatched 6.61:1, unverified 6.19:1, gate-unmet 6.11:1,
+       boundary 3.72:1. --muted-2 reaches only 3.56:1 on --confirm-surface and
+       is therefore not used for text inside these panels. */
+    --lab-surface: #f2e9fd;
+    --lab-line: #6b3fa0;
+    --lab-text: #2a1348;
+    --lab-muted: #4a2d70;
+    --lab-pill-surface: #4a2d70;
+    --lab-pill-text: #f7f2ff;
+
+    --confirm-surface: #f4f8fc;
+    --confirm-confirmed: #14663f;
+    --confirm-pending: #12558f;
+    --confirm-mismatched: #a52a33;
+    --confirm-unverified: #4a5f74;
+    --gate-met: #14663f;
+    --gate-unmet: #7a5800;
+    --gate-boundary: #6c8299;
+
+    /* Light counterparts for the prerequisite enable register. Measured against
+       --confirm-surface: confirmed 6.56:1, unconfirmed 6.37:1,
+       unverifiable 7.50:1. Three distinct values, as in the dark theme:
+       transient and permanent must not look alike. */
+    --prereq-confirmed: #14663f;
+    --prereq-unconfirmed: #8a4b00;
+    --prereq-unverifiable: #8a2a6b;
+
+    /* Light counterparts for the four kinds of limit evidence. Measured against
+       --confirm-surface: measured 6.91:1, echo 6.33:1, ambiguous 7.64:1,
+       none 6.69:1. Four distinct values, as in the dark theme: a limit
+       demonstrated by measurement and an echo of a stored command must never be
+       painted alike, because the echo would then read as the stronger evidence it
+       is not. */
+    --proof-measured: #0f5f66;
+    --proof-echo: #8f3d78;
+    --proof-ambiguous: #4b3fa8;
+    --proof-none: #455a6e;
+
+    /* Light counterparts for the generator engine commissioning panel. Measured
+       against --engine-surface: in-service 6.56:1, out-of-service 6.19:1,
+       fault 6.61:1, note 5.47:1, and the card boundary 3.72:1. Three distinct state
+       values, as in the dark theme: "not in service" and "configured in a way the
+       controller refuses" are different findings and must not be painted alike. */
+    --engine-surface: #f4f8fc;
+    --engine-line: #6c8299;
+    --engine-in-service: #14663f;
+    --engine-out-of-service: #4a5f74;
+    --engine-fault: #a52a33;
+    --engine-note: #52677d;
+
+    /* Light counterparts for the three ISA-18.2 suppression states. Worst measured
+       ratio across --surface-sunken, --panel, --panel-strong and --field:
+       shelved 6.27:1, by-design 7.17:1, out-of-service 7.02:1. Three distinct
+       values, as in the dark theme: an operator's expiring shelf must never look
+       like an instrument that has been taken out of service indefinitely. */
+    --suppress-shelved: #7d5300;
+    --suppress-design: #12558f;
+    --suppress-out-of-service: #8a2a8a;
 }
 
 /* Decorative gradients, glows and blur washes removed throughout: they cost

@@ -116,6 +116,145 @@
     --warning: var(--yellow);
     --bad: var(--red);
     --info: var(--blue);
+
+    /* Engineering session banner. New surfaces, so both themes declare their own
+       values in full - the audit's two unreadable cases (1.10:1 and 1.17:1) were
+       both a hardcoded surface meeting a themed foreground. Measured ratios are
+       recorded in the commit message. */
+    --session-surface: #12283f;
+    --session-line: #4a80b8;
+    --session-text: #e9f2fc;
+    --session-muted: #a9c1d7;
+    --session-warn-surface: #3a2415;
+    --session-warn-line: #b06f2c;
+    --session-warn-text: #ffd9a8;
+
+    /* Trend plots. The tick text is the only one of these that carries meaning
+       as text, so it is the one held to 4.5:1 against --chart-plot; the axis and
+       gridlines are recessive rules and the series colours are marks. */
+    --chart-plot: #0b1c30;
+    --chart-gridline: #1e3652;
+    --chart-axis: #4a7099;
+    --chart-tick: #a9c0d6;
+    /* Sidebar group headings are 12px label text and need AA in both themes;
+       --muted-2 reaches only 3.80:1 on the light sidebar. */
+    --nav-group-text: #93a8bf;
+    --series-grid: var(--blue);
+    --series-solar: var(--yellow);
+    /* Sample quality strip. Reuses the reserved status colours deliberately:
+       these ARE states, not series. */
+    --quality-good: var(--good);
+    --quality-invalid: var(--warning);
+    --quality-unavailable: var(--muted-2);
+    --quality-gap: var(--bad);
+
+    /* Lab simulator mode. A separate hue from every status colour on purpose:
+       "commanding a declared simulator" is not a severity, and painting it
+       yellow or red would put it into the alarm vocabulary where an operator
+       would read it as a fault that can be cleared. It cannot be cleared - it
+       is what the controller is currently authorised to do. Declared in full in
+       both themes; a token defined in one theme only is exactly how this
+       codebase produced 1.10:1 and 1.17:1 text twice.
+       Measured against --lab-surface: text 13.16:1, muted 9.25:1, boundary
+       4.94:1 (and 6.01:1 against the page background it butts onto). */
+    --lab-surface: #2c1b45;
+    --lab-line: #a77fd8;
+    --lab-text: #f2e8ff;
+    --lab-muted: #d3bff0;
+    --lab-pill-surface: #4a2d70;
+    --lab-pill-text: #f2e8ff;
+
+    /* Setpoint write confirmation and the commissioning gate. Both panels set
+       --confirm-surface explicitly rather than inheriting the .panel gradient,
+       so the contrast arithmetic in tests/lab_control_ui_source_contract.py is
+       exact rather than approximate.
+       Measured against --confirm-surface: confirmed 9.42:1, pending 8.24:1,
+       mismatched 6.67:1, unverified 8.54:1, gate-unmet 11.13:1,
+       boundary 3.94:1. --muted-2 reaches only 4.39:1 here and is therefore not
+       used for text inside these panels. */
+    --confirm-surface: #0d1f34;
+    --confirm-confirmed: #4ddb96;
+    --confirm-pending: #79bdf5;
+    --confirm-mismatched: #ff7b84;
+    --confirm-unverified: #a9bccf;
+    --gate-met: #4ddb96;
+    --gate-unmet: #f6cf6a;
+    --gate-boundary: #5b7ea6;
+
+    /* Prerequisite enable register. Three colours, not two, because "not
+       confirmed yet" and "can never be confirmed" need different actions: the
+       first resolves itself, the second needs a human with a manual. Painting
+       them the same is how a permanent fault gets waited out.
+       Kept off the setpoint-confirmation hues on purpose - a prerequisite fault
+       is invisible in the setpoint readback, so it must not borrow that
+       vocabulary's colours.
+       Measured against --confirm-surface: confirmed 9.42:1, unconfirmed 9.43:1,
+       unverifiable 8.72:1. */
+    --prereq-confirmed: #4ddb96;
+    --prereq-unconfirmed: #ffb454;
+    --prereq-unverifiable: #ff9ecb;
+
+    /* Limit evidence: what a confirmed write actually rests on. Four colours,
+       none of them borrowed from the four setpoint-confirmation hues above,
+       because this is a THIRD independent answer and not a severity on the same
+       scale.
+       The pairing that matters is measured against echo. A limit demonstrated by
+       measurement and an echo of a stored command must not look alike at a
+       glance, or the weaker of the two reads as the stronger - which is the
+       defect these tokens exist to remove. The echo colour is deliberately NOT a
+       success hue for the same reason: it is acceptance, not a limit.
+       Ambiguous is off both, because it is neither success nor failure.
+       Measured against --confirm-surface: measured 10.54:1, echo 9.88:1,
+       ambiguous 9.20:1, none 7.73:1. */
+    --proof-measured: #5fe3c8;
+    --proof-echo: #f0b6e0;
+    --proof-ambiguous: #c9b6ff;
+    --proof-none: #9fb3c8;
+
+    /* Generator engine commissioning. Three state colours because the panel makes
+       three separate statements about one machine and collapsing any two of them
+       loses a commissioning decision: an engine is in service, an engine is not in
+       service, or an engine is configured in a way the controller refuses.
+       The fault hue is deliberately the failure red rather than a warning amber. A
+       base-loaded engine held below its own minimum loading is not a caution to
+       review later - its load does not follow the plant total, so no PV limit
+       corrects it, and it must not look like something the controller can work
+       around.
+       Measured against --engine-surface: in-service 9.42:1, out-of-service 8.54:1,
+       fault 6.67:1, note 7.08:1, and the card boundary 3.94:1. */
+    --engine-surface: #0d1f34;
+    --engine-line: #5b7ea6;
+    --engine-in-service: #4ddb96;
+    --engine-out-of-service: #a9bccf;
+    --engine-fault: #ff7b84;
+    --engine-note: #99abc0;
+
+    /* ISA-18.2 suppression states (gap A9 of docs/ALARM_MANAGEMENT_RESEARCH.md).
+       Three colours because the standard names three states and warns they must
+       not collapse into one "disabled" look: an operator's expiring shelf, the
+       controller's own plant-state suppression, and a maintenance out-of-service
+       that does not expire at all are three different findings in an audit, and
+       only one of them is a defect.
+       Deliberately off the severity hues. A suppressed alarm is not a severity -
+       painting it red or yellow would put it into the vocabulary an operator
+       reads as "a fault I can clear", and out-of-service in particular cannot be
+       cleared by looking at it. Colour is never the only channel: every state
+       also carries its name, its deciding authority and whether it expires.
+       Declared in full in both themes; a token defined in one theme only is
+       exactly how this codebase produced 1.10:1 and 1.17:1 text twice.
+       Worst measured ratio across the four surfaces these sit on
+       (--panel-strong, --surface-sunken, --panel, --field): shelved 9.61:1,
+       by-design 7.31:1, out-of-service 7.82:1. */
+    --suppress-shelved: #ffc861;
+    --suppress-design: #79bdf5;
+    --suppress-out-of-service: #e8a6ef;
+
+    /* Page widths by page type, set from the route table in app.js. Operational
+       screens are read across; forms and guided workflows are read down a
+       column and get worse, not better, when stretched to 1550px. */
+    --page-max-operational: 1440px;
+    --page-max-form: 1040px;
+    --page-max-guided: 1120px;
 }
 
 * { box-sizing: border-box; }
@@ -170,9 +309,12 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .page.active { display: block; }
 @keyframes page-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 .page-intro { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; margin-bottom: 24px; }
-.page-intro h2 { margin: 4px 0 8px; font-size: clamp(20px, 2.2vw, 28px); line-height: 1.15; }
+/* Fixed, not viewport-scaled: clamp(..., 2.4vw, ...) re-scaled type by a
+   different factor than the layout when the browser zoomed, which is what made
+   the application look like a different design at 80% and at 125%. */
+.page-intro h2 { margin: 4px 0 8px; font-size: 24px; line-height: 1.15; }
 .page-intro p:not(.eyebrow) { max-width: 760px; margin: 0; color: var(--muted); font-size: 14px; line-height: 1.55; }
-.eyebrow { margin: 0; color: var(--accent-text); font-size: 10px; font-weight: 850; text-transform: uppercase; letter-spacing: 0.13em; }
+.eyebrow { margin: 0; color: var(--accent-text); font-size: 11px; font-weight: 850; text-transform: uppercase; letter-spacing: 0.13em; }
 .mode-panel { min-width: 184px; padding: 12px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
 .mode-panel span { display: block; margin-bottom: 4px; color: var(--muted-2); font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; }
 .mode-panel strong { font-size: 16px; }
@@ -191,7 +333,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .dot.good { border-color: var(--green); }
 .dot.warning { border-color: var(--yellow); border-radius: 2px; background: var(--yellow); }
 .dot.bad { border-color: var(--red); background: var(--red); }
-.metric-value { margin-top: 16px; font-size: clamp(24px, 2.4vw, 32px); font-weight: 850; letter-spacing: -0.03em; }
+.metric-value { margin-top: 16px; font-size: 28px; font-weight: 850; letter-spacing: -0.03em; }
 .metric-value.compact { font-size: 24px; }
 .metric-foot { margin-top: 8px; color: var(--muted-2); font-size: 11px; line-height: 1.45; }
 
@@ -320,6 +462,7 @@ input:disabled, select:disabled, textarea:disabled {
 .toast { padding: 12px; border: 1px solid var(--line); border-left-width: 4px; border-radius: var(--radius-control); color: var(--text); background: var(--surface-overlay); box-shadow: var(--shadow); font-size: 12px; animation: toast-in 180ms ease; }
 .toast.good { border-left-color: var(--green); }
 .toast.bad { border-left-color: var(--red); border-color: var(--red); border-left-width: 5px; }
+.toast.warning { border-left-color: var(--yellow); }
 @keyframes toast-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
 .good-text { color: var(--green) !important; }
@@ -371,6 +514,434 @@ input:disabled, select:disabled, textarea:disabled {
     .action-bar { align-items: stretch; }
     .action-message { width: 100%; }
     .action-bar .button { flex: 1 1 100%; }
+}
+
+/* =========================================================== navigation groups
+ *
+ * Operate / Commission / Maintain / Access. The heading is a 12px label and is
+ * held to AA in both themes through --nav-group-text (7.51:1 dark, 6.30:1
+ * light); --muted-2 reached only 3.80:1 on the light sidebar, which is why this
+ * gets its own token rather than reusing one that nearly works.
+ *
+ * .nav-list .nav-group-title is two classes deliberately. web/product-experience-v2.css
+ * styles .experience-nav-label at one class and is served after this file; the
+ * extra class means the group heading looks the same wherever it comes from
+ * without depending on stylesheet order. */
+.nav-list .nav-group-title {
+    margin: 15px 11px 5px;
+    color: var(--nav-group-text);
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+}
+.nav-list .nav-group-title:first-of-type { margin-top: 4px; }
+.nav-list .nav-group-title[hidden] { display: none; }
+/* Latches for web/product-experience-v2.js. They carry no content. */
+.nav-list .nav-group-latch { display: none; }
+
+/* ==================================================== engineering session banner
+ *
+ * Engineering is a session. While one is open this is on every route, states
+ * that protected settings can be written from this browser, and counts the
+ * remaining time down. The audit's complaint was that a 30-minute sliding
+ * timeout existed with nothing showing it, so an engineer could be signed out
+ * mid-write. */
+.engineering-session-banner {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 18px;
+    align-items: center;
+    padding: 12px 28px;
+    border-bottom: 1px solid var(--session-line);
+    border-left: 4px solid var(--session-line);
+    color: var(--session-text);
+    background: var(--session-surface);
+}
+.engineering-session-banner[hidden] { display: none; }
+.esb-mark { font-size: 20px; line-height: 1; }
+.esb-copy { display: grid; gap: 3px; min-width: 220px; flex: 1 1 320px; }
+.esb-copy strong { color: var(--session-text); font-size: 14px; }
+.esb-copy span { color: var(--session-muted); font-size: 12px; line-height: 1.45; }
+.esb-timer { display: grid; gap: 2px; justify-items: end; min-width: 150px; }
+.esb-timer-label {
+    color: var(--session-muted);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+/* The remaining time is a primary numeric value and is sized like one. */
+.esb-timer strong {
+    color: var(--session-text);
+    font-size: 26px;
+    font-weight: 850;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+}
+.engineering-session-banner .esb-action { min-height: 44px; min-width: 44px; }
+.engineering-session-banner.expiring {
+    border-bottom-color: var(--session-warn-line);
+    border-left-color: var(--session-warn-line);
+    color: var(--session-warn-text);
+    background: var(--session-warn-surface);
+}
+.engineering-session-banner.expiring .esb-copy strong,
+.engineering-session-banner.expiring .esb-copy span,
+.engineering-session-banner.expiring .esb-timer-label,
+.engineering-session-banner.expiring .esb-timer strong { color: var(--session-warn-text); }
+
+@media (max-width: 900px) {
+    .engineering-session-banner { padding: 12px 18px; }
+    .esb-timer { justify-items: start; }
+}
+
+/* ====================================================== lab simulator banner
+ *
+ * Present on every route while the controller reports lab_simulator_mode. It
+ * sits in the shell above the routed content, so there is no page a user can be
+ * on where "commands are going to a declared simulator" is not on screen.
+ *
+ * Every colour resolves through a token declared in BOTH themes. The measured
+ * ratios are recorded next to the token declarations in :root and in theme.css.
+ * The left rule is 5px rather than the session banner's 4px so the two banners
+ * are distinguishable at a glance when both are present. */
+.lab-simulator-banner {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 18px;
+    align-items: center;
+    padding: 13px 28px;
+    border-bottom: 1px solid var(--lab-line);
+    border-left: 5px solid var(--lab-line);
+    color: var(--lab-text);
+    background: var(--lab-surface);
+}
+.lab-simulator-banner[hidden] { display: none; }
+.lsb-mark { font-size: 22px; line-height: 1; }
+.lsb-copy { display: grid; gap: 4px; min-width: 240px; flex: 1 1 380px; }
+/* 15px and 800 weight: this is the sentence that must not be missed, and it is
+ * held to the 4.5:1 body-text threshold rather than the 3:1 large-text one. */
+.lsb-copy strong { color: var(--lab-text); font-size: 15px; font-weight: 800; line-height: 1.35; }
+.lsb-copy span { color: var(--lab-muted); font-size: 12px; line-height: 1.5; }
+/* The controller's own wording. Hidden until it arrives rather than filled with
+ * a placeholder, so an empty line never reads as a notice the firmware gave. */
+.lsb-notice { padding-top: 4px; border-top: 1px solid var(--lab-line); }
+.lsb-notice[hidden] { display: none; }
+.lsb-scope { display: grid; gap: 3px; justify-items: end; min-width: 170px; }
+.lsb-scope-label {
+    color: var(--lab-muted);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+/* The firmware's scope slug, verbatim, in a monospace-ish tabular treatment so
+ * it reads as a value the controller published rather than prose. */
+.lsb-scope strong {
+    padding: 4px 10px;
+    border: 1px solid var(--lab-line);
+    border-radius: 999px;
+    color: var(--lab-pill-text);
+    background: var(--lab-pill-surface);
+    font-size: 13px;
+    font-weight: 800;
+    overflow-wrap: anywhere;
+}
+
+@media (max-width: 900px) {
+    .lab-simulator-banner { padding: 13px 18px; }
+    .lsb-scope { justify-items: start; }
+}
+
+/* ============================================ commissioning gate and confirmation
+ *
+ * Both panels set their own surface so the token contrast arithmetic is exact.
+ * Neither uses --muted-2 for text: it reaches 4.39:1 dark and 3.56:1 light on
+ * --confirm-surface, which is below AA for text under 18px. */
+.gate-panel, .confirm-panel, .lab-target-panel {
+    margin-top: 14px;
+    border-color: var(--gate-boundary);
+    background: var(--confirm-surface);
+}
+.gate-authority { display: grid; gap: 0; }
+.gate-authority-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 18px;
+    align-items: baseline;
+    padding: 11px 0;
+    border-bottom: 1px solid var(--gate-boundary);
+}
+.gate-authority-row:last-child { border-bottom: 0; }
+.gate-authority-row span { color: var(--muted); font-size: 12px; }
+.gate-authority-row strong { max-width: 62%; color: var(--text); font-size: 12px; text-align: right; word-break: break-word; }
+.gate-summary, .confirm-lead { margin: 13px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.gate-message, .confirm-message { min-height: 16px; margin: 12px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.gate-message.bad, .confirm-message.bad { color: var(--confirm-mismatched); }
+
+.gate-checklist { display: grid; gap: 8px; margin: 14px 0 0; padding: 0; list-style: none; }
+/* State is carried by the word, the marker glyph AND the colour - never colour
+ * alone. A satisfied and an unmet row differ in all three. */
+.gate-item {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr);
+    gap: 4px 10px;
+    padding: 11px 13px;
+    border: 1px solid var(--gate-boundary);
+    border-radius: 11px;
+}
+.gate-item-mark { grid-row: 1 / span 3; font-size: 15px; font-weight: 900; line-height: 1.3; }
+.gate-item-title { color: var(--text); font-size: 13px; font-weight: 750; }
+.gate-item-state { font-size: 11px; font-weight: 850; letter-spacing: 0.07em; text-transform: uppercase; }
+.gate-item-detail { color: var(--muted); font-size: 11px; line-height: 1.5; }
+.gate-item-reason { color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.gate-item.met { border-color: var(--gate-met); }
+.gate-item.met .gate-item-mark, .gate-item.met .gate-item-state { color: var(--gate-met); }
+/* Unmet is outstanding commissioning work, not a fault, so it takes the
+ * workflow-blocked treatment and a heavier rule rather than the fault colour. */
+.gate-item.unmet { border-color: var(--gate-unmet); border-left-width: 4px; }
+.gate-item.unmet .gate-item-mark, .gate-item.unmet .gate-item-state { color: var(--gate-unmet); }
+
+.confirm-legend { display: grid; gap: 6px; margin-top: 13px; }
+.confirm-legend-item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 9px; align-items: baseline; font-size: 11px; line-height: 1.5; }
+.confirm-legend-item small { color: var(--muted); }
+.confirm-list { display: grid; gap: 10px; margin-top: 14px; }
+.confirm-row { padding: 13px; border: 1px solid var(--gate-boundary); border-radius: 12px; }
+.confirm-row-head { display: flex; flex-wrap: wrap; gap: 9px; justify-content: space-between; align-items: center; }
+.confirm-row-title { color: var(--text); font-size: 13px; font-weight: 800; }
+/* The state pill's own colour is its border and its text; the background stays
+ * --confirm-surface so the measured ratio is the one that applies. */
+.confirm-state-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 30px;
+    padding: 0 11px;
+    border: 1px solid var(--gate-boundary);
+    border-radius: 999px;
+    background: transparent;
+    font-size: 12px;
+    font-weight: 850;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+}
+.confirm-state-confirmed { color: var(--confirm-confirmed); border-color: var(--confirm-confirmed); }
+/* A fault. Heavier rule as well as the fault colour. */
+.confirm-state-mismatched { color: var(--confirm-mismatched); border-color: var(--confirm-mismatched); border-width: 2px; }
+/* Accepted, not confirmed. Deliberately NOT the success colour and not a solid
+ * fill: a filled green pill is how "the transport took it" becomes "it worked". */
+.confirm-state-pending { color: var(--confirm-pending); border-color: var(--confirm-pending); }
+/* Confirmation is impossible. Dashed, as elsewhere in this application for
+ * "not measured" - neither success nor failure, and never dimmed to the point
+ * of reading as resolved. */
+.confirm-state-unverified { color: var(--confirm-unverified); border-color: var(--confirm-unverified); border-style: dashed; }
+.confirm-row.state-mismatched { border-color: var(--confirm-mismatched); border-left-width: 4px; }
+.confirm-row.state-unverified { border-style: dashed; }
+.confirm-row-meaning { margin: 9px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+/* Requested and confirmed are two columns of one grid and are never combined
+ * into a single figure: on a controller that writes power limits, "45%" with no
+ * statement of whether that is what was asked or what came back is the defect. */
+.confirm-values { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 11px; }
+.confirm-value { padding: 9px 11px; border: 1px solid var(--gate-boundary); border-radius: 10px; }
+.confirm-value span { display: block; margin-bottom: 4px; color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: 0.07em; text-transform: uppercase; }
+.confirm-value strong { color: var(--text); font-size: 16px; font-variant-numeric: tabular-nums; }
+.confirm-value small { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.confirm-counters { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+
+/* ------------------------------------------- prerequisite enable register
+ *
+ * Shown everywhere setpoint confirmation is shown, because the two faults are
+ * indistinguishable from outside and only one of them is visible in the setpoint
+ * readback. A prerequisite that is not confirmed lets the setpoint be accepted,
+ * echoed back and then ignored, so a CONFIRMED setpoint on a machine with an
+ * unarmed enable register is a false statement about a plant running at full
+ * output. That danger is stated in words here, not implied by a colour.
+ *
+ * The notice takes the fault rule so it reads as loudly as the lab-target
+ * consequence block does. Every colour resolves through a token declared in both
+ * themes; the measured ratios are recorded beside the declarations. */
+.prereq-notice {
+    display: grid;
+    gap: 5px;
+    margin: 13px 0 0;
+    padding: 11px 13px;
+    border: 1px solid var(--confirm-mismatched);
+    border-left-width: 4px;
+    border-radius: 11px;
+}
+.prereq-notice strong { color: var(--text); font-size: 12px; font-weight: 800; line-height: 1.45; }
+.prereq-notice span { color: var(--muted); font-size: 11px; line-height: 1.55; }
+/* Counts. Required, unconfirmed and unverifiable are three separate figures and
+ * are never summed into one "problem" number: the last of the three is the only
+ * one that will not resolve on its own. */
+.prereq-counts { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 9px; color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+/* Per-inverter block inside a confirmation row, ruled off from the setpoint
+ * figures above it so it cannot be read as one of them. */
+.prereq-block { margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--gate-boundary); }
+.prereq-block-head { display: flex; flex-wrap: wrap; gap: 9px; justify-content: space-between; align-items: center; }
+.prereq-block-title { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: 0.07em; text-transform: uppercase; }
+.prereq-block-meaning { margin: 8px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.prereq-block-detail { margin: 6px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+/* Same pill construction as the setpoint states, but a different word and a
+ * different glyph in every case, so the two vocabularies cannot be confused at a
+ * glance. The pill's own colour is its border and its text on --confirm-surface,
+ * which is the pairing the measured ratios apply to. */
+.prereq-state-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 30px;
+    padding: 0 11px;
+    border: 1px solid var(--gate-boundary);
+    border-radius: 999px;
+    background: transparent;
+    font-size: 12px;
+    font-weight: 850;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+}
+.prereq-state-confirmed { color: var(--prereq-confirmed); border-color: var(--prereq-confirmed); }
+/* Transient. The background task is still reading, so this is amber work in
+ * progress and not a fault to be dispatched. */
+.prereq-state-unconfirmed { color: var(--prereq-unconfirmed); border-color: var(--prereq-unconfirmed); border-left-width: 4px; }
+/* Permanent. A heavier rule than the transient state on every side, because no
+ * amount of waiting resolves it and it must not be left to settle. */
+.prereq-state-unverifiable { color: var(--prereq-unverifiable); border-color: var(--prereq-unverifiable); border-width: 2px; }
+/* The device needs no enable register at all. Neutral, and dashed like every
+ * other "nothing measured here" in this application. */
+.prereq-state-not_required { color: var(--muted); border-color: var(--gate-boundary); border-style: dashed; }
+/* An unarmed enable register is a property of the whole row, not a footnote in
+ * it: a reader scanning states must not be able to miss it while the setpoint
+ * pill beside it says Confirmed.
+ *
+ * Drawn as an OUTLINE rather than a border on purpose. The row's border already
+ * carries the setpoint state, and a mismatched setpoint and an unarmed enable
+ * register can be true at the same time; overwriting the border would delete one
+ * of two simultaneous faults. An outline is an independent channel, so both are
+ * visible together. */
+.confirm-row.prereq-unconfirmed { outline: 2px solid var(--prereq-unconfirmed); outline-offset: 2px; }
+.confirm-row.prereq-unverifiable { outline: 3px solid var(--prereq-unverifiable); outline-offset: 2px; }
+
+/* -------------------------------------------------------- lab target control */
+.lab-consequence { border-color: var(--confirm-mismatched); }
+.lab-consequence-item { display: block; margin-top: 5px; }
+.lab-consequence-item:first-child { margin-top: 0; }
+.lab-target-ack { margin-top: 14px; min-height: 44px; }
+.lab-target-caveat { margin: 12px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.lab-target-panel .button { min-height: 44px; min-width: 44px; }
+.lab-target-result { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr); gap: 8px 14px; margin: 14px 0 0; padding: 13px; border: 1px solid var(--gate-boundary); border-radius: 12px; }
+.lab-target-result[hidden] { display: none; }
+.lab-target-result dt { color: var(--muted); font-size: 11px; font-weight: 750; }
+.lab-target-result dd { margin: 0; color: var(--text); font-size: 11px; line-height: 1.55; overflow-wrap: anywhere; }
+
+@media (max-width: 650px) {
+    .confirm-values { grid-template-columns: 1fr; }
+    .lab-target-result { grid-template-columns: 1fr; }
+    .lab-target-result dt { margin-top: 6px; }
+}
+
+/* --------------------------------------------- limit evidence (what confirmed it)
+ *
+ * A confirmed write rests on one of two kinds of evidence, and they are not
+ * equally strong: measured output that fell from above a new limit to at or below
+ * it demonstrates the limit, while a matching setpoint readback on a plant-level
+ * logger is an echo of a stored command and shows only that the command was
+ * accepted. The two must be visually and textually distinguishable, and the echo
+ * must not read as the stronger of the two.
+ *
+ * So the echo takes a cautionary hue and a dotted rule rather than the solid one
+ * the demonstrated limit gets; the demonstrated limit is the only evidence drawn
+ * as a settled fact. The ambiguous case is drawn as neither: it is not a success
+ * and it is not a fault, and dimming it would make "nothing was proven" read as
+ * "resolved". Colour is never the only channel - every state also carries its own
+ * word and its own glyph.
+ *
+ * Every colour resolves through a token declared in BOTH themes; the measured
+ * ratios are recorded beside the declarations in :root and in theme.css.
+ * --muted-2 is excluded here for the same reason as in the panels above: it
+ * reaches only 4.39:1 dark and 3.56:1 light on --confirm-surface. */
+.proof-notice {
+    display: grid;
+    gap: 5px;
+    margin: 13px 0 0;
+    padding: 11px 13px;
+    border: 1px solid var(--proof-echo);
+    border-left-width: 4px;
+    border-radius: 11px;
+}
+.proof-notice strong { color: var(--text); font-size: 12px; font-weight: 800; line-height: 1.45; }
+.proof-notice span { color: var(--muted); font-size: 11px; line-height: 1.55; }
+.proof-notice span[hidden] { display: none; }
+/* Demonstrated, echo-only and ambiguous are three separate figures and are never
+ * summed: adding an echo to a demonstrated limit produces a number that claims
+ * more than the evidence supports. */
+.proof-counts { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 9px; color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+/* Per-inverter block inside a confirmation row, ruled off from the setpoint
+ * figures above it so it reads as a statement ABOUT them rather than one of them. */
+.proof-block { margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--gate-boundary); }
+.proof-block-head { display: flex; flex-wrap: wrap; gap: 9px; justify-content: space-between; align-items: center; }
+.proof-block-title { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: 0.07em; text-transform: uppercase; }
+.proof-block-meaning { margin: 8px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.proof-block-detail { margin: 6px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+/* Contention. Another master scheduling the same plant is not a confirmation
+ * state and is not folded into one, so it gets its own rule. */
+.proof-block-contention {
+    margin: 8px 0 0;
+    padding: 8px 10px;
+    border: 1px solid var(--confirm-mismatched);
+    border-left-width: 4px;
+    border-radius: 9px;
+    color: var(--text);
+    font-size: 11px;
+    line-height: 1.5;
+}
+/* Same pill construction as the setpoint and enable-register states, with a
+ * different word and a different glyph in every case, so the three vocabularies
+ * cannot be confused at a glance. The pill's own colour is its border and its
+ * text on --confirm-surface, which is the pairing the measured ratios apply to. */
+.proof-state-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 30px;
+    padding: 0 11px;
+    border: 1px solid var(--gate-boundary);
+    border-radius: 999px;
+    background: transparent;
+    font-size: 12px;
+    font-weight: 850;
+    letter-spacing: 0.04em;
+}
+/* The limit is demonstrated. The only evidence drawn as a settled fact: a solid
+ * rule, heavier than the echo's, in the one hue reserved for a measured limit. */
+.proof-state-measured_power { color: var(--proof-measured); border-color: var(--proof-measured); border-width: 2px; }
+/* Acceptance, not a limit. Dotted on purpose - it must not read as settled, and
+ * it must not read as the demonstrated case with a different colour. */
+.proof-state-setpoint_readback { color: var(--proof-echo); border-color: var(--proof-echo); border-style: dotted; }
+/* Neither success nor failure. Dashed, as every other 'not measurable' state in
+ * this application, and never dimmed: nothing was proven is not resolved. */
+.proof-state-ambiguous_headroom { color: var(--proof-ambiguous); border-color: var(--proof-ambiguous); border-style: dashed; }
+/* No evidence recorded at all. Claims the least, and is drawn that way. */
+.proof-state-none { color: var(--proof-none); border-color: var(--proof-none); border-style: dashed; }
+/* The evidence is a property of the whole row, not a footnote in it. A reader
+ * scanning verdict pills must not be able to see "Confirmed" and miss that only
+ * an echo was observed.
+ *
+ * Drawn as an INSET SHADOW, a third channel of its own. The row border already
+ * carries the setpoint verdict and the outline already carries the enable
+ * register; a mismatched setpoint, an unarmed enable register and a mere echo can
+ * all be true at once, so none of the three markings may overwrite another.
+ *
+ * The stripe's WIDTH tracks how much the evidence claims, so the marking is not
+ * carried by hue alone: a demonstrated limit is the heaviest, an echo thinner,
+ * and an ambiguous reading thinnest of all. */
+.confirm-row.proof-measured { box-shadow: inset 7px 0 0 var(--proof-measured); }
+.confirm-row.proof-echo { box-shadow: inset 4px 0 0 var(--proof-echo); }
+.confirm-row.proof-ambiguous { box-shadow: inset 2px 0 0 var(--proof-ambiguous); }
+
+@media (max-width: 650px) {
+    .proof-block-head { align-items: flex-start; }
 }
 
 /* Measurement provenance: source, age and quality shown with every live value.
@@ -436,4 +1007,99 @@ input:disabled, select:disabled, textarea:disabled {
     font-weight: 700;
     letter-spacing: 0;
     white-space: nowrap;
+}
+
+/* ================================================ generator engine commissioning
+ *
+ * One card per engine slot, because the numbers are per machine and a single flat
+ * form of nine fields gives no indication which rating belongs to which engine.
+ * The in-service state sits on the card, not in a legend, so a reader cannot form a
+ * judgement about an engine without also seeing whether it is in service.
+ *
+ * Every state is carried by more than hue: the badge carries a word, the fault line
+ * carries a whole sentence, and an out-of-service card's boundary changes style. A
+ * reader who cannot separate the colours still gets the commissioning decision. */
+.engine-cards {
+    gap: 12px;
+}
+
+.engine-card {
+    background: var(--engine-surface);
+    border: 1px solid var(--engine-line);
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: grid;
+    gap: 10px;
+}
+
+.engine-card-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.engine-card-head h4 {
+    margin: 0;
+    color: var(--text);
+    font-size: 15px;
+}
+
+/* The word is the answer; the colour only reinforces it. */
+.engine-state {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    padding: 2px 8px;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    color: var(--engine-out-of-service);
+}
+
+.engine-state.is-in-service { color: var(--engine-in-service); }
+.engine-state.is-out-of-service { color: var(--engine-out-of-service); border-style: dashed; }
+
+.engine-note {
+    margin: 0;
+    color: var(--engine-note);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+}
+
+/* A commissioning fault, not a caution. Styled only when it carries text, so an
+ * empty line never reads as a checked-and-clear result: the firmware's sentence is
+ * either present or the condition is not present. */
+.engine-fault:not(:empty) {
+    margin: 0;
+    padding: 6px 8px;
+    color: var(--engine-fault);
+    border-left: 3px solid var(--engine-fault);
+    background: var(--engine-surface);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+}
+
+.engine-floor {
+    margin-top: 14px;
+    padding: 12px 14px;
+    background: var(--engine-surface);
+    border: 1px solid var(--engine-line);
+    border-radius: 10px;
+    display: grid;
+    gap: 8px;
+}
+
+.engine-floor h4 {
+    margin: 0;
+    color: var(--text);
+    font-size: 15px;
+}
+
+.engine-floor .health-row strong { font-variant-numeric: tabular-nums; }
+
+.notice .notice-detail { overflow-wrap: anywhere; }
+
+@media (max-width: 650px) {
+    .engine-card-head { align-items: flex-start; }
 }

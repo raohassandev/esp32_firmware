@@ -22,10 +22,10 @@
 .op-range-button { min-height: 30px; padding: 0 10px; border: 0; border-radius: 8px; color: var(--muted); background: transparent; font-size: 10px; font-weight: 850; cursor: pointer; }
 .op-range-button.active { color: var(--text); background: rgba(242,138,43,.15); box-shadow: inset 0 0 0 1px rgba(242,138,43,.35); }
 .op-history-chart { min-height: 112px; }
-.op-history-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.op-history-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
 .op-history-stat { display: grid; gap: 4px; padding: 11px 12px; border: 1px solid var(--line-soft); border-radius: 11px; background: var(--panel-strong); }
-.op-history-stat span { color: var(--muted); font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; }
-.op-history-stat strong { font-size: 15px; }
+.op-history-stat span { color: var(--muted); font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; }
+.op-history-stat strong { font-size: 20px; font-variant-numeric: tabular-nums; }
 .op-event-list { display: grid; gap: 10px; }
 .op-event-list.compact .op-event-row { padding: 12px; }
 .op-event-row { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; gap: 14px; align-items: start; padding: 15px; border: 1px solid var(--line-soft); border-radius: 14px; background: var(--panel-strong); }
@@ -41,6 +41,32 @@
 .op-event-meta { display: grid; justify-items: end; gap: 7px; min-width: 90px; }
 .op-event-meta small { color: var(--muted); }
 .op-empty-state.good { color: var(--good); border-color: rgba(65,211,155,.28); background: rgba(65,211,155,.05); }
+
+/* ------------------------------------------------------------ trend plots
+ * Axes, units, a stated range, real gaps and a per-sample quality strip. Every
+ * colour resolves through a token declared for BOTH themes; the measured
+ * ratios against --chart-plot are recorded in the commit message. */
+.op-trend-svg { display: block; width: 100%; height: auto; border-radius: 12px; background: var(--chart-plot); }
+.op-trend-gridline { stroke: var(--chart-gridline); stroke-width: 1; }
+.op-trend-axis { stroke: var(--chart-axis); stroke-width: 1; }
+/* 12px minimum for anything a reader has to interpret, axis ticks included. */
+.op-trend-tick { fill: var(--chart-tick); font-size: 12px; font-variant-numeric: tabular-nums; }
+.op-trend-axis-title { fill: var(--chart-tick); font-size: 12px; font-weight: 800; }
+.op-trend-line { fill: none; stroke: var(--series-grid); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.op-trend-point { fill: var(--series-grid); }
+.op-trend-solar .op-trend-line, .op-trend-solar .op-trend-point { stroke: var(--series-solar); fill: none; }
+.op-trend-solar .op-trend-point { fill: var(--series-solar); }
+.op-trend-quality-good { fill: var(--quality-good); }
+.op-trend-quality-invalid { fill: var(--quality-invalid); }
+.op-trend-quality-unavailable { fill: var(--quality-unavailable); }
+.op-trend-quality-gap { fill: var(--quality-gap); }
+.op-trend-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-top: 10px; }
+.op-trend-legend-item { display: inline-flex; gap: 6px; align-items: center; }
+.op-trend-legend-item small { color: var(--muted); font-size: 12px; }
+.op-trend-swatch { width: 12px; height: 12px; border-radius: 3px; }
+.op-trend-gap-count { flex: 1 1 100%; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.op-chart-scale { display: block; margin-top: 8px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.op-chart-note { display: block; margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.45; }
 /* -------------------------------------------------- P0-5b alarm condition table
  * Every colour resolves through a token that is defined for both themes. The
  * audit measured 1.10:1 and 1.17:1 text where a stylesheet hardcoded a surface
@@ -93,14 +119,85 @@
 .alarm-ack-locked { display: grid; gap: 7px; justify-items: end; text-align: right; }
 .alarm-ack-locked small, .alarm-ack-note { color: var(--muted); font-size: 11px; line-height: 1.45; text-align: right; }
 
+/* ------------------------------------------- A6 / A9 / A10 alarm gap closure
+ * Every colour resolves through a token declared for BOTH themes, and nothing
+ * here fades a row out: a suppressed alarm is still a real condition and still
+ * has to be readable, so no rule below reduces its contrast. */
+
+/* A10: the EEMUA rate panel and A6: the priority distribution. */
+.alarm-metrics { display: grid; gap: 12px; padding: 14px 16px; border: 1px solid var(--line-soft); border-radius: 14px; background: var(--panel-strong); }
+.alarm-metrics-head h4 { margin: 2px 0 0; font-size: 15px; }
+.alarm-metrics-note { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.alarm-metrics-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.alarm-metric { display: grid; gap: 4px; padding: 11px 12px; border: 1px solid var(--line-soft); border-left: 4px solid var(--line); border-radius: 11px; background: var(--surface-sunken); }
+.alarm-metric span { color: var(--muted); font-size: 10px; font-weight: 850; letter-spacing: .06em; text-transform: uppercase; }
+.alarm-metric strong { font-size: 18px; font-variant-numeric: tabular-nums; }
+.alarm-metric small { color: var(--muted); font-size: 11px; line-height: 1.45; }
+/* A verdict is carried by a word in the tile as well as by this rule; the colour
+   is a second channel, never the only one. */
+.alarm-metric.tone-good { border-left-color: var(--good); }
+.alarm-metric.tone-warning { border-left-color: var(--warning); }
+.alarm-metric.tone-bad { border-left-color: var(--bad); }
+
+.alarm-dist-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.alarm-dist-block { display: grid; gap: 9px; padding: 12px; border: 1px solid var(--line-soft); border-radius: 11px; background: var(--surface-sunken); }
+.alarm-dist-block h5 { margin: 0; font-size: 13px; }
+/* Non-text marks, so 3:1 against --surface-sunken is the threshold that applies.
+   The band is also labelled in figures below it and in the aria-label, so the bar
+   is never the only way to read the distribution. */
+.alarm-dist-bar { display: flex; overflow: hidden; min-height: 14px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-sunken); }
+.alarm-dist-part { display: block; min-width: 3px; }
+.alarm-dist-part.band-high { background: var(--red); }
+.alarm-dist-part.band-medium { background: var(--yellow); }
+.alarm-dist-part.band-low { background: var(--blue); }
+.alarm-dist-figures { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.alarm-dist-figure { display: grid; gap: 2px; }
+.alarm-dist-figure span { color: var(--muted); font-size: 10px; font-weight: 850; letter-spacing: .06em; text-transform: uppercase; }
+.alarm-dist-figure strong { font-size: 16px; font-variant-numeric: tabular-nums; }
+.alarm-dist-figure small { color: var(--muted); font-size: 11px; line-height: 1.4; }
+.alarm-dist-verdict { margin: 0; font-size: 12px; font-weight: 800; line-height: 1.45; }
+.alarm-dist-verdict.tone-good { color: var(--good); }
+.alarm-dist-verdict.tone-warning { color: var(--warning); }
+.alarm-dist-reason { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+
+/* A6: the rationalised priority and its reasoning, on the row. */
+.alarm-priority-line { display: grid; gap: 4px; }
+.alarm-priority-pill { justify-self: start; padding: 3px 9px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 10px; font-weight: 900; letter-spacing: .07em; text-transform: uppercase; }
+.alarm-priority-pill.priority-high { color: var(--bad); border-color: var(--bad); }
+.alarm-priority-pill.priority-medium { color: var(--warning); border-color: var(--warning); }
+.alarm-priority-pill.priority-low { color: var(--info); border-color: var(--info); }
+.alarm-priority-rationale { color: var(--muted); font-size: 11px; line-height: 1.45; }
+
+/* A9: three suppression states, drawn as three states. */
+.alarm-suppression { display: grid; gap: 5px; }
+.alarm-suppression-pill { justify-self: start; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 11px; font-weight: 850; }
+.alarm-suppression-pill.suppression-shelved { color: var(--suppress-shelved); border-color: var(--suppress-shelved); }
+.alarm-suppression-pill.suppression-suppressed_by_design { color: var(--suppress-design); border-color: var(--suppress-design); }
+.alarm-suppression-pill.suppression-out_of_service { color: var(--suppress-out-of-service); border-color: var(--suppress-out-of-service); border-width: 2px; }
+.alarm-suppression-meaning, .alarm-suppression-reason { color: var(--muted); font-size: 11px; line-height: 1.45; }
+.alarm-suppression-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+/* A suppressed row is marked on its edge, never dimmed. Out of service takes the
+   heaviest mark because it is the only one of the three that never expires. */
+.alarm-row.alarm-suppressed { border-color: var(--line-strong); }
+.alarm-row.suppression-shelved { border-right: 4px solid var(--suppress-shelved); }
+.alarm-row.suppression-suppressed_by_design { border-right: 4px solid var(--suppress-design); }
+.alarm-row.suppression-out_of_service { border-right: 4px solid var(--suppress-out-of-service); }
+.alarm-suppress-actions { display: grid; gap: 8px; justify-items: stretch; width: 100%; }
+.alarm-suppress-actions small { color: var(--muted); font-size: 11px; line-height: 1.45; text-align: right; }
+.alarm-suppress-actions .alarm-control { min-width: 0; flex: none; }
+
 html[data-theme="light"] .op-range-selector,
 html[data-theme="light"] .op-history-stat,
 html[data-theme="light"] .alarm-controls,
 html[data-theme="light"] .alarm-row,
 html[data-theme="light"] .alarm-message,
 html[data-theme="light"] .op-event-row { background: var(--surface-sunken); }
+html[data-theme="light"] .alarm-metrics { background: var(--surface-sunken); }
 html[data-theme="light"] .alarm-marker,
 html[data-theme="light"] .alarm-id,
+html[data-theme="light"] .alarm-metric,
+html[data-theme="light"] .alarm-dist-block,
+html[data-theme="light"] .alarm-dist-bar,
 html[data-theme="light"] .alarm-meta-item { background: var(--panel); }
 /* S6: the range selector measured 105x30 on a phone. Grow the hit area only -
    font size and the pill design are unchanged. */
@@ -117,6 +214,8 @@ html[data-theme="light"] .alarm-meta-item { background: var(--panel); }
 }
 @media (max-width: 1100px) {
     .alarm-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .alarm-metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .alarm-dist-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 760px) {
@@ -127,9 +226,15 @@ html[data-theme="light"] .alarm-meta-item { background: var(--panel); }
     .alarm-ack-button, .alarm-ack-link { width: 100%; }
     .alarm-control { flex: 1 1 100%; }
     .alarm-meta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .alarm-suppress-actions small { text-align: left; }
+}
+
+@media (max-width: 900px) {
+    .op-history-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 520px) {
     .op-history-stats { grid-template-columns: 1fr; }
     .alarm-summary, .alarm-meta { grid-template-columns: 1fr; }
+    .alarm-metrics-grid, .alarm-dist-figures, .alarm-suppression-facts { grid-template-columns: 1fr; }
 }

@@ -7,6 +7,7 @@
 #include <string.h>
 #include "cJSON.h"
 #include "config_manager.h"
+#include "commissioning_gate.h"
 #include "control_engine.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -16,7 +17,9 @@
 #include "network_manager.h"
 #include "safety_manager.h"
 
-#define METER_STALE_AFTER_MS 5000U
+/* Staleness is NOT defined here either. One definition, owned by safety_manager,
+ * so the dashboard's quality word cannot say "good" while control is inhibited for
+ * staleness -- which a local 5000 ms constant against a configured 1000 ms did. */
 #define MASKED_PASSWORD "********"
 #define WIFI_CONFIG_MAX_BODY 4096U
 #define CONFIG_MAX_BODY 16384U
@@ -73,7 +76,7 @@ static esp_err_t status_get(httpd_req_t *request)
     uint32_t meter_age_ms = meter_has_data ? current_ms - meter.last_update_ms : 0;
     cJSON_AddBoolToObject(root, "meter_online", meter.online);
     cJSON_AddBoolToObject(root, "meter_has_data", meter_has_data);
-    cJSON_AddBoolToObject(root, "meter_stale", !meter_has_data || meter_age_ms > METER_STALE_AFTER_MS);
+    cJSON_AddBoolToObject(root, "meter_stale", !meter_has_data || meter_age_ms > safety_manager_meter_stale_timeout_ms());
     if (meter_has_data) {
         cJSON_AddNumberToObject(root, "meter_age_ms", (double)meter_age_ms);
         cJSON_AddNumberToObject(root, "grid_power_kw", meter.active_power_kw);
@@ -95,7 +98,7 @@ static esp_err_t status_get(httpd_req_t *request)
             const char *quality = !meter.online      ? "unavailable"
                                   : !meter_has_data  ? "unavailable"
                                   : meter.degraded   ? "degraded"
-                                  : meter_age_ms > METER_STALE_AFTER_MS ? "stale"
+                                  : meter_age_ms > safety_manager_meter_stale_timeout_ms() ? "stale"
                                                                         : "good";
             cJSON_AddStringToObject(m, "quantity", "Grid active power");
             cJSON_AddStringToObject(m, "unit", "kW");
@@ -156,6 +159,25 @@ static esp_err_t status_get(httpd_req_t *request)
             cJSON_AddBoolToObject(authority, "control_enabled", control.enabled);
             cJSON_AddBoolToObject(authority, "command_authority", commanding);
             cJSON_AddStringToObject(authority, "inhibit_reason", control.inhibit_reason);
+            /* Commissioning scope is published on this PUBLIC endpoint on purpose.
+             * The detailed gate lives behind the engineering gateway, but "the
+             * machines being commanded are declared simulators" is not an
+             * engineering detail -- it is the single fact that stops an operator
+             * reading a lab run as real plant control. Withholding it from
+             * unauthenticated clients would leave exactly the people most likely
+             * to be misled with no way to know, which defeats the purpose of
+             * marking lab mode at all.
+             *
+             * It leaks no secret: it says whether this controller is commissioned
+             * and whether its targets are real, which any operator watching the
+             * plant is entitled to know. */
+            cJSON_AddStringToObject(authority, "commissioning_scope",
+                                    commissioning_scope_label(
+                                        (commissioning_scope_t)control.commissioning_scope));
+            cJSON_AddBoolToObject(authority, "lab_simulator_mode",
+                                  (commissioning_scope_t)control.commissioning_scope ==
+                                      COMMISSIONING_SCOPE_LAB);
+            cJSON_AddBoolToObject(authority, "commissioned", control.commissioned);
             cJSON_AddNumberToObject(authority, "requested_pv_kw", control.requested_pv_kw);
             cJSON_AddNumberToObject(authority, "applied_pv_kw", control.applied_pv_kw);
             /* Null rather than zero when nothing has happened yet: zero would

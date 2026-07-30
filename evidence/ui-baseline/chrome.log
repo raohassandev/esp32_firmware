@@ -1,0 +1,43 @@
+dashboard chrome leaves: 31 summed rect area %: 8
+   1%  a#engineeringNav.nav-link 207x62 @(14,366) "▣Engineering access🔒"
+   0.7%  a.nav-link 207x46 @(14,123) "⌂Plant overview"
+   0.7%  a.nav-link 207x46 @(14,172) "△Alarms and events4"
+   0.7%  a.nav-link 207x46 @(14,262) "⌾Pre-lab readiness—"
+   0.5%  div#sidebarVersion.sidebar-version 187x35 @(24,843) "Configuration schema 5 · autom"
+   0.4%  span 111x42 @(60,174) "Alarms and events"
+   0.4%  span 116x42 @(61,385) "Engineering access"
+   0.4%  h1#pageTitle 206x22 @(258,14) "Plant overview"
+alarms chrome leaves: 36 summed rect area %: 13.9
+   2.1%  h2 989x28 @(262,112) "Alarms and events"
+   1.3%  p.experience-question 780x22 @(262,148) "What changed, what is affected"
+   1.1%  p.eyebrow 989x15 @(262,92) "Attention"
+   1.1%  p.experience-guidance 780x19 @(262,175) "Work from highest severity to "
+   1%  a#engineeringNav.nav-link 207x62 @(14,366) "▣Engineering access🔒"
+   0.7%  a.nav-link 207x46 @(14,123) "⌂Plant overview"
+   0.7%  a.nav-link 207x46 @(14,172) "△Alarms and events4"
+   0.7%  a.nav-link 207x46 @(14,262) "⌾Pre-lab readiness—"
+control chrome leaves: 36 summed rect area %: 13.7
+   1.9%  h2 885x28 @(304,112) "Engineering"
+   1.3%  p.experience-question 780x22 @(304,148) "Which commissioning task are y"
+   1.1%  p.experience-guidance 780x19 @(304,175) "Use only the relevant workflow"
+   1%  a#engineeringNav.nav-link 207x62 @(14,366) "▣Engineering access🔒"
+   1%  p.eyebrow 885x15 @(304,92) "Restricted workspace"
+   0.7%  a.nav-link 207x46 @(14,123) "⌂Plant overview"
+   0.7%  a.nav-link 207x46 @(14,172) "△Alarms and events4"
+   0.7%  a.nav-link 207x46 @(14,262) "⌾Pre-lab readiness—"
+node:internal/process/promises:394
+    triggerUncaughtException(err, true /* fromPromise */);
+    ^
+
+page.goto: net::ERR_CONNECTION_TIMED_OUT at http://192.168.100.14/#/readiness
+Call log:
+[2m  - navigating to "http://192.168.100.14/#/readiness", waiting until "domcontentloaded"[22m
+
+    at D:\Working\esp32_firmware\.claude\worktrees\agent-a5650c4ce7a41f531\evidence\ui-baseline\chrome-breakdown.js:40:20 {
+  log: [
+    '  - navigating to "http://192.168.100.14/#/readiness", waiting until "domcontentloaded"'
+  ],
+  name: 'Error'
+}
+
+Node.js v24.15.0

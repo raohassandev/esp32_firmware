@@ -164,11 +164,86 @@ static void test_policy_blocks_without_evidence(void)
     expect_close(output.requested_pv_kw, 0.0f);
 }
 
+/* The rate limiter must scale with the control interval, not be defined per
+ * second and then silently shrink as the loop runs faster.
+ *
+ * The product requirement is that grid mode reaches the allowed target
+ * immediately, which the firmware implements by handing the policy a rate that
+ * covers the whole fleet range in ONE cycle. An earlier version handed it
+ * "capacity per second" instead, so at the shipped 250 ms interval each cycle
+ * moved only a quarter of the range -- and polling faster for fresher data made
+ * the effective ramp slower as a fraction of range, which is exactly backwards.
+ *
+ * This test states the policy-level property both ways so a regression in either
+ * the rate calculation or the limiter shows up here. */
+static void test_rate_limit_scales_with_interval(void)
+{
+    const float capacity = 100.0f;
+    const float intervals[] = {1.0f, 0.5f, 0.25f, 0.125f, 0.05f};
+
+    for (size_t i = 0; i < sizeof(intervals) / sizeof(intervals[0]); ++i) {
+        const float interval = intervals[i];
+        power_control_input_t input = {
+            .measurement_fresh = true,
+            .source_mode = SOURCE_MODE_GRID_ONLY,
+            .policy = GRID_POLICY_ZERO_EXPORT,
+            .measured_grid_kw = 100.0f,   /* heavy import: the target is full PV */
+            .current_pv_command_kw = 0.0f, /* starting from zero */
+            .fleet_capacity_kw = capacity,
+            .kp = 1.0f,
+            .interval_seconds = interval,
+            /* What the control engine supplies for a DISABLED ramp: full range
+             * per CYCLE, i.e. capacity / interval. */
+            .ramp_up_kw_per_second = capacity / interval,
+            .ramp_down_kw_per_second = capacity / interval,
+            .generator_safe_limit_kw = capacity,
+        };
+        power_control_output_t output = power_control_step(&input);
+        assert(output.valid);
+        /* One cycle must reach the target at every interval. */
+        expect_close(output.requested_pv_kw, capacity);
+
+        /* And the old formulation must still be genuinely rate limited, so this
+         * test cannot pass for the wrong reason: "capacity per second" over a
+         * sub-second interval moves only interval x capacity. */
+        input.ramp_up_kw_per_second = capacity;
+        input.ramp_down_kw_per_second = capacity;
+        output = power_control_step(&input);
+        assert(output.valid);
+        expect_close(output.requested_pv_kw, capacity * interval);
+    }
+
+    /* An ENABLED ramp is a true rate: the same kW/s must move proportionally
+     * more in a longer cycle, which is what makes it a commissioning value an
+     * engineer can reason about independently of the poll rate. */
+    power_control_input_t enabled = {
+        .measurement_fresh = true,
+        .source_mode = SOURCE_MODE_GENERATOR_ONLY,
+        .policy = GRID_POLICY_ZERO_EXPORT,
+        .measured_grid_kw = 100.0f,
+        .current_pv_command_kw = 0.0f,
+        .fleet_capacity_kw = capacity,
+        .kp = 1.0f,
+        .interval_seconds = 1.0f,
+        .ramp_up_kw_per_second = 5.0f,   /* 5 %/s of a 100 kW fleet */
+        .ramp_down_kw_per_second = 20.0f,
+        .generator_safe_limit_kw = capacity,
+    };
+    power_control_output_t slow = power_control_step(&enabled);
+    assert(slow.valid);
+    expect_close(slow.requested_pv_kw, 5.0f);
+    enabled.interval_seconds = 0.25f;
+    power_control_output_t fast = power_control_step(&enabled);
+    assert(fast.valid);
+    expect_close(fast.requested_pv_kw, 1.25f);
+}
+
 int main(void)
 {
     test_grid_gate();
     test_policy_targets_and_load_steps();
     test_policy_blocks_without_evidence();
+    test_rate_limit_scales_with_interval();
     puts("Solar-Grid integration tests passed");
     return 0;
 }

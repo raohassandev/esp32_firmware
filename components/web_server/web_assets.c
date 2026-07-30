@@ -18,6 +18,7 @@ _binary_commissioning_wizard_v2_js_start _binary_commissioning_release_v3_js_sta
 _binary_engineering_errors_js_start _binary_ui_enhancements_js_start
 _binary_wifi_utils_js_start _binary_wifi_guard_js_start _binary_wifi_js_start
 _binary_network_commissioning_fix_js_start _binary_devices_utils_js_start
+_binary_pvdg_chart_css_start _binary_pvdg_chart_js_start
 _binary_devices_js_start _binary_devices_refresh_js_start
 _binary_inverter_profiles_js_start _binary_inverter_config_js_start
 _binary_inverter_telemetry_js_start _binary_em500_utils_js_start
@@ -45,6 +46,7 @@ DECLARE_ASSET(commissioning_release_v3_css);
 DECLARE_ASSET(wifi_css);
 DECLARE_ASSET(devices_css);
 DECLARE_ASSET(em500_css);
+DECLARE_ASSET(pvdg_chart_css);
 DECLARE_ASSET(app_js);
 DECLARE_ASSET(theme_js);
 DECLARE_ASSET(engineering_session_resilience_js);
@@ -65,6 +67,7 @@ DECLARE_ASSET(wifi_guard_js);
 DECLARE_ASSET(wifi_js);
 DECLARE_ASSET(network_commissioning_fix_js);
 DECLARE_ASSET(devices_utils_js);
+DECLARE_ASSET(pvdg_chart_js);
 DECLARE_ASSET(devices_js);
 DECLARE_ASSET(devices_refresh_js);
 DECLARE_ASSET(inverter_profiles_js);
@@ -104,6 +107,7 @@ ASSET_GETTER(web_assets_commissioning_release_v3_css, commissioning_release_v3_c
 ASSET_GETTER(web_assets_wifi_css, wifi_css)
 ASSET_GETTER(web_assets_devices_css, devices_css)
 ASSET_GETTER(web_assets_em500_css, em500_css)
+ASSET_GETTER(web_assets_pvdg_chart_css, pvdg_chart_css)
 ASSET_GETTER(web_assets_js, app_js)
 ASSET_GETTER(web_assets_theme_js, theme_js)
 ASSET_GETTER(web_assets_engineering_session_resilience_js, engineering_session_resilience_js)
@@ -124,6 +128,7 @@ ASSET_GETTER(web_assets_wifi_guard_js, wifi_guard_js)
 ASSET_GETTER(web_assets_wifi_js, wifi_js)
 ASSET_GETTER(web_assets_network_commissioning_fix_js, network_commissioning_fix_js)
 ASSET_GETTER(web_assets_devices_utils_js, devices_utils_js)
+ASSET_GETTER(web_assets_pvdg_chart_js, pvdg_chart_js)
 ASSET_GETTER(web_assets_devices_js, devices_js)
 ASSET_GETTER(web_assets_devices_refresh_js, devices_refresh_js)
 ASSET_GETTER(web_assets_inverter_profiles_js, inverter_profiles_js)
