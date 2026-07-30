@@ -69,8 +69,30 @@ typedef enum {
     COMMISSIONING_REASON_GENERATOR_RATING_UNKNOWN,
     COMMISSIONING_REASON_GENERATOR_LOADING_UNKNOWN,
     COMMISSIONING_REASON_CONTROL_TUNING_INVALID,
+    /* A meter is attributed to a generator slot that is not in service. Distinct
+     * from GENERATOR_RATING_UNKNOWN: the rating is not merely missing, the site
+     * has declared an engine the generator policy does not describe at all, so
+     * neither the aggregate rating nor the aggregate minimum-loading floor can be
+     * computed for the configuration the plant can actually run. */
+    COMMISSIONING_REASON_GENERATOR_SLOT_NOT_CONFIGURED,
     COMMISSIONING_REASON_COUNT
 } commissioning_reason_t;
+
+/* Engine slots the gate can describe. Must equal APP_MAX_GENERATORS and
+ * SOLAR_GRID_MAX_GENERATORS; declared independently because this module depends
+ * on nothing, and checked by a _Static_assert in the control engine. */
+#define COMMISSIONING_MAX_GENERATORS 3u
+
+/* One engine slot's commissioning evidence. */
+typedef struct {
+    /* The generator policy declares this engine slot in service at this site. */
+    bool enabled;
+    /* An enabled meter carries this slot in its generator_index, so the plant has
+     * declared the engine exists whether or not the policy describes it. */
+    bool referenced_by_meter;
+    float rated_kw;
+    float minimum_loading_percent;
+} commissioning_generator_slot_t;
 
 /*
  * Collected commissioning evidence.
@@ -118,9 +140,17 @@ typedef struct {
     bool grid_policy_known;
     bool grid_policy_valid;
 
+    /* Per-engine generator policy. A site can run one to
+     * COMMISSIONING_MAX_GENERATORS gensets in parallel, and the aggregate
+     * minimum-loading floor is only computable if EVERY engine the plant can run
+     * is described. So every enabled slot needs both a rating and a
+     * minimum-loading figure, and a slot a meter points at but the policy does not
+     * describe is a hole, not a detail.
+     *
+     * A zeroed struct leaves every slot disabled, which yields "no generator slot
+     * is commissioned" -- the same unmet verdict a zero rating always gave. */
     bool generator_limits_known;
-    float generator_rated_kw;
-    float generator_minimum_loading_percent;
+    commissioning_generator_slot_t generators[COMMISSIONING_MAX_GENERATORS];
 
     bool control_tuning_known;
     float kp;

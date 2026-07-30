@@ -42,9 +42,12 @@ static commissioning_inputs_t good_inputs(void)
     in.grid_policy_known = true;
     in.grid_policy_valid = true;
 
+    /* One engine slot in service, which is the single-generator plant every
+     * commissioned unit shipped with. Slots 1 and 2 stay out of service. */
     in.generator_limits_known = true;
-    in.generator_rated_kw = 500.0f;
-    in.generator_minimum_loading_percent = 30.0f;
+    in.generators[0].enabled = true;
+    in.generators[0].rated_kw = 500.0f;
+    in.generators[0].minimum_loading_percent = 30.0f;
 
     in.control_tuning_known = true;
     in.kp = 0.8f;
@@ -256,24 +259,148 @@ static void test_source_detection_accepts_either_evidence_path(void)
     assert(prereq_satisfied(&status, COMMISSIONING_PREREQ_SOURCE_DETECTION));
 }
 
+/* The single-generator behaviour, unchanged. A slot 0 with no rating is not in
+ * service at all, and that reports GENERATOR_RATING_UNKNOWN exactly as it did
+ * before per-engine limits existed. */
 static void test_generator_limits(void)
 {
     commissioning_inputs_t in = good_inputs();
-    in.generator_rated_kw = 0.0f;
+    in.generators[0].enabled = false;
+    in.generators[0].rated_kw = 0.0f;
     commissioning_status_t status = commissioning_gate_evaluate(&in);
     assert(prereq_reason(&status, COMMISSIONING_PREREQ_GENERATOR_LIMITS) ==
            COMMISSIONING_REASON_GENERATOR_RATING_UNKNOWN);
 
+    /* In service but unrated is the same missing number, reported the same way. */
     in = good_inputs();
-    in.generator_minimum_loading_percent = 0.0f;
+    in.generators[0].rated_kw = 0.0f;
+    status = commissioning_gate_evaluate(&in);
+    assert(prereq_reason(&status, COMMISSIONING_PREREQ_GENERATOR_LIMITS) ==
+           COMMISSIONING_REASON_GENERATOR_RATING_UNKNOWN);
+
+    in = good_inputs();
+    in.generators[0].minimum_loading_percent = 0.0f;
     status = commissioning_gate_evaluate(&in);
     assert(prereq_reason(&status, COMMISSIONING_PREREQ_GENERATOR_LIMITS) ==
            COMMISSIONING_REASON_GENERATOR_LOADING_UNKNOWN);
 
     in = good_inputs();
-    in.generator_minimum_loading_percent = 140.0f;
+    in.generators[0].minimum_loading_percent = 140.0f;
     status = commissioning_gate_evaluate(&in);
     assert(!prereq_satisfied(&status, COMMISSIONING_PREREQ_GENERATOR_LIMITS));
+
+    const float unusable[] = {NAN, INFINITY, -1.0f};
+    for (size_t i = 0; i < sizeof(unusable) / sizeof(unusable[0]); ++i) {
+        in = good_inputs();
+        in.generators[0].rated_kw = unusable[i];
+        status = commissioning_gate_evaluate(&in);
+        assert(prereq_reason(&status, COMMISSIONING_PREREQ_GENERATOR_LIMITS) ==
+               COMMISSIONING_REASON_GENERATOR_RATING_UNKNOWN);
+
+        in = good_inputs();
+        in.generators[0].minimum_loading_percent = unusable[i];
+        status = commissioning_gate_evaluate(&in);
+        assert(prereq_reason(&status, COMMISSIONING_PREREQ_GENERATOR_LIMITS) ==
+               COMMISSIONING_REASON_GENERATOR_LOADING_UNKNOWN);
+    }
+}
+
+/* Parallel engines. A site that can run up to three gensets must have EVERY
+ * engine it can run described, because the minimum-loading floor is computed
+ * against the aggregate rating of the engines online. A partially described fleet
+ * would give a denominator that is wrong in the permissive direction. */
+static void test_every_enabled_generator_slot_must_be_commissioned(void)
+{
+    /* Two and three fully described engines commission. */
+    for (uint8_t engines = 2U; engines <= COMMISSIONING_MAX_GENERATORS; ++engines) {
+        commissioning_inputs_t in = good_inputs();
+        for (uint8_t slot = 1U; slot < engines; ++slot) {
+            in.generators[slot].enabled = true;
+            in.generators[slot].rated_kw = 300.0f;
+            in.generators[slot].minimum_loading_percent = 35.0f;
+        }
+        const commissioning_status_t status = commissioning_gate_evaluate(&in);
+        assert(status.commissioned);
+        assert(prereq_satisfied(&status, COMMISSIONING_PREREQ_GENERATOR_LIMITS));
+    }
+
+    /* Any enabled slot missing its rating closes the gate, whichever slot it is. */
+    for (uint8_t slot = 0U; slot < COMMISSIONING_MAX_GENERATORS; ++slot) {
+        commissioning_inputs_t in = good_inputs();
+        for (uint8_t s = 0U; s < COMMISSIONING_MAX_GENERATORS; ++s) {
+            in.generators[s].enabled = true;
+            in.generators[s].rated_kw = 300.0f;
+            in.generators[s].minimum_loading_percent = 35.0f;
+        }
+        in.generators[slot].rated_kw = 0.0f;
+        commissioning_status_t status = commissioning_gate_evaluate(&in);
+        assert(!status.commissioned);
+        assert(prereq_reason(&status, COMMISSIONING_PREREQ_GENERATOR_LIMITS) ==
+               COMMISSIONING_REASON_GENERATOR_RATING_UNKNOWN);
+
+        /* And the minimum-loading figure, independently. */
+        in.generators[slot].rated_kw = 300.0f;
+        in.generators[slot].minimum_loading_percent = 0.0f;
+        status = commissioning_gate_evaluate(&in);
+        assert(!status.commissioned);
+        assert(prereq_reason(&status, COMMISSIONING_PREREQ_GENERATOR_LIMITS) ==
+               COMMISSIONING_REASON_GENERATOR_LOADING_UNKNOWN);
+    }
+
+    /* A slot that is out of service needs no numbers: an engine the site cannot
+     * run is not a commissioning hole. */
+    commissioning_inputs_t in = good_inputs();
+    in.generators[2].enabled = false;
+    in.generators[2].rated_kw = 0.0f;
+    in.generators[2].minimum_loading_percent = 0.0f;
+    const commissioning_status_t status = commissioning_gate_evaluate(&in);
+    assert(status.commissioned);
+}
+
+/* A meter attributed to a generator slot the policy does not describe is a hole,
+ * and it gets its own reason so an engineer is told which fact is missing rather
+ * than being sent to look for a rating that was never asked for. */
+static void test_metered_but_unconfigured_slot_fails_with_its_own_reason(void)
+{
+    for (uint8_t slot = 1U; slot < COMMISSIONING_MAX_GENERATORS; ++slot) {
+        commissioning_inputs_t in = good_inputs();
+        in.generators[slot].referenced_by_meter = true;
+        const commissioning_status_t status = commissioning_gate_evaluate(&in);
+        assert(!status.commissioned);
+        assert(prereq_reason(&status, COMMISSIONING_PREREQ_GENERATOR_LIMITS) ==
+               COMMISSIONING_REASON_GENERATOR_SLOT_NOT_CONFIGURED);
+        /* The operator-facing sentence must actually say something. */
+        assert(commissioning_reason_message(COMMISSIONING_REASON_GENERATOR_SLOT_NOT_CONFIGURED)[0] != '\0');
+    }
+
+    /* A meter on a slot that IS described is not a fault. */
+    commissioning_inputs_t in = good_inputs();
+    in.generators[0].referenced_by_meter = true;
+    commissioning_status_t status = commissioning_gate_evaluate(&in);
+    assert(status.commissioned);
+
+    in = good_inputs();
+    in.generators[1].enabled = true;
+    in.generators[1].rated_kw = 300.0f;
+    in.generators[1].minimum_loading_percent = 35.0f;
+    in.generators[1].referenced_by_meter = true;
+    status = commissioning_gate_evaluate(&in);
+    assert(status.commissioned);
+}
+
+/* No engine slot in service at all is the uncommissioned unit, and it must keep
+ * reporting the reason it always reported rather than passing because "no enabled
+ * slot is missing anything". */
+static void test_no_generator_slot_in_service_is_never_commissioned(void)
+{
+    commissioning_inputs_t in = good_inputs();
+    for (uint8_t slot = 0U; slot < COMMISSIONING_MAX_GENERATORS; ++slot) {
+        in.generators[slot].enabled = false;
+    }
+    const commissioning_status_t status = commissioning_gate_evaluate(&in);
+    assert(!status.commissioned);
+    assert(prereq_reason(&status, COMMISSIONING_PREREQ_GENERATOR_LIMITS) ==
+           COMMISSIONING_REASON_GENERATOR_RATING_UNKNOWN);
 }
 
 static void test_control_tuning(void)
@@ -334,13 +461,13 @@ static void test_first_unmet_is_lowest_index(void)
 {
     commissioning_inputs_t in = good_inputs();
     in.grid_meter_count = 0;              /* prerequisite 0 */
-    in.generator_rated_kw = 0.0f;         /* prerequisite 7 */
+    in.generators[0].rated_kw = 0.0f;     /* prerequisite 7 */
     commissioning_status_t status = commissioning_gate_evaluate(&in);
     assert(status.first_unmet == COMMISSIONING_PREREQ_METER_ROLES);
     assert(status.unmet_count == 2);
 
     in = good_inputs();
-    in.generator_rated_kw = 0.0f;
+    in.generators[0].rated_kw = 0.0f;
     status = commissioning_gate_evaluate(&in);
     assert(status.first_unmet == COMMISSIONING_PREREQ_GENERATOR_LIMITS);
     assert(status.unmet_count == 1);
@@ -448,6 +575,9 @@ int main(void)
     test_ramp_policy();
     test_source_detection_accepts_either_evidence_path();
     test_generator_limits();
+    test_every_enabled_generator_slot_must_be_commissioned();
+    test_metered_but_unconfigured_slot_fails_with_its_own_reason();
+    test_no_generator_slot_in_service_is_never_commissioned();
     test_control_tuning();
     test_first_unmet_is_lowest_index();
     test_labels_are_complete_and_bounded();

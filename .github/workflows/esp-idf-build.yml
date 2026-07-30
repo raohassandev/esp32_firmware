@@ -91,6 +91,16 @@ jobs:
             components/commissioning_gate/commissioning_gate.c \
             -lm -o /tmp/commissioning_gate_test
           /tmp/commissioning_gate_test
+      - name: Run aggregate generator limit unit tests
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -Wall -Wextra -Werror \
+            -Icomponents/control_engine/include \
+            tests/generator_fleet_limit_test.c \
+            components/control_engine/generator_fleet_limit.c \
+            components/control_engine/source_mode.c \
+            -lm -o /tmp/generator_fleet_limit_test
+          /tmp/generator_fleet_limit_test
       - name: Run inverter write confirmation unit tests
         run: |
           set -euo pipefail

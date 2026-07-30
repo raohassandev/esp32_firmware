@@ -9,6 +9,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "generator_fleet_limit.h"
 #include "grid_control_gate.h"
 #include "inverter_manager.h"
 #include "meter_manager.h"
@@ -83,6 +84,12 @@ static commissioning_status_t evaluate_commissioning(bool source_detection_confi
 
 _Static_assert(APP_MAX_GENERATORS == SOURCE_MAX_GENERATORS,
                "meter generator slots and source-mode generator channels must agree");
+_Static_assert(APP_MAX_GENERATORS == SOLAR_GRID_MAX_GENERATORS,
+               "meter generator slots and commissioned engine limits must agree");
+_Static_assert(APP_MAX_GENERATORS == GENERATOR_FLEET_MAX_ENGINES,
+               "meter generator slots and aggregate limit engines must agree");
+_Static_assert(APP_MAX_GENERATORS == COMMISSIONING_MAX_GENERATORS,
+               "meter generator slots and commissioning gate engine slots must agree");
 
 /* Smallest increase worth a Modbus write, in kW. Below this a re-command carries
  * no information the inverter can act on, and at a fast control period it is pure
@@ -137,6 +144,27 @@ static float ramp_kw_per_second(const ramp_profile_t *ramp, bool upward,
                                  : ramp->down_percent_per_second;
     if (!isfinite(percent) || percent <= 0.0f) return 0.0f;
     return fleet_capacity_kw * percent * 0.01f;
+}
+
+/* One sentence per way the aggregate generator limit can fail closed, so an
+ * engineer is told which piece of evidence is missing rather than a generic
+ * "no valid command". */
+static const char *generator_fleet_inhibit(uint8_t reason)
+{
+    switch (reason) {
+    case GENERATOR_FLEET_NO_ENGINE_CONFIGURED:
+        return "No generator engine is commissioned, so no minimum-loading floor can be computed.";
+    case GENERATOR_FLEET_RATING_UNKNOWN:
+        return "A commissioned generator engine has no usable rating or minimum-loading figure.";
+    case GENERATOR_FLEET_RUNNING_SET_UNKNOWN:
+        return "Which generator engines are online cannot be determined, so PV is held at zero.";
+    case GENERATOR_FLEET_NO_ENGINE_ONLINE:
+        return "A generator is carrying the plant but no commissioned engine is measured online.";
+    case GENERATOR_FLEET_LOAD_UNKNOWN:
+        return "The plant load behind the generator limit is missing or non-finite.";
+    default:
+        return "The aggregate generator limit could not be established, so PV is held at zero.";
+    }
 }
 
 static meter_role_assignment_t current_role_assignment(void)
@@ -431,17 +459,55 @@ static void control_task(void *argument)
         const ramp_profile_t ramp = generator_carrying ? s_config.generator_ramp
                                                        : s_config.grid_ramp;
 
+        /* WHICH ENGINES ARE RUNNING IS A RUNTIME FACT, NOT CONFIGURATION.
+         *
+         * The commissioned ratings say what machines exist; the generator-role
+         * meters say which of them are on the bus right now. Both are needed,
+         * because the minimum-loading floor is computed against the aggregate
+         * rating of the engines actually online -- with two engines running and a
+         * rating for one, the denominator is wrong in the permissive direction and
+         * the controller would allow far more PV than the plant can carry.
+         *
+         * Every read here is of already-acquired cached state:
+         * solar_grid_config_generator() reads the static snapshot taken at init,
+         * and meter_manager_get_data() returns the last poll result. No Modbus
+         * transaction is issued, so the 20 ms loop gains no blocking I/O. */
         float generator_safe_limit_kw = 0.0f;
+        generator_fleet_limit_t fleet_limit = {0};
         if (source.mode == SOURCE_MODE_GENERATOR_ONLY) {
-            const generator_limit_input_t limit_input = {
+            generator_fleet_input_t fleet_input = {
                 .evidence_fresh = measurement_fresh,
                 .facility_load_kw = fabsf(measured_grid_kw),
-                .running_generator_rated_kw = s_grid_config.generator_rated_kw,
-                .minimum_loading_percent = s_grid_config.generator_minimum_loading_percent,
-                .reserve_kw = s_grid_config.generator_reserve_kw,
-                .reverse_power_margin_kw = s_grid_config.generator_reverse_power_margin_kw,
+                /* Only when the site has no generator-role meter at all: then a
+                 * single commissioned engine is unambiguous, which is the legacy
+                 * single-generator behaviour. */
+                .allow_unmetered_single_engine = roles.generator_count == 0U,
+                .engine_count = APP_MAX_GENERATORS,
             };
-            generator_safe_limit_kw = source_mode_generator_safe_pv_kw(&limit_input);
+            for (uint8_t slot = 0U; slot < APP_MAX_GENERATORS; ++slot) {
+                const solar_grid_generator_limits_t limits =
+                    solar_grid_config_generator(&s_grid_config, slot);
+                generator_engine_input_t *engine = &fleet_input.engines[slot];
+                engine->configured = limits.enabled;
+                engine->rated_kw = limits.rated_kw;
+                engine->minimum_loading_percent = limits.minimum_loading_percent;
+                engine->reserve_kw = limits.reserve_kw;
+                engine->reverse_power_margin_kw = limits.reverse_power_margin_kw;
+
+                const uint8_t meter_index = roles.generator_index[slot];
+                engine->metered = roles.valid && meter_index != METER_ROLE_INDEX_NONE;
+                if (!engine->metered) continue;
+                meter_data_t generator_meter = {0};
+                if (!meter_manager_get_data(meter_index, &generator_meter)) continue;
+                /* The same freshness rule the grid meter is held to, so one
+                 * definition of "fresh" governs the whole loop. */
+                engine->sample_fresh = meter_sample_fresh(&generator_meter, timestamp);
+                engine->measured_kw = generator_meter.active_power_kw;
+            }
+            fleet_limit = generator_fleet_limit_evaluate(&fleet_input);
+            /* An unknown running set yields zero, which holds PV off rather than
+             * commanding against a plant of unknown capacity. */
+            generator_safe_limit_kw = fleet_limit.known ? fleet_limit.safe_pv_kw : 0.0f;
         }
 
         power_control_input_t input = {
@@ -653,6 +719,11 @@ static void control_task(void *argument)
             : !fleet_valid            ? "No commissioned inverter capacity is available to command."
             : !gate.control_allowed   ? "The grid-evidence gate has not confirmed a stable source."
             : !source.control_allowed ? "The source carrying the plant is not settled."
+            /* Ahead of the generic policy answer: while a generator carries the
+             * plant, an unestablished running set is the specific and actionable
+             * reason PV is held at zero. */
+            : source.mode == SOURCE_MODE_GENERATOR_ONLY && !fleet_limit.known
+                                      ? generator_fleet_inhibit(fleet_limit.reason)
             : !policy.valid           ? "The control policy produced no valid command this cycle."
                                       : "";
         strlcpy(next.inhibit_reason, inhibit, sizeof(next.inhibit_reason));
@@ -748,11 +819,22 @@ esp_err_t control_engine_init(void)
     s_commissioning_inputs.grid_policy_known = error == ESP_OK;
     s_commissioning_inputs.grid_policy_valid =
         error == ESP_OK && solar_grid_config_valid(&s_grid_config);
+    /* Per-engine generator policy. `referenced_by_meter` is what makes a hole
+     * visible: a meter attributed to a generator slot that carries no commissioned
+     * rating means the site can run an engine the policy does not describe, and no
+     * aggregate minimum-loading floor can be computed for that configuration. */
     s_commissioning_inputs.generator_limits_known = error == ESP_OK;
-    s_commissioning_inputs.generator_rated_kw =
-        error == ESP_OK ? s_grid_config.generator_rated_kw : 0.0f;
-    s_commissioning_inputs.generator_minimum_loading_percent =
-        error == ESP_OK ? s_grid_config.generator_minimum_loading_percent : 0.0f;
+    for (uint8_t slot = 0U; slot < APP_MAX_GENERATORS; ++slot) {
+        const solar_grid_generator_limits_t limits =
+            error == ESP_OK ? solar_grid_config_generator(&s_grid_config, slot)
+                            : (solar_grid_generator_limits_t){0};
+        s_commissioning_inputs.generators[slot].enabled = limits.enabled;
+        s_commissioning_inputs.generators[slot].rated_kw = limits.rated_kw;
+        s_commissioning_inputs.generators[slot].minimum_loading_percent =
+            limits.minimum_loading_percent;
+        s_commissioning_inputs.generators[slot].referenced_by_meter =
+            roles.generator_index[slot] != METER_ROLE_INDEX_NONE;
+    }
     s_commissioning_inputs.source_detection_known = true;
     s_commissioning_inputs.grid_evidence_configured =
         error == ESP_OK && solar_grid_config_evidence_complete(&s_grid_config);
