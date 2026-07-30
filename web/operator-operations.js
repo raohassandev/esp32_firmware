@@ -512,25 +512,30 @@
 
     function acknowledgeControl(alarm) {
         if (alarm.acknowledged === true) {
-            /* The controller has no operator identity model, so the record says
-             * an authenticated engineering session did this - never a name.
-             * Inventing "acknowledged by <someone>" would put a fact in the
-             * incident record that the device never had. Gap A8 in
-             * docs/ALARM_MANAGEMENT_RESEARCH.md. */
+            /* The controller has no operator identity model, so the record names a
+             * CLASS of actor and never a person. Inventing "acknowledged by
+             * <someone>" would put a fact in the incident record that the device
+             * never had. Gap A8 in docs/ALARM_MANAGEMENT_RESEARCH.md.
+             *
+             * The class is read from the journal rather than assumed, because
+             * acknowledgement is open to operators: assuming "engineering session"
+             * would misattribute every operator acknowledgement. Falls back to the
+             * neutral wording when the field is absent, which is what records
+             * written before the field existed will look like. */
+            const by = String(alarm.acknowledged_by || '');
+            const who = by === 'operator' ? 'an operator at the plant'
+                : by === 'engineering_session' ? 'an authenticated engineering session'
+                : 'someone with access to this controller';
             return node('small', 'alarm-ack-note',
-                `Acknowledged ${formatAge(alarm.acknowledged_age_ms)} by an authenticated engineering session. `
+                `Acknowledged ${formatAge(alarm.acknowledged_age_ms)} by ${who}. `
                 + 'This controller records no operator identity, so it cannot say who.');
         }
-        if (!engineeringAuthorized()) {
-            /* No dead button. A control that can only fail is worse than no
-             * control: it teaches the operator that the screen does not work. */
-            const wrap = node('div', 'alarm-ack-locked');
-            wrap.append(node('small', '', 'Acknowledging requires an engineering session.'));
-            const link = node('a', 'button secondary alarm-ack-link', 'Sign in to acknowledge');
-            link.href = '#/engineering';
-            wrap.append(link);
-            return wrap;
-        }
+        /* No sign-in gate here, deliberately. Acknowledgement is an operator action
+         * under ISA-18.2, and requiring an engineering session made the
+         * returned-to-normal state impossible for the only person normally on site
+         * to discharge -- so nothing was ever acknowledged and the outstanding list
+         * stopped meaning anything. The suppression controls below DO still gate,
+         * because those hide a live condition. See alarms_ack_post. */
         const button = node('button', 'button primary alarm-ack-button', 'Acknowledge');
         button.type = 'button';
         button.dataset.alarmCode = String(alarm.code);

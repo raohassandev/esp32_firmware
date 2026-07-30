@@ -50,6 +50,20 @@ extern "C" {
 #define ALARM_JOURNAL_RETURNED_TO_SERVICE 9U
 #define ALARM_JOURNAL_TRANSITION_MAX 9U
 
+/* Actor class carried in `detail` on an ACKNOWLEDGED record. Acknowledgement is
+ * an operator action and is not credential-gated (see alarms_ack_post), so the
+ * record has to preserve the distinction the gate used to enforce: whether the
+ * acknowledgement came from an authenticated engineering session or from an
+ * operator at the panel. These are the only two classes this controller can
+ * honestly report -- there is no per-person identity model, and inventing a name
+ * would be worse than admitting the class. Written to flash: never renumber.
+ *
+ * ENGINEERING is 0 so that pre-existing acknowledgement records, which stored a
+ * literal 0 before this field had a meaning, read back as what they actually
+ * were: at the time, only an engineering session could acknowledge at all. */
+#define ALARM_JOURNAL_ACTOR_ENGINEERING 0U
+#define ALARM_JOURNAL_ACTOR_OPERATOR 1U
+
 /* 16 bytes on flash per record, encoded explicitly rather than by struct
  * layout so the format cannot drift with a compiler or an endianness change. */
 #define ALARM_JOURNAL_RECORD_BYTES 16U

@@ -317,8 +317,12 @@ require("loaded.base_load_tolerance_kw = 0.0f;" in MIGRATION,
 # three at once.)
 ENUM_BLOCK = section(FLEET_H, "typedef enum {\n    GENERATOR_FLEET_OK",
                      "} generator_fleet_reason_t;", "generator_fleet_reason_t")
-enum_names = [n for n in re.findall(r"^\s{4}(GENERATOR_FLEET_[A-Z_]+)\s*,", ENUM_BLOCK,
-                                    re.MULTILINE)
+# The `(?:\s*=\s*\d+)?` matters: GENERATOR_FLEET_OK is written `= 0,` to pin the
+# success value, and a regex demanding a bare `NAME,` silently dropped it. That made
+# the length check compare 13 enumerators against 14 slugs and fail on correct code --
+# and, worse, it would have compared the wrong two sets even when the counts agreed.
+enum_names = [n for n in re.findall(r"^\s{4}(GENERATOR_FLEET_[A-Z_]+)(?:\s*=\s*\d+)?\s*,",
+                                    ENUM_BLOCK, re.MULTILINE)
               if n != "GENERATOR_FLEET_REASON_COUNT"]
 IDS_BLOCK = section(FLEET_C, "REASON_IDS[GENERATOR_FLEET_REASON_COUNT] = {", "};",
                     "REASON_IDS")

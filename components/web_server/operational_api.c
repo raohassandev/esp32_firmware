@@ -1564,23 +1564,36 @@ static esp_err_t alarms_get(httpd_req_t *request)
  * condition - only the plant can do that. */
 static esp_err_t alarms_ack_post(httpd_req_t *request)
 {
-    /* This translation unit is deliberately outside the authorization gateway so
-     * operator history and events stay readable without a session. That makes
-     * this POST the one mutating endpoint here, and it must not be anonymous:
-     * an unattributable acknowledgement is a way to make an active condition
-     * look attended to. The check is therefore explicit rather than inherited.
+    /* Acknowledgement is an OPERATOR action and is deliberately not gated behind
+     * an engineering session. This was the reverse for a while, and the reverse
+     * was wrong in a way that mattered:
      *
-     * Note the controller has no operator identity model, so an acknowledgement
-     * records that an authenticated engineering session did it, not which
-     * person. Reporting a name would be inventing one. */
-    if (!engineering_auth_is_authorized(request)) {
-        cJSON *err = cJSON_CreateObject();
-        if (!err) return httpd_resp_send_500(request);
-        cJSON_AddStringToObject(err, "error", "engineering_authentication_required");
-        cJSON_AddStringToObject(err, "message",
-                                "Acknowledging an alarm requires an authenticated engineering session.");
-        return send_json_status(request, "401 Unauthorized", err);
-    }
+     * ISA-18.2 assigns acknowledgement to the operator, and the whole point of
+     * the RTN-Unacknowledged state is that an operator discharges it. Requiring
+     * engineering credentials made that impossible for the only person normally
+     * present, so in practice nothing was ever acknowledged: a fault that
+     * appeared and cleared itself overnight stayed outstanding indefinitely, and
+     * the outstanding list -- the thing an operator triages from -- grew without
+     * bound and stopped meaning anything. A safeguard that guarantees the record
+     * is never maintained is not protecting the record.
+     *
+     * What the gate was actually protecting was attribution, and attribution is
+     * preserved directly instead: `detail` carries the actor class, so the
+     * durable journal distinguishes an acknowledgement made from an authenticated
+     * engineering session from one made by an unauthenticated operator. Nothing
+     * is lost from the evidence trail; only the refusal is gone.
+     *
+     * Note the deliberate asymmetry with the endpoints below. Shelving and
+     * out-of-service stay gated, because they REMOVE a live condition from the
+     * operator's view -- a suppression is a decision someone must be accountable
+     * for. Acknowledgement suppresses nothing: it hides no alarm, silences no
+     * condition, and cannot clear a fault the plant still has. It records that
+     * somebody looked. The two are not comparable risks and no longer share a
+     * gate.
+     *
+     * The controller has no operator identity model, so this records the class of
+     * session, not which person. Reporting a name would be inventing one. */
+    const bool by_engineering = engineering_auth_is_authorized(request);
 
     cJSON *root = NULL;
     const esp_err_t read_error = http_json_parse_bounded(request, 256U, 3000ULL, 4U, &root);
@@ -1624,7 +1637,11 @@ static esp_err_t alarms_ack_post(httpd_req_t *request)
     if (was_outstanding) {
         alarm->acknowledged = true;
         alarm->acknowledged_ms = timestamp;
-        journal_stage_locked((uint8_t)code, (uint8_t)ALARM_JOURNAL_ACKNOWLEDGED, timestamp, 0U);
+        /* detail = actor class, so the durable record says who acknowledged in the
+         * only terms this controller can honestly report. See ALARM_JOURNAL_ACTOR_*. */
+        journal_stage_locked((uint8_t)code, (uint8_t)ALARM_JOURNAL_ACKNOWLEDGED, timestamp,
+                             by_engineering ? (uint16_t)ALARM_JOURNAL_ACTOR_ENGINEERING
+                                            : (uint16_t)ALARM_JOURNAL_ACTOR_OPERATOR);
     }
     portEXIT_CRITICAL(&s_lock);
     /* Written to flash with interrupts back on. An acknowledgement that only
@@ -1636,6 +1653,10 @@ static esp_err_t alarms_ack_post(httpd_req_t *request)
     cJSON_AddBoolToObject(reply, "acknowledged", was_outstanding);
     cJSON_AddNumberToObject(reply, "code", code);
     cJSON_AddBoolToObject(reply, "present", present);
+    /* Echoed so the caller can see what was recorded against the act, and so a
+     * test can assert the two classes are distinguished rather than collapsed. */
+    cJSON_AddStringToObject(reply, "acknowledged_by",
+                            by_engineering ? "engineering_session" : "operator");
     /* Say which of the two acknowledgements this was. They mean different
      * things: one accepts a live condition, the other discharges a fault that
      * already came and went. */
@@ -2090,6 +2111,17 @@ static esp_err_t alarms_journal_get(httpd_req_t *request)
                                     alarm_code_id((uint8_t)entry->detail));
         } else {
             cJSON_AddNullToObject(item, "design_suppressed_by");
+        }
+        /* Acknowledgement is not credential-gated, so the class of actor is the
+         * whole of the attribution and has to be readable, not merely stored. A
+         * field written to flash and never rendered is not an audit trail. */
+        if (entry->transition == (uint8_t)ALARM_JOURNAL_ACKNOWLEDGED) {
+            cJSON_AddStringToObject(item, "acknowledged_by",
+                                    entry->detail == (uint16_t)ALARM_JOURNAL_ACTOR_OPERATOR
+                                        ? "operator"
+                                        : "engineering_session");
+        } else {
+            cJSON_AddNullToObject(item, "acknowledged_by");
         }
         cJSON_AddItemToArray(entries, item);
     }

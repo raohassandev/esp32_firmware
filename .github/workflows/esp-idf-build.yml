@@ -224,6 +224,8 @@ jobs:
         run: python3 tests/operator_history_events_source_contract.py
       - name: Check ISA-18.2 and EEMUA 191 alarm management contract
         run: python3 tests/alarm_management_source_contract.py
+      - name: Check alarm acknowledgement authority contract
+        run: python3 tests/alarm_ack_authority_source_contract.py
       - name: Check persistent alarm journal and ISA-18.2 shelving contract
         run: python3 tests/alarm_journal_shelving_source_contract.py
       - name: Check ISA-18.2 suppressed-by-design and out-of-service contract

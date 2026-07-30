@@ -147,14 +147,32 @@ require("still counts as active" in UI,
         "the UI must state that an acknowledged, still-present alarm stays active")
 
 # No operator identity model exists. Nothing may claim one.
+#
+# `acknowledged_by` is now a REAL field and is deliberately not on this list: since
+# acknowledgement is open to operators, the journal records which CLASS acted
+# (operator vs engineering session). That is a fact the controller genuinely has.
+# What it still does not have is a PERSON, so the inventions below stay banned --
+# including the camelCase spelling, which no endpoint emits and could therefore
+# only come from the UI making something up.
 for invention in [
-    "acknowledged_by",
     "acknowledgedBy",
     "Acknowledged by user",
-    "Acknowledged by operator",
+    "Acknowledged by operator ",
+    "operator_name",
+    "acknowledged_user",
+    "username",
 ]:
     require(invention not in UI,
             f"the UI claims an acknowledging identity the controller does not have: {invention}")
+
+# And the class that IS recorded must be read from the response, never assumed. The
+# bug this prevents is real: before acknowledgement was opened to operators the UI
+# hard-coded "by an authenticated engineering session", which would now misattribute
+# every operator acknowledgement to engineering.
+require("alarm.acknowledged_by" in UI,
+        "the UI must read the recorded actor class rather than assuming one; "
+        "assuming 'engineering session' would misattribute every operator "
+        "acknowledgement now that operators may acknowledge")
 require("records no operator identity" in UI,
         "the UI must say plainly that the controller cannot record who acknowledged")
 
@@ -162,9 +180,34 @@ require("records no operator identity" in UI,
 # ------------------------------------------------- authentication is handled well
 
 require("engineeringAuthorized" in UI and "AutomatrixEngineeringAccess" in UI,
-        "the acknowledge control must consult the shared engineering access state")
-require("Sign in to acknowledge" in UI,
-        "an unauthenticated operator must be told how to acknowledge, not given a dead button")
+        "the suppression controls must consult the shared engineering access state")
+
+# The UI must mirror the backend asymmetry, or the two disagree and one of them is
+# lying to the operator.
+#
+# ACKNOWLEDGE: no gate. It previously offered "Sign in to acknowledge", which was
+# the front end of a restriction that made the returned-to-normal state impossible
+# for the only person normally on site to discharge. Both halves were removed
+# together; a UI that still hid the button would leave the endpoint reachable but
+# undiscoverable, which is the same defect wearing a different hat.
+require("Sign in to acknowledge" not in UI,
+        "acknowledgement is no longer credential-gated, so the UI must not send an "
+        "operator to a sign-in page to do it")
+require("Acknowledging requires an engineering session" not in UI,
+        "the UI must not tell an operator that acknowledgement needs a session; it "
+        "does not, and the claim would stop them doing the one thing ISA-18.2 "
+        "assigns to them")
+
+# SUPPRESS: still gated, and still without dead buttons.
+require("Shelving and out-of-service are engineering actions" in UI,
+        "shelving and out-of-service must still be presented as engineering actions "
+        "-- they hide a live condition, which acknowledgement does not")
+ack_fn = UI[UI.index("function acknowledgeControl("):UI.index("function suppressionBlock(")]
+require("engineeringAuthorized()" not in ack_fn,
+        "the acknowledge control must not branch on engineering access at all")
+sup_fn = UI[UI.index("function suppressionControls("):]
+require("engineeringAuthorized()" in sup_fn,
+        "the suppression controls must still branch on engineering access")
 require("error.status === 401" in UI,
         "the acknowledge POST must handle 401 explicitly")
 require("requires an authenticated engineering session" in UI,
