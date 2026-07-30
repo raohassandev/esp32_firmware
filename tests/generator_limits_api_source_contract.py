@@ -46,9 +46,10 @@ def section(source, start, end):
 # The fields must still be part of the persisted schema 2 model.
 for field in FIELDS:
     require(field in SG_H, f"persisted generator limit missing from schema: {field}")
-require("SOLAR_GRID_CONFIG_VERSION 4u" in SG_H,
-        "generator limits require at least schema 4, which added the per-engine slots "
-        "and then the explicit kW load-sharing mode")
+require("SOLAR_GRID_CONFIG_VERSION 5u" in SG_H,
+        "generator limits require at least schema 5: schema 3 added the per-engine "
+        "slots, schema 4 the explicit kW load-sharing mode, and schema 5 the base-load "
+        "setpoint-agreement tolerance")
 
 # Readable: every field must be serialised by the GET response builder.
 config_json = section(API, "static cJSON *config_json(", "static bool read_bool(")

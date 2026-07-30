@@ -94,6 +94,21 @@ typedef enum {
     /* Base-load sharing, and no in-service engine is a swing engine. Nothing would
      * absorb the load the controller shapes. */
     COMMISSIONING_REASON_GENERATOR_NO_SWING_ENGINE,
+    /* Base-load sharing with at least one base-loaded engine, and no tolerance has
+     * been commissioned for how far that engine's measured power may sit from its
+     * setpoint before the controller stops believing the setpoint.
+     *
+     * WHY THIS BLOCKS COMMISSIONING RATHER THAN BEING REPORTED AS AN UNAVAILABLE
+     * CHECK. The base-load minimum-loading floor adds the base-loaded setpoints as kW
+     * the generators are absorbing. That is an assumption about a governor, and a
+     * governor that has left kW control -- lost load-sharing line, switched to droop,
+     * reverted to isochronous, put in manual -- makes it false in the PERMISSIVE
+     * direction: the controller credits load the engines are not carrying and permits
+     * more PV than the bus can lose. So the choice is between a plant commissioned on
+     * an assumption nothing can check, and a gate that stays closed until one number
+     * is supplied. The second is recoverable in an afternoon; the first is
+     * over-generating into a genset, which is not. The gate closes. */
+    COMMISSIONING_REASON_GENERATOR_BASE_LOAD_TOLERANCE_UNSET,
     COMMISSIONING_REASON_COUNT
 } commissioning_reason_t;
 
@@ -205,6 +220,18 @@ typedef struct {
     /* commissioning_sharing_mode_t. Zero is UNSET, which keeps the gate closed for
      * any plant that can run two or more engines. */
     uint8_t generator_load_sharing_mode;
+    /* The commissioned base-load setpoint-agreement tolerance, absolute kW and percent
+     * of the engine's own rating. Either may be stated, or both; ZERO IN BOTH MEANS NOT
+     * COMMISSIONED, so a zeroed struct commissions no tolerance and a base-loaded plant
+     * stays out of commissioning. Read ONLY when the sharing mode is BASE_LOAD and at
+     * least one in-service engine is base-loaded -- an isochronous plant, a
+     * single-engine plant and a base-load plant whose engines are all swing engines
+     * have no setpoint to check and are entirely unaffected.
+     *
+     * No default is supplied anywhere in this firmware, because no manual, nameplate or
+     * site document in this repository states one. */
+    float generator_base_load_tolerance_kw;
+    float generator_base_load_tolerance_percent_of_rating;
     commissioning_generator_slot_t generators[COMMISSIONING_MAX_GENERATORS];
 
     bool control_tuning_known;

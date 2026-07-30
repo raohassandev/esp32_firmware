@@ -233,6 +233,7 @@ static commissioning_prereq_result_t evaluate_generator_limits(const commissioni
          * floor in either direction depending on the setpoints, so one of the two
          * guesses is permissive on any given plant and nothing here can tell which. */
         uint8_t swing = 0U;
+        uint8_t base_loaded = 0U;
         for (uint8_t slot = 0U; slot < (uint8_t)COMMISSIONING_MAX_GENERATORS; ++slot) {
             if (!in->generators[slot].enabled) continue;
             const uint8_t role = in->generators[slot].role;
@@ -256,8 +257,45 @@ static commissioning_prereq_result_t evaluate_generator_limits(const commissioni
             if (setpoint < own_minimum_kw) {
                 return unmet(COMMISSIONING_REASON_GENERATOR_BASE_LOAD_BELOW_MINIMUM);
             }
+            base_loaded++;
         }
         if (swing == 0U) return unmet(COMMISSIONING_REASON_GENERATOR_NO_SWING_ENGINE);
+
+        /*
+         * A BASE-LOADED ENGINE NEEDS A TOLERANCE BEFORE ITS SETPOINT MAY BE BELIEVED.
+         *
+         * The setpoint checks above are checks on the CONFIGURATION. The floor the
+         * control engine computes from those setpoints also asserts something about the
+         * PLANT: that each base-loaded governor is holding the kW it was given. The
+         * measurement to check that already exists per engine. The tolerance to compare
+         * against does not, and none is invented -- so it is commissioned, with no
+         * default, and until it is supplied the gate stays closed. The reason code
+         * carries the whole argument for closing rather than reporting the check
+         * unavailable.
+         *
+         * REQUIRED ONLY WHEN AN ENGINE IS ACTUALLY BASE-LOADED. Base-load sharing over
+         * an all-swing fleet has no setpoint to check and reduces exactly to
+         * isochronous, so demanding a tolerance there would be demanding a quantity
+         * with no referent -- the same distinction the single-engine sharing-mode
+         * exemption makes. This is placed AFTER the swing check so that a plant with
+         * nothing absorbing the swing still reports that, its more fundamental fault.
+         *
+         * EITHER FIGURE ALONE IS ENOUGH. The percentage is of the engine's own rating,
+         * so it means something across engines of different sizes; how the two combine
+         * when both are given is the control engine's rule, not this gate's, because
+         * the gate never computes a band -- it only asks whether one was commissioned.
+         * Bounds are checked so a corrupt or non-finite stored value cannot present
+         * itself as a commissioned tolerance.
+         */
+        if (base_loaded > 0U) {
+            const bool absolute_commissioned =
+                positive_finite(in->generator_base_load_tolerance_kw);
+            const bool percent_commissioned =
+                percent_in_range(in->generator_base_load_tolerance_percent_of_rating);
+            if (!absolute_commissioned && !percent_commissioned) {
+                return unmet(COMMISSIONING_REASON_GENERATOR_BASE_LOAD_TOLERANCE_UNSET);
+            }
+        }
     }
     return met();
 }
@@ -401,6 +439,7 @@ static const char *const REASON_IDS[COMMISSIONING_REASON_COUNT] = {
     "generator_base_load_unknown",
     "generator_base_load_below_minimum",
     "generator_no_swing_engine",
+    "generator_base_load_tolerance_unset",
 };
 
 static const char *const REASON_MESSAGES[COMMISSIONING_REASON_COUNT] = {
@@ -425,6 +464,7 @@ static const char *const REASON_MESSAGES[COMMISSIONING_REASON_COUNT] = {
     "Base-load sharing is commissioned but an in-service engine has no declared role, or a base-loaded engine has no fixed kW setpoint.",
     "A base-loaded engine's fixed kW setpoint is below that engine's own minimum loading, so the plant is configured to under-load it and no PV limit can correct that.",
     "Base-load sharing is commissioned but no in-service engine is a swing engine, so nothing on the bus would absorb the load the controller shapes.",
+    "A base-loaded engine is commissioned but no tolerance says how far its measured power may sit from its fixed kW setpoint. The minimum-loading floor credits that engine with the load its setpoint promises, so if its governor leaves kW control the controller would permit more PV than the plant can carry. Commission the tolerance in kW, as a percentage of that engine's rating, or both.",
 };
 
 const char *commissioning_prereq_id(uint8_t prereq)

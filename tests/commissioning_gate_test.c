@@ -460,14 +460,21 @@ static void test_droop_and_unknown_modes_are_refused(void)
 }
 
 /* Base-load sharing needs a role for every in-service engine, a setpoint for every
- * base-loaded one, that setpoint at or above the engine's own minimum, and at least
- * one swing engine. Each of those is a separate reason. */
+ * base-loaded one, that setpoint at or above the engine's own minimum, at least one
+ * swing engine, and a tolerance saying how far a base-loaded engine's measured power may
+ * sit from its setpoint. Each of those is a separate reason. */
 static void test_base_load_requires_every_value_it_uses(void)
 {
     /* A complete base-load plant commissions. Engine 0 base-loaded at 200 kW, which
      * is above its own minimum of 500 x 30 % = 150 kW; engine 1 swings. */
     commissioning_inputs_t complete = good_inputs();
     complete.generator_load_sharing_mode = COMMISSIONING_SHARING_BASE_LOAD;
+    /* A TEST FIXTURE, NOT A PRODUCT DEFAULT. The firmware ships no tolerance because no
+     * manual or nameplate in this repository states one; a value has to be stated here to
+     * get past the requirement at all, and
+     * test_base_load_requires_a_setpoint_agreement_tolerance() pins down that the
+     * firmware supplies none of its own. */
+    complete.generator_base_load_tolerance_kw = 5.0f;
     complete.generators[0].role = COMMISSIONING_ENGINE_ROLE_BASE_LOAD;
     complete.generators[0].base_load_kw = 200.0f;
     complete.generators[1].enabled = true;
@@ -558,6 +565,131 @@ static void test_base_load_requires_every_value_it_uses(void)
     assert(!status.commissioned);
     assert(prereq_reason(&status, COMMISSIONING_PREREQ_GENERATOR_LIMITS) ==
            COMMISSIONING_REASON_GENERATOR_NO_SWING_ENGINE);
+}
+
+/*
+ * A BASE-LOADED ENGINE NEEDS A SETPOINT AGREEMENT TOLERANCE BEFORE IT CAN BE
+ * COMMISSIONED.
+ *
+ * This is the decision the change turns on, so it is executed rather than described. The
+ * aggregate minimum-loading floor adds a base-loaded engine's setpoint as kW the
+ * generators are absorbing. That is an assertion about a governor, not about the
+ * configuration, and a governor that has left kW control -- lost load-sharing line,
+ * switched to droop, reverted to isochronous, put in manual -- makes it false in the
+ * PERMISSIVE direction. The controller already measures each engine; what it cannot
+ * supply is how much disagreement is normal, and this repository contains no document
+ * stating one.
+ *
+ * Of the two available positions -- report the check unavailable and keep base-load
+ * usable, or refuse to commission base-load without the tolerance -- the gate takes the
+ * second. An unavailable check leaves a running plant on the unverifiable assumption; a
+ * closed gate is one number away from resolution. Recoverable beats unrecoverable.
+ */
+static void test_base_load_requires_a_setpoint_agreement_tolerance(void)
+{
+    commissioning_inputs_t complete = good_inputs();
+    complete.generator_load_sharing_mode = COMMISSIONING_SHARING_BASE_LOAD;
+    complete.generators[0].role = COMMISSIONING_ENGINE_ROLE_BASE_LOAD;
+    complete.generators[0].base_load_kw = 200.0f;
+    complete.generators[1].enabled = true;
+    complete.generators[1].rated_kw = 300.0f;
+    complete.generators[1].minimum_loading_percent = 35.0f;
+    complete.generators[1].role = COMMISSIONING_ENGINE_ROLE_SWING;
+
+    /* Everything else about this plant is described, and it is still not commissioned:
+     * both tolerance figures are zero, which is what an upgraded unit holds. */
+    assert(complete.generator_base_load_tolerance_kw == 0.0f);
+    assert(complete.generator_base_load_tolerance_percent_of_rating == 0.0f);
+    commissioning_status_t status = commissioning_gate_evaluate(&complete);
+    assert(!status.commissioned);
+    assert(prereq_reason(&status, COMMISSIONING_PREREQ_GENERATOR_LIMITS) ==
+           COMMISSIONING_REASON_GENERATOR_BASE_LOAD_TOLERANCE_UNSET);
+
+    /* EITHER figure alone commissions the check. */
+    commissioning_inputs_t absolute = complete;
+    absolute.generator_base_load_tolerance_kw = 5.0f;
+    assert(commissioning_gate_evaluate(&absolute).commissioned);
+
+    commissioning_inputs_t percent = complete;
+    percent.generator_base_load_tolerance_percent_of_rating = 2.0f;
+    assert(commissioning_gate_evaluate(&percent).commissioned);
+
+    commissioning_inputs_t both = complete;
+    both.generator_base_load_tolerance_kw = 5.0f;
+    both.generator_base_load_tolerance_percent_of_rating = 2.0f;
+    assert(commissioning_gate_evaluate(&both).commissioned);
+
+    /* A stored value that is not a usable tolerance is not one. Each of these leaves the
+     * gate exactly as closed as zero does, rather than being clamped into a band. */
+    const float rubbish[] = {-1.0f, NAN, INFINITY};
+    for (size_t i = 0; i < sizeof(rubbish) / sizeof(rubbish[0]); ++i) {
+        commissioning_inputs_t in = complete;
+        in.generator_base_load_tolerance_kw = rubbish[i];
+        status = commissioning_gate_evaluate(&in);
+        assert(!status.commissioned);
+        assert(prereq_reason(&status, COMMISSIONING_PREREQ_GENERATOR_LIMITS) ==
+               COMMISSIONING_REASON_GENERATOR_BASE_LOAD_TOLERANCE_UNSET);
+
+        in = complete;
+        in.generator_base_load_tolerance_percent_of_rating = rubbish[i];
+        status = commissioning_gate_evaluate(&in);
+        assert(!status.commissioned);
+        assert(prereq_reason(&status, COMMISSIONING_PREREQ_GENERATOR_LIMITS) ==
+               COMMISSIONING_REASON_GENERATOR_BASE_LOAD_TOLERANCE_UNSET);
+    }
+    /* A percentage above the engine's whole rating is refused, not clamped to 100 %. */
+    commissioning_inputs_t over = complete;
+    over.generator_base_load_tolerance_percent_of_rating = 150.0f;
+    status = commissioning_gate_evaluate(&over);
+    assert(!status.commissioned);
+    assert(prereq_reason(&status, COMMISSIONING_PREREQ_GENERATOR_LIMITS) ==
+           COMMISSIONING_REASON_GENERATOR_BASE_LOAD_TOLERANCE_UNSET);
+
+    /* THE REQUIREMENT LANDS ONLY WHERE IT HAS A REFERENT, which is what keeps every
+     * other plant untouched.
+     *
+     * Isochronous sharing: no engine is held at a fixed kW, so there is no setpoint to
+     * check and no tolerance is asked for. */
+    commissioning_inputs_t isochronous = complete;
+    isochronous.generator_load_sharing_mode = COMMISSIONING_SHARING_ISOCHRONOUS;
+    assert(commissioning_gate_evaluate(&isochronous).commissioned);
+
+    /* Base-load sharing over an ALL-SWING fleet: the mode is stated but no engine is
+     * base-loaded, so again there is no setpoint to check. This is the case that keeps
+     * base-load-with-no-base-engine identical to isochronous. */
+    commissioning_inputs_t all_swing = complete;
+    all_swing.generators[0].role = COMMISSIONING_ENGINE_ROLE_SWING;
+    all_swing.generators[0].base_load_kw = 0.0f;
+    assert(commissioning_gate_evaluate(&all_swing).commissioned);
+
+    /* A single-engine site is unaffected: it commissions with no sharing mode at all,
+     * so it never reaches the base-load branch. */
+    commissioning_inputs_t single = good_inputs();
+    assert(single.generator_load_sharing_mode == COMMISSIONING_SHARING_UNSET);
+    assert(single.generator_base_load_tolerance_kw == 0.0f);
+    assert(commissioning_gate_evaluate(&single).commissioned);
+
+    /* A MORE FUNDAMENTAL FAULT IS STILL REPORTED FIRST, so an engineer is never sent
+     * after a tolerance while the plant has nothing absorbing the swing, or an engine
+     * with no role, or a setpoint under its own minimum. */
+    commissioning_inputs_t no_swing = complete;
+    no_swing.generators[1].role = COMMISSIONING_ENGINE_ROLE_BASE_LOAD;
+    no_swing.generators[1].base_load_kw = 200.0f;
+    status = commissioning_gate_evaluate(&no_swing);
+    assert(prereq_reason(&status, COMMISSIONING_PREREQ_GENERATOR_LIMITS) ==
+           COMMISSIONING_REASON_GENERATOR_NO_SWING_ENGINE);
+
+    commissioning_inputs_t no_role = complete;
+    no_role.generators[1].role = COMMISSIONING_ENGINE_ROLE_UNSET;
+    status = commissioning_gate_evaluate(&no_role);
+    assert(prereq_reason(&status, COMMISSIONING_PREREQ_GENERATOR_LIMITS) ==
+           COMMISSIONING_REASON_GENERATOR_BASE_LOAD_UNKNOWN);
+
+    commissioning_inputs_t under_minimum = complete;
+    under_minimum.generators[0].base_load_kw = 149.0f; /* its own minimum is 150 kW */
+    status = commissioning_gate_evaluate(&under_minimum);
+    assert(prereq_reason(&status, COMMISSIONING_PREREQ_GENERATOR_LIMITS) ==
+           COMMISSIONING_REASON_GENERATOR_BASE_LOAD_BELOW_MINIMUM);
 }
 
 /* No engine slot in service at all is the uncommissioned unit, and it must keep
@@ -753,6 +885,7 @@ int main(void)
     test_single_engine_plant_needs_no_sharing_mode();
     test_droop_and_unknown_modes_are_refused();
     test_base_load_requires_every_value_it_uses();
+    test_base_load_requires_a_setpoint_agreement_tolerance();
     test_no_generator_slot_in_service_is_never_commissioned();
     test_control_tuning();
     test_first_unmet_is_lowest_index();

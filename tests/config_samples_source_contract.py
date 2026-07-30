@@ -211,6 +211,36 @@ require("droop" in site_text.lower() and "refused" in site_text.lower(),
 require("isochronous" in site_text.lower() and "base_load" in site_text,
         "the site template must name the load-sharing modes the firmware accepts")
 
+# The base-load setpoint-agreement tolerance decides whether a base-loaded engine's
+# setpoint may be BELIEVED. The floor credits that engine with the load its setpoint
+# promises, so a governor that has left kW control makes the floor wrong in the permissive
+# direction -- the reverse-power condition. It must appear in the template, and it must
+# stay a null placeholder: no manual, nameplate or site document in this repository states
+# a figure, and a template that shipped one would be shipping an invented tolerance into
+# every plant that copies it.
+for key in ("base_load_tolerance_kw", "base_load_tolerance_percent_of_rating"):
+    require(key in site["solar_grid"],
+            f"the site template omits '{key}'; how far a base-loaded engine may sit from "
+            "its setpoint before the controller stops believing it is a commissioned "
+            "fact the minimum-loading floor depends on")
+    require(site["solar_grid"].get(key) is None,
+            f"the site template carries a value for '{key}'; no tolerance for a "
+            "governor's kW accuracy is documented anywhere in this repository, so none "
+            "may be shipped as a default")
+# An engineer who leaves it blank must be told what happens, not left to discover a
+# closed gate. And the two failure directions must be named, because "unknown" reading as
+# "agreeing" is the specific mistake this field exists to prevent.
+require("permissive" in site_text.lower(),
+        "the site template must say that an unheld base-load setpoint is wrong in the "
+        "PERMISSIVE direction; an engineer who reads it as merely inaccurate will not "
+        "treat it as a safety number")
+require("narrower" in site_text.lower(),
+        "the site template must state which band wins when both figures are given; "
+        "leaving it unsaid invites an engineer to assume the wider one")
+require("unknown is not confirmation" in site_text.lower(),
+        "the site template must state that a stale or missing measurement on a "
+        "base-loaded engine holds PV at zero rather than reading as agreement")
+
 # ---------------------------------------------------------------------------
 # The documentation must exist and must not invent a credential
 # ---------------------------------------------------------------------------

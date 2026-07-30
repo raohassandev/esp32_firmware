@@ -10,7 +10,7 @@ extern "C" {
 #endif
 
 #define SOLAR_GRID_CONFIG_MAGIC 0x53475244u
-#define SOLAR_GRID_CONFIG_VERSION 4u
+#define SOLAR_GRID_CONFIG_VERSION 5u
 
 /* Engine slots the generator policy can describe. Must equal APP_MAX_GENERATORS
  * in config_manager/include/config_types.h, so a meter's generator_index and a
@@ -142,6 +142,25 @@ typedef struct {
     uint8_t load_sharing_mode; /* solar_grid_load_sharing_t */
     uint8_t engine_role[SOLAR_GRID_MAX_GENERATORS]; /* solar_grid_engine_role_t */
     float engine_base_load_kw[SOLAR_GRID_MAX_GENERATORS];
+    /* Appended in schema 5: the tolerance within which a base-loaded engine's
+     * measured power must agree with its commissioned setpoint. Kept last so schema 4
+     * remains a byte-exact prefix and a commissioned unit is upgraded by appending
+     * zeroes.
+     *
+     * ZERO IN BOTH MEANS NOT COMMISSIONED, and that is what an upgraded unit gets.
+     * NO MANUAL, NAMEPLATE OR SITE DOCUMENT IN THIS REPOSITORY STATES A TOLERANCE, so
+     * none is invented here or anywhere else. The consequence is stated at the control
+     * engine's generator_fleet_input_t and enforced by the commissioning gate:
+     * base-load sharing with at least one base-loaded engine cannot be commissioned
+     * until a tolerance is supplied. Every other plant is untouched -- an isochronous
+     * plant never reads these fields, a base-load plant with no base-loaded engine has
+     * no setpoint to check, and a single-engine site is unaffected.
+     *
+     * Either may be stated, or both; the CONTROL ENGINE owns the rule for combining
+     * them (the narrower band wins, for the reason given there). Nothing is interpreted
+     * in this component beyond bounds. */
+    float base_load_tolerance_kw;
+    float base_load_tolerance_percent_of_rating;
 } solar_grid_config_t;
 
 /* Uniform per-slot view of the generator policy.
@@ -173,6 +192,15 @@ uint8_t solar_grid_config_engine_role(const solar_grid_config_t *config, uint8_t
  * which is what the control engine refuses for a base-loaded engine. A NULL
  * configuration or an out-of-range slot yields zero. */
 float solar_grid_config_engine_base_load_kw(const solar_grid_config_t *config, uint8_t slot);
+
+/* The commissioned base-load setpoint-agreement tolerance, absolute kW and percent of
+ * the engine's own rating. Zero means "not commissioned" for either, which is what an
+ * upgraded unit holds and what keeps a base-loaded plant out of commissioning until an
+ * engineer supplies a figure. A NULL configuration, or a value that is not a usable
+ * tolerance (non-finite, negative, or a percentage above 100), reads as zero: an
+ * unreadable tolerance must never present itself as a commissioned one. */
+float solar_grid_config_base_load_tolerance_kw(const solar_grid_config_t *config);
+float solar_grid_config_base_load_tolerance_percent(const solar_grid_config_t *config);
 
 esp_err_t solar_grid_config_init(void);
 esp_err_t solar_grid_config_get_snapshot(solar_grid_config_t *out_config);

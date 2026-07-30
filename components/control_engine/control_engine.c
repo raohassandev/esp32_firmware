@@ -214,7 +214,26 @@ static float ramp_kw_per_second(const ramp_profile_t *ramp, bool upward,
 
 /* One sentence per way the aggregate generator limit can fail closed, so an
  * engineer is told which piece of evidence is missing rather than a generic
- * "no valid command". */
+ * "no valid command".
+ *
+ * THREE REASONS DELIBERATELY HAVE NO SENTENCE HERE YET, and fall to the default: the
+ * base-load setpoint-agreement tolerance being uncommissioned, a base-loaded engine
+ * having no usable measurement, and a base-loaded engine's measured power disagreeing
+ * with its setpoint. That is not an oversight, and it is not a judgement that they do
+ * not deserve one -- the drift reason in particular is the most operationally useful
+ * sentence in this list. tests/multi_engine_commissioning_source_contract.py requires
+ * every sentence in this function to be carried verbatim by web/solar-grid.js, and this
+ * change is not permitted to edit web assets. Adding the sentences here without the
+ * browser's copies would fail that contract, and a paraphrase in the browser would fail
+ * it for a better reason. The commissioning gate DOES carry a full operator sentence
+ * for the uncommissioned tolerance, which is where an engineer meets it first; the two
+ * runtime reasons currently read as "the aggregate generator limit could not be
+ * established, so PV is held at zero", which is true but not specific.
+ *
+ * WHAT THE WEB OWNER NEEDS: three entries in FLEET_REASON_SENTENCES keyed
+ * base_load_tolerance_unset, base_load_unmeasured and base_load_setpoint_drift, and the
+ * matching switch arms added here, in the same commit. The exact wording is in the
+ * handover notes; the slugs are already published by generator_fleet_reason_id(). */
 static const char *generator_fleet_inhibit(uint8_t reason)
 {
     switch (reason) {
@@ -563,6 +582,18 @@ static void control_task(void *argument)
                  * anything it does not model. Nothing here interprets the mode. */
                 .sharing_mode = solar_grid_config_load_sharing_mode(&s_grid_config),
                 .engine_count = APP_MAX_GENERATORS,
+                /* The commissioned band within which a base-loaded engine's measured
+                 * power must agree with its setpoint. Copied straight through: the
+                 * persisted accessors already report anything that is not a usable
+                 * tolerance as zero, and zero in both means NOT COMMISSIONED, on which
+                 * the limit module refuses base-load sharing rather than computing a
+                 * floor from a setpoint nobody has been shown to be holding. Nothing
+                 * here invents a band, and nothing here reads the measurement -- both
+                 * belong to the pure function that can be unit tested. */
+                .base_load_tolerance_kw =
+                    solar_grid_config_base_load_tolerance_kw(&s_grid_config),
+                .base_load_tolerance_percent_of_rating =
+                    solar_grid_config_base_load_tolerance_percent(&s_grid_config),
             };
             for (uint8_t slot = 0U; slot < APP_MAX_GENERATORS; ++slot) {
                 const solar_grid_generator_limits_t limits =
@@ -915,6 +946,14 @@ esp_err_t control_engine_init(void)
     s_commissioning_inputs.generator_load_sharing_mode =
         error == ESP_OK ? solar_grid_config_load_sharing_mode(&s_grid_config)
                         : (uint8_t)COMMISSIONING_SHARING_UNSET;
+    /* A failed read leaves the base-load setpoint-agreement tolerance uncommissioned
+     * rather than whatever was there before, for the same reason as the mode above: an
+     * unreadable configuration must never present itself as a commissioned one. */
+    s_commissioning_inputs.generator_base_load_tolerance_kw =
+        error == ESP_OK ? solar_grid_config_base_load_tolerance_kw(&s_grid_config) : 0.0f;
+    s_commissioning_inputs.generator_base_load_tolerance_percent_of_rating =
+        error == ESP_OK ? solar_grid_config_base_load_tolerance_percent(&s_grid_config)
+                        : 0.0f;
     for (uint8_t slot = 0U; slot < APP_MAX_GENERATORS; ++slot) {
         const solar_grid_generator_limits_t limits =
             error == ESP_OK ? solar_grid_config_generator(&s_grid_config, slot)
