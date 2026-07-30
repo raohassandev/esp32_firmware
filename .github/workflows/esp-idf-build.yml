@@ -201,7 +201,11 @@ jobs:
       - name: Run meter poll schedule unit tests
         run: |
           set -euo pipefail
-          gcc -std=c11 -Wall -Wextra -Werror \n            -Icomponents/meter_manager/include \n            tests/meter_poll_schedule_test.c \n            components/meter_manager/meter_poll_schedule.c \n            -lm -o /tmp/meter_poll_schedule_test
+          gcc -std=c11 -Wall -Wextra -Werror \
+            -Icomponents/meter_manager/include \
+            tests/meter_poll_schedule_test.c \
+            components/meter_manager/meter_poll_schedule.c \
+            -lm -o /tmp/meter_poll_schedule_test
           /tmp/meter_poll_schedule_test
       - name: Run inverter write permission unit tests
         run: |
