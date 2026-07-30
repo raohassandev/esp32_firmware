@@ -390,8 +390,8 @@ acknowledgement is what moves it to `normal`.
 2. **Look for the pattern.** Repeated `rtn_unacknowledged` on the same condition
    is a developing fault, and it is the earliest warning you will get.
 3. **Check the journal** (below) for the full sequence, which survives restarts.
-4. **Then have it acknowledged** — which needs an engineering session — and record
-   what you found.
+4. **Then acknowledge it** — you can do this yourself, no session needed — and
+   record what you found.
 
 `rtn_unacknowledged` rows you inherit at hand-over are correct behaviour, not a
 defect, and the hand-over documents require them to be listed and explained. See
@@ -466,6 +466,7 @@ cannot tell them apart.
 | **Reason recorded?** | Not required | The cause is named automatically | **Required**, from a fixed list |
 | **Can you lift it?** | Yes — unshelve | **No.** It clears when the explaining fault clears | Yes — return to service |
 | **Needs an engineering session** | Yes | Not settable by anyone | Yes |
+| *(Acknowledging needs no session — see below)* | | | |
 
 **Shelved.** You have a known nuisance and you do not want to be pressed by it for
 a while. The expiry is the entire safety argument: an indefinite shelf is a
@@ -675,10 +676,14 @@ above.
 
 ### What needs an engineering session
 
-Acknowledge · Shelve · Unshelve · Take out of service · Return to service.
+**You can acknowledge, without a session.** Acknowledging is your action. It does
+not clear the condition and it does not hide anything — it records that you looked.
+The controller notes that an *operator* did it.
 
-All five are engineering actions. The interface will tell you so rather than
-showing a button that could only fail. See `docs/OPERATOR_MANUAL.md` §8.
+**Shelve · Unshelve · Take out of service · Return to service** need a session.
+All four REMOVE a live condition from your screen, so somebody accountable has to
+decide. The interface tells you this rather than showing a button that could only
+fail. See `docs/OPERATOR_MANUAL.md` §8.
 
 ---
 

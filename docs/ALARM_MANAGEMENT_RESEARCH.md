@@ -184,31 +184,50 @@ taken responsibility. In this firmware every alarm action — acknowledge, shelv
 unshelve, out-of-service — requires an authenticated **engineering** session, and the
 interface offers an operator a "sign in to acknowledge" link rather than a button.
 
-The consequence is concrete and observable: the development board has carried four
-unacknowledged alarms for an entire working session because nothing without
-engineering credentials can acknowledge them. **A1 is therefore closed in mechanism
-but inert in practice** — a fault that clears itself stays visible until acknowledged,
-and it can never be acknowledged by the person watching the plant.
+**RESOLVED. Acknowledgement is now an operator action.** What follows records the
+decision and the reasoning, because the reasoning is the part that will be
+questioned later.
 
-This is not simply a bug to reverse, which is why it is recorded here rather than
-changed. Without operator identity there is no accountable acknowledgement: an
-unauthenticated acknowledge would record that *someone* accepted responsibility while
-destroying the one signal that says nobody has. Requiring the only credential that
-exists is a defensible response to A8 being open.
+The old behaviour had a concrete, observed consequence: the development board carried
+four unacknowledged alarms for an entire working session because nothing without
+engineering credentials could acknowledge them. A1 was closed in mechanism and inert
+in practice.
 
-The resolutions, for the product owner:
+The three resolutions previously offered here were:
 
 1. **Implement A8** (operator accounts) and make acknowledgement an operator action.
    The correct fix, and the largest.
 2. **Allow unauthenticated acknowledgement** and accept that the journal records the
    act without an actor. Cheap; weakens the audit trail A3 exists to protect.
-3. **Keep it as it is** and state in the handover that acknowledgement is an
-   engineering action, accepting that alarms accumulate unacknowledged between
+3. **Keep it as it is**, accepting that alarms accumulate unacknowledged between
    engineering visits.
 
-`docs/SITE_ACCEPTANCE_TEST.md` §12.1 currently asks an operator to acknowledge and
-shelve an alarm unaided, which none of these options makes possible except (1) or (2).
-That test cannot pass as written until this is decided.
+**(2) was chosen, with the objection to it engineered out rather than accepted.** The
+stated cost of (2) was that the journal would record an act with no actor. It does
+not: the journal's detail word now carries an actor CLASS -- `operator` or
+`engineering_session` -- written to flash, rendered by the journal endpoint and the
+acknowledgement reply, and verified on hardware to survive a hard reset (sequence 298,
+MTR-001, `acknowledged_by: operator`). What is still absent is a PERSON, which is A8
+and remains open. So the audit trail is weakened only in the sense that it always was
+weak: it names a class, not a name, and says so plainly rather than implying more.
+
+Why not (3), which was the conservative-looking option: it guaranteed the outstanding
+list would never be maintained, and an alarm list nobody can discharge stops being
+read. That is not a conservative outcome. Between a record that is attributed to a
+class and a record nobody ever updates, the first is worth more.
+
+The asymmetry that makes this safe is that **only acknowledgement was opened**.
+Shelving, unshelving and out-of-service still require an engineering session, because
+those REMOVE a live condition from the operator's view -- a suppression is a decision
+someone must be accountable for. Acknowledgement suppresses nothing, silences nothing,
+and cannot clear a fault the plant still has; it records that somebody looked. The two
+were never comparable risks and no longer share a gate.
+`tests/alarm_ack_authority_source_contract.py` asserts both halves together, so a
+future change cannot quietly open all four or re-close all four.
+
+`docs/SITE_ACCEPTANCE_TEST.md` §12.1 asks an operator to acknowledge an alarm unaided.
+**That is now possible and the test can pass as written.** Its shelving step still
+requires an engineering session, by design, and the test says so.
 
 ---
 

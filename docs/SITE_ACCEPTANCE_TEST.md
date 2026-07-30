@@ -636,6 +636,10 @@ Tick only what the **operator** did, without the tester touching the keyboard.
 - [ ] Found a `rtn_unacknowledged` condition and explained what it means: `______`
 - [ ] Shelved an alarm, stated that it is time-limited and will come back, and
       distinguished shelving from disabling: `______`
+      **Signed in by the engineer for this step only.** Shelving needs an
+      engineering session by design -- it hides a live condition -- so this one
+      step is supervised rather than unaided, and that is a pass, not a finding.
+      Acknowledging above needs no session: the operator does it alone.
 - [ ] Found the alarm journal and read an entry from before the last restart:
       `______`
 - [ ] Found `control_enabled` and the `inhibit_reason`, and read the reason aloud
@@ -703,7 +707,8 @@ Tick only what the **operator** did, without the tester touching the keyboard.
       operator could not identify the primary cause.
 - [ ] An alarm that cleared unacknowledged disappeared from the list.
 - [ ] A lab target was declared on real equipment at any point.
-- [ ] The operator could not complete §12.1 unaided.
+- [ ] The operator could not complete §12.1 unaided, apart from the shelving
+      step, which is supervised by design.
 - [ ] A genset protection setting was changed.
 
 ## 13.3 Everything measured on site that had no documented value

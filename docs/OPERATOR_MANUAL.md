@@ -57,8 +57,9 @@ and belongs in your site's commissioning report, not here.
   time base. Journal record numbers do keep counting, so the order of events
   survives a restart even though the wall-clock time does not.
 - **It records no operator identity.** When something is acknowledged, the
-  controller can say that *an authenticated engineering session* did it. It cannot
-  say **who**. If you need to know who, your site must record that itself.
+  controller records which *kind* of access did it — `operator` or
+  `engineering_session` — and nothing more. It cannot say **who**. If you need to
+  know who, your site must record that itself.
 
 ---
 
@@ -455,13 +456,11 @@ session", and in place of the shelve controls, "Shelving and out-of-service are
 engineering actions and need a session."
 
 > **Note on the acceptance test.** `docs/SITE_ACCEPTANCE_TEST.md` §12.1 asks the
-> operator to demonstrate acknowledging and shelving an alarm unaided. On this
-> firmware both actions require an engineering session, so that demonstration
-> cannot be completed by an operator who has not been given engineering
-> credentials. Settle this with the product owner before hand-over: either the
-> operator is given a session for the demonstration and supervised, or the
-> demonstration is recorded as performed by the engineer with the operator
-> narrating. Do not quietly tick it.
+> operator to demonstrate acknowledging and shelving an alarm unaided.
+> **Acknowledging needs no session and an operator can demonstrate it directly.**
+> Shelving still needs one, deliberately: it hides a live condition from the very
+> screen the operator is watching. Run the shelving half supervised, with the
+> engineer signed in, and record it that way.
 
 ### Credentials
 
