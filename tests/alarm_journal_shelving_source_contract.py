@@ -99,13 +99,59 @@ require("nvs_" not in JOURNAL,
 FORBIDDEN_DESTRUCTION = [
     "esp_partition_erase_range",
     "esp_partition_erase",
-    "esp_spiffs_format",
     "esp_flash_erase_region",
     "esp_flash_erase_chip",
     "spi_flash_erase_sector",
     "spi_flash_erase_range",
     "esp_vfs_fat_spiflash_format",
 ]
+
+# esp_spiffs_format is permitted in exactly one place, for exactly one purpose:
+# provisioning the storage partition the first time, because nothing in this
+# firmware has ever written to it and the journal cannot exist without a
+# filesystem. It stays banned everywhere else, and the guards that keep it
+# narrow are asserted below rather than trusted.
+FORMAT_ALLOWED_IN = "components/web_server/alarm_journal.c"
+formatters = sorted(
+    path.relative_to(ROOT).as_posix() for path in
+    list((ROOT / "components").rglob("*.c")) + list((ROOT / "main").rglob("*.c"))
+    if "managed_components" not in str(path)
+    and "esp_spiffs_format" in path.read_text(encoding="utf-8", errors="ignore")
+)
+require(formatters == [FORMAT_ALLOWED_IN],
+        f"esp_spiffs_format appeared outside the journal provisioning path: {formatters}")
+
+# The mount itself must never be allowed to format, so that only the explicitly
+# guarded provisioning path can reach a format call.
+require("format_if_mount_failed = false" in JOURNAL,
+        "the journal mount must never format: provisioning is explicit and guarded")
+# Provisioning happens at most once, so a mountable journal is never wiped.
+require("s_provision_attempted" in JOURNAL,
+        "provisioning must be latched so it cannot repeat on every open")
+# The partition is verified to be the unused spiffs data area before any write,
+# which is what keeps nvs and the two application images out of reach.
+require("ESP_PARTITION_TYPE_DATA" in JOURNAL and "ESP_PARTITION_SUBTYPE_DATA_SPIFFS" in JOURNAL,
+        "provisioning must confirm the target is a data/spiffs partition before formatting")
+require("refusing to format" in JOURNAL,
+        "provisioning must refuse, not proceed, when the partition is not what it expects")
+# Provisioning may only run after a mount has already failed. Asserted on the
+# guard at the call site, not on where the function happens to be defined:
+# source order is not execution order, and a position-based assertion would
+# break the moment someone moved the helper without changing any behaviour.
+call = re.search(r"if\s*\(([^)]*)\)\s*\{\s*[^}]*provision_partition_once", JOURNAL, re.DOTALL)
+require(call is not None, "provision_partition_once must be called under an explicit guard")
+if call is not None:
+    guard = call.group(1)
+    require("mounted != ESP_OK" in guard,
+            f"provisioning must be guarded by a failed mount, but the guard is: {guard.strip()}")
+    require("s_provision_attempted" in guard,
+            f"provisioning must be guarded by the once-only latch, but the guard is: {guard.strip()}")
+# The only format call in the file must live inside that helper, so it cannot be
+# reached by any path that skips the guard.
+helper = JOURNAL[JOURNAL.index("static esp_err_t provision_partition_once"):]
+helper = helper[:helper.index("\nstatic bool journal_take")]
+require(helper.count("esp_spiffs_format") == JOURNAL.count("esp_spiffs_format"),
+        "every esp_spiffs_format call must sit inside the guarded provisioning helper")
 # Additionally forbidden anywhere the journal work reaches: destroying the file
 # is the same mistake as destroying the partition, one level up.
 FORBIDDEN_IN_WEB_SERVER = FORBIDDEN_DESTRUCTION + [
@@ -431,6 +477,36 @@ typedef struct {
 static inline bool esp_spiffs_mounted(const char *label) { (void)label; return true; }
 static inline esp_err_t esp_vfs_spiffs_register(const esp_vfs_spiffs_conf_t *conf)
 { (void)conf; return ESP_OK; }
+static inline esp_err_t esp_spiffs_format(const char *label) { (void)label; return ESP_OK; }
+""",
+    # The provisioning guard reads the partition's type and subtype, so the stub
+    # has to carry them rather than being an opaque handle.
+    "esp_partition.h": """
+#pragma once
+#include <stdint.h>
+#include "esp_err.h"
+typedef enum { ESP_PARTITION_TYPE_APP = 0, ESP_PARTITION_TYPE_DATA = 1 } esp_partition_type_t;
+typedef enum {
+    ESP_PARTITION_SUBTYPE_DATA_OTA = 0,
+    ESP_PARTITION_SUBTYPE_DATA_NVS = 2,
+    ESP_PARTITION_SUBTYPE_DATA_SPIFFS = 0x82
+} esp_partition_subtype_t;
+typedef struct {
+    esp_partition_type_t type;
+    esp_partition_subtype_t subtype;
+    uint32_t address;
+    uint32_t size;
+    char label[17];
+} esp_partition_t;
+static inline const esp_partition_t *esp_partition_find_first(
+    esp_partition_type_t type, esp_partition_subtype_t subtype, const char *label)
+{
+    static const esp_partition_t found = {
+        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, 0x620000, 0x1E0000, "storage"
+    };
+    (void)type; (void)subtype; (void)label;
+    return &found;
+}
 """,
     "freertos/FreeRTOS.h": """
 #pragma once
@@ -607,4 +683,5 @@ finally:
 
 print("alarm journal and shelving source contract passed "
       f"(journal {capacity} records on the storage partition, page limit {page_max}, "
-      f"shelf {shelf_min // 1000} s to {shelf_max // 3600000} h, never formats or erases)")
+      f"shelf {shelf_min // 1000} s to {shelf_max // 3600000} h, "
+      f"provisions the unused storage partition once and erases nothing else)")

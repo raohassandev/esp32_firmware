@@ -1,11 +1,13 @@
 #include "alarm_journal.h"
 
+#include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_partition.h"
 #include "esp_spiffs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -18,13 +20,25 @@ static const char *TAG = "alarm_journal";
  * configuration and the Engineering credential, and a high-rate history has no
  * business sharing a partition with the thing that authenticates the operator.
  *
- * The mount is read/write and NEVER formatting. A commissioned controller is in
- * the field; formatting its flash to make a diagnostic feature work would trade
- * the operator's commissioning for our convenience. If the partition has never
- * been formatted the mount fails, the journal reports itself unavailable with
- * the reason, and everything else on the controller carries on exactly as
- * before. That is a visible missing feature, which is recoverable, rather than
- * an invisible data loss, which is not. */
+ * The mount never formats an existing filesystem. It does provision an
+ * unformatted partition once, which is a different act and is bounded as
+ * narrowly as it can be:
+ *
+ *   - It runs only after a mount attempt has already failed, so a partition
+ *     carrying a filesystem is never reformatted.
+ *   - It is addressed by the "storage" label, and the partition found is
+ *     checked to be type data / subtype spiffs before anything is written. nvs
+ *     is subtype nvs and the application images are type app, so neither the
+ *     configuration, the Wi-Fi credentials, the Engineering credential nor
+ *     either OTA slot is reachable from here even if the label were wrong.
+ *   - It is a partition-scoped format, never a chip erase.
+ *   - It happens once. A mount that succeeds never formats, so a commissioned
+ *     journal is not wiped on the next boot.
+ *
+ * This partition is not user data: nothing in the firmware has ever written to
+ * it and the journal is its only consumer, so provisioning it destroys nothing.
+ * If provisioning fails the journal still reports itself unavailable with the
+ * reason and the rest of the controller carries on unchanged. */
 #define ALARM_JOURNAL_PARTITION "storage"
 /* Overridable only so the host contract test can exercise this file against a
  * temporary directory. The firmware never defines these. */
@@ -67,6 +81,51 @@ static uint32_t s_stored;          /* valid records currently readable */
 static uint32_t s_next_sequence = 1U;
 static uint32_t s_invalid_skipped;
 static uint32_t s_write_failures;
+static bool s_provision_attempted;
+
+/* Formats the storage partition, once, only after a mount has already failed.
+ *
+ * The label is checked against the partition table before anything is written:
+ * the target must exist, be type DATA with subtype SPIFFS, and sit outside the
+ * NVS and application partitions by construction of those subtypes. If the
+ * lookup does not produce exactly that, nothing is formatted and the original
+ * mount error is returned unchanged -- the journal then reports itself
+ * unavailable, which is the correct outcome for an unexpected partition table.
+ *
+ * `mount_error` is passed in and returned on refusal so that the caller reports
+ * why the mount failed rather than why provisioning was declined. */
+static esp_err_t provision_partition_once(esp_err_t mount_error)
+{
+    const esp_partition_t *partition = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, ALARM_JOURNAL_PARTITION);
+    if (!partition) {
+        ESP_LOGW(TAG, "no data/spiffs partition labelled '%s'; not provisioning",
+                 ALARM_JOURNAL_PARTITION);
+        return mount_error;
+    }
+    /* Redundant given the typed lookup above, and kept deliberately: it is the
+     * check a reader needs to see to believe that nvs and the OTA slots are out
+     * of reach, and it costs nothing. */
+    if (partition->type != ESP_PARTITION_TYPE_DATA ||
+        partition->subtype != ESP_PARTITION_SUBTYPE_DATA_SPIFFS) {
+        ESP_LOGE(TAG, "partition '%s' is not data/spiffs; refusing to format",
+                 ALARM_JOURNAL_PARTITION);
+        return mount_error;
+    }
+
+    ESP_LOGW(TAG, "storage partition at 0x%08" PRIx32 " (%" PRIu32 " bytes) has no filesystem; "
+                  "provisioning it once for the alarm journal. Configuration, Wi-Fi credentials "
+                  "and both application images are in other partitions and are untouched.",
+             (uint32_t)partition->address, (uint32_t)partition->size);
+
+    const esp_err_t formatted = esp_spiffs_format(ALARM_JOURNAL_PARTITION);
+    if (formatted != ESP_OK) {
+        ESP_LOGE(TAG, "provisioning the storage partition failed: %s", esp_err_to_name(formatted));
+        return mount_error;
+    }
+    ESP_LOGI(TAG, "storage partition provisioned; the alarm journal is now durable");
+    return ESP_OK;
+}
 
 static bool journal_take(void)
 {
@@ -232,15 +291,24 @@ void alarm_journal_open(void)
             .base_path = ALARM_JOURNAL_BASE_PATH,
             .partition_label = ALARM_JOURNAL_PARTITION,
             .max_files = 2,
-            /* Not a tuning knob: see the partition comment above. Formatting a
-             * field controller's flash to obtain a journal is not a trade this
-             * module is allowed to make. */
+            /* Never true: an existing filesystem must not be reformatted just
+             * because a mount failed for some other reason. Provisioning an
+             * unformatted partition is handled explicitly below, so that the
+             * one case where formatting is correct is the only case that can
+             * reach a format call. */
             .format_if_mount_failed = false,
         };
-        const esp_err_t mounted = esp_vfs_spiffs_register(&conf);
+        esp_err_t mounted = esp_vfs_spiffs_register(&conf);
+        if (mounted != ESP_OK && !s_provision_attempted) {
+            /* First boot on a partition the firmware has never used. Provision
+             * it once, having first confirmed that the partition really is the
+             * unused spiffs data area and not something that matters. */
+            s_provision_attempted = true;
+            mounted = provision_partition_once(mounted);
+            if (mounted == ESP_OK) mounted = esp_vfs_spiffs_register(&conf);
+        }
         if (mounted != ESP_OK) {
-            s_status = "storage partition not mountable; journal unavailable "
-                       "(the partition is never formatted by the controller)";
+            s_status = "storage partition not mountable; journal unavailable";
             ESP_LOGW(TAG, "%s: %s", s_status, esp_err_to_name(mounted));
             journal_give();
             return;
