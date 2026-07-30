@@ -11,11 +11,17 @@
      * Engineering session.
      */
     const SERVICE_VIEW_KEY = 'amx-industrial-service-view-v1';
+    let reconcilePending = false;
 
     const byId = (id) => document.getElementById(id);
     const currentAccess = () => document.documentElement.dataset.access === 'engineering'
         ? 'engineering'
         : 'operator';
+
+    function setText(element, value) {
+        const next = String(value ?? '');
+        if (element && element.textContent !== next) element.textContent = next;
+    }
 
     function serviceViewEnabled() {
         try {
@@ -66,7 +72,7 @@
         const badge = ensureAudienceBadge();
         if (!badge) return;
         const engineering = currentAccess() === 'engineering';
-        badge.textContent = engineering ? 'ENGINEERING VIEW' : 'OPERATOR VIEW';
+        setText(badge, engineering ? 'ENGINEERING VIEW' : 'OPERATOR VIEW');
         badge.classList.toggle('engineering', engineering);
         badge.title = engineering
             ? 'Protected engineering settings are available in this browser session.'
@@ -103,10 +109,10 @@
         if (controlCard) {
             const value = controlCard.querySelector('[data-industrial-value]');
             const detail = controlCard.querySelector('[data-industrial-detail]');
-            if (value) value.textContent = mode && mode !== '--' ? mode : (control || 'Unavailable');
-            if (detail) detail.textContent = control && control !== '--'
+            setText(value, mode && mode !== '--' ? mode : (control || 'Unavailable'));
+            setText(detail, control && control !== '--'
                 ? `Controller reports: ${control}`
-                : 'Control authority is unavailable';
+                : 'Control authority is unavailable');
         }
 
         if (alarmCard) {
@@ -114,11 +120,11 @@
             const detail = alarmCard.querySelector('[data-industrial-detail]');
             const dot = alarmCard.querySelector('[data-industrial-dot]');
             const text = alarms && alarms !== '--' ? alarms : 'Unavailable';
-            if (value) value.textContent = text;
+            setText(value, text);
             const normal = /^(0(?:\s+active)?|none|normal|clear|no active alarms)$/i.test(text);
-            if (detail) detail.textContent = normal
+            setText(detail, normal
                 ? 'No active plant condition requires attention'
-                : 'Open Alarms and events for the required action';
+                : 'Open Alarms and events for the required action');
             if (dot) dot.className = `dot ${normal ? 'good' : 'warning'}`;
         }
     }
@@ -139,7 +145,7 @@
 
     function renameField(label, replacement) {
         const title = label.querySelector(':scope > span');
-        if (title) title.textContent = replacement;
+        setText(title, replacement);
     }
 
     function organiseMeterConfiguration() {
@@ -188,7 +194,7 @@
         button.setAttribute('aria-expanded', 'false');
         button.addEventListener('click', () => {
             const collapsed = container.classList.toggle('is-collapsed');
-            button.textContent = collapsed ? 'View technical evidence' : 'Hide technical evidence';
+            setText(button, collapsed ? 'View technical evidence' : 'Hide technical evidence');
             button.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
         });
         if (title) title.insertAdjacentElement('afterend', button);
@@ -231,7 +237,7 @@
         const button = byId('industrialServiceToggle');
         if (!button) return;
         const visible = serviceViewEnabled();
-        button.textContent = visible ? 'Hide advanced service tools' : 'Show advanced service tools';
+        setText(button, visible ? 'Hide advanced service tools' : 'Show advanced service tools');
         button.setAttribute('aria-pressed', visible ? 'true' : 'false');
     }
 
@@ -254,8 +260,8 @@
         syncOperatorSummaryCards();
     }
 
-    function initialise() {
-        ensureAudienceBadge();
+    function reconcilePresentation() {
+        reconcilePending = false;
         ensureOperatorSummaryCards();
         markInternalDashboardCards();
         organiseMeterConfiguration();
@@ -263,6 +269,17 @@
         organiseSystemPage();
         ensureServiceToggle();
         applyAudienceVisibility();
+    }
+
+    function scheduleReconcile() {
+        if (reconcilePending) return;
+        reconcilePending = true;
+        window.queueMicrotask(reconcilePresentation);
+    }
+
+    function initialise() {
+        ensureAudienceBadge();
+        reconcilePresentation();
 
         const watched = [
             byId('dashboardMode'), byId('statusControl'), byId('statusAlarms')
@@ -272,28 +289,12 @@
             watched.forEach((target) => observer.observe(target, { childList: true, subtree: true, characterData: true }));
         }
 
-        window.addEventListener('amx-access-change', () => {
-            window.setTimeout(() => {
-                ensureServiceToggle();
-                organiseMeterConfiguration();
-                organiseInverterPage();
-                organiseSystemPage();
-                applyAudienceVisibility();
-            }, 0);
-        });
-        window.addEventListener('hashchange', () => window.setTimeout(applyAudienceVisibility, 0));
+        window.addEventListener('amx-access-change', scheduleReconcile);
+        window.addEventListener('hashchange', scheduleReconcile);
 
         const main = byId('mainContent');
         if (main) {
-            new MutationObserver(() => {
-                ensureOperatorSummaryCards();
-                markInternalDashboardCards();
-                organiseMeterConfiguration();
-                organiseInverterPage();
-                organiseSystemPage();
-                ensureServiceToggle();
-                applyAudienceVisibility();
-            }).observe(main, { childList: true, subtree: true });
+            new MutationObserver(scheduleReconcile).observe(main, { childList: true, subtree: true });
         }
     }
 
