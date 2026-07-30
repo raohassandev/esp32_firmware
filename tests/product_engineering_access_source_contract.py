@@ -8,6 +8,11 @@ SERVER = (ROOT / "components/web_server/web_server.c").read_text(encoding="utf-8
 CMAKE = (ROOT / "components/web_server/CMakeLists.txt").read_text(encoding="utf-8")
 JS = (ROOT / "web/product-mode.js").read_text(encoding="utf-8")
 OPERATOR = (ROOT / "web/operator-view.js").read_text(encoding="utf-8")
+# The operator view no longer draws its own trend: it provides the single
+# mount point that the shared chart component is placed into. The trend
+# titles are therefore asserted in the component that now renders them.
+CHART = (ROOT / "web/pvdg-chart.js").read_text(encoding="utf-8")
+OPERATIONS = (ROOT / "web/operator-operations.js").read_text(encoding="utf-8")
 CSS = (ROOT / "web/product-mode.css").read_text(encoding="utf-8")
 
 
@@ -64,10 +69,20 @@ require("X-Engineering-Token" not in JS,
 for token in [
     "Electrical supply status", "Inverter fleet status", "installed capacity",
     "Solar production", "Grid Power", "Solar Inverters", "/api/meters",
-    "/api/inverters", "/api/inverter-telemetry", "op-gauge", "sparkline",
-    "Grid power trend", "Fleet availability", "Operator guidance",
+    "/api/inverters", "/api/inverter-telemetry", "op-gauge",
+    "operatorTrendHost", "Fleet availability", "Operator guidance",
 ]:
     require(token in OPERATOR, f"operator product view missing {token}")
+
+# The operator trend is still present on the dashboard, the grid page and the
+# solar page - it is now one shared component rather than a second chart
+# implementation copied into this file.
+require("function sparkline" not in OPERATOR,
+        "the operator view must not carry a second chart implementation")
+for token in ["Grid power trend", "Solar production trend", "Plant power trend"]:
+    require(token in OPERATIONS, f"operator trend chart missing {token}")
+require("PvdgChart" in OPERATIONS and "create" in CHART,
+        "the operator screens must mount the shared chart component")
 
 for forbidden in ["PDU", "function code", "raw words", "meterScale", "meterAddress", "limit register"]:
     require(forbidden.lower() not in OPERATOR.lower(),

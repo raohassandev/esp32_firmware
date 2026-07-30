@@ -5,9 +5,12 @@
     const state = {
         busy: false,
         timer: null,
-        gridTrend: [],
-        solarTrend: [],
         lastPayload: null,
+        /* The one chart lives in a node this module owns but never rebuilds.
+         * renderX() re-appends the same element instead of recreating it, so
+         * the chart instance operator-operations.js mounts into it survives the
+         * five-second refresh with its focus, cursor and listeners intact. */
+        chartHost: null,
         /* Site capability report (/api/telemetry): which quantities this
          * installation measures. devices.js already polls it on the dashboard
          * route, so it is consumed from that event rather than requested a
@@ -113,11 +116,6 @@
         return `${(n / 60000).toFixed(1)} min ago`;
     }
     function toneForState(ok, warning = false) { return ok ? 'good' : warning ? 'warning' : 'bad'; }
-    function pushTrend(series, value) {
-        if (!finite(value)) return;
-        series.push(Number(value));
-        if (series.length > 36) series.shift();
-    }
     async function api(path) {
         const response = await fetch(path, { cache: 'no-store', credentials: 'same-origin' });
         const payload = await response.json().catch(() => ({}));
@@ -125,22 +123,18 @@
         return payload;
     }
 
-    function sparkline(values, label) {
-        const wrap = node('div', 'op-sparkline');
-        if (!values.length) {
-            wrap.append(node('span', 'op-empty-inline', 'Trend starts after live samples arrive'));
-            return wrap;
+    /* The browser-session sparkline this module used to draw is gone. It plotted
+     * array position against a floating min/max window from at most 36 values
+     * that only existed while the tab stayed open, and because both refreshAll()
+     * and renderDashboard() appended to that window every cycle it recorded each
+     * reading twice. The controller already stores a timestamped history; the
+     * shared chart draws that instead, from a single mount point per page. */
+    function chartHost() {
+        if (!state.chartHost) {
+            state.chartHost = node('div', 'op-chart-host');
+            state.chartHost.id = 'operatorTrendHost';
         }
-        const width = 320, height = 74, pad = 6;
-        const min = Math.min(...values), max = Math.max(...values);
-        const span = Math.max(1, max - min);
-        const points = values.map((value, index) => {
-            const x = values.length === 1 ? width / 2 : pad + (index * (width - pad * 2) / (values.length - 1));
-            const y = height - pad - ((value - min) / span) * (height - pad * 2);
-            return `${x.toFixed(1)},${y.toFixed(1)}`;
-        }).join(' ');
-        wrap.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${label}"><path class="op-spark-area" d="M ${points.replace(/ /g, ' L ')} L ${width - pad},${height - pad} L ${pad},${height - pad} Z"/><polyline class="op-spark-line" points="${points}"/></svg>`;
-        return wrap;
+        return state.chartHost;
     }
 
     function gauge(value, max, title, unit, tone = 'good') {
@@ -306,8 +300,6 @@
             ? stateWord('alarm', 'critical', 'Critical')
             : systemHealthy ? stateWord('alarm', 'normal', 'Normal') : stateWord('alarm', 'warning', 'Warning');
 
-        pushTrend(state.gridTrend, gridPower);
-        pushTrend(state.solarTrend, solarPower);
         view.replaceChildren();
         view.append(sectionHeader('Plant overview', 'Energy operation at a glance', 'Only the measurements and conditions needed for day-to-day operation.', 'Refresh'));
 
@@ -349,13 +341,7 @@
         );
         view.append(kpis);
 
-        const trendGrid = node('div', 'op-two-column');
-        const gridTrendCard = node('article', 'op-card op-trend-card');
-        gridTrendCard.append(node('div', 'op-card-headline', 'Grid power trend'), sparkline(state.gridTrend, 'Recent grid power trend'), node('small', 'op-chart-note', 'Recent live samples stored in this browser session'));
-        const solarTrendCard = node('article', 'op-card op-trend-card');
-        solarTrendCard.append(node('div', 'op-card-headline', 'Solar production trend'), sparkline(state.solarTrend, 'Recent solar production trend'), node('small', 'op-chart-note', finite(solarPower) ? 'Measured inverter output' : 'Trend appears after inverter telemetry is commissioned'));
-        trendGrid.append(gridTrendCard, solarTrendCard);
-        view.append(trendGrid);
+        view.append(chartHost());
     }
 
     function renderMeter(payload) {
@@ -368,7 +354,7 @@
         const runtime = primary?.runtime || {};
         const power = finite(status.grid_power_kw) ? Number(status.grid_power_kw) : runtime.active_power_kw;
         const online = runtime.online === true || (status.meter_online && !status.meter_stale);
-        const trendMax = Math.max(100, ...state.gridTrend.map(Math.abs), Math.abs(Number(power) || 0)) * 1.2;
+        const trendMax = Math.max(100, Math.abs(Number(power) || 0)) * 1.2;
         const direction = finite(power) ? (power > 0.01 ? 'Importing from utility' : power < -0.01 ? 'Exporting to utility' : 'Near-zero exchange') : 'Measurement unavailable';
 
         view.replaceChildren();
@@ -376,9 +362,11 @@
         const overview = node('div', 'op-meter-overview');
         const gaugeCard = node('article', 'op-card op-gauge-card');
         gaugeCard.append(gauge(power, trendMax, 'Grid power', 'kW', online ? 'good' : 'bad'), node('strong', 'op-direction', direction), node('small', '', online ? `Measurement ${formatAge(runtime.data_age_ms ?? status.meter_age_ms)}` : 'Current measurement is not available'));
-        const trendCard = node('article', 'op-card op-trend-card');
-        trendCard.append(node('div', 'op-card-headline', 'Recent demand trend'), sparkline(state.gridTrend, 'Recent grid demand trend'), node('small', 'op-chart-note', 'Use the trend to identify rapid load changes and demand peaks'));
         const stateCard = node('article', 'op-card op-readiness-card');
+        /* Merge note: the vocabulary helpers (stateWord, measurementQuality) come from
+         * the terminology work; the structural change -- no local trend card, mount the
+         * shared chart instead -- comes from the chart consolidation. Both are kept.
+         * Taking either side wholesale would have silently reverted the other. */
         stateCard.append(node('div', 'op-card-headline', 'Measurement health'),
             statusLine('meter', 'Communication',
                 online ? stateWord('communication', 'online', 'Online') : stateWord('communication', 'offline', 'Offline'),
@@ -387,8 +375,8 @@
                 online ? `Last sample ${formatAge(runtime.data_age_ms ?? status.meter_age_ms)} · usable for the control interlock` : 'Values cannot be used for automatic decisions',
                 online ? 'good' : 'bad'),
             statusLine('shield', 'Enabled meters', `${Number(summary.online) || 0} ${stateWord('communication', 'online', 'Online').toLowerCase()}`, `${Number(summary.enabled) || 0} enabled meter${Number(summary.enabled) === 1 ? '' : 's'}`, Number(summary.online) > 0 ? 'good' : 'warning'));
-        overview.append(gaugeCard, trendCard, stateCard);
-        view.append(overview);
+        overview.append(gaugeCard, stateCard);
+        view.append(overview, chartHost());
 
         const fleet = node('article', 'op-card');
         fleet.append(node('div', 'op-card-headline', 'Meter availability'));
@@ -435,10 +423,8 @@
         productionCard.append(gauge(production, installed || 1, 'Solar production', 'kW', finite(production) ? 'good' : 'warning'), node('strong', 'op-direction', finite(production) ? `${formatPercent(utilization)} utilization` : stateWord('dataQuality', 'unavailable', 'Unavailable')), node('small', '', installed ? `${formatPower(installed)} installed capacity` : stateWord('commissioning', 'notConfigured', 'Not configured')));
         const availabilityCard = node('article', 'op-card op-gauge-card');
         availabilityCard.append(gauge(availability, 100, 'Fleet availability', '%', availability >= 99 ? 'good' : availability > 0 ? 'warning' : 'bad'), node('strong', 'op-direction', `${Number(summary.online) || 0} of ${Number(summary.enabled) || 0} online`), node('small', '', availability >= 99 ? 'All enabled units available' : 'Review unavailable units below'));
-        const trend = node('article', 'op-card op-trend-card');
-        trend.append(node('div', 'op-card-headline', 'Solar production trend'), sparkline(state.solarTrend, 'Recent solar production trend'), node('small', 'op-chart-note', finite(production) ? 'Recent measured inverter production' : 'Available after telemetry commissioning'));
-        top.append(productionCard, availabilityCard, trend);
-        view.append(top);
+        top.append(productionCard, availabilityCard);
+        view.append(top, chartHost());
 
         const fleet = node('article', 'op-card');
         fleet.append(node('div', 'op-card-headline', 'Inverter performance'));
@@ -580,9 +566,6 @@
                 api('/api/status'), api('/api/meters'), api('/api/inverters'), api('/api/inverter-telemetry')
             ]);
             state.lastPayload = { status, meters, inverters, inverterTelemetry, telemetry: state.siteTelemetry };
-            const solar = Number(inverterTelemetry?.summary?.telemetry_valid) > 0 ? inverterTelemetry.summary.measured_total_kw : NaN;
-            pushTrend(state.gridTrend, status.grid_power_kw);
-            pushTrend(state.solarTrend, solar);
             renderCurrent();
         } catch (error) {
             const view = document.querySelector('.page.active .operator-product-view');
@@ -607,6 +590,11 @@
         else if (current === 'inverters') renderInverters(state.lastPayload);
         else if (current === 'control') renderControl(state.lastPayload);
         else if (current === 'system') renderSystem(state.lastPayload);
+        /* This view is rebuilt every refresh. The chart is not: it lives in a
+         * node this module keeps and re-appends, so it survives the rebuild.
+         * The event tells the module that owns the chart that a mount point is
+         * available now rather than making it wait for its own next poll. */
+        window.dispatchEvent(new CustomEvent('amx-operator-view-rendered', { detail: { route: current } }));
     }
 
     /* The title, the breadcrumb and the selected navigation item come from the

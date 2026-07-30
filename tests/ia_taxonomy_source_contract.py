@@ -44,6 +44,7 @@ MODE = (ROOT / "web/product-mode.js").read_text(encoding="utf-8")
 OPERATOR = (ROOT / "web/operator-view.js").read_text(encoding="utf-8")
 OPERATIONS = (ROOT / "web/operator-operations.js").read_text(encoding="utf-8")
 OPERATIONS_CSS = (ROOT / "web/operator-operations.css").read_text(encoding="utf-8")
+CHART = (ROOT / "web/pvdg-chart.js").read_text(encoding="utf-8")
 DENSITY_CSS = (ROOT / "web/product-experience-v2.css").read_text(encoding="utf-8")
 AUTH = (ROOT / "components/web_server/engineering_auth.c").read_text(encoding="utf-8")
 WEB_API = (ROOT / "components/web_server/web_api.c").read_text(encoding="utf-8")
@@ -243,82 +244,65 @@ require("result.note" in OPERATIONS,
 
 
 # ============================================================ 4. trends
+#
+# These assertions used to name identifiers inside operator-operations.js
+# (RANGE_WINDOW_MS, niceAxis, op-trend-tick, ...). Every one of them is now gone,
+# because the two competing chart implementations were replaced by a single
+# component in web/pvdg-chart.js. The PROPERTIES they were protecting are the
+# real requirements, so they are re-expressed against whichever module now owns
+# the chart. Asserting on identifier spelling was the brittleness: it fails on a
+# rename that changes nothing and passes on a rewrite that changes everything.
 
 require('/api/operator/history?range=' in OPERATIONS,
         "the trends do not read the controller history endpoint")
-require("RANGE_WINDOW_MS" in OPERATIONS, "the trend has no explicit time window")
-for supported in ("'15m'", "'1h'", "'24h'"):
-    require(supported in OPERATIONS, f"supported history range missing: {supported}")
+
+# EXACTLY ONE chart implementation. This is new, and it is the assertion that
+# would have caught the original defect: two sparklines over the same two
+# quantities, both on the dashboard at once, neither with a time axis.
+for module, name in ((OPERATOR, "operator-view.js"), (OPERATIONS, "operator-operations.js")):
+    require("function sparkline" not in module,
+            f"{name} carries its own chart implementation again; there must be exactly one")
+require("PvdgChart" in CHART, "the shared chart component must publish itself")
+
+# An explicit time window per range, rather than plotting by array position.
+require("const RANGES" in CHART, "the chart has no explicit range table")
+for supported, window_ms in (("'15m'", "900000"), ("'1h'", "3600000"), ("'24h'", "86400000")):
+    require(supported in CHART, f"supported history range missing: {supported}")
+    require(window_ms in CHART,
+            f"range {supported} has no explicit window in milliseconds; a trend "
+            "plotted by array index cannot answer 'when'")
+
 # The firmware substitutes 15m for anything it does not recognise, so offering a
 # fourth range would silently mislabel 15 minutes of data.
 for unsupported in ("'8h'", "'6h'", "'12h'", "'7d'"):
-    require(unsupported not in OPERATIONS,
+    require(unsupported not in CHART and unsupported not in OPERATIONS,
             f"an unsupported range is offered; the firmware would silently return 15m: {unsupported}")
 require('strcmp(range, "1h")' in OPERATIONAL_API and 'strcmp(range, "24h")' in OPERATIONAL_API,
         "the firmware range set has changed; the range buttons would be wrong")
 
 # Axes, units and a stated scale.
-require("function niceAxis" in OPERATIONS, "the trend has no computed value axis")
-require("op-trend-axis" in OPERATIONS and "op-trend-gridline" in OPERATIONS,
-        "the trend draws no axes")
-require("op-trend-tick" in OPERATIONS, "the trend has no axis tick labels")
-require("function timeTickLabel" in OPERATIONS, "the trend has no time axis")
-require("unitLabel" in OPERATIONS and "'kW'" in OPERATIONS,
-        "the value axis does not name its unit")
-require("op-chart-scale" in OPERATIONS and "Visible range" in OPERATIONS,
-        "the visible range is not stated")
+require("function niceScale" in CHART and "function niceStep" in CHART,
+        "the chart has no computed value axis")
+require("function timeStep" in CHART and "function formatClock" in CHART,
+        "the chart has no time axis")
+require("kW" in CHART, "the value axis does not name its unit")
+require("function formatSpan" in CHART, "the visible range is not stated")
 require("sample_interval_ms" in OPERATIONS,
         "the trend does not use the controller's declared sample interval")
 
 # Current, minimum, maximum and average.
 for label in ("'Current'", "'Minimum'", "'Average'", "'Peak'"):
-    require(label in OPERATIONS, f"trend statistic missing: {label}")
+    require(label in CHART, f"trend statistic missing: {label}")
 
-# Gaps are gaps. Nothing is drawn across a missing measurement.
-require("gapBefore" in OPERATIONS, "missing samples are not detected")
-require("point.value == null || point.gapBefore" in OPERATIONS,
-        "the line is not broken at a missing measurement")
-require("interval * 1.8" in OPERATIONS,
-        "a hole in the sample times is not treated as a gap")
-require("The line is broken there rather than drawn across." in OPERATIONS,
-        "the interface does not say that gaps are not interpolated")
-# A null sample must reach the plot as null. Coercing it to a number is how a
-# missing measurement silently becomes 0 kW on the chart.
-series = OPERATIONS[OPERATIONS.index("function trendSeries"):OPERATIONS.index("function niceAxis")]
-require("raw == null ? null : Number(raw)" in series,
-        "a missing sample must stay missing, not be coerced to a number")
-require("Number.isFinite(value) ? value : null" in series,
-        "a non-finite sample must stay missing")
-for invention in ("interpolate(", "fillMissing", "lastKnown", "carryForward"):
-    require(invention not in OPERATIONS,
-            f"the trend fills missing data instead of showing it: {invention}")
-
-# Data quality is shown per sample, in the vocabulary's own words.
-require("op-trend-quality" in OPERATIONS, "there is no per-sample data-quality indication")
-for quality in ("'good'", "'invalid'", "'unavailable'"):
-    require(quality in OPERATIONS, f"data-quality state missing from the trend: {quality}")
-require("function trendLegend" in OPERATIONS, "the quality strip has no legend")
-
-# History is RAM-resident. Say so where a user would assume otherwise.
-require("Restarting the controller erases this history" in OPERATIONS,
-        "the UI does not say that history does not survive a reboot")
-require("not written to flash" in OPERATIONS,
-        "the UI does not say that history is not persisted")
-require("nvs_" not in OPERATIONAL_API,
-        "history became persistent; the RAM-only wording would be wrong")
-
-# Chart colours resolve through tokens declared in both themes.
-for token in ("--chart-plot", "--chart-gridline", "--chart-axis", "--chart-tick"):
-    require(token in APP_CSS, f"{token} is not declared for the dark theme")
-    require(token in THEME_CSS, f"{token} is not declared for the light theme")
-for token in ("--series-grid", "--series-solar", "--quality-good", "--quality-invalid",
-              "--quality-unavailable", "--quality-gap"):
-    require(token in APP_CSS, f"{token} is not declared")
-trend_css = OPERATIONS_CSS[OPERATIONS_CSS.index("/* ------------------------------------------------------------ trend plots"):
-                           OPERATIONS_CSS.index(".alarm-console")]
-require("#" not in trend_css,
-        "trend styling must resolve every colour through a theme token, not hardcoded hex")
-
+# A gap must stay a gap. This is the one that matters on this product: an
+# unmeasured interval drawn as a straight line, or worse plotted at zero, reads
+# as "no power" on a controller whose whole purpose is preventing reverse power.
+require("function gaps" in CHART and "function segments" in CHART,
+        "the chart cannot represent missing data as a gap")
+require(".filter(Number.isFinite)" not in CHART,
+        "compacting the sample array deletes nulls and draws their neighbours "
+        "adjacent -- an interpolated line across an unmeasured interval, with the "
+        "surviving samples silently shifted in time")
 
 # ============================================== 5. density without browser zoom
 

@@ -3,6 +3,13 @@
 
     const state = {
         history: null,
+        historyAt: 0,
+        historyError: null,
+        /* One chart instance for the whole product. It is created once, moved
+         * between the pages that show it, and reconfigured - never rebuilt per
+         * page and never duplicated per series. */
+        chart: null,
+        chartPage: null,
         events: null,
         range: '15m',
         busy: false,
@@ -181,12 +188,6 @@
         } finally {
             window.clearTimeout(timer);
         }
-    }
-
-    function formatPower(value) {
-        const number = Number(value);
-        if (!Number.isFinite(number)) return '—';
-        return `${number.toFixed(Math.abs(number) >= 100 ? 1 : 2)} kW`;
     }
 
     function formatAge(value) {
@@ -966,259 +967,104 @@
         return row;
     }
 
-    /* ============================================================== trends
+    /* ------------------------------------------------------- the one chart
      *
-     * The previous visual was a bare polyline: no axes, no units, no range, no
-     * scale. It could not answer "how much" or "when", which makes it decoration
-     * rather than a diagnostic, and it joined a straight line straight across
-     * missing samples. On a control system that last part is the serious one -
-     * interpolating across a gap draws a measurement that was never taken, in
-     * exactly the window where the plant was least observed.
+     * Two chart implementations used to draw this data: a browser-session
+     * sparkline in operator-view.js and the controller-history sparkline that
+     * used to live here. Both appeared on the dashboard at once - four charts,
+     * two different windows over the same quantity, neither with a time axis.
      *
-     * What is drawn here comes only from GET /api/operator/history. The
-     * firmware supports 15m, 1h and 24h and silently substitutes 15m for
-     * anything else (operational_api.c history_get), so only those three are
-     * offered - a 6h button would quietly return 15 minutes of data under a
-     * 6-hour label.
+     * Both also compacted the samples down to the finite ones before
+     * drawing, which deleted the missing readings instead of showing them, so a
+     * minute in which the meter said nothing was drawn as a straight line
+     * between the readings either side of it. On a reverse-power controller
+     * that is a safety-relevant lie. web/pvdg-chart.js is now the only chart,
+     * and it breaks the line at a gap.
      *
-     * A null grid_kw or solar_kw is the controller saying it had no valid
-     * sample. It breaks the line and is marked in the quality strip. So does a
-     * hole in time: if two consecutive samples are further apart than the
-     * declared sample_interval_ms allows, the controller was not sampling, and
-     * the plot says so instead of bridging it. */
-    const RANGE_WINDOW_MS = { '15m': 900000, '1h': 3600000, '24h': 86400000 };
-    const RANGE_LABELS = [['15m', '15 min'], ['1h', '1 hour'], ['24h', '24 hours']];
-    const SVG_NS = 'http://www.w3.org/2000/svg';
-
-    function svg(tag, attributes = {}) {
-        const element = document.createElementNS(SVG_NS, tag);
-        Object.entries(attributes).forEach(([name, value]) => element.setAttribute(name, String(value)));
-        return element;
-    }
-
-    /* Samples in controller order (oldest first), each carrying its own age,
-     * value and whether the source was communicating when it was taken. */
-    function trendSeries(kind) {
-        const key = kind === 'solar' ? 'solar_kw' : 'grid_kw';
-        const samples = Array.isArray(state.history?.samples) ? state.history.samples : [];
-        const interval = Number(state.history?.sample_interval_ms) || 0;
-        const points = samples.map((sample) => {
-            const raw = sample[key];
-            const value = raw == null ? null : Number(raw);
-            const source = kind === 'solar'
-                ? Number(sample.inverter_online) > 0
-                : sample.meter_online === true;
-            return {
-                ageMs: Number(sample.age_ms),
-                value: Number.isFinite(value) ? value : null,
-                communicating: Boolean(source)
-            };
-        }).filter((point) => Number.isFinite(point.ageMs));
-        /* An interval-sized hole means samples the controller never took. */
-        points.forEach((point, index) => {
-            const previous = points[index - 1];
-            point.gapBefore = Boolean(previous) && interval > 0
-                && (previous.ageMs - point.ageMs) > interval * 1.8;
-        });
-        return { points, interval };
-    }
-
-    /* A readable Y scale that always includes zero, so import and export are
-     * read against the same reference on every refresh. */
-    function niceAxis(min, max) {
-        if (!Number.isFinite(min) || !Number.isFinite(max)) return { lo: 0, hi: 1, ticks: [0, 1] };
-        let lo = Math.min(0, min);
-        let hi = Math.max(0, max);
-        if (hi - lo < 0.5) hi = lo + 0.5;
-        const rough = (hi - lo) / 4;
-        const magnitude = Math.pow(10, Math.floor(Math.log10(rough)));
-        const normalized = rough / magnitude;
-        const step = magnitude * (normalized > 5 ? 10 : normalized > 2 ? 5 : normalized > 1 ? 2 : 1);
-        lo = Math.floor(lo / step) * step;
-        hi = Math.ceil(hi / step) * step;
-        const ticks = [];
-        for (let value = lo; value <= hi + step / 2; value += step) ticks.push(Number(value.toFixed(6)));
-        return { lo, hi, ticks };
-    }
-
-    function timeTickLabel(agoMs) {
-        if (agoMs <= 0) return 'now';
-        if (agoMs < 3600000) return `-${Math.round(agoMs / 60000)} min`;
-        return `-${Math.round(agoMs / 3600000)} h`;
-    }
-
-    /* The chart. Axes, units, an explicit visible range, real gaps and a
-     * per-sample quality strip - the five things the audit found missing. */
-    function trendChart(kind, unit, label) {
-        const { points, interval } = trendSeries(kind);
-        const wrap = node('div', 'op-history-chart');
-        const finiteValues = points.filter((point) => point.value != null).map((point) => point.value);
-        if (!finiteValues.length) {
-            wrap.append(node('div', 'op-empty-state',
-                'The controller has no valid sample in this window. History is held in RAM and starts empty after a restart.'));
-            return { chart: wrap, values: finiteValues, points };
+     * The controller offers exactly three ranges and silently substitutes 15m
+     * for anything else, so only those three values are ever requested. */
+    const CHART_PAGES = {
+        dashboard: {
+            title: 'Plant power trend',
+            description: 'Grid exchange and solar production stored by the controller',
+            series: [
+                { key: 'grid_kw', label: 'Grid power', meaning: { positive: 'importing from the utility', negative: 'exporting to the utility' } },
+                { key: 'solar_kw', label: 'Solar production', meaning: { positive: 'producing', negative: 'consuming' } }
+            ]
+        },
+        meters: {
+            title: 'Grid power trend',
+            description: 'Grid exchange stored by the controller',
+            series: [
+                { key: 'grid_kw', label: 'Grid power', meaning: { positive: 'importing from the utility', negative: 'exporting to the utility' } }
+            ]
+        },
+        inverters: {
+            title: 'Solar production trend',
+            description: 'Measured inverter production stored by the controller',
+            series: [
+                { key: 'solar_kw', label: 'Solar production', meaning: { positive: 'producing', negative: 'consuming' } }
+            ]
         }
+    };
 
-        const windowMs = RANGE_WINDOW_MS[state.history?.range || state.range] || RANGE_WINDOW_MS['15m'];
-        const axis = niceAxis(Math.min(...finiteValues), Math.max(...finiteValues));
-        const W = 640, H = 220;
-        const left = 58, right = W - 14, top = 14, bottom = 150;
-        const qualityTop = 160, qualityH = 10;
-        const plotW = right - left, plotH = bottom - top;
-
-        const x = (ageMs) => right - Math.min(1, Math.max(0, ageMs / windowMs)) * plotW;
-        const y = (value) => bottom - ((value - axis.lo) / (axis.hi - axis.lo)) * plotH;
-
-        const figure = svg('svg', {
-            viewBox: `0 0 ${W} ${H}`, class: 'op-trend-svg', role: 'img',
-            'aria-label': `${label}. Vertical axis ${unit}, ${axis.lo} to ${axis.hi}. Horizontal axis time, last ${timeTickLabel(windowMs).replace('-', '')}.`
-        });
-
-        /* Y axis: gridlines, tick values and the unit named once. */
-        axis.ticks.forEach((tick) => {
-            const ty = y(tick);
-            figure.append(svg('line', { class: 'op-trend-gridline', x1: left, x2: right, y1: ty, y2: ty }));
-            const text = svg('text', { class: 'op-trend-tick', x: left - 8, y: ty + 4, 'text-anchor': 'end' });
-            text.textContent = tick.toFixed(Math.abs(tick) >= 10 ? 0 : 1);
-            figure.append(text);
-        });
-        const unitLabel = svg('text', { class: 'op-trend-axis-title', x: left - 8, y: top - 3, 'text-anchor': 'end' });
-        unitLabel.textContent = unit;
-        figure.append(unitLabel);
-        figure.append(svg('line', { class: 'op-trend-axis', x1: left, x2: left, y1: top, y2: bottom }));
-        figure.append(svg('line', { class: 'op-trend-axis', x1: left, x2: right, y1: bottom, y2: bottom }));
-
-        /* X axis: real elapsed time, four ticks. */
-        [1, 2 / 3, 1 / 3, 0].forEach((fraction) => {
-            const ageMs = windowMs * fraction;
-            const tx = x(ageMs);
-            const text = svg('text', { class: 'op-trend-tick', x: tx, y: bottom + 18, 'text-anchor': fraction === 1 ? 'start' : fraction === 0 ? 'end' : 'middle' });
-            text.textContent = timeTickLabel(ageMs);
-            figure.append(text);
-        });
-
-        /* The line, broken wherever the controller had no measurement. Each
-         * unbroken run is its own path; nothing is drawn across a gap. */
-        let run = [];
-        const flush = () => {
-            if (run.length === 1) {
-                figure.append(svg('circle', { class: 'op-trend-point', cx: run[0][0], cy: run[0][1], r: 2.2 }));
-            } else if (run.length > 1) {
-                figure.append(svg('path', {
-                    class: 'op-trend-line',
-                    d: run.map((p, i) => `${i ? 'L' : 'M'} ${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ')
-                }));
-            }
-            run = [];
-        };
-        points.forEach((point) => {
-            if (point.value == null || point.gapBefore) flush();
-            if (point.value == null) return;
-            run.push([x(point.ageMs), y(point.value)]);
-        });
-        flush();
-
-        /* Data quality, one cell per sample: measured, no valid sample, or a
-         * hole where the controller took no sample at all. */
-        const cellW = Math.max(1.5, plotW / Math.max(points.length, 1));
-        points.forEach((point) => {
-            const quality = point.value == null ? 'unavailable' : point.communicating ? 'good' : 'invalid';
-            figure.append(svg('rect', {
-                class: `op-trend-quality op-trend-quality-${quality}`,
-                x: Math.max(left, x(point.ageMs) - cellW / 2), y: qualityTop,
-                width: cellW, height: qualityH
-            }));
-            if (point.gapBefore) {
-                figure.append(svg('rect', {
-                    class: 'op-trend-quality op-trend-quality-gap',
-                    x: Math.max(left, x(point.ageMs) - cellW * 2), y: qualityTop,
-                    width: cellW * 1.5, height: qualityH
-                }));
-            }
-        });
-        const stripLabel = svg('text', { class: 'op-trend-tick', x: left - 8, y: qualityTop + qualityH, 'text-anchor': 'end' });
-        stripLabel.textContent = 'Data';
-        figure.append(stripLabel);
-
-        wrap.append(figure);
-        return { chart: wrap, values: finiteValues, points, axis };
-    }
-
-    function trendLegend(points) {
-        const gaps = points.filter((point) => point.value == null || point.gapBefore).length;
-        const legend = node('div', 'op-trend-legend');
-        [['good', 'Good'], ['invalid', 'Invalid'], ['unavailable', 'Unavailable'], ['gap', 'No sample taken']]
-            .forEach(([key, text]) => {
-                const item = node('span', 'op-trend-legend-item');
-                item.append(node('i', `op-trend-swatch op-trend-quality-${key}`), node('small', '', text));
-                legend.append(item);
+    function chart() {
+        if (!state.chart && window.PvdgChart && typeof window.PvdgChart.create === 'function') {
+            state.chart = window.PvdgChart.create({
+                height: 500,
+                range: state.range,
+                series: CHART_PAGES.dashboard.series,
+                onRangeChange: (value) => {
+                    state.range = window.PvdgChart.normalizeRange(value);
+                    refreshHistory();
+                }
             });
-        legend.append(node('small', 'op-trend-gap-count', gaps
-            ? `${gaps} sample interval(s) have no measurement. The line is broken there rather than drawn across.`
-            : 'No missing samples in this window.'));
-        return legend;
-    }
-
-    function rangeSelector() {
-        const group = node('div', 'op-range-selector');
-        group.setAttribute('role', 'group');
-        group.setAttribute('aria-label', 'History range');
-        RANGE_LABELS.forEach(([value, label]) => {
-            const button = node('button', `op-range-button ${state.range === value ? 'active' : ''}`, label);
-            button.type = 'button';
-            button.setAttribute('aria-pressed', state.range === value ? 'true' : 'false');
-            button.addEventListener('click', async () => {
-                state.range = value;
-                await refreshHistory();
-                scheduleEnhance();
-            });
-            group.append(button);
-        });
-        return group;
-    }
-
-    function historyPanel(kind) {
-        const summary = state.history?.summary || {};
-        const prefix = kind === 'solar' ? 'solar' : 'grid';
-        const title = kind === 'solar' ? 'Solar production' : 'Grid demand';
-        const card = node('article', `op-card op-controller-history op-trend-${prefix}`);
-        const headline = node('div', 'op-history-head');
-        headline.append(node('div', 'op-card-headline', `${title} history`), rangeSelector());
-        card.append(headline);
-
-        const rendered = trendChart(kind, 'kW', `${title} over the selected range`);
-        card.append(rendered.chart);
-
-        /* The visible scale, stated. A chart whose axis silently rescales
-         * between refreshes is worse than no chart. */
-        if (rendered.axis) {
-            card.append(node('small', 'op-chart-scale',
-                `Visible range ${rendered.axis.lo.toFixed(1)} to ${rendered.axis.hi.toFixed(1)} kW · `
-                + `${state.history?.range || state.range} window · sample every `
-                + `${Math.round((Number(state.history?.sample_interval_ms) || 0) / 1000)} s`));
         }
-
-        const current = rendered.values.length ? rendered.values[rendered.values.length - 1] : NaN;
-        const stats = node('div', 'op-history-stats');
-        stats.append(
-            stat('Current', formatPower(current)),
-            stat('Minimum', formatPower(summary[`${prefix}_min_kw`])),
-            stat('Average', formatPower(summary[`${prefix}_average_kw`])),
-            stat('Peak', formatPower(summary[`${prefix}_max_kw`]))
-        );
-        card.append(stats);
-        card.append(trendLegend(rendered.points));
-        /* Said where a user would otherwise assume otherwise: this is not a
-         * historian. A restart loses every point on this chart. */
-        card.append(node('small', 'op-chart-note',
-            'Held in controller RAM only. Restarting the controller erases this history; it is not written to flash and is not archived.'));
-        return card;
+        return state.chart;
     }
 
-    function stat(label, value) {
-        const item = node('div', 'op-history-stat');
-        item.append(node('span', '', label), node('strong', '', value));
-        return item;
+    function applyHistory() {
+        const instance = state.chart;
+        if (!instance) return;
+        if (state.historyError) {
+            instance.setState('error', state.historyError);
+            return;
+        }
+        if (!state.history) {
+            instance.setState('loading');
+            return;
+        }
+        instance.setData({
+            samples: state.history.samples,
+            sample_interval_ms: state.history.sample_interval_ms,
+            range: state.history.range,
+            receivedAt: state.historyAt
+        });
+    }
+
+    function mountChart(target, page) {
+        const spec = CHART_PAGES[page];
+        if (!target || !spec) return;
+        /* The mount point belongs to operator-view.js, which rebuilds its page
+         * every refresh but keeps this one node. Without it there is nowhere to
+         * put the chart, and appending it to the page body would only have it
+         * wiped by the next rebuild. */
+        const host = target.querySelector('#operatorTrendHost');
+        if (!host) return;
+        const instance = chart();
+        if (!instance) {
+            if (!host.querySelector('.op-empty-state')) {
+                host.append(node('div', 'op-empty-state', 'Trend charting is unavailable in this build.'));
+            }
+            return;
+        }
+        if (state.chartPage !== page) {
+            state.chartPage = page;
+            instance.setTitle(spec.title, spec.description);
+            instance.setSeries(spec.series);
+        }
+        if (instance.element.parentElement !== host) host.append(instance.element);
+        applyHistory();
     }
 
     function enhanceCurrentPage() {
@@ -1229,11 +1075,9 @@
             return;
         }
         const target = current === 'dashboard' ? byId('operatorDashboardView') : current === 'meters' ? byId('operatorMeterView') : current === 'inverters' ? byId('operatorInverterView') : null;
-        if (!target || target.querySelector('.op-controller-history')) return;
-        if (current === 'dashboard') {
-            const grid = node('div', 'op-two-column op-history-section');
-            grid.append(historyPanel('grid'), historyPanel('solar'));
-            target.append(grid);
+        if (!target) return;
+        mountChart(target, current);
+        if (current === 'dashboard' && !target.querySelector('.op-dashboard-events')) {
             const events = (state.events?.events || []).filter((event) => event.active && event.severity !== 'information');
             const attention = node('article', 'op-card op-dashboard-events');
             attention.append(node('div', 'op-card-headline', 'Current attention'));
@@ -1242,10 +1086,6 @@
             events.slice(0, 3).forEach((event) => list.append(eventRow(event)));
             attention.append(list);
             target.append(attention);
-        } else if (current === 'meters') {
-            target.append(historyPanel('grid'));
-        } else if (current === 'inverters') {
-            target.append(historyPanel('solar'));
         }
     }
 
@@ -1259,7 +1099,15 @@
     }
 
     async function refreshHistory() {
-        state.history = await api(`/api/operator/history?range=${encodeURIComponent(state.range)}`);
+        try {
+            const payload = await api(`/api/operator/history?range=${encodeURIComponent(state.range)}`);
+            state.history = payload;
+            state.historyAt = Date.now();
+            state.historyError = null;
+        } catch (error) {
+            state.historyError = error?.message || 'Controller history is unavailable.';
+        }
+        applyHistory();
     }
 
     async function refreshAll() {
@@ -1271,6 +1119,8 @@
                 api('/api/operator/events')
             ]);
             state.history = history;
+            state.historyAt = Date.now();
+            state.historyError = null;
             state.events = events;
             /* The navigation badge is driven by the alarm condition table, not
              * by the event ring: the condition table is the one that still
@@ -1278,6 +1128,8 @@
             renderAlarmPage();
             scheduleEnhance();
         } catch (error) {
+            state.historyError = error?.message || 'Controller history is unavailable.';
+            applyHistory();
             console.warn('Operator history/events unavailable:', error);
         } finally {
             state.busy = false;
@@ -1306,6 +1158,7 @@
             renderAlarmConsole();
         }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-access'] });
         window.addEventListener('amx-access-change', renderAlarmConsole);
+        window.addEventListener('amx-operator-view-rendered', scheduleEnhance);
         const main = byId('mainContent');
         if (main) {
             new MutationObserver((records) => {
