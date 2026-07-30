@@ -15,7 +15,7 @@
 
 | # | Finding | Severity |
 |---|---|---|
-| F1 | Base-branch regression (**not** PR #16): every `/api/operator/*` route, including alarm ack, is now registered through the default-deny gateway and will 401 an unauthenticated operator. Defeats commit `2c3e8a7`. | **High — outside this PR, report upstream** |
+| F1 | ~~Base-branch regression: `/api/operator/*` routed through the default-deny gateway.~~ **WITHDRAWN — this finding is incorrect. See section 6.** | **Not a defect** |
 | F2 | PR #16's client-side hiding is *not* the only protection. Server-side enforcement is real and default-deny. No client-only-authorization finding. | Pass |
 | F3 | PR #16 CI fails for an inherited base defect (`offsetof` without `<stddef.h>`), already fixed on `phase1-fix`. Branch is stale, not broken. | Low (mechanical) |
 | F4 | PR #16 reintroduces hardcoded hex colours and a sub-44 px tap target, directly regressing `phase1-fix` commit `04b89af` which fixed audit S5/S5a/S6. | **High (quality)** |
@@ -395,57 +395,49 @@ findings the base branch closed three commits ago. A green merge button here wou
 
 ---
 
-## 6. Finding F1 — a base-branch regression this review surfaced
+## 6. Finding F1 — WITHDRAWN. The reasoning was sound; the conclusion was wrong.
 
-Not PR #16's defect, and outside the merge decision, but it was found while verifying §2 and it is
-serious enough to record.
+This review argued that `ca47f3e` added `#include "engineering_auth.h"` to `operational_api.c`,
+that the header `#define`s `httpd_register_uri_handler` to the default-deny gateway, that no
+`/api/operator/*` route appears in `public_uri()`, and that the operator-accessible alarm
+acknowledgement of `2c3e8a7` is therefore inert.
 
-`phase1-fix` commit `2c3e8a7` *"acknowledgement is an operator action, with the actor class
-recorded"* deliberately removed the auth gate from `alarms_ack_post`, with a long rationale at
-`components/web_server/operational_api.c:1567-1595`:
+Every step of that is individually true. The conclusion is still false, because of a build-system
+fact none of the source reading could reveal.
 
-> Acknowledgement is an OPERATOR action and is deliberately not gated behind an engineering
-> session. … Requiring engineering credentials made that impossible for the only person normally
-> present.
+**`components/web_server/CMakeLists.txt:215` compiles `operational_api.c` with
+`ENGINEERING_GUARD_IMPLEMENTATION=1`** — the same exemption `engineering_guard.c` itself receives:
 
-And `tests/operator_endpoint_scope_source_contract.py:79-86` asserts:
-
-> Operator endpoints must stay reachable without authentication.
-
-**But on `phase1-fix` they are not.** Commit `ca47f3e` added `#include "engineering_auth.h"` to
-`operational_api.c` (now line 16). Via the `#define` at `engineering_auth.h:33-35`, that silently
-redirects the registration loop at `operational_api.c:2155` through
-`engineering_register_uri_handler`. None of the eight routes registered at `:2140-2152` —
-`/api/operator/history`, `/events`, `/alarms`, `/alarms/ack`, `/alarms/journal`, `/shelve`,
-`/unshelve`, `/out-of-service` — appear in `public_uri` (`engineering_guard.c:274-280`). They all
-default to `GATEWAY_MODE_PROTECTED` and 401 an unauthenticated caller before the handler runs.
-
-This was not the case at the audit commit:
-
-```
-$ git show d71cb03:components/web_server/operational_api.c | grep -c engineering_auth.h
-0
+```cmake
+set_source_files_properties("engineering_guard.c" "operational_api.c" PROPERTIES
+    COMPILE_DEFINITIONS ENGINEERING_GUARD_IMPLEMENTATION=1)
 ```
 
-which is consistent with the audit observing `/api/operator/history` returning 200/500 rather than
-401 (`docs/UI_VISUAL_AUDIT_2026-07-29.md`, S3 and S4 — the S4 401 table does not list any
-`/api/operator/*` route).
+The macro in `engineering_auth.h` is wrapped in `#ifndef ENGINEERING_GUARD_IMPLEMENTATION`, so in
+this translation unit `httpd_register_uri_handler` is ESP-IDF's real function and the operator
+routes are registered ungated — deliberately, matching the comment at `operational_api.c:1567`
+that this unit "is deliberately outside the authorization gateway so operator history and events
+stay readable without a session".
 
-So the ack change appears to be **inert**: the outer gateway refuses before
-`alarms_ack_post`'s carefully-reasoned "no gate here" is ever reached, and the whole operator view
-would need an engineering session to load its data. The existing tests cannot detect this —
-`alarm_ack_authority_source_contract.py` and `operator_endpoint_scope_source_contract.py` are
-*source* contracts that regex the handler body and the JS scope table; neither models the
-registration-time gateway.
+**Verified on hardware**, unauthenticated, against the live controller:
 
-This is inferred from source and should be confirmed on hardware with an unauthenticated
-`curl -i http://<controller>/api/operator/history`. If confirmed, the fix is to add
-`strncmp(uri, "/api/operator/", 14) == 0` to `public_uri()` — while keeping the explicit
-`engineering_auth_is_authorized()` checks that `shelve`/`unshelve`/`out-of-service` already carry at
-`operational_api.c:1698`, `:1782`, `:1873`, so the asymmetry the ack contract protects is preserved.
-That asymmetry is the whole point of `2c3e8a7`, and it currently is not in effect.
+| Request | Result |
+|---|---|
+| `GET /api/operator/history?range=15m` | **200** |
+| `GET /api/operator/alarms` | **200** |
+| `GET /api/operator/events` | **200** |
+| `POST /api/operator/alarms/ack` | **200**, `"acknowledged_by":"operator"` |
+| `POST /api/operator/alarms/shelve` | **401** |
 
----
+The 401 on shelve is the handler's OWN authorization check, not the gateway — which is exactly the
+asymmetry `2c3e8a7` intended: acknowledgement open, suppression closed. Had the gateway been
+wrapping this unit, ack and shelve would necessarily have behaved identically, since they are
+registered from the same `handlers[]` array. They do not.
+
+**The lesson worth keeping:** a source-level reading of macro-based interposition cannot be trusted
+without checking per-file compile definitions. The gateway's opt-out is invisible from C source
+alone. Anyone auditing this boundary in future must read `CMakeLists.txt:210-216` as part of it.
+
 
 ## 7. Recommendation
 
