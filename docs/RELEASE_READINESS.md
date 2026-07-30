@@ -373,6 +373,34 @@ with a Modbus client standing where the firmware would stand.
     written, reviewed against the source, and unexecuted. Writing a procedure is
     not performing it.
 
+## 4a. Known defect: three definitions of "stale"
+
+Found by the operator-documentation audit, quantified here, **not yet fixed**.
+
+Three independent thresholds decide whether a meter sample is too old:
+
+| Where | Threshold | Governs |
+|---|---|---|
+| `safety_manager.c` | the **configured** `meter_stale_timeout_ms` (default **1000 ms**) | whether control input is blocked |
+| `operational_api.c` | fixed `METER_FRESH_MS` = **5000 ms** | whether alarm MTR-001 raises |
+| `web_api.c` | fixed `METER_STALE_AFTER_MS` = **5000 ms** | the dashboard's `meter_stale` flag and quality word |
+
+With the shipped defaults there is therefore a **1000–5000 ms window** in which
+control is inhibited because the sample is stale, while the dashboard reports the
+measurement as good and no alarm is raised. An operator in that window sees a healthy
+plant that is not controlling, with nothing on screen explaining why — which is
+precisely the confusion this product's provenance work exists to remove.
+
+The measured acquisition latency makes this reachable rather than theoretical: mean
+93 ms but 24 % of transactions exceed 250 ms and the tail reaches 319 ms, so a brief
+gateway stall plus a retry can cross 1000 ms without ever approaching 5000 ms.
+
+**The fix is one definition.** The configured value should govern all three, because
+it is the one an engineer can tune to the site's measured latency; the two fixed
+constants cannot be. Not applied in this change only because both files were being
+edited concurrently and this is safety-relevant code that should not be merged
+carelessly.
+
 ## 5. Open decisions
 
 These are product decisions, deliberately not made unilaterally.
