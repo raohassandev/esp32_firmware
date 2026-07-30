@@ -38,7 +38,17 @@ extern "C" {
 #define ALARM_JOURNAL_SHELVED 3U
 #define ALARM_JOURNAL_UNSHELVED 4U
 #define ALARM_JOURNAL_SHELF_EXPIRED 5U
-#define ALARM_JOURNAL_TRANSITION_MAX 5U
+/* A9. The three ISA-18.2 suppression states are audited separately, because a
+ * journal that recorded them as one "suppressed" transition would answer "was
+ * this alarm quiet?" while destroying the only question that matters afterwards:
+ * who decided, and could they. Design suppression is the controller's own
+ * decision and gets both edges; out of service is a maintenance action and gets
+ * both edges plus the reason in `detail`. */
+#define ALARM_JOURNAL_DESIGN_SUPPRESSED 6U
+#define ALARM_JOURNAL_DESIGN_RELEASED 7U
+#define ALARM_JOURNAL_OUT_OF_SERVICE 8U
+#define ALARM_JOURNAL_RETURNED_TO_SERVICE 9U
+#define ALARM_JOURNAL_TRANSITION_MAX 9U
 
 /* 16 bytes on flash per record, encoded explicitly rather than by struct
  * layout so the format cannot drift with a compiler or an endianness change. */
@@ -55,7 +65,8 @@ extern "C" {
 typedef struct {
     uint32_t sequence;   /* monotonic across reboots; recovered from flash */
     uint32_t uptime_ms;  /* milliseconds since controller start, NOT a date */
-    uint16_t detail;     /* transition-specific: shelf duration in seconds */
+    uint16_t detail;     /* transition-specific: shelf duration in seconds, or
+                          * the out-of-service reason code */
     uint8_t code;        /* operational_event_code_t of the alarm */
     uint8_t transition;  /* ALARM_JOURNAL_* above */
 } alarm_journal_entry_t;

@@ -143,6 +143,26 @@
     --prereq-unconfirmed: #ffb454;
     --prereq-unverifiable: #ff9ecb;
 
+    /* ISA-18.2 suppression states (gap A9 of docs/ALARM_MANAGEMENT_RESEARCH.md).
+       Three colours because the standard names three states and warns they must
+       not collapse into one "disabled" look: an operator's expiring shelf, the
+       controller's own plant-state suppression, and a maintenance out-of-service
+       that does not expire at all are three different findings in an audit, and
+       only one of them is a defect.
+       Deliberately off the severity hues. A suppressed alarm is not a severity -
+       painting it red or yellow would put it into the vocabulary an operator
+       reads as "a fault I can clear", and out-of-service in particular cannot be
+       cleared by looking at it. Colour is never the only channel: every state
+       also carries its name, its deciding authority and whether it expires.
+       Declared in full in both themes; a token defined in one theme only is
+       exactly how this codebase produced 1.10:1 and 1.17:1 text twice.
+       Worst measured ratio across the four surfaces these sit on
+       (--panel-strong, --surface-sunken, --panel, --field): shelved 9.61:1,
+       by-design 7.31:1, out-of-service 7.82:1. */
+    --suppress-shelved: #ffc861;
+    --suppress-design: #79bdf5;
+    --suppress-out-of-service: #e8a6ef;
+
     /* Page widths by page type, set from the route table in app.js. Operational
        screens are read across; forms and guided workflows are read down a
        column and get worse, not better, when stretched to 1550px. */
