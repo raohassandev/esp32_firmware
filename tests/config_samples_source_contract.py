@@ -143,10 +143,47 @@ require(site["control"]["enabled"] is False,
 require(site["solar_grid"]["generator_rated_kw"] is None,
         "the site template must not carry a generator rating; it cannot be guessed")
 
+# Per-engine generator limits must be expressed, and every one of them must stay
+# a null placeholder. A site can run up to APP_MAX_GENERATORS gensets in parallel
+# and the minimum-loading floor is computed against the AGGREGATE rating of the
+# engines online, so a template that describes only one engine invites a
+# denominator that is wrong in the permissive direction.
+max_generators = re.search(r"#define APP_MAX_GENERATORS\s+(\d+)", CONFIG_TYPES)
+require(max_generators is not None, "could not read APP_MAX_GENERATORS")
+site_generators = site["solar_grid"].get("generators")
+require(isinstance(site_generators, list),
+        "the site template must express per-engine generator limits as a "
+        "'generators' array; one rating cannot describe a plant that runs a "
+        "variable number of engines in parallel")
+if isinstance(site_generators, list) and max_generators is not None:
+    # Engine 0 is the four legacy scalar fields; the array carries the rest.
+    require(len(site_generators) == int(max_generators.group(1)) - 1,
+            f"the site template describes {len(site_generators)} additional "
+            f"engines but the firmware supports "
+            f"{int(max_generators.group(1)) - 1} beyond engine 0")
+    for position, engine in enumerate(site_generators):
+        for key in ("enabled", "rated_kw", "minimum_loading_percent",
+                    "reserve_kw", "reverse_power_margin_kw"):
+            require(key in engine,
+                    f"engine {position + 1} in the site template omits '{key}'")
+            require(engine.get(key) is None,
+                    f"engine {position + 1} in the site template carries a value "
+                    f"for '{key}'; per-engine generator protection numbers are "
+                    f"nameplate data and must be measured, never shipped")
+
 # The known modelling gap must stay stated rather than quietly forgotten.
 site_text = SITE.read_text(encoding="utf-8")
 require("parallel" in site_text.lower(),
-        "the site template must state the single-generator modelling gap")
+        "the site template must state the parallel-generator modelling position")
+# Which engines are running is a runtime fact read from the generator-role
+# meters, and the template must say so: a commissioning engineer who omits the
+# per-engine meters gets a plant that holds PV at zero, and needs to know why.
+require("generator_index" in site_text,
+        "the site template must tell the engineer to attribute a meter to each "
+        "engine slot, or the running set cannot be established")
+require("aggregate" in site_text.lower(),
+        "the site template must state that the minimum-loading floor is computed "
+        "against the aggregate rating of the engines online")
 
 # ---------------------------------------------------------------------------
 # The documentation must exist and must not invent a credential

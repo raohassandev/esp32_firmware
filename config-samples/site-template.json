@@ -136,10 +136,35 @@
       "power. The genset's OWN reverse-power trip setting and delay must be read and",
       "recorded too -- the controller must act before that trip, not after it.",
       "",
-      "KNOWN MODELLING GAP: this structure holds ONE generator rating and one",
-      "minimum-loading figure. If the site can run a variable number of engines in",
-      "parallel, the commissioned value is correct for one case only. Raise it with",
-      "the product owner before commissioning a multi-engine plant."
+      "PARALLEL ENGINES. A site may run up to three gensets in parallel, and the",
+      "controller now holds a separate rating and minimum-loading figure for each.",
+      "The four generator_* fields below are engine 0. The 'generators' array below",
+      "them is engines 1 and 2 -- fill in one object per engine the site can",
+      "actually run, and leave an engine out of service if it cannot.",
+      "",
+      "This matters arithmetically, not just for record keeping. The minimum-loading",
+      "floor is computed against the AGGREGATE rating of the engines measured online.",
+      "Commissioning one rating for a plant that can run two engines in parallel",
+      "makes that denominator wrong in the permissive direction: the controller would",
+      "allow far more PV than the plant can carry, which is the reverse-power",
+      "condition this product exists to prevent. Every engine the site can run needs",
+      "a rating and a minimum-loading figure, or the commissioning gate stays closed.",
+      "",
+      "Give each engine its own generator-role meter and set that meter's",
+      "generator_index to the engine's slot number. Which engines are running is a",
+      "runtime fact and is read from those meters; it is not configuration. Without",
+      "per-engine meters a multi-engine plant cannot establish its running set and",
+      "the controller holds PV at zero.",
+      "",
+      "REMAINING GAP: POST /api/solar-grid/config currently accepts engine 0 only.",
+      "Engines 1 and 2 are persisted and enforced by the firmware but are not yet",
+      "writable over the HTTP API, so a multi-engine plant cannot be commissioned",
+      "from the web interface yet. Raise it with the product owner.",
+      "",
+      "load_sharing: the aggregate floor assumes proportional (isochronous) kW load",
+      "sharing, where every engine sits at the same percentage loading. Confirm that",
+      "is how the gensets are configured and record who confirmed it. A base-load or",
+      "droop-shared plant is NOT modelled and no figure for it has been invented."
     ],
     "enabled": true,
     "minimum_import_kw": null,
@@ -147,7 +172,26 @@
     "generator_rated_kw": null,
     "generator_minimum_loading_percent": null,
     "generator_reserve_kw": null,
-    "generator_reverse_power_margin_kw": null
+    "generator_reverse_power_margin_kw": null,
+    "generators": [
+      {
+        "_slot": 1,
+        "enabled": null,
+        "rated_kw": null,
+        "minimum_loading_percent": null,
+        "reserve_kw": null,
+        "reverse_power_margin_kw": null
+      },
+      {
+        "_slot": 2,
+        "enabled": null,
+        "rated_kw": null,
+        "minimum_loading_percent": null,
+        "reserve_kw": null,
+        "reverse_power_margin_kw": null
+      }
+    ],
+    "load_sharing_confirmed_by": null
   },
 
   "control": {

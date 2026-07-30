@@ -134,17 +134,57 @@ static commissioning_prereq_result_t evaluate_grid_policy(const commissioning_in
     return met();
 }
 
-/* A generator rating of zero means "not commissioned". There is no safe default
- * rating and one must never be guessed: it would let PV be commanded against a
- * machine whose capacity is unknown. */
+/*
+ * Every engine the plant can run must be described.
+ *
+ * A generator rating of zero means "not commissioned". There is no safe default
+ * rating, no safe default minimum loading, and neither may ever be guessed: it
+ * would let PV be commanded against a machine whose capacity is unknown.
+ *
+ * With engines in parallel this is not merely a per-machine requirement, it is an
+ * arithmetic one. The minimum-loading floor is computed against the aggregate
+ * rating of the engines actually online, so one undescribed engine makes the
+ * denominator wrong for every configuration that includes it -- and wrong in the
+ * permissive direction, allowing more PV than the plant can carry. The gate
+ * therefore refuses a partially described fleet outright rather than
+ * commissioning the subset it happens to know about.
+ *
+ * The order of the checks below preserves the reasons the single-generator
+ * configuration always reported: an uncommissioned rating still comes back as
+ * GENERATOR_RATING_UNKNOWN, not as some new code.
+ */
 static commissioning_prereq_result_t evaluate_generator_limits(const commissioning_inputs_t *in)
 {
     if (!in->generator_limits_known) return unmet(COMMISSIONING_REASON_STATE_UNREADABLE);
-    if (!positive_finite(in->generator_rated_kw)) {
-        return unmet(COMMISSIONING_REASON_GENERATOR_RATING_UNKNOWN);
+
+    uint8_t enabled = 0U;
+    for (uint8_t slot = 0U; slot < (uint8_t)COMMISSIONING_MAX_GENERATORS; ++slot) {
+        if (in->generators[slot].enabled) enabled++;
     }
-    if (!percent_in_range(in->generator_minimum_loading_percent)) {
-        return unmet(COMMISSIONING_REASON_GENERATOR_LOADING_UNKNOWN);
+    /* No engine described at all. This is the uncommissioned unit, and it reports
+     * exactly what it reported before per-engine limits existed. */
+    if (enabled == 0U) return unmet(COMMISSIONING_REASON_GENERATOR_RATING_UNKNOWN);
+
+    /* A meter attributed to a slot the policy does not describe. The site has
+     * declared an engine that carries no rating, so the aggregate floor for the
+     * running configuration that includes it cannot be computed. */
+    for (uint8_t slot = 0U; slot < (uint8_t)COMMISSIONING_MAX_GENERATORS; ++slot) {
+        if (in->generators[slot].referenced_by_meter && !in->generators[slot].enabled) {
+            return unmet(COMMISSIONING_REASON_GENERATOR_SLOT_NOT_CONFIGURED);
+        }
+    }
+
+    for (uint8_t slot = 0U; slot < (uint8_t)COMMISSIONING_MAX_GENERATORS; ++slot) {
+        if (!in->generators[slot].enabled) continue;
+        if (!positive_finite(in->generators[slot].rated_kw)) {
+            return unmet(COMMISSIONING_REASON_GENERATOR_RATING_UNKNOWN);
+        }
+    }
+    for (uint8_t slot = 0U; slot < (uint8_t)COMMISSIONING_MAX_GENERATORS; ++slot) {
+        if (!in->generators[slot].enabled) continue;
+        if (!percent_in_range(in->generators[slot].minimum_loading_percent)) {
+            return unmet(COMMISSIONING_REASON_GENERATOR_LOADING_UNKNOWN);
+        }
     }
     return met();
 }
@@ -282,6 +322,7 @@ static const char *const REASON_IDS[COMMISSIONING_REASON_COUNT] = {
     "generator_rating_unknown",
     "generator_loading_unknown",
     "control_tuning_invalid",
+    "generator_slot_not_configured",
 };
 
 static const char *const REASON_MESSAGES[COMMISSIONING_REASON_COUNT] = {
@@ -300,6 +341,7 @@ static const char *const REASON_MESSAGES[COMMISSIONING_REASON_COUNT] = {
     "The generator rated power is not commissioned.",
     "The generator minimum loading percentage is not commissioned.",
     "The control tuning constants or loop timing are not within a commissioned range.",
+    "A meter is assigned to a generator slot that the generator policy does not describe, so the aggregate minimum-loading floor cannot be computed.",
 };
 
 const char *commissioning_prereq_id(uint8_t prereq)
