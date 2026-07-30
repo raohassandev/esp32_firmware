@@ -10,7 +10,16 @@ html[data-theme="light"] {
     --line-soft: #d7e0e9;
     --text: #172436;
     --muted: #52677d;
-    --muted-2: #71859a;
+    /* Measured 3.80:1 on white at the old #71859a - below 4.5:1 for the
+       10-11px captions that use it. Darkened to 4.96:1 while staying a
+       clear step quieter than --muted (5.84:1). */
+    --muted-2: #5f7286;
+    /* Light counterpart of the accent TEXT token. The brand orange #f28a2b
+       measures 2.49:1 on white, so it fails both 4.5:1 (captions, eyebrows)
+       and 3:1 (arrows, active-nav bars, chart strokes) in light theme.
+       --orange itself is intentionally NOT overridden: it stays the fill
+       swatch that .button.primary and .brand-mark are contrast-matched to. */
+    --accent-text: #9a5300;
     --orange-soft: rgba(242, 138, 43, 0.12);
     --blue: #1675c1;
     --green: #18784d;

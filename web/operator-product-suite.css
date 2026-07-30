@@ -32,10 +32,10 @@ html[data-density="compact"] .content {
     min-height: var(--product-touch);
     margin: auto 14px 12px;
     padding: 10px 12px;
-    border: 1px solid var(--line, #27435f);
+    border: 1px solid var(--line);
     border-radius: 12px;
     background: transparent;
-    color: var(--muted, #8da6be);
+    color: var(--muted);
     cursor: pointer;
     font: inherit;
     font-weight: 700;
@@ -43,8 +43,8 @@ html[data-density="compact"] .content {
 
 .product-engineering-entry:hover,
 .product-engineering-entry:focus-visible {
-    border-color: #ff8c2a;
-    color: #ff8c2a;
+    border-color: var(--accent-text);
+    color: var(--accent-text);
 }
 
 .product-mobile-nav {
@@ -87,10 +87,10 @@ html[data-density="compact"] .content {
     max-height: min(760px, calc(100vh - 48px));
     overflow: auto;
     padding: 28px;
-    border: 1px solid var(--line, #27435f);
+    border: 1px solid var(--line);
     border-radius: 20px;
-    background: var(--panel, #102a43);
-    color: var(--text, #eaf2f9);
+    background: var(--panel);
+    color: var(--text);
     box-shadow: 0 28px 80px rgba(0, 0, 0, .35);
 }
 
@@ -100,7 +100,7 @@ html[data-density="compact"] .content {
     right: 14px;
     width: 38px;
     height: 38px;
-    border: 1px solid var(--line, #27435f);
+    border: 1px solid var(--line);
     border-radius: 10px;
     background: transparent;
     color: inherit;
@@ -114,7 +114,7 @@ html[data-density="compact"] .content {
 
 .product-modal-intro {
     margin: 0 0 20px;
-    color: var(--muted, #8da6be);
+    color: var(--muted);
 }
 
 .product-detail-row {
@@ -122,19 +122,19 @@ html[data-density="compact"] .content {
     justify-content: space-between;
     gap: 20px;
     padding: 13px 0;
-    border-bottom: 1px solid var(--line, #27435f);
+    border-bottom: 1px solid var(--line);
 }
 
 .product-detail-row span {
-    color: var(--muted, #8da6be);
+    color: var(--muted);
 }
 
 .product-detail-row.good strong {
-    color: #31d98b;
+    color: var(--green);
 }
 
 .product-detail-row.warning strong {
-    color: #f6b94a;
+    color: var(--yellow);
 }
 
 .product-modal-content .button {
@@ -161,7 +161,7 @@ body.modal-open {
 }
 
 .commissioning-progress span {
-    color: var(--muted, #8da6be);
+    color: var(--muted);
     font-size: 12px;
 }
 
@@ -169,15 +169,15 @@ body.modal-open {
     height: 10px;
     overflow: hidden;
     border-radius: 999px;
-    background: var(--surface, #081b2d);
-    border: 1px solid var(--line, #27435f);
+    background: var(--control-track);
+    border: 1px solid var(--line);
 }
 
 .commissioning-progress-bar span {
     display: block;
     height: 100%;
     border-radius: inherit;
-    background: linear-gradient(90deg, #ff8c2a, #31d98b);
+    background: var(--accent-text);
     transition: width .3s ease;
 }
 
@@ -192,9 +192,9 @@ body.modal-open {
     gap: 16px;
     align-items: center;
     padding: 18px;
-    border: 1px solid var(--line, #27435f);
+    border: 1px solid var(--line);
     border-radius: 16px;
-    background: var(--panel, #102a43);
+    background: var(--panel);
 }
 
 .commissioning-step.complete {
@@ -208,13 +208,13 @@ body.modal-open {
     height: 40px;
     border-radius: 50%;
     background: rgba(255, 140, 42, .12);
-    color: #ff8c2a;
+    color: var(--accent-text);
     font-weight: 800;
 }
 
 .commissioning-step.complete .commissioning-step-number {
     background: rgba(49, 217, 139, .15);
-    color: #31d98b;
+    color: var(--green);
 }
 
 .commissioning-step h3,
@@ -224,7 +224,7 @@ body.modal-open {
 
 .commissioning-step p {
     margin-top: 5px;
-    color: var(--muted, #8da6be);
+    color: var(--muted);
 }
 
 .kiosk-mode .sidebar,
@@ -280,9 +280,9 @@ body.modal-open {
         grid-template-columns: repeat(5, 1fr);
         gap: 4px;
         padding: 6px;
-        border: 1px solid var(--line, #27435f);
+        border: 1px solid var(--line);
         border-radius: 16px;
-        background: color-mix(in srgb, var(--panel, #102a43) 92%, transparent);
+        background: color-mix(in srgb, var(--panel) 92%, transparent);
         box-shadow: 0 14px 42px rgba(0, 0, 0, .24);
         backdrop-filter: blur(12px);
     }
@@ -294,7 +294,7 @@ body.modal-open {
         min-height: 52px;
         padding: 7px 4px;
         border-radius: 11px;
-        color: var(--muted, #8da6be);
+        color: var(--muted);
         text-decoration: none;
     }
 
@@ -309,7 +309,7 @@ body.modal-open {
 
     .product-mobile-link.active {
         background: rgba(255, 140, 42, .13);
-        color: #ff8c2a;
+        color: var(--accent-text);
     }
 
     .commissioning-step {
