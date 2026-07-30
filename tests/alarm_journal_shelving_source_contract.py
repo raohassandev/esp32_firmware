@@ -633,6 +633,13 @@ try:
         # `extern int fsync(int)` became `extern int 0` -- which broke the Linux
         # build while passing on MinGW, whose unistd.h does not declare fsync at
         # all. Renaming the symbol leaves every declaration well-formed on both.
+        # fileno() and fsync() are POSIX, not ISO C. Under -std=c11 glibc hides
+        # both behind a feature-test macro, so without this the harness compiled
+        # on MinGW (which exposes them regardless) and failed on Linux with an
+        # implicit declaration. ESP-IDF's newlib exposes them, so this is a
+        # property of the test harness and not of the firmware.
+        "-D_DEFAULT_SOURCE",
+        "-D_POSIX_C_SOURCE=200809L",
         "-Dfsync=pvdg_test_fsync",
         "-include", "pvdg_test_fsync.h",
         str(work / "harness.c"), str(JOURNAL_PATH), "-o", str(binary),
