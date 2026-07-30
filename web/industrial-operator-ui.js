@@ -25,6 +25,14 @@
         }
     }
 
+    function clearServiceView() {
+        try {
+            sessionStorage.removeItem(SERVICE_VIEW_KEY);
+        } catch (_) {
+            /* Session storage is an optional presentation preference. */
+        }
+    }
+
     function setServiceView(enabled) {
         try {
             sessionStorage.setItem(SERVICE_VIEW_KEY, enabled ? '1' : '0');
@@ -107,7 +115,7 @@
             const dot = alarmCard.querySelector('[data-industrial-dot]');
             const text = alarms && alarms !== '--' ? alarms : 'Unavailable';
             if (value) value.textContent = text;
-            const normal = /^(0|none|normal|clear)$/i.test(text);
+            const normal = /^(0(?:\s+active)?|none|normal|clear|no active alarms)$/i.test(text);
             if (detail) detail.textContent = normal
                 ? 'No active plant condition requires attention'
                 : 'Open Alarms and events for the required action';
@@ -230,6 +238,7 @@
     function applyAudienceVisibility() {
         const access = currentAccess();
         const engineering = access === 'engineering';
+        if (!engineering) clearServiceView();
         const service = engineering && serviceViewEnabled();
         document.body?.setAttribute('data-audience', access);
 
