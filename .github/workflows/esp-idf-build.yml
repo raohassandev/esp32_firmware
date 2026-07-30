@@ -8,6 +8,10 @@ on:
       - dev
       - 'feature/**'
       - 'fix/**'
+      # The integration branch this release is being assembled on. It was absent,
+      # so every push to it skipped CI entirely and the checks below had never once
+      # run against the branch that actually carries the work.
+      - 'phase1-**'
   workflow_dispatch:
     inputs:
       production_release:
