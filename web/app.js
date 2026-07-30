@@ -1,3 +1,16 @@
+/* app.js - router and controller-status publisher.
+ *
+ * OWNS: routing. The only module that may set `.page.active`,
+ *   `.nav-link.active`, #pageTitle, #breadcrumbCurrent or document.title;
+ *   route metadata lives in ROUTES below and nowhere else. Modules inject
+ *   their page inactive and the router activates it. Also the /api/status
+ *   poll, republished as amx-controller-status / amx-controller-health so no
+ *   other module needs a second one; /api/config; the power-flow view.
+ * DOES NOT OWN: authorisation, engineering-only visibility, the request scope
+ *   predicate and the single #mainContent observer (product-mode.js); top bar
+ *   and navigation list (product-shell-v2.js); page mastheads
+ *   (product-experience-v2.js); operator content (operator-view.js).
+ */
 (() => {
     'use strict';
 
@@ -15,8 +28,12 @@
          * selected navigation item disagreed. */
         alarms: { title: 'Alarms', breadcrumb: 'Alarms and events' },
         readiness: { title: 'Pre-Lab Readiness', breadcrumb: 'Readiness' },
-        commissioning: { title: 'Commissioning', breadcrumb: 'Commissioning' },
-        engineering: { title: 'Engineering', breadcrumb: 'Engineering' }
+        /* These two breadcrumbs were previously rewritten by
+         * commissioning-route.js and product-mode.js after this router had
+         * written its own, so the text depended on event ordering. Both other
+         * writers are gone; the descriptive wording lives here. */
+        commissioning: { title: 'Commissioning', breadcrumb: 'Guided site commissioning' },
+        engineering: { title: 'Engineering', breadcrumb: 'Restricted commissioning and service tools' }
     };
 
     const WIFI_STATES = ['Idle', 'Scanning', 'Connecting primary', 'Connecting fallback', 'Connected', 'Setup AP', 'Disconnected'];
@@ -42,43 +59,54 @@
     const byId = (id) => document.getElementById(id);
     const all = (selector) => Array.from(document.querySelectorAll(selector));
 
+    /* Idempotent primitives. renderStatus() writes ~50 fields every two
+     * seconds on every route. Assigning textContent or className replaces the
+     * text node or attribute even when the value is identical, so an unchanged
+     * refresh used to emit a full set of DOM mutations and wake every observer
+     * watching the shell. Compare first; unchanged means no-op. */
+    function writeText(node, value) {
+        if (node && node.textContent !== value) node.textContent = value;
+    }
+
+    function writeClass(node, value) {
+        if (node && node.className !== value) node.className = value;
+    }
+
     function setText(id, value) {
-        const node = byId(id);
-        if (node) node.textContent = value == null || value === '' ? '--' : String(value);
+        writeText(byId(id), value == null || value === '' ? '--' : String(value));
     }
 
     function setTone(id, tone) {
         const node = byId(id);
         if (!node) return;
-        node.classList.remove('good-text', 'warning-text', 'bad-text', 'muted-text');
-        if (tone) node.classList.add(`${tone}-text`);
+        ['good-text', 'warning-text', 'bad-text', 'muted-text'].forEach((name) => {
+            node.classList.toggle(name, Boolean(tone) && name === `${tone}-text`);
+        });
     }
 
     function setDot(id, tone) {
-        const node = byId(id);
-        if (!node) return;
-        node.className = `dot${tone ? ` ${tone}` : ''}`;
+        writeClass(byId(id), `dot${tone ? ` ${tone}` : ''}`);
     }
 
     function setPill(id, label, tone) {
         const node = byId(id);
         if (!node) return;
-        node.textContent = label;
-        node.className = `live-pill ${tone || 'neutral'}`;
+        writeText(node, label);
+        writeClass(node, `live-pill ${tone || 'neutral'}`);
     }
 
     function setBadge(id, label, tone) {
         const node = byId(id);
         if (!node) return;
-        node.textContent = label;
-        node.className = `subtle-badge${tone ? ` ${tone}` : ''}`;
+        writeText(node, label);
+        writeClass(node, `subtle-badge${tone ? ` ${tone}` : ''}`);
     }
 
     function setMessage(id, message, tone) {
         const node = byId(id);
         if (!node) return;
-        node.textContent = message || '';
-        node.className = `action-message${tone ? ` ${tone}` : ''}`;
+        writeText(node, message || '');
+        writeClass(node, `action-message${tone ? ` ${tone}` : ''}`);
     }
 
     function formatPower(value) {
@@ -141,14 +169,24 @@
         return ROUTES[route] ? route : 'dashboard';
     }
 
-    function navigate() {
+    /* Selection only, and idempotent: classList.toggle to a value already
+     * present records no mutation. Re-run when another module injects its page
+     * into #mainContent - that is how alarms, readiness and commissioning
+     * become active without each shipping its own router. */
+    function applyRoute() {
         state.route = routeFromHash();
         all('.page').forEach((page) => page.classList.toggle('active', page.dataset.page === state.route));
         all('.nav-link').forEach((link) => link.classList.toggle('active', link.dataset.route === state.route));
+    }
+
+    function navigate() {
+        applyRoute();
         const meta = ROUTES[state.route];
         setText('pageTitle', meta.title);
         setText('breadcrumbCurrent', meta.breadcrumb);
-        document.title = `${meta.title} · Automatrix PV-DG`;
+        if (document.title !== `${meta.title} · Automatrix PV-DG`) {
+            document.title = `${meta.title} · Automatrix PV-DG`;
+        }
         closeMenu();
     }
 
@@ -232,6 +270,12 @@
             sourceDetection: state.sourceDetection
         });
 
+        /* A full rebuild of ~50 elements, driven by a two-second poll. It used
+         * to run whether or not a number had moved. */
+        const signature = JSON.stringify(model);
+        if (container.dataset.flowSignature === signature) return;
+        container.dataset.flowSignature = signature;
+
         container.replaceChildren();
         const supply = document.createElement('div');
         supply.className = 'flow-column flow-supply';
@@ -292,6 +336,11 @@
         setText('statusUpdated', 'Refresh failed');
         setText('sidebarState', 'Controller unavailable');
         setTone('statusController', 'bad');
+        publishHealth({
+            controller: 'Offline', network: 'Unavailable', meter: 'Unavailable',
+            control: 'Unavailable', alarms: 'Unavailable',
+            online: false, meterHealthy: false, controlEnabled: false, alarmCount: 0
+        });
     }
 
     function renderStatus() {
@@ -394,6 +443,36 @@
 
         setText('systemIp', status.ip || 'Unavailable');
         setText('systemSsid', status.ssid || 'Unavailable');
+
+        publishHealth({
+            controller: networkOnline ? 'Online' : 'Offline',
+            network: networkOnline ? `${status.ssid || '--'} · ${status.ip || '--'}` : wifiState,
+            meter: meterFresh ? 'Online' : meterStale ? 'Stale' : 'Offline',
+            control: controlEnabled ? `Enabled · ${mode}` : 'Disabled',
+            alarms: alarmNames.length ? `${alarmNames.length} active` : 'Clear',
+            online: networkOnline,
+            meterHealthy: meterFresh,
+            controlEnabled,
+            alarmCount: alarmNames.length
+        });
+    }
+
+    /* The shell header used to derive its indicator by reading the rendered
+     * status strip back out of the DOM and regex-matching the English words in
+     * it, behind a characterData observer that fired every two seconds. The
+     * renderer knows the answer as data, so it states it. amx-controller-status
+     * carries the raw payload so nothing needs a second /api/status. */
+    let lastHealthSignature = '';
+    function publishHealth(health) {
+        const tone = !health.online || health.alarmCount > 0 || !health.meterHealthy ? 'bad'
+            : !health.controlEnabled ? 'warning'
+            : 'good';
+        const label = tone === 'bad' ? 'Attention' : tone === 'warning' ? 'Review' : 'Normal';
+        const detail = { ...health, tone, label };
+        const signature = JSON.stringify(detail);
+        if (signature === lastHealthSignature) return;
+        lastHealthSignature = signature;
+        window.dispatchEvent(new CustomEvent('amx-controller-health', { detail }));
     }
 
     async function refreshStatus() {
@@ -403,6 +482,7 @@
             state.status = await api('/api/status');
             state.lastUpdatedAt = new Date();
             renderStatus();
+            window.dispatchEvent(new CustomEvent('amx-controller-status', { detail: state.status }));
         } catch (error) {
             renderControllerUnavailable();
         } finally {
@@ -446,6 +526,9 @@
 
     function renderInverters(inverters) {
         const container = byId('inverterList');
+        const signature = JSON.stringify(inverters ?? null);
+        if (container.dataset.inverterSignature === signature) return;
+        container.dataset.inverterSignature = signature;
         container.replaceChildren();
         if (!Array.isArray(inverters) || inverters.length === 0) {
             const empty = document.createElement('div');
@@ -792,6 +875,10 @@
         bindSiteTelemetry();
         if (!window.location.hash) window.location.hash = '#/dashboard';
         navigate();
+        /* Pages injected after this script runs (alarms, readiness,
+         * commissioning, engineering) arrive inactive; the router selects them
+         * when the shared observer reports the addition. */
+        window.AutomatrixEngineeringAccess?.onContentChange(applyRoute);
         await Promise.allSettled([loadConfig(), refreshStatus()]);
         window.setInterval(refreshStatus, 2000);
         window.AutomatrixEngineeringAccess?.onScopeChange(refreshSourceDetection);

@@ -58,8 +58,13 @@
         return wrapper;
     }
 
-    function panel(title, subtitle = '') {
+    /* The renderer states the collapse default; ui-enhancements.js reads the
+     * attribute. It previously decided by matching the rendered heading against
+     * a hardcoded list of English section names. */
+    function panel(title, subtitle = '', collapsedByDefault = true) {
         const result = node('article', 'panel em500-panel');
+        result.dataset.collapsedByDefault = collapsedByDefault ? 'true' : 'false';
+        result.dataset.panelKey = String(title || 'section');
         const header = node('div', 'panel-header');
         const copy = node('div');
         if (subtitle) copy.append(node('p', 'eyebrow', subtitle));
@@ -186,8 +191,8 @@
         return wrapper;
     }
 
-    function measurementSection(title, values, keys) {
-        const section = panel(title, 'Read-only live values');
+    function measurementSection(title, values, keys, openByDefault = false) {
+        const section = panel(title, 'Read-only live values', !openByDefault);
         section.append(valuesTable(keys.map((key) => ({ key, ...(values?.[key] || {}) }))));
         return section;
     }
@@ -208,9 +213,11 @@
         );
         setContent(
             summary,
-            measurementSection('Voltage', values, ['voltage_l1_n', 'voltage_l2_n', 'voltage_l3_n', 'voltage_l1_l2', 'voltage_l2_l3', 'voltage_l3_l1', 'voltage_phase_equivalent', 'voltage_line_equivalent']),
-            measurementSection('Current', values, ['current_l1', 'current_l2', 'current_l3', 'current_equivalent', 'current_neutral']),
-            measurementSection('Active power', values, ['active_power_l1', 'active_power_l2', 'active_power_l3', 'active_power_total']),
+            /* Voltage, current and active power are what an engineer opens this
+             * view to read, so they are expanded on arrival. */
+            measurementSection('Voltage', values, ['voltage_l1_n', 'voltage_l2_n', 'voltage_l3_n', 'voltage_l1_l2', 'voltage_l2_l3', 'voltage_l3_l1', 'voltage_phase_equivalent', 'voltage_line_equivalent'], true),
+            measurementSection('Current', values, ['current_l1', 'current_l2', 'current_l3', 'current_equivalent', 'current_neutral'], true),
+            measurementSection('Active power', values, ['active_power_l1', 'active_power_l2', 'active_power_l3', 'active_power_total'], true),
             measurementSection('Reactive power', values, ['reactive_power_l1', 'reactive_power_l2', 'reactive_power_l3', 'reactive_power_total']),
             measurementSection('Apparent power', values, ['apparent_power_l1', 'apparent_power_l2', 'apparent_power_l3', 'apparent_power_total']),
             measurementSection('Power factor', values, ['power_factor_l1', 'power_factor_l2', 'power_factor_l3', 'power_factor_total']),

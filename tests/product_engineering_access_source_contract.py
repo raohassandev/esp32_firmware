@@ -53,9 +53,26 @@ require("web_assets_operator_view_js" in SERVER and "operator-view.js" in CMAKE,
 
 for token in [
     "credentials: 'same-origin'", "Engineering and commissioning",
-    "Change engineering password", "PROTECTED_ROUTES", "activateEngineeringRoute",
+    "Change engineering password", "PROTECTED_ROUTES",
 ]:
     require(token in JS, f"product UI access flow missing {token}")
+
+# The Engineering route used to be activated here, by a second copy of the
+# router that also rewrote the page title and breadcrumb after app.js had
+# written them. This module now only injects the page; app.js selects it when
+# the shared content notifier reports the addition. Assert the handover, which
+# is the property that matters, rather than the name of the removed function.
+APP = (ROOT / "web/app.js").read_text(encoding="utf-8")
+require("page.dataset.page = 'engineering'" in JS,
+        "the Engineering page is no longer injected")
+require("onContentChange" in JS,
+        "the access module must publish the shared content notifier")
+require("engineering: { title: 'Engineering'" in APP,
+        "the router does not know the Engineering route")
+require("onContentChange(applyRoute)" in APP,
+        "the router must re-apply the route when a page is injected late")
+require("classList.toggle('active'" in APP and "classList.toggle('active'" not in JS,
+        "page activation must happen in exactly one module")
 require("sessionStorage" not in JS,
         "Engineering session token must not be stored in browser-accessible sessionStorage")
 require("X-Engineering-Token" not in JS,

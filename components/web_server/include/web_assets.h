@@ -26,7 +26,6 @@ const char *web_assets_operator_product_suite_js(size_t *length);
 const char *web_assets_prelab_readiness_js(size_t *length);
 const char *web_assets_product_shell_v2_js(size_t *length);
 const char *web_assets_product_experience_v2_js(size_t *length);
-const char *web_assets_commissioning_route_js(size_t *length);
 const char *web_assets_commissioning_wizard_v2_js(size_t *length);
 const char *web_assets_commissioning_release_v3_js(size_t *length);
 const char *web_assets_engineering_errors_js(size_t *length);

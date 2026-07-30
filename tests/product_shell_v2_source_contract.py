@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
+import re
 from pathlib import Path
+
+
+def code(text: str) -> str:
+    """Executable source only; ownership comments name identifiers on purpose."""
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    return re.sub(r"(?m)^\s*//.*$", "", text)
+
 
 ROOT = Path(__file__).resolve().parents[1]
 js = (ROOT / "web/product-shell-v2.js").read_text(encoding="utf-8")
@@ -21,8 +29,40 @@ assert ".product-tool-button" in css and "display: none" in css, "secondary disp
 assert "max-width: 650px" in css and "place-items: end stretch" in css, "mobile overflow sheet is required"
 assert "groupNavigation" in js and "dataset.shellGrouped" in js, "navigation hierarchy must be deterministic and idempotent"
 assert "removeDuplicateIntros" in js, "duplicate page introductions must be suppressed"
-assert ".observe(main, { childList: true })" in js, "shell may observe only direct page additions"
-assert "subtree: true" not in js[js.find("function start()"):], "shell must not rescan the full live telemetry subtree"
+
+# The shell is the single owner of the navigation list: both the item order and
+# the section labels. product-experience-v2.js used to insert the labels into a
+# list this module was reordering underneath them, so the outcome depended on
+# which module ran last. Both label strings must therefore live here.
+assert "experience-nav-label" in js, "the shell owns the navigation section labels"
+assert "'Operate'" in js and "'Commission & service'" in js, "navigation sections are not labelled"
+
+# Grouping must be repeatable, not latched: nav entries are added by later
+# modules (the commissioning entry among them) after this module has started,
+# and a one-shot pass leaves them unplaced. Repeatable means it must also be
+# idempotent -- it compares before it writes.
+assert "if (tail.length === ordered.length" in js, "navigation grouping must not mutate when already ordered"
+
+# Visibility of a navigation entry follows Engineering authorisation and belongs
+# to product-mode.js. The shell orders the list; it must never hide an entry.
+grouping = js[js.index("function groupNavigation"):js.index("function removeDuplicateIntros")]
+assert "hidden" not in grouping, "the shell must not decide navigation visibility"
+assert "dataset.access" not in grouping and "authenticated" not in grouping, \
+    "navigation order must not depend on authorisation state"
+
+# One MutationObserver watches #mainContent for the whole application and it
+# lives in product-mode.js. This module subscribes; it does not add its own.
+assert "new MutationObserver" not in code(js), "the shell must not install a MutationObserver of its own"
+assert "onContentChange(" in js, "the shell must subscribe to the shared content notifier"
+
+# Health state is data published by app.js. Deriving it by reading the rendered
+# status text back out of the DOM and regex-matching English words meant a copy
+# edit changed the header indicator, and required a characterData observer over
+# a strip that updates every two seconds.
+assert "amx-controller-health" in js, "shell health must come from the published status event"
+assert "statusController" not in code(js) and "status-strip" not in code(js), \
+    "shell must not scrape rendered status text"
+assert "characterData" not in code(js), "shell must not observe rendered text"
 
 for name in ("product-shell-v2.css", "product-shell-v2.js"):
     assert name in cmake, f"{name} must be embedded"

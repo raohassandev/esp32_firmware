@@ -38,14 +38,10 @@
         }
     }
 
-    function activateRoute() {
-        if (route() !== 'readiness') return;
-        document.querySelectorAll('.page').forEach((page) => page.classList.toggle('active', page.dataset.page === 'readiness'));
-        document.querySelectorAll('.nav-link').forEach((link) => link.classList.toggle('active', link.dataset.route === 'readiness'));
-        if (byId('pageTitle')) byId('pageTitle').textContent = 'Pre-Lab Readiness';
-        if (byId('breadcrumbCurrent')) byId('breadcrumbCurrent').textContent = 'Release checks';
-        document.title = 'Pre-Lab Readiness · Automatrix PV-DG';
-    }
+    /* Route activation used to be repeated here: this module selected its own
+     * page and rewrote #pageTitle, #breadcrumbCurrent and document.title after
+     * app.js had already written them. app.js is the only router now; it
+     * selects this page when the shared observer reports it was injected. */
 
     function check(id, label, status, detail, action = '') {
         return { id, label, status, detail, action };
@@ -139,8 +135,15 @@
         }
     }
 
+    /* Audit S4. This page is a diagnostics screen, but its poll ran on every
+     * route: six requests every fifteen seconds from the operator dashboard,
+     * including /api/operator/history - the largest response the firmware
+     * produces at roughly 26 KB, and the one measured returning HTTP 500 under
+     * browser load in S3. None of it was displayed unless the readiness page
+     * was open. It now loads only for its own route, and loads immediately on
+     * arrival so nothing is lost. */
     async function refreshAll() {
-        if (state.busy) return;
+        if (state.busy || route() !== 'readiness') return;
         state.busy = true;
         try {
             const [status, meters, inverters, history, events, session] = await Promise.all([
@@ -183,9 +186,8 @@
 
     function start() {
         ensurePage();
-        activateRoute();
         refreshAll();
-        window.addEventListener('hashchange', () => { ensurePage(); activateRoute(); render(); });
+        window.addEventListener('hashchange', () => { ensurePage(); refreshAll(); render(); });
         state.timer = window.setInterval(refreshAll, 15000);
     }
 

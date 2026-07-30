@@ -1,3 +1,16 @@
+/* product-mode.js - engineering access, request scope, shared DOM observer.
+ *
+ * OWNS: engineering authentication state and documentElement.dataset.access;
+ *   which DOM regions are engineering-only and their hidden/aria-hidden state
+ *   (presentation, NOT authorization - the server's default-deny gateway in
+ *   engineering_guard.c is the barrier); the request-scope predicate, route
+ *   AND authorisation, that every module consults before an Engineering
+ *   request (audit S4); the one MutationObserver on #mainContent, republished
+ *   as onContentChange; the Engineering nav entry, page and forms.
+ * DOES NOT OWN: routing. It never activates a page or writes the title or
+ *   breadcrumb - app.js does - it only sends an unauthorised caller to sign
+ *   in. Navigation order and labels belong to product-shell-v2.js.
+ */
 (() => {
     'use strict';
 
@@ -75,6 +88,43 @@
         if (typeof handler !== 'function') return;
         window.addEventListener('amx-access-change', handler);
         window.addEventListener('hashchange', handler);
+    }
+
+    /* ------------------------------------------------ single content observer
+     *
+     * product-shell-v2.js and product-experience-v2.js each installed their own
+     * observer on #mainContent alongside this module's visibility observer,
+     * every one of them re-deriving "did a page appear?" from the same records.
+     * There is now one, and it cannot react to its own subscribers' writes:
+     * records produced while subscribers run are drained with takeRecords() and
+     * discarded before the observer is armed again, so a subscriber that starts
+     * adding children to #mainContent still cannot open a feedback loop. */
+    const contentSubscribers = [];
+    let contentObserver = null;
+    let notifying = false;
+
+    /* A subscriber hears only about a page added to or removed from
+     * #mainContent; descendant churn inside a live meter workspace is constant
+     * and of no interest to the shell. `{ deep: true }` opts in. */
+    function onContentChange(handler, options = {}) {
+        if (typeof handler !== 'function') return;
+        contentSubscribers.push({ handler, deep: Boolean(options.deep) });
+    }
+
+    function notifyContentChange(records) {
+        if (notifying) return;
+        const structural = records.some((record) => record.target === document.getElementById('mainContent'));
+        notifying = true;
+        try {
+            enforceEngineeringDom();
+            contentSubscribers.forEach((entry) => {
+                if (!structural && !entry.deep) return;
+                try { entry.handler(); } catch {}
+            });
+        } finally {
+            contentObserver?.takeRecords();
+            notifying = false;
+        }
     }
 
     async function renewEngineeringSession() {
@@ -206,21 +256,12 @@
         main.append(page);
     }
 
-    function activateEngineeringRoute() {
-        if (currentRoute() !== 'engineering') return;
-        document.querySelectorAll('.page').forEach((page) => page.classList.toggle('active', page.dataset.page === 'engineering'));
-        document.querySelectorAll('.nav-link').forEach((link) => link.classList.toggle('active', link.dataset.route === 'engineering'));
-        const title = document.getElementById('pageTitle');
-        const breadcrumb = document.getElementById('breadcrumbCurrent');
-        if (title) title.textContent = 'Engineering';
-        if (breadcrumb) breadcrumb.textContent = 'Restricted commissioning and service tools';
-        document.title = 'Engineering · Automatrix PV-DG';
-    }
-
+    /* Route selection and the page title belong to app.js. This module only
+     * moves the user to the sign-in route; the router notices the hash change,
+     * or the content observer notices the injected page, and activates it. */
     function openLogin(message = '') {
         if (location.hash !== '#/engineering') location.hash = '#/engineering';
         setTimeout(() => {
-            activateEngineeringRoute();
             const input = document.getElementById('engineeringPassword');
             const target = document.getElementById('engineeringLoginMessage');
             if (target) target.textContent = message;
@@ -301,9 +342,7 @@
         if (PROTECTED_ROUTES.has(route) && !state.authenticated) {
             const restored = await renewEngineeringSession();
             if (!restored) openLogin('Sign in to open this engineering page.');
-            return;
         }
-        if (route === 'engineering') setTimeout(activateEngineeringRoute, 0);
     }
 
     document.addEventListener('DOMContentLoaded', async () => {
@@ -312,7 +351,13 @@
         bindForms();
         setEngineering(false);
         const main = document.getElementById('mainContent');
-        if (main) new MutationObserver(enforceEngineeringDom).observe(main, { childList: true, subtree: true });
+        if (main) {
+            contentObserver = new MutationObserver(notifyContentChange);
+            contentObserver.observe(main, { childList: true, subtree: true });
+            /* The Engineering page was injected a few lines above, before the
+             * observer existed. Announce it once so the router can select it. */
+            contentSubscribers.forEach((entry) => { try { entry.handler(); } catch {} });
+        }
         await refreshSession();
         await enforceRoute();
     });
@@ -325,6 +370,7 @@
         currentRoute,
         mayRequest,
         mayUseEngineering: (...routes) => engineeringScopeAllows(routes.flat()),
-        onScopeChange
+        onScopeChange,
+        onContentChange
     });
 })();

@@ -1,3 +1,15 @@
+/* product-shell-v2.js - the application shell: top bar and navigation list.
+ *
+ * OWNS: the navigation list as a whole - item order and section labels. The
+ *   only module that may reorder or insert into it; product-experience-v2.js
+ *   used to add the labels while this module reordered the items beneath them.
+ *   Also the top-bar controls it creates: health button, overflow menu, page
+ *   context line.
+ * DOES NOT OWN: routing, titles, breadcrumbs (app.js); which nav entries are
+ *   visible, which follows authorisation (product-mode.js) - nothing here sets
+ *   hidden on a nav item; page content (product-experience-v2.js).
+ * Issues no request. Health arrives as the amx-controller-health event.
+ */
 (() => {
     'use strict';
 
@@ -35,20 +47,19 @@
         if (context) context.textContent = ROUTE_CONTEXT[route()] || 'Automatrix PV-DG controller';
     }
 
-    function healthSnapshot() {
-        const controller = byId('statusController')?.textContent || 'Checking';
-        const network = byId('statusNetwork')?.textContent || 'Checking';
-        const meter = byId('statusMeter')?.textContent || 'Checking';
-        const control = byId('statusControl')?.textContent || 'Checking';
-        const alarms = byId('statusAlarms')?.textContent || 'Checking';
-        const offline = /offline|unavailable/i.test(`${controller} ${network}`);
-        const critical = /critical|active|offline|stale/i.test(`${alarms} ${meter}`);
-        const attention = /disabled|checking|setup|recovery/i.test(`${control} ${network}`);
-        return {
-            tone: offline || critical ? 'bad' : attention ? 'warning' : 'good',
-            label: offline || critical ? 'Attention' : attention ? 'Review' : 'Normal',
-            rows: [['Controller', controller], ['Network', network], ['Grid meter', meter], ['Control', control], ['Alarms', alarms]]
-        };
+    /* Health is data published by app.js, not text read back out of the page.
+     * This used to query five rendered elements and apply English regular
+     * expressions to their contents, so a copy edit silently changed the header
+     * indicator - and it needed a characterData observer over a strip that
+     * refreshes every two seconds. Both are gone. */
+    let health = { tone: 'warning', label: 'Checking', rows: [] };
+
+    function healthRows(detail) {
+        return [
+            ['Controller', detail.controller], ['Network', detail.network],
+            ['Grid meter', detail.meter], ['Control', detail.control],
+            ['Alarms', detail.alarms]
+        ];
     }
 
     function createPopover(title) {
@@ -83,28 +94,32 @@
         button.type = 'button';
         button.innerHTML = '<span class="shell-health-dot" aria-hidden="true"></span><span class="shell-health-label">Checking</span>';
         button.addEventListener('click', () => {
-            const snapshot = healthSnapshot();
             popover.body.replaceChildren();
             const list = node('div', 'shell-status-list');
-            snapshot.rows.forEach(([label, value]) => {
+            health.rows.forEach(([label, value]) => {
                 const row = node('div', 'shell-status-row');
-                row.append(node('span', '', label), node('strong', '', value));
+                row.append(node('span', '', label), node('strong', '', value || 'Checking'));
                 list.append(row);
             });
             popover.body.append(list);
             popover.show();
         });
         actions.insertBefore(button, actions.firstChild);
+        /* Idempotent: an unchanged refresh writes nothing. */
         const update = () => {
-            const snapshot = healthSnapshot();
-            button.className = `shell-health-button ${snapshot.tone}`;
+            const className = `shell-health-button ${health.tone}`;
+            if (button.className !== className) button.className = className;
             const label = button.querySelector('.shell-health-label');
-            if (label) label.textContent = snapshot.label;
-            button.setAttribute('aria-label', `System health: ${snapshot.label}`);
+            if (label && label.textContent !== health.label) label.textContent = health.label;
+            const described = `System health: ${health.label}`;
+            if (button.getAttribute('aria-label') !== described) button.setAttribute('aria-label', described);
         };
         update();
-        const strip = document.querySelector('.status-strip');
-        if (strip) new MutationObserver(update).observe(strip, { childList: true, subtree: true, characterData: true });
+        window.addEventListener('amx-controller-health', (event) => {
+            const detail = event.detail || {};
+            health = { tone: detail.tone || 'warning', label: detail.label || 'Checking', rows: healthRows(detail) };
+            update();
+        });
     }
 
     function clickExisting(id) {
@@ -146,14 +161,38 @@
         actions.append(button);
     }
 
+    /* Navigation order and section labels, one pass, one module.
+     *
+     * The previous version latched after its first run, so an entry added later
+     * - operator-product-suite.js adds commissioning after this module starts -
+     * was never placed; and the labels came from product-experience-v2.js,
+     * which could not know whether the reorder had happened. This pass is
+     * repeatable instead of latched, and checks the list is not already in the
+     * intended order before writing, because re-appending a node in place still
+     * records a mutation. Visibility stays with product-mode.js. */
+    const OPERATE_ROUTES = ['dashboard', 'meters', 'inverters', 'control', 'alarms'];
+    const SERVICE_ROUTES = ['readiness', 'engineering', 'commissioning', 'wifi', 'system'];
+
     function groupNavigation() {
         const nav = document.querySelector('.nav-list');
-        if (!nav || nav.dataset.shellGrouped === 'true') return;
+        if (!nav) return;
         nav.dataset.shellGrouped = 'true';
-        ['dashboard', 'meters', 'inverters', 'control', 'alarms', 'readiness', 'engineering', 'commissioning', 'wifi', 'system'].forEach((name) => {
-            const item = nav.querySelector(`[data-route="${name}"]`);
-            if (item) nav.append(item);
-        });
+
+        const ordered = [];
+        const operate = OPERATE_ROUTES.map((name) => nav.querySelector(`[data-route="${name}"]`)).filter(Boolean);
+        const service = SERVICE_ROUTES.map((name) => nav.querySelector(`[data-route="${name}"]`)).filter(Boolean);
+        /* Class name belongs to product-experience-v2.css; the element is
+         * created here because navigation has one owner. */
+        const labels = [...nav.querySelectorAll(':scope > .experience-nav-label')];
+        if (operate.length) ordered.push(labels[0] || node('div', 'experience-nav-label', 'Operate'));
+        ordered.push(...operate);
+        if (service.length) ordered.push(labels[1] || node('div', 'experience-nav-label', 'Commission & service'));
+        ordered.push(...service);
+        labels.slice(2).forEach((extra) => extra.remove());
+
+        const tail = [...nav.children].slice(-ordered.length);
+        if (tail.length === ordered.length && ordered.every((item, index) => tail[index] === item)) return;
+        nav.append(...ordered);
     }
 
     function removeDuplicateIntros() {
@@ -175,12 +214,13 @@
             groupNavigation();
             removeDuplicateIntros();
         });
-        const main = byId('mainContent');
-        if (main) {
-            new MutationObserver((records) => {
-                if (records.some((record) => record.target === main && record.addedNodes.length)) removeDuplicateIntros();
-            }).observe(main, { childList: true });
-        }
+        /* One observer watches #mainContent for the whole application, in
+         * product-mode.js. Subscribe rather than add a third to the same node.
+         * Late nav entries arrive with their page, so grouping runs here too. */
+        window.AutomatrixEngineeringAccess?.onContentChange(() => {
+            groupNavigation();
+            removeDuplicateIntros();
+        });
     }
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
