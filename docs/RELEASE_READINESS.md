@@ -57,6 +57,7 @@ Flashed to the board over COM5, hash-verified, and observed live at
 | Shelving authorisation | Unauthenticated shelve returns **401** |
 | Engineering gateway | Commissioning gate, write-confirmation, identity, audit-log all **401** unauthenticated |
 | Operator history | 200 with 24.8 KB payload (PSRAM-dependent; previously failed with 500) |
+| **Alarm journal durability (gap A2)** | Storage partition provisioned on first boot (`storage partition provisioned; the alarm journal is now durable`), then **survived a hard reset**: `stored` 8 → 12, `next_sequence` continued 9 → 13 rather than resetting, sequences 1–12 all readable and ordered, 0 unreadable, 0 write failures. Provisioning did **not** repeat on the second boot. |
 
 ## 3. Demonstrated in software only
 
@@ -67,30 +68,28 @@ Flashed to the board over COM5, hash-verified, and observed live at
 | Browser modules | 3 JS suites, syntax checks on all edited modules | Rendered layout |
 | Build | Clean ESP-IDF build, **zero warnings**; app 1,686,144 bytes, 46% of the 3 MB partition free | — |
 | Inverter command path | Simulator scenarios incl. rollback, timeout, comm-lost | Any physical inverter |
-| Alarm journal durability | Host-compiled ring test: wrap, corruption (exactly one record lost), sequence continuity across reopen | Durability on real SPIFFS |
+| Alarm journal ring behaviour | Host-compiled test: wrap, corruption (exactly one record lost), sequence continuity across reopen | Wrap and corruption recovery on real SPIFFS (durability itself is verified — see above) |
 | Commissioning gate | Nine prerequisites, fail-closed on unreadable state | Payload inspection (needs Engineering password) |
 | UI contrast | WCAG arithmetic on parsed token values, 32 pairs, 0 failures | Visual rendering |
 
 ## 4. Not demonstrated
 
-1. **Alarm journal durability on hardware.** Confirmed *inert* on the board
-   (`storage_ready:false`) because the `storage` partition had never been
-   formatted. Provisioning is implemented, tested and built — **but not yet
-   flashed**, because COM5 stopped enumerating. Until it is flashed and the
-   journal reports `storage_ready:true` with records surviving a restart, gap
-   A2 is unverified.
-2. **Any physical inverter write.** See section 1.
-3. **Write confirmation against real equipment.** The readback evaluator is
+1. **Any physical inverter write.** See section 1. This is the one item that
+   keeps the release from being a control release.
+2. **Write confirmation against real equipment.** The readback evaluator is
    unit-tested, but `INVERTER_CONFIRMATION_SETTLE_MS = 500` and
    `DEADLINE_MS = 5000` are **firmware-side values chosen without a manual** and
    need site validation.
-4. **Protected endpoint payloads.** Correctly returning 401; contents
+3. **Protected endpoint payloads.** Correctly returning 401; contents
    uninspected pending the Engineering password.
-5. **Visual rendering of the UI.** The last visual audit run was invalid (37 of
+4. **Visual rendering of the UI.** The last visual audit run was invalid (37 of
    60 runs, adapter suspended mid-run) and has not been repeated.
-6. **Grid/generator synchronisation interlock.** `fleet_synchronised()` exists
+5. **Grid/generator synchronisation interlock.** `fleet_synchronised()` exists
    but is not wired into the control engine, because it needs per-manufacturer
    inverter status registers that have not been supplied.
+6. **Alarm journal wrap and corruption recovery on real flash.** Proven on the
+   host at 16384 records; the board has written 12. Reaching a wrap in the field
+   takes time, so the ring's oldest-first eviction is unproven on real SPIFFS.
 7. **FAT / SAT.** Not started.
 
 ## 5. Open decisions
@@ -121,7 +120,9 @@ this build as a closed-loop PV-DG synchronisation controller until at least one
 manufacturer profile has passed physical readback qualification and the items in
 section 4 are closed.
 
-The two items that would most change this assessment, in order:
-
-1. Flash the provisioning build and confirm the journal survives a restart.
-2. Qualify one real inverter profile end to end, on real equipment.
+The single item that would most change this assessment is to **qualify one real
+inverter profile end to end on physical equipment**: exact manual, model-specific
+mapping, simulator evidence, bench test, then physical readback. Everything else
+in section 4 is either a validation exercise or an input that is already known to
+be missing; that one is the difference between a monitoring product and a control
+product.
