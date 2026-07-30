@@ -37,6 +37,22 @@ config PVDG_WIFI_PROVISION_ID
       PVDG_APPLY_BUILD_WIFI_PROVISIONING is explicitly enabled. Each approved
       factory credential set must use a strictly increasing positive value.
 
+config PVDG_RECOVERY_AP_PASSWORD
+    string "Recovery access point password"
+    default ""
+    help
+      Leave EMPTY. An empty value makes each unit generate its own random
+      recovery-AP password on first start and print it once to the serial console.
+
+      A non-empty value here is shipped identically on every unit built from this
+      tree, and this repository is public, so anyone able to read it could join the
+      setup network of any controller in the field. That is what the previous
+      hard-coded default did, and it is why this is now a deliberate, documented
+      choice rather than a constant in the source.
+
+      Set it only for a closed bench or factory batch whose units never leave your
+      control, and never for anything shipped to a customer.
+
 config PVDG_ENGINEERING_CREDENTIAL_RESET_ID
     int "Engineering credential reset generation"
     default 0
