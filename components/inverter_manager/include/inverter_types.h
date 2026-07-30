@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "inverter_prerequisite.h"
 #include "inverter_status.h"
 #include "inverter_write_confirmation.h"
 
@@ -55,6 +56,35 @@ typedef struct {
     bool safe_zero_issued;
     uint32_t confirmed_count;
     uint32_t unverified_count;
+
+    /* Prerequisite enable register (Solis tag 3070, Sungrow tag 5007, Chint/CPS
+     * 0x2602). Reported separately from the setpoint confirmation above, because
+     * "the enable register is not confirmed" and "the setpoint read back the
+     * wrong value" are different faults with different remedies, and an engineer
+     * who cannot tell them apart will chase the wrong one.
+     *
+     * prerequisite_satisfied is false when this struct is zeroed, which is the
+     * required polarity: unknown is not satisfied, and an inverter whose
+     * prerequisite is not satisfied is excluded from the commandable fleet. It
+     * is set ONLY by a successful read of the enable register - never by an
+     * accepted write. */
+    bool prerequisite_required;
+    bool prerequisite_describable;
+    bool prerequisite_satisfied;
+    bool prerequisite_unverifiable;
+    bool prerequisite_write_issued;
+    bool prerequisite_read_valid;
+    bool prerequisite_holds;
+    uint16_t prerequisite_raw;
+    uint32_t last_prerequisite_read_ms;
+    uint32_t last_prerequisite_write_ms;
+    uint32_t prerequisite_confirmed_count;
+    uint32_t prerequisite_write_count;
+    /* Transitions from satisfied back to not satisfied. Non-zero means somebody
+     * or something switched the limit off underneath this controller, which for
+     * Solis returns the machine to 100 %. */
+    uint32_t prerequisite_lost_count;
+    int32_t prerequisite_last_error;
 
     /* Operational status, read-only and independent of the command path.
      * status_state defaults to INVERTER_STATE_UNKNOWN (0). */

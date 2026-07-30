@@ -51,6 +51,26 @@ typedef struct {
     /* Configured rated power summed over inverters this controller may actually
      * command, whether by production qualification or lab declaration. */
     float commissioned_capacity_kw;
+
+    /* Prerequisite enable registers (Solis tag 3070, Sungrow tag 5007, Chint/CPS
+     * 0x2602). Reported separately from every other count because "this inverter
+     * is blocked because its enable register is not confirmed" and "this
+     * inverter's setpoint read back the wrong value" are different faults. They
+     * look identical from the outside -- both end with the inverter out of the
+     * commandable fleet -- and they have nothing in common as remedies.
+     *
+     * Enabled inverters whose profile says the device needs one. */
+    uint8_t prerequisite_required_count;
+    /* Of those, the ones NOT currently confirmed by a read of the register, and
+     * therefore excluded from the commandable fleet right now. Includes the
+     * unverifiable ones below, and includes every inverter that simply has not
+     * been read yet: unknown is not confirmed. */
+    uint8_t prerequisite_unconfirmed_count;
+    /* Of those, the ones whose profile cannot describe a WRITABLE and READABLE
+     * prerequisite at all. These are refused write authority permanently rather
+     * than transiently, and no amount of polling will change it -- the remedy is
+     * a manual citation for the register and its readback. */
+    uint8_t prerequisite_unverifiable_count;
 } inverter_fleet_commissioning_t;
 
 void inverter_manager_commissioning_summary(inverter_fleet_commissioning_t *out_summary);
@@ -87,6 +107,28 @@ inverter_write_state_t inverter_manager_fleet_write_confirmation(void);
  * because one of its writes could not be confirmed. Cleared per inverter only
  * when a later write is genuinely confirmed by readback. No Modbus I/O. */
 bool inverter_manager_write_confirmation_fault(void);
+
+/*
+ * True while any enabled inverter that NEEDS a prerequisite enable register is
+ * not currently confirmed to have it.
+ *
+ * Deliberately distinct from inverter_manager_write_confirmation_fault(). Both
+ * remove an inverter from the commandable fleet, but they mean different things
+ * and an engineer must be able to tell them apart:
+ *
+ *   confirmation fault  - the SETPOINT register did not read back the commanded
+ *                         value, or could not be read at all.
+ *   prerequisite fault  - the ENABLE register is not confirmed to hold, so a
+ *                         setpoint would be accepted, echoed back and ignored.
+ *                         The setpoint readback would look perfect.
+ *
+ * The second is the more dangerous of the two precisely because it is invisible
+ * from the setpoint readback, which is why it gets its own report rather than
+ * being folded into the existing one. Per-inverter detail, including whether the
+ * register is unverifiable rather than merely unconfirmed, is in
+ * inverter_data_t. Reads already-acquired state; no Modbus I/O.
+ */
+bool inverter_manager_prerequisite_enable_fault(void);
 esp_err_t inverter_manager_probe_read_only(uint8_t inverter_index,
                                            inverter_probe_result_t *result);
 bool inverter_manager_get_data(uint8_t inverter_index, inverter_data_t *out_data);

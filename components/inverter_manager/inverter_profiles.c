@@ -896,12 +896,13 @@ bool inverter_profile_allows_read(const inverter_profile_t *profile)
 
 bool inverter_profile_allows_write(const inverter_profile_t *profile)
 {
-    /* A device whose setpoint needs a prerequisite enable write this firmware
-     * cannot perform is refused here too, not only in the permission gate. Other
-     * callers read this predicate directly, and every one of them must get the
-     * same answer: commanding such a device produces a CONFIRMED verdict for a
-     * limit the inverter is ignoring. */
-    return profile && !profile->simulator_only && !profile->requires_prerequisite_enable &&
+    /* A device whose setpoint needs a prerequisite enable register that this
+     * profile cannot describe, or cannot read back, is refused here too and not
+     * only in the permission gate. Other callers read this predicate directly,
+     * and every one of them must get the same answer: commanding such a device
+     * produces a CONFIRMED verdict for a limit the inverter is ignoring. */
+    return profile && !profile->simulator_only &&
+           !inverter_profile_prerequisite_blocks_write(profile) &&
            profile->has_power_limit && profile->has_power_limit_readback &&
            profile->qualification == INVERTER_PROFILE_QUALIFICATION_PRODUCTION_APPROVED;
 }
@@ -915,12 +916,16 @@ inverter_write_permission_t inverter_profile_write_permission(const inverter_pro
     if (!profile->has_power_limit || !profile->has_power_limit_readback) {
         return INVERTER_WRITE_FORBIDDEN;
     }
-    /* A device needing a prerequisite enable write is refused in BOTH modes. Its
-     * setpoint register echoes the value back regardless, so commanding it would
-     * produce a CONFIRMED verdict for a limit the inverter is ignoring. Being
-     * unable to command is recoverable; being told a plant is limited when it is
-     * not is not. See requires_prerequisite_enable in the header. */
-    if (profile->requires_prerequisite_enable) return INVERTER_WRITE_FORBIDDEN;
+    /* A device needing a prerequisite enable register is refused in BOTH modes
+     * unless this profile describes one that can be WRITTEN and READ BACK. Its
+     * setpoint register echoes the value back regardless, so commanding it
+     * without a verified prerequisite would produce a CONFIRMED verdict for a
+     * limit the inverter is ignoring. An enable register that cannot be read back
+     * reaches the same false confirmation by a different door, so it is refused
+     * with the same force as a missing setpoint readback. Being unable to command
+     * is recoverable; being told a plant is limited when it is not is not. See
+     * requires_prerequisite_enable in the header. */
+    if (inverter_profile_prerequisite_blocks_write(profile)) return INVERTER_WRITE_FORBIDDEN;
     if (inverter_profile_allows_write(profile)) return INVERTER_WRITE_PRODUCTION;
     if (declared_lab_target) return INVERTER_WRITE_LAB_ONLY;
     return INVERTER_WRITE_FORBIDDEN;

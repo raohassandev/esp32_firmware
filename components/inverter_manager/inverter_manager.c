@@ -1,4 +1,5 @@
 #include "inverter_manager.h"
+#include "inverter_prerequisite.h"
 #include "inverter_profile_store.h"
 #include "inverter_profiles.h"
 #include "inverter_profile_decode.h"
@@ -55,6 +56,47 @@ static const char *DEFAULT_PROFILE_ID = "custom.modbus-percent-v1";
 #define INVERTER_CONFIRMATION_SETTLE_MS 500U
 #define INVERTER_CONFIRMATION_DEADLINE_MS 5000U
 
+/*
+ * PREREQUISITE ENABLE RE-VERIFICATION PERIOD.
+ *
+ * NOT a manufacturer value. No manual states how often the power-limitation
+ * switch should be checked, so this is a firmware-side risk decision and the
+ * reasoning is recorded here rather than left as a number.
+ *
+ * Verifying once is not enough. These registers are ordinary writable switches:
+ * a commissioning engineer, a plant SCADA system or a second Modbus master can
+ * turn one off at any time, and the Solis manual is explicit about what happens
+ * when it does -- tag 3070 "0x55 OFF(Power to 100%)". The machine does not
+ * freeze at the last limit, it goes to full output. So a controller that
+ * verified the switch once at start-up and then trusted it forever would keep
+ * reporting a confirmed limit while a 100 kW inverter ran wide open, which is
+ * precisely the false confirmation this whole mechanism exists to prevent.
+ *
+ * 5000 ms is chosen against three constraints:
+ *
+ *  - Cost. One extra register read per inverter per 5 s. The affected brands are
+ *    all behind RS-485 gateways polling at 1000 ms with two or three
+ *    transactions per poll, so this adds a few percent to the bus load. It is
+ *    also gated on the poll tick, so it can never out-run telemetry_poll_ms.
+ *  - Exposure. The worst case is that the switch is turned off just after a
+ *    successful read, so the plant can be unlimited for up to one period plus
+ *    one poll before the controller notices and drops the inverter out of the
+ *    commandable fleet. Six seconds of unnoticed full output is a real risk and
+ *    the honest reason it is accepted is that the alternative -- reading it on
+ *    every control cycle -- would put a transaction on the 20 ms control path,
+ *    which is forbidden and would be a worse failure.
+ *  - Flapping. The sample must not expire before its own re-read is due, or the
+ *    inverter would leave and rejoin the fleet continuously and the control
+ *    engine would see the capacity oscillate. Hence a separate expiry at three
+ *    times the recheck period, mirroring how telemetry staleness is derived
+ *    from the poll period.
+ *
+ * A profile may tighten the period via prerequisite_recheck_ms. Both numbers
+ * must be re-examined against real equipment at commissioning.
+ */
+#define INVERTER_PREREQUISITE_RECHECK_MS 5000U
+#define INVERTER_PREREQUISITE_EXPIRY_MULTIPLE 3U
+
 typedef struct {
     inverter_config_t config;
     const inverter_profile_t *profile;
@@ -67,6 +109,10 @@ typedef struct {
     bool identity_checked;
     uint32_t last_identity_ms;
     uint32_t next_poll_ms;
+    /* Earliest timestamp at which prerequisite I/O may be attempted again. Keeps
+     * a device that refuses the enable write from being hammered once per
+     * acquisition pass. */
+    uint32_t next_prerequisite_ms;
     modbus_connection_t connection;
     SemaphoreHandle_t io_mutex;
     inverter_data_t data;
@@ -168,6 +214,12 @@ static void recompute_commandable_capacity(void)
                         runtime->data.connection_initialized && runtime->data.online &&
                         runtime->data.telemetry_valid && !runtime->data.telemetry_stale &&
                         !runtime->data.confirmation_fault &&
+                        /* An unverified prerequisite enable register removes this
+                         * inverter for exactly the same reason a confirmation
+                         * fault does: its setpoint would be accepted, echoed and
+                         * ignored. The flag is false when zeroed, so unknown is
+                         * not satisfied. */
+                        runtime->data.prerequisite_satisfied &&
                         identity_is_current(runtime, timestamp) &&
                         isfinite(runtime->config.rated_power_kw) &&
                         runtime->config.rated_power_kw > 0.0f;
@@ -305,6 +357,181 @@ static esp_err_t poll_readback(inverter_runtime_t *runtime, uint32_t timestamp)
     }
     portEXIT_CRITICAL(&runtime->lock);
     return err;
+}
+
+/* Writes one register. Used only for the prerequisite enable register, and it
+ * refuses any function code that is not a documented write code, so a
+ * mis-transcribed profile cannot turn into a blind write to an unknown
+ * register. One transaction, no sleep, no retry loop. */
+static esp_err_t write_profile_register(inverter_runtime_t *runtime,
+                                        uint8_t function_code,
+                                        uint16_t address,
+                                        uint16_t value)
+{
+    if (!runtime || !runtime->io_mutex) return ESP_ERR_INVALID_ARG;
+    if (!inverter_prerequisite_write_function_supported(function_code)) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    if (xSemaphoreTake(runtime->io_mutex,
+                       pdMS_TO_TICKS(runtime->config.endpoint.timeout_ms + 100U)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+    esp_err_t err = function_code == 16U
+        ? modbus_tcp_write_multiple(&runtime->connection, address, &value, 1U)
+        : modbus_tcp_write_single(&runtime->connection, address, value);
+    xSemaphoreGive(runtime->io_mutex);
+    return err;
+}
+
+static uint32_t prerequisite_recheck_ms(const inverter_profile_t *profile)
+{
+    uint32_t recheck = profile && profile->prerequisite_recheck_ms
+                           ? profile->prerequisite_recheck_ms
+                           : (uint32_t)INVERTER_PREREQUISITE_RECHECK_MS;
+    /* A zero-length period would make every sample instantly due and, worse,
+     * instantly expired. Floored so the schedule stays sane. */
+    if (recheck < 100U) recheck = 100U;
+    return recheck;
+}
+
+/* Reads the prerequisite enable register and records whether it holds. Read-only
+ * function codes only, and the decision about what it means is not taken here. */
+static esp_err_t read_prerequisite(inverter_runtime_t *runtime, uint32_t timestamp)
+{
+    const inverter_profile_t *profile = runtime->profile;
+    if (!inverter_profile_prerequisite_readback_described(profile)) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    uint16_t word = 0;
+    esp_err_t err = read_profile_block(runtime, profile->prerequisite_readback_function,
+                                       profile->prerequisite_readback_address, 1U, &word);
+    const uint16_t mask = inverter_profile_prerequisite_mask(profile);
+    const bool holds = err == ESP_OK &&
+                       (uint16_t)(word & mask) == (uint16_t)(profile->prerequisite_value & mask);
+
+    portENTER_CRITICAL(&runtime->lock);
+    runtime->data.prerequisite_last_error = err;
+    if (err == ESP_OK) {
+        runtime->data.prerequisite_read_valid = true;
+        runtime->data.prerequisite_holds = holds;
+        runtime->data.prerequisite_raw = word;
+        runtime->data.last_prerequisite_read_ms = timestamp;
+    } else {
+        /* A failed read is not evidence that the register still holds. The
+         * previous sample keeps ageing and will expire. */
+        runtime->data.prerequisite_holds = false;
+    }
+    portEXIT_CRITICAL(&runtime->lock);
+    return err;
+}
+
+/* Writes the prerequisite enable register. Deliberately does NOT set
+ * prerequisite_satisfied: an accepted write proves only that the transport took
+ * the frame. Only read_prerequisite() may conclude that the register holds, and
+ * the next pass of the acquisition loop performs that re-read. */
+static esp_err_t write_prerequisite(inverter_runtime_t *runtime, uint32_t timestamp)
+{
+    const inverter_profile_t *profile = runtime->profile;
+    if (!inverter_profile_prerequisite_write_described(profile)) return ESP_ERR_NOT_SUPPORTED;
+
+    esp_err_t err = write_profile_register(runtime, profile->prerequisite_write_function,
+                                          profile->prerequisite_address,
+                                          profile->prerequisite_value);
+    portENTER_CRITICAL(&runtime->lock);
+    runtime->data.prerequisite_write_issued = true;
+    runtime->data.last_prerequisite_write_ms = timestamp;
+    runtime->data.prerequisite_write_count++;
+    runtime->data.prerequisite_last_error = err;
+    portEXIT_CRITICAL(&runtime->lock);
+    return err;
+}
+
+/*
+ * Prerequisite enable sequencing, run ONLY from the background acquisition task.
+ *
+ * The sequence is read -> (write if it does not hold) -> re-read, spread across
+ * acquisition passes rather than performed as a blocking burst, because the
+ * control loop runs at a 20 ms period and HTTP handlers must never perform a
+ * direct blocking Modbus transaction. Each pass issues at most ONE transaction.
+ *
+ * The decision itself is the pure evaluator in inverter_prerequisite.c; this
+ * function assembles the evidence, performs the I/O it asks for and stores the
+ * outcome. prerequisite_satisfied is written from the verdict and from nowhere
+ * else.
+ */
+static void service_prerequisite(inverter_runtime_t *runtime, uint32_t timestamp)
+{
+    const inverter_profile_t *profile = runtime->profile;
+    const uint32_t recheck = prerequisite_recheck_ms(profile);
+    const uint32_t expiry = recheck * (uint32_t)INVERTER_PREREQUISITE_EXPIRY_MULTIPLE;
+
+    inverter_prerequisite_evidence_t evidence = {0};
+    evidence.populated = true;
+    evidence.required = profile && profile->requires_prerequisite_enable;
+    evidence.write_described = inverter_profile_prerequisite_write_described(profile);
+    evidence.readback_described = inverter_profile_prerequisite_readback_described(profile);
+    evidence.recheck_ms = recheck;
+    evidence.expiry_ms = expiry;
+
+    portENTER_CRITICAL(&runtime->lock);
+    evidence.have_sample = runtime->data.prerequisite_read_valid &&
+                           runtime->data.last_prerequisite_read_ms != 0U;
+    evidence.sample_holds = runtime->data.prerequisite_holds;
+    evidence.write_issued = runtime->data.prerequisite_write_issued;
+    /* Strictly after: a reading taken at or before our own write describes a
+     * state that write has since replaced. */
+    evidence.sample_after_write =
+        !runtime->data.prerequisite_write_issued ||
+        runtime->data.last_prerequisite_read_ms > runtime->data.last_prerequisite_write_ms;
+    evidence.sample_age_ms = evidence.have_sample
+                                 ? timestamp - runtime->data.last_prerequisite_read_ms
+                                 : 0U;
+    portEXIT_CRITICAL(&runtime->lock);
+
+    inverter_prerequisite_verdict_t decision = inverter_prerequisite_evaluate(&evidence);
+
+    portENTER_CRITICAL(&runtime->lock);
+    const bool was_satisfied = runtime->data.prerequisite_satisfied;
+    runtime->data.prerequisite_required = evidence.required;
+    runtime->data.prerequisite_describable =
+        evidence.write_described && evidence.readback_described;
+    runtime->data.prerequisite_unverifiable = decision.unverifiable;
+    runtime->data.prerequisite_satisfied = decision.satisfied;
+    if (decision.satisfied && !was_satisfied) runtime->data.prerequisite_confirmed_count++;
+    /* A prerequisite that STOPS holding is the failure this re-verification
+     * exists for, so it is counted separately from a first-time failure to
+     * establish it. Solis returns the machine to 100 % when the switch goes off,
+     * so this counter being non-zero is a site problem, not a comms problem. */
+    if (was_satisfied && !decision.satisfied) runtime->data.prerequisite_lost_count++;
+    portEXIT_CRITICAL(&runtime->lock);
+
+    if (was_satisfied && !decision.satisfied) {
+        ESP_LOGE(TAG,
+                 "%s prerequisite enable register no longer confirmed; the inverter is "
+                 "removed from the commandable fleet until a read confirms it again",
+                 runtime->config.name);
+    }
+
+    if (decision.action == INVERTER_PREREQ_ACTION_NONE) return;
+    /* Rate-limit the I/O itself. Without this, a device that refuses the enable
+     * write would be written to on every acquisition pass. */
+    if ((int32_t)(timestamp - runtime->next_prerequisite_ms) < 0) return;
+    runtime->next_prerequisite_ms = timestamp + recheck;
+
+    if (decision.action == INVERTER_PREREQ_ACTION_WRITE) {
+        esp_err_t err = write_prerequisite(runtime, timestamp);
+        ESP_LOGW(TAG, "%s prerequisite enable register does not hold; write %s "
+                      "(re-read will decide)",
+                 runtime->config.name, err == ESP_OK ? "issued" : esp_err_to_name(err));
+        /* No verdict is drawn from the write. The next pass re-reads, and only
+         * that read may set prerequisite_satisfied. Scheduled immediately so the
+         * confirming read is not delayed by a whole recheck period. */
+        runtime->next_prerequisite_ms = timestamp;
+        return;
+    }
+
+    (void)read_prerequisite(runtime, timestamp);
 }
 
 /*
@@ -591,6 +818,15 @@ static void inverter_telemetry_task(void *argument)
             }
             update_stale_state(runtime, timestamp);
 
+            /* Prerequisite enable sequencing. Evaluated on every pass and before
+             * the poll gate for the same reason as the write confirmation below:
+             * a sample must be able to EXPIRE on an inverter that has gone quiet
+             * or failed its identity check while holding a setpoint. Losing the
+             * enable switch silently is the failure being prevented, and it does
+             * not announce itself. At most one Modbus transaction per pass, rate
+             * limited to the recheck period, and never on the control path. */
+            service_prerequisite(runtime, timestamp);
+
             /* Deferred write confirmation (P0-9). Evaluated on every pass of the
              * acquisition loop rather than only on a poll tick, and before any
              * gate that can `continue`, so the confirmation deadline still
@@ -686,6 +922,19 @@ esp_err_t inverter_manager_init(void)
         runtime->data.status_raw_valid = false;
         runtime->data.status_stale = runtime->data.status_supported;
         runtime->next_poll_ms = now_ms();
+        runtime->next_prerequisite_ms = runtime->next_poll_ms;
+        /* An inverter that needs a prerequisite starts NOT satisfied and must earn
+         * it with a read. One that needs none is satisfied by definition, and
+         * saying so here keeps the eligibility test a single boolean rather than a
+         * pair of conditions that could get out of step. */
+        runtime->data.prerequisite_required =
+            runtime->profile && runtime->profile->requires_prerequisite_enable;
+        runtime->data.prerequisite_describable =
+            inverter_profile_prerequisite_write_described(runtime->profile) &&
+            inverter_profile_prerequisite_readback_described(runtime->profile);
+        runtime->data.prerequisite_unverifiable =
+            inverter_profile_prerequisite_blocks_write(runtime->profile);
+        runtime->data.prerequisite_satisfied = !runtime->data.prerequisite_required;
 
         if (!runtime->config.enabled) continue;
         if (!isfinite(runtime->config.rated_power_kw) || runtime->config.rated_power_kw <= 0.0f) {
@@ -710,7 +959,17 @@ esp_err_t inverter_manager_init(void)
         runtime->data.connection_initialized = true;
 
         const char *resolved_profile_id = runtime->profile ? runtime->profile->id : "missing";
-        if (runtime->permission == INVERTER_WRITE_FORBIDDEN) {
+        if (runtime->permission == INVERTER_WRITE_FORBIDDEN &&
+            inverter_profile_prerequisite_blocks_write(runtime->profile)) {
+            /* Distinguished from the ordinary refusal, because the remedy is
+             * completely different: this one needs a manual citation for an
+             * enable register and its readback, not a qualification decision. */
+            ESP_LOGE(TAG,
+                     "inverter %u profile '%s' needs a prerequisite enable register that the "
+                     "profile does not describe as writable AND readable; commanding it would "
+                     "report a CONFIRMED limit the inverter ignores, so the command path "
+                     "remains locked", i, resolved_profile_id);
+        } else if (runtime->permission == INVERTER_WRITE_FORBIDDEN) {
             ESP_LOGW(TAG,
                      "inverter %u profile '%s' is not production-approved and no simulator has "
                      "been declared; command path remains locked", i, resolved_profile_id);
@@ -757,6 +1016,22 @@ void inverter_manager_commissioning_summary(inverter_fleet_commissioning_t *out_
         const inverter_profile_t *profile = runtime->profile;
         if (profile && profile->has_power_limit_readback) {
             out_summary->readback_capable_count++;
+        }
+        /* Counted BEFORE the permission switch, because the FORBIDDEN case
+         * continues -- and a prerequisite the profile cannot describe is exactly
+         * why an inverter is forbidden. Omitting it here would hide the only
+         * count that explains the refusal. */
+        if (profile && profile->requires_prerequisite_enable) {
+            out_summary->prerequisite_required_count++;
+            if (inverter_profile_prerequisite_blocks_write(profile)) {
+                out_summary->prerequisite_unverifiable_count++;
+            }
+        }
+        portENTER_CRITICAL(&runtime->lock);
+        const bool prerequisite_satisfied = runtime->data.prerequisite_satisfied;
+        portEXIT_CRITICAL(&runtime->lock);
+        if (profile && profile->requires_prerequisite_enable && !prerequisite_satisfied) {
+            out_summary->prerequisite_unconfirmed_count++;
         }
         switch (runtime->permission) {
             case INVERTER_WRITE_PRODUCTION:
@@ -878,6 +1153,9 @@ esp_err_t inverter_manager_set_total_power_kw(float target_kw)
                         runtime->write_allowed && runtime->data.online &&
                         runtime->data.telemetry_valid && !runtime->data.telemetry_stale &&
                         !runtime->data.confirmation_fault &&
+                        /* Reading a flag the background task maintains. No
+                         * transaction is added to the control path. */
+                        runtime->data.prerequisite_satisfied &&
                         identity_is_current(runtime, timestamp) &&
                         isfinite(runtime->config.rated_power_kw) &&
                         runtime->config.rated_power_kw > 0.0f;
@@ -1002,6 +1280,22 @@ bool inverter_manager_write_confirmation_fault(void)
         inverter_runtime_t *runtime = &s_inverters[i];
         portENTER_CRITICAL(&runtime->lock);
         bool fault = runtime->config.enabled && runtime->data.confirmation_fault;
+        portEXIT_CRITICAL(&runtime->lock);
+        if (fault) return true;
+    }
+    return false;
+}
+
+bool inverter_manager_prerequisite_enable_fault(void)
+{
+    for (uint8_t i = 0; i < s_inverter_count; ++i) {
+        inverter_runtime_t *runtime = &s_inverters[i];
+        portENTER_CRITICAL(&runtime->lock);
+        /* Only reportable for a device that actually needs one. An inverter with
+         * no prerequisite must never contribute to this fault, or the operator
+         * would be sent looking for a register that does not exist. */
+        bool fault = runtime->config.enabled && runtime->data.prerequisite_required &&
+                     !runtime->data.prerequisite_satisfied;
         portEXIT_CRITICAL(&runtime->lock);
         if (fault) return true;
     }
