@@ -401,6 +401,33 @@ constants cannot be. Not applied in this change only because both files were bei
 edited concurrently and this is safety-relevant code that should not be merged
 carelessly.
 
+## 4b. Deferred by the product owner: inverter profile qualification
+
+Parked deliberately, not forgotten. Recorded here so the reasons survive and nobody
+has to re-derive them.
+
+| Brand | Why it is not commandable | What would unpark it |
+|---|---|---|
+| **GoodWe** | Command register 42407 is **flash-backed** ("does not support high-frequency write operations") and the manual gives **no permitted write rate** and no write-cycle budget. Commanding it continuously would wear out the inverter's non-volatile memory -- a permanent hardware failure while every write reports success. | A permitted rate **from GoodWe**. This is a question for the manufacturer, not a measurement. Once stated, set `min_command_interval_ms` and the existing guard lifts by itself. |
+| **Growatt** | Locks network power control after power-on, the manual's unlock password is **redacted**, and it **re-arms after five minutes** -- so control would stop silently mid-run even if the unlock were known. | The unlock procedure from Growatt, plus a decision on how to handle the five-minute re-arm. |
+| **Chint / CPS** | `0x2602` is cited for **writing** only; nothing establishes it can be **read**. An enable written blind cannot be verified, and an unverifiable enable means the setpoint is accepted, echoed back and ignored. | One citation showing `0x2602` is readable (FC 0x03 or 0x04), or a site read proving it. |
+| **Knox / AISWEI** | Printed 44001 must enable active-power control before 45403 takes effect, and 45403 echoes either way. Same unverifiable-enable case. | A citation or site read establishing 44001 readback. |
+| **SolarEdge** | Inert at runtime: SolarEdge reports AC power with a **runtime scale factor** the profile structure cannot express, so telemetry never becomes valid and the inverter is never eligible for a command. Separately, its manual **contradicts itself** on Float32 versus integer. | Runtime scale-factor support in the profile model, and one read on real hardware to settle the data type. |
+| **FoxESS** | Commandable in lab, but its addressing convention is **deduced, not proven** -- no offset rule and no worked frame. If the deduction is wrong, 49007 becomes 49006, a *reactive power* register. | One read of 30000 on the physical machine. |
+
+**None of these is a firmware defect.** In every case the firmware is refusing to
+command equipment on evidence it judges insufficient, which is the intended behaviour.
+The refusals are enforced structurally and covered by executable tests, so they cannot
+be lifted accidentally -- each one needs a specific, named piece of evidence.
+
+**Huawei is the exception and the shortest path to a control release.** Its map is
+transcribed from the manufacturer manual with per-value citations, its addressing
+convention is settled by the manual's own worked example, and it is commandable
+against a declared simulator today. The open questions are narrow and enumerated in
+`docs/HUAWEI_SUN2000_REGISTER_EVIDENCE.md`: which of `40125` or `40199` the machine
+honours, the settle time, and whether the readback reports the requested or the active
+value. `docs/SITE_COMMISSIONING_RUNBOOK.md` is written to close all three in one visit.
+
 ## 5. Open decisions
 
 These are product decisions, deliberately not made unilaterally.
