@@ -11,6 +11,16 @@
  * towards the reverse-power trip. Too large a denominator merely curtails PV. So
  * every ambiguous case below asserts the conservative answer, not merely "an
  * answer".
+ *
+ * THE FLOOR IS CHECKED AGAINST A BRUTE-FORCE REFERENCE, NOT AGAINST ITSELF.
+ * ------------------------------------------------------------------------
+ * For every sharing mode, brute_force_floor_kw() sweeps the total generator load
+ * upward and returns the first total at which every online engine independently
+ * satisfies its own minimum loading. That is the DEFINITION of the floor, computed
+ * from first principles with no reference to the closed-form expressions in the
+ * module under test. A closed form that disagrees with it is wrong, whichever one
+ * looks more plausible. The same technique is what established that the isochronous
+ * floor is sum(rated) x max(percent) / 100 and not the intuitive per-engine sum.
  */
 
 #include <assert.h>
@@ -46,14 +56,157 @@ static generator_engine_input_t metered(float rated_kw, float percent,
     return engine;
 }
 
+/* A base-loaded engine: held at a fixed kW setpoint by its own governor. */
+static generator_engine_input_t base_loaded(float rated_kw, float percent,
+                                            float reserve_kw, float margin_kw,
+                                            float measured_kw, float setpoint_kw)
+{
+    generator_engine_input_t engine =
+        metered(rated_kw, percent, reserve_kw, margin_kw, measured_kw);
+    engine.role = GENERATOR_ENGINE_ROLE_BASE_LOAD;
+    engine.base_load_kw = setpoint_kw;
+    return engine;
+}
+
+/* A swing engine: absorbs whatever the base-loaded engines do not carry. */
+static generator_engine_input_t swing(float rated_kw, float percent,
+                                      float reserve_kw, float margin_kw,
+                                      float measured_kw)
+{
+    generator_engine_input_t engine =
+        metered(rated_kw, percent, reserve_kw, margin_kw, measured_kw);
+    engine.role = GENERATOR_ENGINE_ROLE_SWING;
+    return engine;
+}
+
+/* The isochronous fleet, which is what every pre-existing case here describes. The
+ * mode is stated explicitly because it now has to be: an assumed sharing law is the
+ * thing this change removed. */
 static generator_fleet_input_t fleet(float load_kw)
 {
     generator_fleet_input_t input;
     memset(&input, 0, sizeof(input));
     input.evidence_fresh = true;
     input.facility_load_kw = load_kw;
+    input.sharing_mode = GENERATOR_SHARING_ISOCHRONOUS;
     input.engine_count = GENERATOR_FLEET_MAX_ENGINES;
     return input;
+}
+
+static generator_fleet_input_t base_load_fleet(float load_kw)
+{
+    generator_fleet_input_t input = fleet(load_kw);
+    input.sharing_mode = GENERATOR_SHARING_BASE_LOAD;
+    return input;
+}
+
+/* ----------------------------------------------------- brute-force reference */
+
+/* Every engine in these fleets is metered and fresh, so "online" is exactly
+ * "configured". The brute force asserts that rather than reimplementing the
+ * running-set rules, which are tested separately below. */
+static bool engine_is_online(const generator_engine_input_t *engine)
+{
+    return engine->configured && engine->metered && engine->sample_fresh &&
+           isfinite(engine->measured_kw);
+}
+
+/* Does every online engine independently satisfy its own minimum loading, when the
+ * generators together carry total_kw?
+ *
+ * This is written from the physics of each sharing law, not from the module:
+ *   - a base-loaded engine carries its setpoint, whatever the total;
+ *   - the swing engines carry the remainder, divided in proportion to their ratings
+ *     (they are isochronous with each other);
+ *   - under isochronous sharing every engine is a swing engine.
+ */
+static bool minimums_all_met(const generator_fleet_input_t *in, float total_kw)
+{
+    const bool base_load = in->sharing_mode == GENERATOR_SHARING_BASE_LOAD;
+    float base_total_kw = 0.0f;
+    float swing_rated_kw = 0.0f;
+    uint8_t swing_count = 0U;
+
+    for (uint8_t i = 0; i < in->engine_count && i < GENERATOR_FLEET_MAX_ENGINES; ++i) {
+        const generator_engine_input_t *engine = &in->engines[i];
+        if (!engine_is_online(engine)) continue;
+        if (base_load && engine->role == GENERATOR_ENGINE_ROLE_BASE_LOAD) {
+            base_total_kw += engine->base_load_kw;
+        } else {
+            swing_count++;
+            swing_rated_kw += engine->rated_kw;
+        }
+    }
+
+    /* With every online engine pinned to a fixed kW, the total generator load is not
+     * a free variable at all -- it is stuck at the sum of the setpoints. "The
+     * smallest total at which every engine is satisfied" then has no referent as a
+     * control limit, so no total qualifies. */
+    if (swing_count == 0U) return false;
+
+    for (uint8_t i = 0; i < in->engine_count && i < GENERATOR_FLEET_MAX_ENGINES; ++i) {
+        const generator_engine_input_t *engine = &in->engines[i];
+        if (!engine_is_online(engine)) continue;
+        const float own_minimum_kw = engine->rated_kw * engine->minimum_loading_percent / 100.0f;
+
+        float carried_kw;
+        if (base_load && engine->role == GENERATOR_ENGINE_ROLE_BASE_LOAD) {
+            carried_kw = engine->base_load_kw;
+        } else if (swing_rated_kw > 0.0f) {
+            carried_kw = (total_kw - base_total_kw) * engine->rated_kw / swing_rated_kw;
+        } else {
+            /* Nothing absorbs the swing. No total describes this plant. */
+            return false;
+        }
+        if (carried_kw < own_minimum_kw - 1e-3f) return false;
+    }
+    return true;
+}
+
+#define BRUTE_STEP_KW 0.005f
+#define BRUTE_MAX_STEPS 800000L /* 4000 kW of search space */
+
+/* The smallest total generator load at which every online engine independently
+ * satisfies its own minimum. NAN when no total does, which is the honest answer for
+ * a plant configured to under-load one of its machines. */
+static float brute_force_floor_kw(const generator_fleet_input_t *in)
+{
+    for (long step = 0; step <= BRUTE_MAX_STEPS; ++step) {
+        const float total_kw = (float)step * BRUTE_STEP_KW;
+        if (minimums_all_met(in, total_kw)) return total_kw;
+    }
+    return NAN;
+}
+
+/* Compares the module's closed-form floor against the brute-force definition and
+ * prints both, so the agreement is visible in the test output rather than merely
+ * asserted. */
+static void expect_floor_matches_brute_force(const char *label,
+                                             const generator_fleet_input_t *in)
+{
+    const generator_fleet_limit_t result = generator_fleet_limit_evaluate(in);
+    const float reference_kw = brute_force_floor_kw(in);
+
+    if (!isfinite(reference_kw)) {
+        /* No total plant load satisfies every engine. The module must refuse rather
+         * than report a floor, because there is no floor to report. */
+        printf("  %-46s brute force: no such total   module: %s\n", label,
+               result.known ? "REPORTED A FLOOR" : generator_fleet_reason_id(result.reason));
+        assert(!result.known);
+        assert(near(result.safe_pv_kw, 0.0f));
+        return;
+    }
+
+    printf("  %-46s brute force: %9.3f kW  module: %9.3f kW  (%s)\n", label,
+           (double)reference_kw, (double)result.minimum_loading_kw,
+           generator_sharing_mode_id(result.sharing_mode));
+    assert(result.known);
+    /* The brute force is a search on a BRUTE_STEP_KW grid, so it can overshoot the
+     * true infimum by at most one step. */
+    assert(fabsf(result.minimum_loading_kw - reference_kw) <= BRUTE_STEP_KW + CLOSE_ENOUGH);
+    /* The closed form must never be BELOW the reference by more than the grid, which
+     * is the direction that would permit too much PV. */
+    assert(result.minimum_loading_kw >= reference_kw - BRUTE_STEP_KW - CLOSE_ENOUGH);
 }
 
 /* ------------------------------------------------------------------ fail closed */
@@ -367,6 +520,416 @@ static void test_engine_count_is_bounded(void)
     assert(result.online_count == 1U);
 }
 
+/* ------------------------------------------------------------- load sharing */
+
+/* ISOCHRONOUS, against the brute-force definition, over fleets of one, two and
+ * three engines with unequal ratings and unequal minimum-loading figures. */
+static void test_isochronous_floor_matches_brute_force(void)
+{
+    printf("isochronous sharing:\n");
+
+    generator_fleet_input_t one = fleet(400.0f);
+    one.engines[0] = metered(500.0f, 30.0f, 10.0f, 5.0f, 400.0f);
+    expect_floor_matches_brute_force("one engine 500 kW @ 30 %", &one);
+
+    generator_fleet_input_t equal = fleet(1000.0f);
+    equal.engines[0] = metered(500.0f, 30.0f, 0.0f, 0.0f, 500.0f);
+    equal.engines[1] = metered(500.0f, 30.0f, 0.0f, 0.0f, 500.0f);
+    expect_floor_matches_brute_force("two identical 500 kW @ 30 %", &equal);
+
+    /* The case that proves the per-engine sum wrong: unequal percentages. */
+    generator_fleet_input_t unequal = fleet(1000.0f);
+    unequal.engines[0] = metered(500.0f, 40.0f, 0.0f, 0.0f, 500.0f);
+    unequal.engines[1] = metered(500.0f, 20.0f, 0.0f, 0.0f, 500.0f);
+    expect_floor_matches_brute_force("500 @ 40 % + 500 @ 20 %", &unequal);
+    const generator_fleet_limit_t unequal_result = generator_fleet_limit_evaluate(&unequal);
+    const float per_engine_sum = 500.0f * 0.40f + 500.0f * 0.20f;
+    assert(unequal_result.minimum_loading_kw > per_engine_sum + CLOSE_ENOUGH);
+
+    generator_fleet_input_t three = fleet(1200.0f);
+    three.engines[0] = metered(400.0f, 25.0f, 5.0f, 2.0f, 400.0f);
+    three.engines[1] = metered(300.0f, 45.0f, 5.0f, 2.0f, 400.0f);
+    three.engines[2] = metered(250.0f, 15.0f, 5.0f, 2.0f, 400.0f);
+    expect_floor_matches_brute_force("400 @ 25 % + 300 @ 45 % + 250 @ 15 %", &three);
+
+    /* A sweep, so the agreement is not three lucky points. */
+    for (float percent = 0.0f; percent <= 100.0f; percent += 5.0f) {
+        for (float rated = 100.0f; rated <= 700.0f; rated += 150.0f) {
+            generator_fleet_input_t input = fleet(2000.0f);
+            input.engines[0] = metered(500.0f, 30.0f, 0.0f, 0.0f, 500.0f);
+            input.engines[1] = metered(rated, percent, 0.0f, 0.0f, 500.0f);
+            const generator_fleet_limit_t result = generator_fleet_limit_evaluate(&input);
+            const float reference_kw = brute_force_floor_kw(&input);
+            assert(result.known);
+            assert(isfinite(reference_kw));
+            assert(fabsf(result.minimum_loading_kw - reference_kw) <=
+                   BRUTE_STEP_KW + CLOSE_ENOUGH);
+        }
+    }
+}
+
+/* BASE LOAD, against the same brute-force definition. The binding constraint here is
+ * a different one: the base-loaded engines' setpoints are added to a proportional
+ * term computed over the SWING engines only. */
+static void test_base_load_floor_matches_brute_force(void)
+{
+    printf("base-load sharing:\n");
+
+    /* One engine pinned at 300 kW, one swinging. The swing engine's own minimum is
+     * 300 x 35 % = 105 kW, so the floor is 300 + 105 = 405 kW. */
+    generator_fleet_input_t pair = base_load_fleet(900.0f);
+    pair.engines[0] = base_loaded(500.0f, 30.0f, 0.0f, 0.0f, 300.0f, 300.0f);
+    pair.engines[1] = swing(300.0f, 35.0f, 0.0f, 0.0f, 600.0f);
+    expect_floor_matches_brute_force("base 500 @ 300 kW + swing 300 @ 35 %", &pair);
+    const generator_fleet_limit_t pair_result = generator_fleet_limit_evaluate(&pair);
+    assert(pair_result.base_loaded_count == 1U);
+    assert(near(pair_result.base_load_total_kw, 300.0f));
+    assert(pair_result.sharing_mode == GENERATOR_SHARING_BASE_LOAD);
+    /* The whole online rating is still reported: it describes the machines, not the
+     * floor's denominator. */
+    assert(near(pair_result.online_rated_kw, 800.0f));
+
+    /* Two base-loaded engines and one swing engine. */
+    generator_fleet_input_t two_base = base_load_fleet(1400.0f);
+    two_base.engines[0] = base_loaded(500.0f, 30.0f, 0.0f, 0.0f, 400.0f, 400.0f);
+    two_base.engines[1] = base_loaded(400.0f, 25.0f, 0.0f, 0.0f, 250.0f, 250.0f);
+    two_base.engines[2] = swing(300.0f, 40.0f, 0.0f, 0.0f, 500.0f);
+    expect_floor_matches_brute_force("base 400 + base 250 + swing 300 @ 40 %", &two_base);
+
+    /* One base-loaded engine and two swing engines with unequal percentages: the
+     * worst SWING percentage binds, and the base-loaded engine's own 30 % does not
+     * enter the proportional term at all. */
+    generator_fleet_input_t two_swing = base_load_fleet(1400.0f);
+    two_swing.engines[0] = base_loaded(600.0f, 30.0f, 0.0f, 0.0f, 400.0f, 400.0f);
+    two_swing.engines[1] = swing(300.0f, 45.0f, 0.0f, 0.0f, 300.0f);
+    two_swing.engines[2] = swing(200.0f, 20.0f, 0.0f, 0.0f, 200.0f);
+    expect_floor_matches_brute_force("base 400 + swing 300 @ 45 % + 200 @ 20 %", &two_swing);
+
+    /* A sweep over setpoints and swing percentages. */
+    for (float setpoint = 200.0f; setpoint <= 500.0f; setpoint += 50.0f) {
+        for (float percent = 0.0f; percent <= 100.0f; percent += 10.0f) {
+            generator_fleet_input_t input = base_load_fleet(2500.0f);
+            input.engines[0] = base_loaded(500.0f, 30.0f, 0.0f, 0.0f, setpoint, setpoint);
+            input.engines[1] = swing(400.0f, percent, 0.0f, 0.0f, 400.0f);
+            const generator_fleet_limit_t result = generator_fleet_limit_evaluate(&input);
+            const float reference_kw = brute_force_floor_kw(&input);
+            /* setpoint >= 500 x 30 % = 150 kW throughout, so every case is
+             * commissionable and the brute force always finds a total. */
+            assert(result.known);
+            assert(isfinite(reference_kw));
+            assert(fabsf(result.minimum_loading_kw - reference_kw) <=
+                   BRUTE_STEP_KW + CLOSE_ENOUGH);
+        }
+    }
+}
+
+/* A mixed fleet: three engines, unequal ratings, unequal minimum loadings, reserve
+ * and reverse-power margin on each, one of them base-loaded. Checked end to end
+ * against the brute force AND against the reserve/margin arithmetic, because those
+ * are summed independently of the sharing law. */
+static void test_mixed_fleet_end_to_end(void)
+{
+    printf("mixed fleet:\n");
+    generator_fleet_input_t input = base_load_fleet(1500.0f);
+    input.engines[0] = base_loaded(600.0f, 30.0f, 8.0f, 3.0f, 400.0f, 400.0f);
+    input.engines[1] = swing(400.0f, 45.0f, 6.0f, 2.0f, 600.0f);
+    input.engines[2] = swing(300.0f, 20.0f, 4.0f, 1.0f, 500.0f);
+    expect_floor_matches_brute_force("base 600 @ 400 kW + swing 400/300", &input);
+
+    const generator_fleet_limit_t result = generator_fleet_limit_evaluate(&input);
+    /* Floor: 400 + (400 + 300) x 45 % = 400 + 315 = 715 kW. */
+    assert(near(result.minimum_loading_kw, 715.0f));
+    /* Reserve and margin are per-engine absolute kW and are summed in every mode. */
+    const float reserve_total = 8.0f + 6.0f + 4.0f;
+    const float margin_total = 3.0f + 2.0f + 1.0f;
+    assert(near(result.required_generator_kw, 715.0f + reserve_total + margin_total));
+    assert(near(result.safe_pv_kw, 1500.0f - (715.0f + reserve_total + margin_total)));
+    assert(result.online_count == 3U);
+    assert(near(result.online_rated_kw, 1300.0f));
+}
+
+/* NO SHARING MODE COMMISSIONED. Two engines on the bus and nothing says how they
+ * divide the load, so which engine binds the floor is unknown and no PV may be
+ * commanded. */
+static void test_sharing_mode_unset_fails_closed(void)
+{
+    generator_fleet_input_t input = fleet(1000.0f);
+    input.sharing_mode = GENERATOR_SHARING_UNSET;
+    input.engines[0] = metered(500.0f, 30.0f, 0.0f, 0.0f, 500.0f);
+    input.engines[1] = metered(500.0f, 30.0f, 0.0f, 0.0f, 500.0f);
+    const generator_fleet_limit_t result = generator_fleet_limit_evaluate(&input);
+    assert(!result.known);
+    assert(result.reason == GENERATOR_FLEET_SHARING_MODE_UNSET);
+    assert(near(result.safe_pv_kw, 0.0f));
+    assert(result.sharing_mode == GENERATOR_SHARING_UNSET);
+
+    /* Three engines, same answer. */
+    input.engines[2] = metered(300.0f, 30.0f, 0.0f, 0.0f, 300.0f);
+    const generator_fleet_limit_t three = generator_fleet_limit_evaluate(&input);
+    assert(!three.known);
+    assert(three.reason == GENERATOR_FLEET_SHARING_MODE_UNSET);
+}
+
+/* THE SINGLE-ENGINE EXEMPTION, which is what keeps a commissioned single-generator
+ * unit working after an upgrade that leaves the new field at zero. One engine shares
+ * load with nothing, so the floor is the same under every sharing law -- and the
+ * numbers must be bit-for-bit those the module produced before the mode existed. */
+static void test_single_online_engine_needs_no_sharing_mode(void)
+{
+    generator_fleet_input_t unset = fleet(400.0f);
+    unset.sharing_mode = GENERATOR_SHARING_UNSET;
+    unset.engines[0] = metered(500.0f, 30.0f, 10.0f, 5.0f, 400.0f);
+    const generator_fleet_limit_t result = generator_fleet_limit_evaluate(&unset);
+    assert(result.known);
+    assert(result.reason == GENERATOR_FLEET_OK);
+    /* Exactly the numbers test_one_engine() pins down. */
+    assert(near(result.minimum_loading_kw, 150.0f));
+    assert(near(result.required_generator_kw, 165.0f));
+    assert(near(result.safe_pv_kw, 235.0f));
+    /* It is reported as what it was computed as, not as "unset". */
+    assert(result.sharing_mode == GENERATOR_SHARING_ISOCHRONOUS);
+    expect_floor_matches_brute_force("one engine, no mode stated", &unset);
+
+    /* Identical to the same engine with the mode stated: the exemption changes
+     * nothing except whether the value had to be supplied. */
+    generator_fleet_input_t stated = unset;
+    stated.sharing_mode = GENERATOR_SHARING_ISOCHRONOUS;
+    const generator_fleet_limit_t explicit_mode = generator_fleet_limit_evaluate(&stated);
+    /* Field by field with exact equality, not memcmp: the struct carries alignment
+     * padding whose contents are not defined, and not near(), because "bit-for-bit"
+     * is the claim being made. */
+    assert(result.known == explicit_mode.known);
+    assert(result.online_count == explicit_mode.online_count);
+    assert(result.online_rated_kw == explicit_mode.online_rated_kw);
+    assert(result.minimum_loading_kw == explicit_mode.minimum_loading_kw);
+    assert(result.sharing_mode == explicit_mode.sharing_mode);
+    assert(result.base_loaded_count == explicit_mode.base_loaded_count);
+    assert(result.base_load_total_kw == explicit_mode.base_load_total_kw);
+    assert(result.required_generator_kw == explicit_mode.required_generator_kw);
+    assert(result.safe_pv_kw == explicit_mode.safe_pv_kw);
+    assert(result.reason == explicit_mode.reason);
+
+    /* The legacy unmetered single-generator site, likewise. */
+    generator_fleet_input_t legacy = fleet(400.0f);
+    legacy.sharing_mode = GENERATOR_SHARING_UNSET;
+    legacy.engines[0] = metered(500.0f, 30.0f, 10.0f, 5.0f, 0.0f);
+    legacy.engines[0].metered = false;
+    legacy.engines[0].sample_fresh = false;
+    legacy.allow_unmetered_single_engine = true;
+    const generator_fleet_limit_t legacy_result = generator_fleet_limit_evaluate(&legacy);
+    assert(legacy_result.known);
+    assert(near(legacy_result.safe_pv_kw, 400.0f - 165.0f));
+}
+
+/* DROOP IS REFUSED, and so is any mode value this build does not recognise.
+ *
+ * Refusal is the conservative answer, not a missing feature: under an unknown
+ * sharing law an engine may receive an arbitrarily small share of the load, which
+ * makes the floor unbounded and the permitted PV zero -- exactly what refusing
+ * produces. Droop is refused even with a single engine online, because it is an
+ * affirmative statement that the plant's law is unmodelled and which engines are on
+ * the bus is a runtime fact that will change within the hour. */
+static void test_droop_and_unknown_modes_are_refused(void)
+{
+    const uint8_t refused[] = {GENERATOR_SHARING_DROOP, GENERATOR_SHARING_MODE_COUNT, 200U};
+    for (size_t i = 0; i < sizeof(refused) / sizeof(refused[0]); ++i) {
+        for (uint8_t engines = 1U; engines <= 2U; ++engines) {
+            generator_fleet_input_t input = fleet(1000.0f);
+            input.sharing_mode = refused[i];
+            input.engines[0] = metered(500.0f, 30.0f, 0.0f, 0.0f, 500.0f);
+            if (engines == 2U) {
+                input.engines[1] = metered(500.0f, 30.0f, 0.0f, 0.0f, 500.0f);
+            }
+            const generator_fleet_limit_t result = generator_fleet_limit_evaluate(&input);
+            assert(!result.known);
+            assert(result.reason == GENERATOR_FLEET_SHARING_MODE_UNSUPPORTED);
+            assert(near(result.safe_pv_kw, 0.0f));
+        }
+    }
+    assert(!generator_sharing_mode_supported(GENERATOR_SHARING_DROOP));
+    assert(!generator_sharing_mode_supported(GENERATOR_SHARING_UNSET));
+    assert(generator_sharing_mode_supported(GENERATOR_SHARING_ISOCHRONOUS));
+    assert(generator_sharing_mode_supported(GENERATOR_SHARING_BASE_LOAD));
+}
+
+/* A MODE MISSING A VALUE IT REQUIRES. Base-load sharing needs a role for every
+ * online engine and a setpoint for every base-loaded one; each hole fails closed. */
+static void test_base_load_missing_values_fail_closed(void)
+{
+    /* An online engine with no declared role. Guessing is unavailable: calling it
+     * swing or base-loaded moves the floor in either direction depending on the
+     * setpoints, so one of the two guesses is permissive. */
+    generator_fleet_input_t no_role = base_load_fleet(900.0f);
+    no_role.engines[0] = base_loaded(500.0f, 30.0f, 0.0f, 0.0f, 300.0f, 300.0f);
+    no_role.engines[1] = metered(300.0f, 35.0f, 0.0f, 0.0f, 600.0f); /* role UNSET */
+    generator_fleet_limit_t result = generator_fleet_limit_evaluate(&no_role);
+    assert(!result.known);
+    assert(result.reason == GENERATOR_FLEET_BASE_LOAD_UNKNOWN);
+    assert(near(result.safe_pv_kw, 0.0f));
+
+    /* An unrecognised role value is the same hole. */
+    generator_fleet_input_t bad_role = no_role;
+    bad_role.engines[1].role = 200U;
+    result = generator_fleet_limit_evaluate(&bad_role);
+    assert(!result.known);
+    assert(result.reason == GENERATOR_FLEET_BASE_LOAD_UNKNOWN);
+
+    /* A base-loaded engine with no usable setpoint, including one above its rating. */
+    const float unusable[] = {0.0f, -1.0f, NAN, INFINITY, 501.0f};
+    for (size_t i = 0; i < sizeof(unusable) / sizeof(unusable[0]); ++i) {
+        generator_fleet_input_t input = base_load_fleet(900.0f);
+        input.engines[0] = base_loaded(500.0f, 30.0f, 0.0f, 0.0f, 300.0f, unusable[i]);
+        input.engines[1] = swing(300.0f, 35.0f, 0.0f, 0.0f, 600.0f);
+        result = generator_fleet_limit_evaluate(&input);
+        assert(!result.known);
+        assert(result.reason == GENERATOR_FLEET_BASE_LOAD_UNKNOWN);
+        assert(near(result.safe_pv_kw, 0.0f));
+    }
+
+    /* Every online engine pinned at a fixed kW: nothing absorbs the swing, so there
+     * is no total plant load for the controller to shape. The brute force agrees --
+     * no total satisfies the fleet, because a swing-less bus is not describable. */
+    generator_fleet_input_t no_swing = base_load_fleet(900.0f);
+    no_swing.engines[0] = base_loaded(500.0f, 30.0f, 0.0f, 0.0f, 300.0f, 300.0f);
+    no_swing.engines[1] = base_loaded(300.0f, 35.0f, 0.0f, 0.0f, 200.0f, 200.0f);
+    result = generator_fleet_limit_evaluate(&no_swing);
+    assert(!result.known);
+    assert(result.reason == GENERATOR_FLEET_NO_SWING_ENGINE);
+    assert(near(result.safe_pv_kw, 0.0f));
+    printf("base-load holes:\n");
+    expect_floor_matches_brute_force("every online engine base-loaded", &no_swing);
+
+    /* A single online engine declared base-loaded is the same refusal: with nothing
+     * else on the bus, a governor holding fixed kW leaves the plant's swing nowhere
+     * to go. */
+    generator_fleet_input_t alone = base_load_fleet(900.0f);
+    alone.engines[0] = base_loaded(500.0f, 30.0f, 0.0f, 0.0f, 300.0f, 300.0f);
+    result = generator_fleet_limit_evaluate(&alone);
+    assert(!result.known);
+    assert(result.reason == GENERATOR_FLEET_NO_SWING_ENGINE);
+}
+
+/* A BASE-LOADED ENGINE HELD BELOW ITS OWN MINIMUM IS A COMMISSIONING FAULT.
+ *
+ * Its load does not follow the plant total, so no amount of PV curtailment ever
+ * brings it up to its minimum. The brute force confirms this independently: there is
+ * NO total generator load at which every engine is satisfied. A module that reported
+ * a floor here would be computing around a plant that has been set up to wet-stack
+ * one of its engines. */
+static void test_base_load_below_own_minimum_is_refused(void)
+{
+    printf("base-load commissioning fault:\n");
+    generator_fleet_input_t input = base_load_fleet(900.0f);
+    /* 500 kW at 30 % needs 150 kW; the setpoint is 149 kW. */
+    input.engines[0] = base_loaded(500.0f, 30.0f, 0.0f, 0.0f, 149.0f, 149.0f);
+    input.engines[1] = swing(300.0f, 35.0f, 0.0f, 0.0f, 600.0f);
+    assert(!isfinite(brute_force_floor_kw(&input)));
+    expect_floor_matches_brute_force("base setpoint 149 kW under a 150 kW minimum", &input);
+    const generator_fleet_limit_t result = generator_fleet_limit_evaluate(&input);
+    assert(result.reason == GENERATOR_FLEET_BASE_LOAD_BELOW_MINIMUM);
+
+    /* Exactly at its own minimum is acceptable, and the floor is then the setpoint
+     * plus the swing engine's own requirement. */
+    input.engines[0].base_load_kw = 150.0f;
+    expect_floor_matches_brute_force("base setpoint exactly at the 150 kW minimum", &input);
+    const generator_fleet_limit_t at_minimum = generator_fleet_limit_evaluate(&input);
+    assert(at_minimum.known);
+    assert(near(at_minimum.minimum_loading_kw, 150.0f + 300.0f * 0.35f));
+}
+
+/* Base-load sharing with no base-loaded engine is isochronous sharing, and the two
+ * modes must agree exactly on such a fleet -- the base-load expression reduces to
+ * the isochronous one when the setpoint sum is zero. */
+static void test_base_load_without_a_base_loaded_engine_equals_isochronous(void)
+{
+    generator_fleet_input_t iso = fleet(1000.0f);
+    iso.engines[0] = metered(500.0f, 40.0f, 3.0f, 1.0f, 500.0f);
+    iso.engines[1] = metered(300.0f, 20.0f, 3.0f, 1.0f, 500.0f);
+    const generator_fleet_limit_t iso_result = generator_fleet_limit_evaluate(&iso);
+
+    generator_fleet_input_t all_swing = iso;
+    all_swing.sharing_mode = GENERATOR_SHARING_BASE_LOAD;
+    all_swing.engines[0].role = GENERATOR_ENGINE_ROLE_SWING;
+    all_swing.engines[1].role = GENERATOR_ENGINE_ROLE_SWING;
+    const generator_fleet_limit_t swing_result = generator_fleet_limit_evaluate(&all_swing);
+
+    assert(iso_result.known && swing_result.known);
+    assert(near(iso_result.minimum_loading_kw, swing_result.minimum_loading_kw));
+    assert(near(iso_result.required_generator_kw, swing_result.required_generator_kw));
+    assert(near(iso_result.safe_pv_kw, swing_result.safe_pv_kw));
+    assert(swing_result.base_loaded_count == 0U);
+    assert(near(swing_result.base_load_total_kw, 0.0f));
+}
+
+/* WHY NO MODE MAY BE DEFAULTED, demonstrated rather than asserted in a comment.
+ *
+ * The base-load floor is not ordered against the isochronous floor: a large setpoint
+ * raises it above, and moving a big engine out of the proportional term drops it
+ * below. So there is no "conservative mode" to default to -- only a commissioned
+ * fact, or no PV. */
+static void test_neither_mode_is_conservative_for_every_plant(void)
+{
+    printf("neither mode dominates:\n");
+
+    /* Base-load ABOVE isochronous: a big setpoint on top of the swing floor. */
+    generator_fleet_input_t higher = fleet(2000.0f);
+    higher.engines[0] = metered(500.0f, 30.0f, 0.0f, 0.0f, 500.0f);
+    higher.engines[1] = metered(500.0f, 30.0f, 0.0f, 0.0f, 500.0f);
+    const float iso_higher = generator_fleet_limit_evaluate(&higher).minimum_loading_kw;
+    generator_fleet_input_t higher_base = higher;
+    higher_base.sharing_mode = GENERATOR_SHARING_BASE_LOAD;
+    higher_base.engines[0].role = GENERATOR_ENGINE_ROLE_BASE_LOAD;
+    higher_base.engines[0].base_load_kw = 450.0f;
+    higher_base.engines[1].role = GENERATOR_ENGINE_ROLE_SWING;
+    const float base_higher = generator_fleet_limit_evaluate(&higher_base).minimum_loading_kw;
+    printf("  isochronous %8.3f kW vs base-load %8.3f kW (base-load higher)\n",
+           (double)iso_higher, (double)base_higher);
+    assert(base_higher > iso_higher + CLOSE_ENOUGH);
+    expect_floor_matches_brute_force("base-load-higher fleet", &higher_base);
+
+    /* Base-load BELOW isochronous: the engine carrying the worst percentage is the
+     * one taken out of the proportional term. */
+    generator_fleet_input_t lower = fleet(2000.0f);
+    lower.engines[0] = metered(600.0f, 50.0f, 0.0f, 0.0f, 500.0f);
+    lower.engines[1] = metered(200.0f, 10.0f, 0.0f, 0.0f, 500.0f);
+    const float iso_lower = generator_fleet_limit_evaluate(&lower).minimum_loading_kw;
+    generator_fleet_input_t lower_base = lower;
+    lower_base.sharing_mode = GENERATOR_SHARING_BASE_LOAD;
+    lower_base.engines[0].role = GENERATOR_ENGINE_ROLE_BASE_LOAD;
+    lower_base.engines[0].base_load_kw = 300.0f; /* its own minimum is 300 kW */
+    lower_base.engines[1].role = GENERATOR_ENGINE_ROLE_SWING;
+    const float base_lower = generator_fleet_limit_evaluate(&lower_base).minimum_loading_kw;
+    printf("  isochronous %8.3f kW vs base-load %8.3f kW (base-load lower)\n",
+           (double)iso_lower, (double)base_lower);
+    assert(base_lower < iso_lower - CLOSE_ENOUGH);
+    expect_floor_matches_brute_force("base-load-lower fleet", &lower_base);
+}
+
+static void test_mode_and_role_slugs_are_complete_and_bounded(void)
+{
+    for (uint8_t i = 0; i < GENERATOR_SHARING_MODE_COUNT; ++i) {
+        assert(generator_sharing_mode_id(i)[0] != '\0');
+    }
+    for (uint8_t a = 0; a < GENERATOR_SHARING_MODE_COUNT; ++a) {
+        for (uint8_t b = (uint8_t)(a + 1); b < GENERATOR_SHARING_MODE_COUNT; ++b) {
+            assert(strcmp(generator_sharing_mode_id(a), generator_sharing_mode_id(b)) != 0);
+        }
+    }
+    /* Out of range must read as "unset", never as a supported mode. */
+    assert(strcmp(generator_sharing_mode_id(GENERATOR_SHARING_MODE_COUNT), "unset") == 0);
+    assert(strcmp(generator_sharing_mode_id(200), "unset") == 0);
+
+    for (uint8_t i = 0; i < GENERATOR_ENGINE_ROLE_COUNT; ++i) {
+        assert(generator_engine_role_id(i)[0] != '\0');
+    }
+    for (uint8_t a = 0; a < GENERATOR_ENGINE_ROLE_COUNT; ++a) {
+        for (uint8_t b = (uint8_t)(a + 1); b < GENERATOR_ENGINE_ROLE_COUNT; ++b) {
+            assert(strcmp(generator_engine_role_id(a), generator_engine_role_id(b)) != 0);
+        }
+    }
+    assert(strcmp(generator_engine_role_id(GENERATOR_ENGINE_ROLE_COUNT), "unset") == 0);
+}
+
 static void test_reason_slugs_are_complete_and_bounded(void)
 {
     for (uint8_t i = 0; i < GENERATOR_FLEET_REASON_COUNT; ++i) {
@@ -384,6 +947,9 @@ static void test_reason_slugs_are_complete_and_bounded(void)
 
 int main(void)
 {
+    /* Unbuffered, so the brute-force comparison already printed is visible when a
+     * later assertion aborts the process. */
+    setvbuf(stdout, NULL, _IONBF, 0);
     test_null_and_zeroed_input_yield_no_pv();
     test_stale_or_impossible_load_yields_no_pv();
     test_one_engine();
@@ -399,7 +965,20 @@ int main(void)
     test_load_below_the_floor_clamps_to_zero();
     test_adding_an_engine_never_increases_permitted_pv();
     test_engine_count_is_bounded();
+    test_isochronous_floor_matches_brute_force();
+    test_base_load_floor_matches_brute_force();
+    test_mixed_fleet_end_to_end();
+    test_sharing_mode_unset_fails_closed();
+    test_single_online_engine_needs_no_sharing_mode();
+    test_droop_and_unknown_modes_are_refused();
+    test_base_load_missing_values_fail_closed();
+    test_base_load_below_own_minimum_is_refused();
+    test_base_load_without_a_base_loaded_engine_equals_isochronous();
+    test_neither_mode_is_conservative_for_every_plant();
+    test_mode_and_role_slugs_are_complete_and_bounded();
     test_reason_slugs_are_complete_and_bounded();
-    printf("aggregate generator limit unit tests passed\n");
+    printf("aggregate generator limit unit tests passed "
+           "(every mode's floor agrees with a brute-force reference computed from "
+           "first principles; droop is refused)\n");
     return 0;
 }
