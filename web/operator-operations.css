@@ -40,7 +40,9 @@
 .op-event-copy small { color: var(--muted); line-height: 1.4; }
 .op-event-meta { display: grid; justify-items: end; gap: 7px; min-width: 90px; }
 .op-event-meta small { color: var(--muted); }
-.op-empty-state.good { color: var(--good); border-color: rgba(65,211,155,.28); background: rgba(65,211,155,.05); }
+/* "No alarms" is the normal state and gets no colour. It used to be painted
+   green, which trains the reader that green means "look here". */
+.op-empty-state.good { color: var(--muted); border-color: var(--line-soft); }
 
 /* ------------------------------------------------------------ trend plots
  * Axes, units, a stated range, real gaps and a per-sample quality strip. Every
@@ -82,9 +84,12 @@
 .alarm-message { padding: 11px 14px; border: 1px solid var(--line-soft); border-radius: 12px; color: var(--muted); background: var(--panel-strong); font-size: 12px; line-height: 1.5; }
 .alarm-list { display: grid; gap: 10px; }
 .alarm-row { display: grid; grid-template-columns: 38px minmax(0, 1fr) minmax(0, auto); gap: 14px; align-items: start; padding: 16px; border: 1px solid var(--line-soft); border-left: 4px solid var(--line); border-radius: 14px; background: var(--panel-strong); }
-.alarm-row.severity-critical { border-left-color: var(--bad); }
-.alarm-row.severity-warning { border-left-color: var(--warning); }
-.alarm-row.severity-information { border-left-color: var(--info); }
+/* Severity escalates on three channels at once - rule weight, border colour and
+   the severity word in .alarm-severity-pill - so the ordering survives without
+   colour perception. A critical row is the heaviest object on the page. */
+.alarm-row.severity-critical { border-left-width: 6px; border-left-color: var(--bad); border-color: var(--bad); }
+.alarm-row.severity-warning { border-left-width: 4px; border-left-color: var(--warning); }
+.alarm-row.severity-information { border-left-width: 3px; border-left-color: var(--info); }
 /* Outstanding work is emphasised; nothing here fades a row out. A returned-to-
    normal condition that nobody acknowledged must not read as resolved, so it is
    never dimmed and never green. */
