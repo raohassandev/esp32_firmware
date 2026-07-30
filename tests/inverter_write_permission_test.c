@@ -156,7 +156,8 @@ static void test_every_sub_production_level_needs_a_declaration(void)
     }
 }
 
-/* A device needing a prerequisite enable write must be refused in BOTH modes.
+/* A device needing a prerequisite enable register, with no prerequisite
+ * described, must be refused in BOTH modes.
  *
  * This is the nastiest failure mode in the catalogue. Solis (tag 3070 = 0xAA),
  * Sungrow (tag 5007 = 0xAA) and Chint/CPS (0x2602 = 1) each require a register to
@@ -179,8 +180,8 @@ static void test_prerequisite_enable_is_refused(void)
     assert(inverter_profile_write_permission(&profile, false) == INVERTER_WRITE_FORBIDDEN);
     assert(inverter_profile_write_permission(&profile, true) == INVERTER_WRITE_FORBIDDEN);
 
-    /* ...and refused even if someone marks it production-approved, because the
-     * firmware still cannot sequence the prerequisite. */
+    /* ...and refused even if someone marks it production-approved, because
+     * nothing describes the prerequisite this device needs. */
     profile.qualification = INVERTER_PROFILE_QUALIFICATION_PRODUCTION_APPROVED;
     assert(inverter_profile_write_permission(&profile, false) == INVERTER_WRITE_FORBIDDEN);
     assert(inverter_profile_write_permission(&profile, true) == INVERTER_WRITE_FORBIDDEN);
@@ -190,14 +191,174 @@ static void test_prerequisite_enable_is_refused(void)
      * caused the refusal rather than some other missing field. */
     profile.requires_prerequisite_enable = false;
     assert(inverter_profile_write_permission(&profile, false) == INVERTER_WRITE_PRODUCTION);
+}
 
-    /* Every shipped profile that declares the prerequisite must be refused. */
+/* Fills in a valid, readable prerequisite: Sungrow's, from the manual. */
+static void describe_readable_prerequisite(inverter_profile_t *profile)
+{
+    profile->has_prerequisite_enable = true;
+    profile->prerequisite_write_function = 6;
+    profile->prerequisite_address = 5006; /* manual tag 5007, minus 1 */
+    profile->prerequisite_value = 0x00AA;
+    profile->has_prerequisite_readback = true;
+    profile->prerequisite_readback_function = 3;
+    profile->prerequisite_readback_address = 5006;
+    profile->prerequisite_readback_mask = 0xFFFF;
+}
+
+/* THE central new rule. A prerequisite that cannot be READ BACK is not usable,
+ * and must be refused exactly as a setpoint with no readback is refused.
+ *
+ * The reason is not symmetry for its own sake. An enable register written blind
+ * is an assertion the controller cannot check, and the setpoint register echoes
+ * the commanded value regardless -- so a blind enable write puts the controller
+ * straight back into reporting CONFIRMED for a limit the inverter is ignoring.
+ * The false confirmation is reached by a different door, and it is just as
+ * fatal. */
+static void test_unreadable_prerequisite_stays_forbidden(void)
+{
+    inverter_profile_t profile;
+    memset(&profile, 0, sizeof(profile));
+    profile.id = "test.prerequisite.unreadable";
+    profile.qualification = INVERTER_PROFILE_QUALIFICATION_PRODUCTION_APPROVED;
+    profile.has_power_limit = true;
+    profile.has_power_limit_readback = true;
+    profile.requires_prerequisite_enable = true;
+    describe_readable_prerequisite(&profile);
+
+    /* Baseline: fully described, so the ordinary rules apply again. */
+    assert(inverter_profile_write_permission(&profile, false) == INVERTER_WRITE_PRODUCTION);
+    assert(inverter_profile_allows_write(&profile));
+
+    /* Remove ONLY the readback. This is the case a careless implementation would
+     * allow, because the write is perfectly well described. */
+    profile.has_prerequisite_readback = false;
+    assert(inverter_profile_write_permission(&profile, false) == INVERTER_WRITE_FORBIDDEN);
+    assert(inverter_profile_write_permission(&profile, true) == INVERTER_WRITE_FORBIDDEN);
+    assert(!inverter_profile_allows_write(&profile));
+
+    /* A readback flag with a function code this firmware will not read with is
+     * not a readback either. 0x06 writes; if it were accepted here, "verifying"
+     * the enable register would mean writing it again. */
+    profile.has_prerequisite_readback = true;
+    profile.prerequisite_readback_function = 6;
+    assert(inverter_profile_write_permission(&profile, true) == INVERTER_WRITE_FORBIDDEN);
+    profile.prerequisite_readback_function = 4; /* input registers are legitimate */
+    assert(inverter_profile_write_permission(&profile, false) == INVERTER_WRITE_PRODUCTION);
+
+    /* And the write half must be describable too: a readable prerequisite that
+     * cannot be written is a register the controller can only watch. */
+    profile.prerequisite_readback_function = 3;
+    profile.has_prerequisite_enable = false;
+    assert(inverter_profile_write_permission(&profile, false) == INVERTER_WRITE_FORBIDDEN);
+    assert(inverter_profile_write_permission(&profile, true) == INVERTER_WRITE_FORBIDDEN);
+
+    /* An unsupported write function code is the same as no write at all. Modbus
+     * 0x05 writes a single COIL, not a holding register: every one of these
+     * enable registers is a 16-bit holding register, so accepting 0x05 would put
+     * a frame on the wire that cannot do the job. */
+    profile.has_prerequisite_enable = true;
+    profile.prerequisite_write_function = 5;
+    assert(inverter_profile_write_permission(&profile, true) == INVERTER_WRITE_FORBIDDEN);
+    profile.prerequisite_write_function = 16; /* write-multiple is legitimate */
+    assert(inverter_profile_write_permission(&profile, false) == INVERTER_WRITE_PRODUCTION);
+}
+
+/* Every other rule must survive the new field. A describable prerequisite grants
+ * nothing on its own -- it only stops being a reason for refusal. */
+static void test_describing_a_prerequisite_grants_nothing_else(void)
+{
+    inverter_profile_t profile;
+    memset(&profile, 0, sizeof(profile));
+    profile.id = "test.prerequisite.rules";
+    profile.requires_prerequisite_enable = true;
+    describe_readable_prerequisite(&profile);
+
+    /* No setpoint readback: still forbidden. A verified enable register does not
+     * make an unconfirmable setpoint acceptable. */
+    profile.qualification = INVERTER_PROFILE_QUALIFICATION_PRODUCTION_APPROVED;
+    profile.has_power_limit = true;
+    assert(inverter_profile_write_permission(&profile, false) == INVERTER_WRITE_FORBIDDEN);
+    assert(inverter_profile_write_permission(&profile, true) == INVERTER_WRITE_FORBIDDEN);
+
+    /* Simulator-only never reaches production, prerequisite or not. */
+    profile.has_power_limit_readback = true;
+    profile.simulator_only = true;
+    assert(inverter_profile_write_permission(&profile, false) != INVERTER_WRITE_PRODUCTION);
+    assert(inverter_profile_write_permission(&profile, true) != INVERTER_WRITE_PRODUCTION);
+    assert(!inverter_profile_allows_write(&profile));
+
+    /* A lab declaration still never manufactures production authority. */
+    profile.simulator_only = false;
+    profile.qualification = INVERTER_PROFILE_QUALIFICATION_DOCUMENTED;
+    assert(inverter_profile_write_permission(&profile, true) == INVERTER_WRITE_LAB_ONLY);
+    assert(inverter_profile_write_permission(&profile, false) == INVERTER_WRITE_FORBIDDEN);
+    assert(!inverter_profile_allows_write(&profile));
+}
+
+/* A NULL profile is blocked by the prerequisite predicate too, so a caller that
+ * consults it directly cannot be handed "not blocked" for a profile that does
+ * not exist. */
+static void test_prerequisite_predicate_fails_closed(void)
+{
+    assert(inverter_profile_prerequisite_blocks_write(NULL));
+    assert(!inverter_profile_prerequisite_write_described(NULL));
+    assert(!inverter_profile_prerequisite_readback_described(NULL));
+
+    /* A zeroed profile needs no prerequisite, so it is not BLOCKED by one -- and
+     * it describes none, so neither half is described. Both statements have to
+     * hold at once or the gate would refuse every ordinary profile. */
+    inverter_profile_t zeroed;
+    memset(&zeroed, 0, sizeof(zeroed));
+    assert(!inverter_profile_prerequisite_blocks_write(&zeroed));
+    assert(!inverter_profile_prerequisite_write_described(&zeroed));
+    assert(!inverter_profile_prerequisite_readback_described(&zeroed));
+
+    /* A zero mask must never be used literally: masking a reading with zero makes
+     * every possible value compare equal, which would confirm the prerequisite
+     * unconditionally. That is the false confirmation, arrived at by arithmetic. */
+    assert(inverter_profile_prerequisite_mask(NULL) == 0xFFFFU);
+    assert(inverter_profile_prerequisite_mask(&zeroed) == 0xFFFFU);
+    zeroed.prerequisite_readback_mask = 0x00FF;
+    assert(inverter_profile_prerequisite_mask(&zeroed) == 0x00FFU);
+}
+
+/* The shipped catalogue, executed rather than asserted about: every profile that
+ * says the device needs a prerequisite must agree with the rule. Written as an
+ * equivalence rather than a flat "must be forbidden", so it stays true when a
+ * profile gains a properly cited enable register. */
+static void test_shipped_prerequisite_profiles_follow_the_rule(void)
+{
+    size_t declaring = 0;
     for (size_t i = 0; i < inverter_profiles_count(); ++i) {
         const inverter_profile_t *shipped = inverter_profiles_get(i);
-        if (!shipped->requires_prerequisite_enable) continue;
-        assert(inverter_profile_write_permission(shipped, false) == INVERTER_WRITE_FORBIDDEN);
-        assert(inverter_profile_write_permission(shipped, true) == INVERTER_WRITE_FORBIDDEN);
+        assert(shipped != NULL);
+        if (!shipped->requires_prerequisite_enable) {
+            /* A profile must not describe a prerequisite it does not need: that
+             * would be a write to an enable register on a device whose manual
+             * does not call for one. */
+            assert(!shipped->has_prerequisite_enable);
+            continue;
+        }
+        declaring++;
+        const bool blocked = inverter_profile_prerequisite_blocks_write(shipped);
+        if (blocked) {
+            assert(inverter_profile_write_permission(shipped, false) == INVERTER_WRITE_FORBIDDEN);
+            assert(inverter_profile_write_permission(shipped, true) == INVERTER_WRITE_FORBIDDEN);
+            assert(!inverter_profile_allows_write(shipped));
+        } else {
+            /* Described and readable, so the prerequisite is no longer the
+             * reason for refusal. Everything else still applies, and nothing in
+             * the catalogue is production-approved. */
+            assert(shipped->has_prerequisite_enable);
+            assert(shipped->has_prerequisite_readback);
+            assert(inverter_profile_write_permission(shipped, false) != INVERTER_WRITE_PRODUCTION);
+        }
     }
+    /* The catalogue must still carry the brands that have this hazard. If this
+     * fires, the flag was dropped from Solis, Growatt, Sungrow or Chint/CPS and
+     * the hazard is now invisible. */
+    assert(declaring > 0);
 }
 
 /* A flash-backed command register with no manufacturer-stated rate is refused.
@@ -271,6 +432,10 @@ int main(void)
     test_every_sub_production_level_needs_a_declaration();
     test_prerequisite_enable_is_refused();
     test_flash_backed_register_without_a_rate_is_refused();
+    test_unreadable_prerequisite_stays_forbidden();
+    test_describing_a_prerequisite_grants_nothing_else();
+    test_prerequisite_predicate_fails_closed();
+    test_shipped_prerequisite_profiles_follow_the_rule();
     test_labels();
     printf("inverter write permission unit tests passed\n");
     return 0;

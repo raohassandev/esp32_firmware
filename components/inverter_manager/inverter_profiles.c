@@ -480,6 +480,24 @@ static const inverter_profile_t PROFILES[] = {
     },
     {
         .id = "solis.commercial.pending",
+        /* PREREQUISITE ENABLE, now describable and therefore verifiable.
+         * Manual tag 3070 "Power limitation switch", p.27 s5.6:
+         *   "0xAA ON, 0x55 OFF(Power to 100%)(for 3052 and 3081 Reg)"
+         * PDU 3069 by the same offset rule that puts this profile's setpoint at
+         * 3051, p.24 s5.6: "the register address needs to offset one bit. Example:
+         * register address: 3007, the send address is 3006". Readable with FC 0x03
+         * per the s5.6 header: "The function code is 0x03, 0x06 and 0X10".
+         *
+         * The runtime re-reads after writing, so the enable is evidence rather than
+         * an assertion: it never trusts its own write. */
+        .has_prerequisite_enable = true,
+        .prerequisite_write_function = 6,
+        .prerequisite_address = 3069,
+        .prerequisite_value = 0x00AA,
+        .has_prerequisite_readback = true,
+        .prerequisite_readback_function = 3,
+        .prerequisite_readback_address = 3069,
+        .prerequisite_readback_mask = 0xFFFF,
         /* Manual tag 3070 must be set to 0xAA before the setpoint at 3051 does
          * anything. This firmware cannot sequence that write, and 3051 echoes
          * the value back regardless, so commanding it would report CONFIRMED
@@ -781,6 +799,22 @@ static const inverter_profile_t PROFILES[] = {
     },
     {
         .id = "sungrow.string.documented",
+        /* PREREQUISITE ENABLE, describable and verifiable.
+         * Manual tag 5007 "Power limitation switch", p.16 s3.2:
+         *   "0xAA: Enable; 0x55: Disable"
+         * and on tag 5008: "Available when the power limitation switch (5007) is
+         * enabled" -- the setpoint is inert without it. PDU 5006 by the offset the
+         * manual proves with a worked frame on p.5 s3 (0x1387 == 4999). Readable
+         * with FC 0x03 per p.5 s3: "Address of 4x type is holding register,
+         * supporting the CMD code inquiry of 0x03". */
+        .has_prerequisite_enable = true,
+        .prerequisite_write_function = 6,
+        .prerequisite_address = 5006,
+        .prerequisite_value = 0x00AA,
+        .has_prerequisite_readback = true,
+        .prerequisite_readback_function = 3,
+        .prerequisite_readback_address = 5006,
+        .prerequisite_readback_mask = 0xFFFF,
         /* Manual tag 5007 must be set to 0xAA before the setpoint at 5007+1
          * takes effect. Not sequenceable by this firmware, and the setpoint
          * echoes regardless, so a command would falsely confirm. Refused. */
@@ -1267,12 +1301,19 @@ bool inverter_profile_allows_read(const inverter_profile_t *profile)
 
 bool inverter_profile_allows_write(const inverter_profile_t *profile)
 {
-    /* A device whose setpoint needs a prerequisite enable write this firmware
-     * cannot perform is refused here too, not only in the permission gate. Other
-     * callers read this predicate directly, and every one of them must get the
-     * same answer: commanding such a device produces a CONFIRMED verdict for a
-     * limit the inverter is ignoring. */
-    return profile && !profile->simulator_only && !profile->requires_prerequisite_enable &&
+    /* Two independent refusals, both repeated here rather than left to the
+     * permission gate, because other callers read this predicate directly and
+     * every one of them must get the same answer.
+     *
+     * A prerequisite enable register this profile cannot describe or cannot read
+     * back: commanding such a device produces a CONFIRMED verdict for a limit the
+     * inverter is ignoring.
+     *
+     * A flash-backed command register with no manufacturer-stated write rate:
+     * commanding it continuously wears out the inverter's non-volatile memory, a
+     * permanent hardware failure while every write reports success. */
+    return profile && !profile->simulator_only &&
+           !inverter_profile_prerequisite_blocks_write(profile) &&
            !(profile->command_register_is_flash_backed && profile->min_command_interval_ms == 0U) &&
            profile->has_power_limit && profile->has_power_limit_readback &&
            profile->qualification == INVERTER_PROFILE_QUALIFICATION_PRODUCTION_APPROVED;
@@ -1287,12 +1328,16 @@ inverter_write_permission_t inverter_profile_write_permission(const inverter_pro
     if (!profile->has_power_limit || !profile->has_power_limit_readback) {
         return INVERTER_WRITE_FORBIDDEN;
     }
-    /* A device needing a prerequisite enable write is refused in BOTH modes. Its
-     * setpoint register echoes the value back regardless, so commanding it would
-     * produce a CONFIRMED verdict for a limit the inverter is ignoring. Being
-     * unable to command is recoverable; being told a plant is limited when it is
-     * not is not. See requires_prerequisite_enable in the header. */
-    if (profile->requires_prerequisite_enable) return INVERTER_WRITE_FORBIDDEN;
+    /* A device needing a prerequisite enable register is refused in BOTH modes
+     * unless this profile describes one that can be WRITTEN and READ BACK. Its
+     * setpoint register echoes the value back regardless, so commanding it
+     * without a verified prerequisite would produce a CONFIRMED verdict for a
+     * limit the inverter is ignoring. An enable register that cannot be read back
+     * reaches the same false confirmation by a different door, so it is refused
+     * with the same force as a missing setpoint readback. Being unable to command
+     * is recoverable; being told a plant is limited when it is not is not. See
+     * requires_prerequisite_enable in the header. */
+    if (inverter_profile_prerequisite_blocks_write(profile)) return INVERTER_WRITE_FORBIDDEN;
     /* A flash-backed command register with no manufacturer-stated permitted rate is
      * refused in BOTH modes. Commanding it continuously wears out the inverter's
      * non-volatile memory -- a permanent hardware failure while every write reports

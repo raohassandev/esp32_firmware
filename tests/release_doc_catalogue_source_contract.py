@@ -14,7 +14,10 @@ the code is worse than no summary at all, so this test makes disagreement loud.
 
 import pathlib
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PROFILES = (ROOT / "components/inverter_manager/inverter_profiles.c").read_text(encoding="utf-8")
@@ -34,20 +37,58 @@ def require(condition, message):
 
 SAFE_DEFAULT_ID = "custom.modbus-percent-v1"
 
-catalogue = {}
-for match in re.finditer(r"\.id = (SAFE_DEFAULT_PROFILE_ID|\"([^\"]+)\")", PROFILES):
-    profile_id = SAFE_DEFAULT_ID if match.group(1) == "SAFE_DEFAULT_PROFILE_ID" else match.group(2)
-    end = PROFILES.find("\n    },", match.start())
-    block = PROFILES[match.start():end if end != -1 else len(PROFILES)]
-    catalogue[profile_id] = {
-        "simulator_only": ".simulator_only = true" in block,
-        "prerequisite": ".requires_prerequisite_enable = true" in block,
-        "command": ".has_power_limit = true" in block,
-        "readback": ".has_power_limit_readback = true" in block,
-        "production": "QUALIFICATION_PRODUCTION_APPROVED" in block,
-        "flash_backed": ".command_register_is_flash_backed = true" in block,
-        "has_command_rate": ".min_command_interval_ms =" in block,
-    }
+# The authority for each profile is obtained by COMPILING AND RUNNING the real
+# decision function over the real catalogue -- not by reimplementing the rule here.
+#
+# An earlier version of this test did reimplement it, and that was a mistake with
+# teeth. When prerequisite-enable sequencing landed, the Python copy and the
+# release table both still encoded the old rule, so they agreed with each other,
+# disagreed with the firmware, and this test PASSED while the document was wrong
+# about which inverters the controller would command. A mirror of a safety rule is
+# another thing that can drift; asking the rule cannot.
+PROBE = ROOT / "tests/support/profile_authority_probe.c"
+
+
+def compiled_catalogue():
+    """Compiles and runs the real decision function over the real catalogue."""
+    gcc = shutil.which("gcc")
+    if not gcc:
+        raise AssertionError("gcc is required: this contract executes the real "
+                             "write-permission rule rather than reimplementing it")
+    with tempfile.TemporaryDirectory() as tmp:
+        binary = pathlib.Path(tmp) / "probe"
+        subprocess.run(
+            [gcc, "-std=c11", "-Wall", "-Wextra", "-Werror",
+             "-I", str(ROOT / "tests/support"),
+             "-I", str(ROOT / "components/inverter_manager/include"),
+             str(PROBE),
+             str(ROOT / "components/inverter_manager/inverter_profiles.c"),
+             str(ROOT / "components/inverter_manager/inverter_status.c"),
+             "-lm", "-o", str(binary)],
+            check=True, capture_output=True)
+        out = subprocess.run([str(binary)], check=True, capture_output=True,
+                             text=True).stdout
+    result = {}
+    for line in out.splitlines():
+        if not line.strip():
+            continue
+        pid, qualification, authority, production = line.split("	")
+        result[pid] = {
+            "qualification": qualification.strip().lower(),
+            "authority": authority.strip(),
+            "production": production.strip() == "1",
+        }
+    return result
+
+
+catalogue = compiled_catalogue()
+
+# Human-readable authority, matching the wording used in the release table.
+AUTHORITY_TEXT = {
+    "forbidden": "forbidden",
+    "lab_simulator_only": "lab only",
+    "production": "production",
+}
 
 require(len(catalogue) >= 10, f"only {len(catalogue)} profiles parsed; the parser is probably wrong")
 
@@ -81,31 +122,28 @@ for profile_id, facts in catalogue.items():
     if not row:
         continue  # already reported above
 
-    # Mirrors inverter_profile_write_permission() with a lab target declared:
-    # a command and a readback register are both required, a prerequisite enable is
-    # refused outright, and a flash-backed command register is refused unless the
-    # manufacturer stated a permitted write rate. Nothing here is
-    # production-approved.
-    #
-    # This mirror must be kept in step with the C rule. When it drifted, this test
-    # is what reported it -- which is the point, but it also means a change to the
-    # gate belongs here in the same commit.
-    flash_hazard = facts["flash_backed"] and not facts["has_command_rate"]
-    commandable_in_lab = (facts["command"] and facts["readback"]
-                          and not facts["prerequisite"]
-                          and not flash_hazard)
-    expected = "lab only" if commandable_in_lab else "forbidden"
-    require(expected in row["authority"],
-            f"{profile_id}: the release table says lab authority "
-            f"'{row['authority']}' but the catalogue implies '{expected}'")
+    # What the FIRMWARE actually decided, executed above, not inferred here.
+    expected = AUTHORITY_TEXT.get(facts["authority"])
+    require(expected is not None,
+            f"{profile_id}: unrecognised authority '{facts['authority']}' from the "
+            "firmware; this table needs a wording for it")
+    if expected is not None:
+        require(expected in row["authority"],
+                f"{profile_id}: the release table says lab authority "
+                f"'{row['authority']}' but the firmware decides '{expected}'")
+
+    # Qualification must match too, so a profile cannot be quietly promoted in code
+    # while the document still describes it at the old level.
+    require(facts["qualification"] in row["qualification"],
+            f"{profile_id}: the release table says qualification "
+            f"'{row['qualification']}' but the catalogue says '{facts['qualification']}'")
 
     # No profile may be described as production-qualified while none is.
     require("production" not in row["authority"],
             f"{profile_id}: the release table claims production authority")
     require(not facts["production"],
-            f"{profile_id} is marked production-approved in the catalogue; the "
-            "release document's central claim that no profile is production "
-            "qualified would be false")
+            f"{profile_id} passes the production write gate; the release document's "
+            "central claim that no profile is production qualified would be false")
 
 # The document's headline count must be honest.
 require(re.search(r"production-approved profiles:\s*\*\*0\*\*", DOC) is not None,

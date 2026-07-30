@@ -100,6 +100,15 @@ jobs:
             components/inverter_manager/inverter_write_confirmation.c \
             -lm -o /tmp/inverter_write_confirmation_test
           /tmp/inverter_write_confirmation_test
+      - name: Run inverter prerequisite enable sequencing unit tests
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -Wall -Wextra -Werror \
+            -Icomponents/inverter_manager/include \
+            tests/inverter_prerequisite_test.c \
+            components/inverter_manager/inverter_prerequisite.c \
+            -lm -o /tmp/inverter_prerequisite_test
+          /tmp/inverter_prerequisite_test
       - name: Run Solar-Grid integration tests
         run: |
           set -euo pipefail
@@ -168,6 +177,8 @@ jobs:
         run: python3 tests/commissioning_gate_source_contract.py
       - name: Check inverter write confirmation and readback contract
         run: python3 tests/inverter_write_readback_source_contract.py
+      - name: Check inverter prerequisite enable sequencing contract
+        run: python3 tests/inverter_prerequisite_enable_source_contract.py
       - name: Check inverter read-only probe contract
         run: python3 tests/inverter_read_probe_source_contract.py
       - name: Check inverter decoder contract

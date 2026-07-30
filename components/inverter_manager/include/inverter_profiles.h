@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "inverter_prerequisite.h"
 #include "inverter_profile_decode.h"
 #include "inverter_status.h"
 
@@ -98,24 +99,35 @@ typedef struct {
      * a reduction is what endangers a generator. */
     uint32_t min_command_interval_ms;
 
-    /* True when the manual documents a register that must be written BEFORE a
-     * power-limit setpoint has any effect -- Solis tag 3070 (0xAA), Sungrow tag
-     * 5007 (0xAA), Chint/CPS 0x2602 (1) are the known cases.
+    /* True when the manual documents a register that must hold a particular
+     * value BEFORE a power-limit setpoint has any effect -- Solis tag 3070
+     * (0xAA), Sungrow tag 5007 (0xAA), Chint/CPS 0x2602 (1) are the known cases.
      *
-     * This firmware cannot perform a prerequisite write: there is no field to
-     * describe one and no code to sequence and verify it. That matters far more
-     * than it looks, because of how these devices fail. The setpoint register
-     * still ACCEPTS the write and still ECHOES it back, so the controller sees a
-     * matching readback and reports CONFIRMED -- while the inverter quietly
-     * ignores the limit and keeps generating. A false confirmation is the single
-     * worst outcome this module can produce: worse than a mismatch, worse than a
-     * timeout, because every layer above it, including the operator, is told the
-     * plant is under control when it is not.
+     * The meaning of this flag is unchanged: "this device needs one". It is a
+     * statement about the equipment, not about what the firmware can do.
      *
-     * So a profile that sets this is refused write authority outright, in lab
-     * mode as well as production. Fail closed until the firmware can sequence and
-     * verify the prerequisite, or until enabling it becomes a checked
-     * commissioning step whose completion the controller can confirm. */
+     * It matters far more than it looks, because of how these devices fail. The
+     * setpoint register still ACCEPTS the write and still ECHOES it back, so the
+     * controller sees a matching readback and reports CONFIRMED -- while the
+     * inverter quietly ignores the limit and keeps generating. A false
+     * confirmation is the single worst outcome this module can produce: worse
+     * than a mismatch, worse than a timeout, because every layer above it,
+     * including the operator, is told the plant is under control when it is not.
+     *
+     * The firmware can now sequence and verify a prerequisite, so write
+     * authority depends on whether THIS profile describes a verifiable one:
+     *
+     *   needs one + describes a write AND a readback -> ordinary rules apply
+     *   needs one + nothing described                -> FORBIDDEN
+     *   needs one + described but not readable       -> FORBIDDEN
+     *
+     * The unreadable case is refused for exactly the reason a setpoint with no
+     * readback is refused. An enable register written blind is an assertion the
+     * controller cannot check, and the false-confirmation trap is reached again
+     * by a different door.
+     *
+     * Being unable to command is recoverable. Being told a plant is limited when
+     * it is not is not. */
     bool requires_prerequisite_enable;
 
     /* True when the manual says the command register is stored in non-volatile
@@ -140,6 +152,36 @@ typedef struct {
      * setpoint every couple of seconds is tens of thousands of writes a day, which
      * defeats the purpose of the interval. */
     bool command_register_is_flash_backed;
+    /* The prerequisite WRITE: which function code, which address, which value.
+     *
+     * Nothing here is defaulted or inferred. A profile either carries a manual
+     * citation for all three or leaves has_prerequisite_enable false, in which
+     * case the device stays refused. There is no register in this product whose
+     * address may be guessed, and an enable register is the last place to start:
+     * the neighbouring addresses in all three manuals are mode selectors,
+     * on/off commands and absolute power limits. */
+    bool has_prerequisite_enable;
+    uint8_t prerequisite_write_function;  /* 0x06 single, 0x10 multiple */
+    uint16_t prerequisite_address;        /* PDU address, as it goes on the wire */
+    uint16_t prerequisite_value;          /* the value that means "enabled" */
+
+    /* The prerequisite READBACK. Mandatory for the device to be commandable at
+     * all: a prerequisite that cannot be read back cannot be confirmed, and an
+     * unconfirmable enable register is indistinguishable from an ignored one.
+     *
+     * The function code must be read-only (0x03 or 0x04). The mask selects the
+     * bits that carry the meaning; zero is treated as 0xFFFF, i.e. the whole
+     * register must equal prerequisite_value. */
+    bool has_prerequisite_readback;
+    uint8_t prerequisite_readback_function; /* 0x03 holding, 0x04 input */
+    uint16_t prerequisite_readback_address;
+    uint16_t prerequisite_readback_mask;
+
+    /* How often the enable register is re-read to confirm it still holds. Zero
+     * means "use the firmware default". A property of the risk, not of the
+     * device, so a profile only needs to set it where the manual or the site
+     * demands something tighter. See INVERTER_PREREQUISITE_RECHECK_MS. */
+    uint32_t prerequisite_recheck_ms;
 
     /*
      * Optional operational status register. Deliberately left unconfigured for
@@ -152,6 +194,50 @@ typedef struct {
     uint32_t telemetry_poll_ms;
     uint32_t telemetry_stale_timeout_ms;
 } inverter_profile_t;
+
+/* True when this profile describes a prerequisite write completely enough to
+ * issue: a supported write function code and a value. Address zero is legal --
+ * Chint/CPS reads its identity from PDU 0x0000 -- so the address is not part of
+ * the test. */
+static inline bool inverter_profile_prerequisite_write_described(
+    const inverter_profile_t *profile)
+{
+    return profile && profile->has_prerequisite_enable &&
+           inverter_prerequisite_write_function_supported(profile->prerequisite_write_function);
+}
+
+/* True when this profile describes a readback of the prerequisite that this
+ * firmware will actually perform: a read-only function code. */
+static inline bool inverter_profile_prerequisite_readback_described(
+    const inverter_profile_t *profile)
+{
+    return profile && profile->has_prerequisite_readback &&
+           inverter_prerequisite_read_function_supported(
+               profile->prerequisite_readback_function);
+}
+
+/* The write-authority consequence: this device needs a prerequisite and this
+ * profile does not describe a verifiable one, so no command may be issued to it
+ * in any mode. A NULL profile is blocked, like every other unknown. */
+static inline bool inverter_profile_prerequisite_blocks_write(
+    const inverter_profile_t *profile)
+{
+    if (!profile) return true;
+    return inverter_prerequisite_write_blocked(
+        profile->requires_prerequisite_enable,
+        inverter_profile_prerequisite_write_described(profile),
+        inverter_profile_prerequisite_readback_described(profile));
+}
+
+/* Mask to apply to a prerequisite readback. Zero in the profile means "the whole
+ * register", so it is never used as a mask literally -- a zero mask would make
+ * every possible reading compare equal and confirm the prerequisite
+ * unconditionally, which is the exact false confirmation being prevented. */
+static inline uint16_t inverter_profile_prerequisite_mask(const inverter_profile_t *profile)
+{
+    if (!profile || profile->prerequisite_readback_mask == 0U) return 0xFFFFU;
+    return profile->prerequisite_readback_mask;
+}
 
 size_t inverter_profiles_count(void);
 const inverter_profile_t *inverter_profiles_get(size_t index);
@@ -179,6 +265,11 @@ typedef enum {
  * A write requires a power-limit register AND its readback register in every
  * case: a command that cannot be read back cannot be confirmed, and an
  * unconfirmable command to a 100 kW machine is not a feature.
+ *
+ * A device that needs a prerequisite enable register requires that the profile
+ * describe one AND describe how to read it back, for exactly the same reason and
+ * with exactly the same force. A described-but-unreadable prerequisite is
+ * FORBIDDEN, not "best effort".
  *
  * PRODUCTION additionally requires a profile that is not simulator-only and has
  * been qualified against physical hardware.
