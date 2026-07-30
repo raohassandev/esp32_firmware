@@ -84,6 +84,17 @@ html[data-theme="light"] {
     --prereq-unconfirmed: #8a4b00;
     --prereq-unverifiable: #8a2a6b;
 
+    /* Light counterparts for the four kinds of limit evidence. Measured against
+       --confirm-surface: measured 6.91:1, echo 6.33:1, ambiguous 7.64:1,
+       none 6.69:1. Four distinct values, as in the dark theme: a limit
+       demonstrated by measurement and an echo of a stored command must never be
+       painted alike, because the echo would then read as the stronger evidence it
+       is not. */
+    --proof-measured: #0f5f66;
+    --proof-echo: #8f3d78;
+    --proof-ambiguous: #4b3fa8;
+    --proof-none: #455a6e;
+
     /* Light counterparts for the three ISA-18.2 suppression states. Worst measured
        ratio across --surface-sunken, --panel, --panel-strong and --field:
        shelved 6.27:1, by-design 7.17:1, out-of-service 7.02:1. Three distinct

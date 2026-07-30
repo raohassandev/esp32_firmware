@@ -16,7 +16,13 @@ Four properties in here are safety semantics rather than presentation.
      rendered verbatim; this interface must not invent safety copy.
 
   2. THE FOUR WRITE-CONFIRMATION STATES ARE FOUR STATES. confirmed means a
-     post-write readback matched. mismatched means a readback disagreed, which
+     post-write observation supported the command - and since plant-level logger
+     control landed, that observation is either a limit demonstrated by measured
+     power or a setpoint readback that may be an echo of a stored command, so the
+     panel must always say which. That provenance is guarded in detail by
+     tests/confirmation_provenance_source_contract.py; this file pins only that
+     the confirmed copy here no longer presents a setpoint match as the whole
+     meaning. mismatched means a readback disagreed, which
      the firmware treats as a fault and answers with a safe zero. pending means
      the transport accepted the write and nothing has confirmed it - a real
      inverter defers a setpoint by over a second, so pending must NOT look like
@@ -241,8 +247,28 @@ for name, label in (("confirmed", "'Confirmed'"), ("pending", "'Pending'"),
     require(label in states, f"confirmation state {name} is unlabelled")
 
 # Each state says what it actually means, in terms of what the firmware does.
-require("matched the requested setpoint" in states,
-        "confirmed does not say that a readback matched")
+#
+# CHANGED DELIBERATELY. This assertion used to demand the sentence "a readback
+# taken after the write matched the requested setpoint", i.e. that confirmed means
+# exactly one thing. Since plant-level logger control landed it means one of two
+# things -- a limit demonstrated by measured power, or a setpoint readback that on
+# a stored-command interface is an echo proving acceptance only -- and the old
+# copy stated the WEAKER of the two as if it were the whole answer. Keeping the
+# old assertion would have pinned a false statement in place, so it is replaced
+# rather than added to: confirmed must now say that it is not one thing, and it
+# must name both kinds of evidence.
+require("confirmed is not one thing" in states,
+        "confirmed must say plainly that it covers more than one kind of evidence")
+require("above the new limit before the command and at or below it after" in states,
+        "confirmed does not state the measured evidence that demonstrates a limit")
+require("echo of a stored command" in states,
+        "confirmed does not state that a setpoint readback can be an echo")
+require("proves only that the command was accepted" in states,
+        "confirmed must say that the echo case proves acceptance and nothing more")
+require("matched the requested setpoint" not in states,
+        "the old copy stating a setpoint match as the whole meaning of confirmed "
+        "must not come back: it is the weaker of two kinds of evidence and "
+        "presenting it as the definition is the false-confirmation defect")
 require("This is not success" in states,
         "pending must state plainly that it is not success")
 require("longer than a second" in states,

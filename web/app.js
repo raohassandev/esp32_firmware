@@ -1038,7 +1038,13 @@
         confirmed: Object.freeze({
             label: 'Confirmed',
             mark: '✓',
-            meaning: 'A readback taken after the write matched the requested setpoint within the profile tolerance. This is the only state in which the controller records a confirmed value.'
+            /* Corrected copy. This used to state a setpoint readback as the sole
+             * meaning of confirmed. Since plant-level logger control landed that
+             * is only one of two kinds of evidence, and it is the weaker one: on a
+             * stored-command interface the readback is an echo and proves
+             * acceptance, not a limit. Confirmed is never shown on this panel
+             * without the limit evidence beside it. */
+            meaning: 'The controller records a confirmed value here, but confirmed is not one thing. It rests either on measured output that was above the new limit before the command and at or below it after, which demonstrates the limit, or on a setpoint readback that matched, which on a plant-level logger is an echo of a stored command and proves only that the command was accepted. The limit evidence shown beside this state says which of the two it was.'
         }),
         pending: Object.freeze({
             label: 'Pending',
@@ -1048,7 +1054,7 @@
         unverified: Object.freeze({
             label: 'Unverified',
             mark: '?',
-            meaning: 'Confirmation is impossible or has failed to arrive: the assigned profile carries no manual-verified readback register, the write did not reach the device, or the confirmation deadline passed with no usable post-write sample. This is neither success nor failure.'
+            meaning: 'Confirmation is impossible or has failed to arrive: the assigned profile carries no manual-verified readback register, the write did not reach the device, or the confirmation deadline passed with no usable post-write sample. A fourth cause reaches this state too: output at or below the limit that was already at or below it before the command, which proves nothing either way. The limit evidence beside this state says which. This is neither success nor failure.'
         }),
         mismatched: Object.freeze({
             label: 'Mismatched',
@@ -1059,6 +1065,67 @@
 
     function writeStateMeta(name) {
         return WRITE_CONFIRMATION_STATES[String(name || '').trim()] || null;
+    }
+
+    /* LIMIT EVIDENCE, as a THIRD and separate vocabulary.
+     *
+     * The four states above say WHETHER a write was confirmed. They do not say
+     * what confirmed it, and since plant-level logger control landed there are
+     * two kinds of evidence behind the same word:
+     *
+     *   measured_power      measured output was ABOVE the new limit before the
+     *                       command and at or below it after. The limit is
+     *                       demonstrated. No change in irradiance can lift a
+     *                       plant above a limit that is in force, so the
+     *                       opposite direction is unambiguous too.
+     *   setpoint_readback   the setpoint register read back matching. On some
+     *                       devices that is an applied value; on the Huawei
+     *                       SmartLogger plant interface the register STORES the
+     *                       command and forwards it, so the readback is an echo
+     *                       and proves acceptance only. The logger may also
+     *                       apply an adjustment coefficient that has no register
+     *                       at all, so a commanded 80 % need not deliver 80 %.
+     *   ambiguous_headroom  output is at or below the limit but was ALREADY at
+     *                       or below it, or there is no usable pre-command
+     *                       baseline. Equally consistent with the limit being
+     *                       honoured and with the sun going in. Neither success
+     *                       nor failure: nothing was proven.
+     *
+     * Its own labels and its own glyphs, shared with neither of the other two
+     * vocabularies, because it is a third independent answer. Every sentence
+     * states what the firmware does; none of it is inferred, and none of it
+     * upgrades the echo case into something stronger than it is. */
+    const WRITE_PROOF_ORDER = ['measured_power', 'setpoint_readback', 'ambiguous_headroom', 'none'];
+
+    const WRITE_PROOF_STATES = Object.freeze({
+        measured_power: Object.freeze({
+            label: 'Limit demonstrated by measurement',
+            mark: '⤓',
+            demonstrated: true,
+            meaning: 'Measured output was above the new limit before the command and at or below it after. That is the only evidence this controller accepts as demonstrating a limit, because falling irradiance cannot explain it: the plant was generating above the limit and then was not. This is the strongest statement available about a power limit.'
+        }),
+        setpoint_readback: Object.freeze({
+            label: 'Setpoint echo only',
+            mark: '↩',
+            demonstrated: false,
+            meaning: 'The setpoint register read back matching the value written. On some devices that is the value actually applied. On a plant-level logger the register stores the command and forwards it, so reading it back returns the stored command rather than the plant state, and the logger may scale it by an adjustment coefficient that has no register at all. This proves the command was accepted. It does not show that the limit is in force, and nothing here should be read as if it did.'
+        }),
+        ambiguous_headroom: Object.freeze({
+            label: 'Below limit, nothing proven',
+            mark: '≈',
+            demonstrated: false,
+            meaning: 'Output is at or below the commanded limit, but it was already at or below it before the command was sent, or no usable pre-command baseline exists. That is exactly as consistent with the limit being honoured as it is with the sun going in, so nothing has been proven either way. This is neither success nor failure and it is not a fault: the controller deliberately does not drive the plant to zero over it, because that would happen every time irradiance fell below the commanded limit. It keeps measuring instead. If output later rises above the limit the verdict becomes Mismatched and the safe fallback is demanded then. Until a sample is taken while the plant is generating above a newly commanded limit, treat the limit as not shown to be in force.'
+        }),
+        none: Object.freeze({
+            label: 'No evidence recorded',
+            mark: '·',
+            demonstrated: false,
+            meaning: 'The controller has recorded no evidence for or against this command. That is the state before a write has been issued, and it is also the honest answer when neither a qualified setpoint readback nor a measured quantity could be obtained. It claims nothing.'
+        })
+    });
+
+    function writeProofMeta(name) {
+        return WRITE_PROOF_STATES[String(name || '').trim()] || null;
     }
 
     /* The prerequisite enable register, as a SECOND and separate vocabulary.
@@ -1114,6 +1181,16 @@
     function formatPercent(value, absent = 'Not reported') {
         const number = Number(value);
         return value == null || !Number.isFinite(number) ? absent : `${number.toFixed(1)} %`;
+    }
+
+    /* Deliberately NOT formatPower() above, which runs its argument through
+     * Number() and so turns a null into "0.00 kW". A measurement the controller
+     * did not report must never be rendered as zero output: zero output would
+     * itself look like a limit being obeyed. Null stays absent, exactly as in
+     * formatPercent. */
+    function formatEvidenceKw(value, absent = 'Not reported') {
+        const number = Number(value);
+        return value == null || !Number.isFinite(number) ? absent : `${number.toFixed(2)} kW`;
     }
 
     /* Writes only when the value actually changed. The lab banner is role="alert",
@@ -1233,6 +1310,9 @@
          * to Unavailable rather than left showing the last good answer when the
          * gate read fails. */
         renderGatePrerequisite(gate);
+        /* Also before the early return, so the evidence row clears to Unavailable
+         * rather than keeping the last good answer when the gate read fails. */
+        renderGateLimitEvidence(gate);
 
         if (!gate) {
             setTextIfChanged('gateScope', STATES.dataQuality.unavailable);
@@ -1319,6 +1399,39 @@
         setNoticeLine('gatePrereqDetail', gate.prerequisite_notice);
     }
 
+    /* The gate panel says whether automatic control is permitted. The row below
+     * says what the setpoint confirmations behind that permission actually rest
+     * on, because "no setpoint fault latched" is not the same claim as "a limit
+     * was demonstrated" and an engineer reading the first as the second has been
+     * told a plant is limited when only a stored command was echoed back. */
+    function renderGateLimitEvidence(gate) {
+        if (!gate) {
+            setTextIfChanged('gateLimitEvidence', STATES.dataQuality.unavailable);
+            return;
+        }
+        const proofMeta = writeProofMeta(String(gate.write_proof || '').trim());
+        const written = Number(gate.written_count);
+        if (Number.isFinite(written) && written === 0) {
+            setTextIfChanged('gateLimitEvidence',
+                'No write has been issued, so no limit has been demonstrated');
+            return;
+        }
+        /* Explicit === true. A missing field must not read as a demonstrated limit. */
+        if (gate.limit_demonstrated === true) {
+            setTextIfChanged('gateLimitEvidence',
+                'Demonstrated by measurement: output was above the new limit before the command and at or below it after');
+            return;
+        }
+        if (gate.setpoint_echo_only === true) {
+            setTextIfChanged('gateLimitEvidence',
+                'Setpoint echo only: the command was accepted, and the limit has not been shown to be in force');
+            return;
+        }
+        setTextIfChanged('gateLimitEvidence', proofMeta
+            ? `Not demonstrated. Weakest evidence held: ${proofMeta.label}`
+            : STATES.dataQuality.unavailable);
+    }
+
     /* ------------------------------------------------ setpoint write confirmation */
 
     function confirmStatePill(name) {
@@ -1331,6 +1444,26 @@
         const label = document.createElement('span');
         /* An unrecognised state is shown as the controller spelled it rather than
          * silently mapped onto one of the four this build knows about. */
+        label.textContent = meta ? meta.label : verbatim(name);
+        pill.append(mark, label);
+        return pill;
+    }
+
+    /* The limit-evidence pill. Built like the state pill so the two read as
+     * peers, and rendered IMMEDIATELY BESIDE it wherever a verdict appears, so
+     * "Confirmed" can never be on screen without what confirmed it.
+     *
+     * An unrecognised slug falls back to the 'none' TREATMENT, which claims
+     * nothing. Falling back to the measured treatment would invent a demonstrated
+     * limit out of a value this build cannot interpret. */
+    function proofPill(name) {
+        const meta = writeProofMeta(name);
+        const pill = document.createElement('span');
+        pill.className = `proof-state-pill proof-state-${meta ? name : 'none'}`;
+        const mark = document.createElement('span');
+        mark.setAttribute('aria-hidden', 'true');
+        mark.textContent = meta ? meta.mark : '·';
+        const label = document.createElement('span');
         label.textContent = meta ? meta.label : verbatim(name);
         pill.append(mark, label);
         return pill;
@@ -1382,7 +1515,10 @@
         const title = document.createElement('span');
         title.className = 'confirm-row-title';
         title.textContent = `Inverter ${Number(entry.index) + 1}`;
-        head.append(title, confirmStatePill(name));
+        /* The verdict and what it rests on, in the same line, always both. A
+         * verdict pill on its own is the defect this panel exists to remove. */
+        const proofName = String(entry.write_proof || '').trim();
+        head.append(title, confirmStatePill(name), proofPill(proofName));
 
         const meaning = document.createElement('p');
         meaning.className = 'confirm-row-meaning';
@@ -1420,7 +1556,15 @@
             counters.append(item);
         });
 
-        row.append(head, meaning, values, counters, prerequisiteBlock(entry));
+        row.append(head, meaning, values, counters, provenanceBlock(entry),
+                   prerequisiteBlock(entry));
+        /* The row is marked by its EVIDENCE as well as by its verdict. A limit
+         * demonstrated by measurement and a stored-command echo must not look
+         * alike, and the ambiguous case must look like neither. */
+        if (entry.limit_demonstrated === true) row.classList.add('proof-measured');
+        else if (proofName === 'setpoint_readback') row.classList.add('proof-echo');
+        else if (proofName === 'ambiguous_headroom') row.classList.add('proof-ambiguous');
+
         /* An unarmed enable register re-rules the whole row. A reader scanning
          * state pills must not be able to see "Confirmed" on the setpoint and
          * miss that the limit is not armed. */
@@ -1430,6 +1574,75 @@
             row.classList.add('prereq-unconfirmed');
         }
         return row;
+    }
+
+    /* WHAT CONFIRMED IT, per inverter, immediately under the setpoint figures the
+     * verdict was drawn from.
+     *
+     * Rendered for every inverter, including the ones with nothing to show, for
+     * the same reason the enable-register block is: an absent block cannot be
+     * told apart from a controller that did not report, and a verdict with no
+     * stated evidence is the defect. */
+    function provenanceBlock(entry) {
+        const name = String(entry.write_proof || '').trim();
+        const meta = writeProofMeta(name);
+        const block = document.createElement('div');
+        block.className = 'proof-block';
+
+        const head = document.createElement('div');
+        head.className = 'proof-block-head';
+        const title = document.createElement('span');
+        title.className = 'proof-block-title';
+        title.textContent = 'Limit evidence';
+        head.append(title, proofPill(name));
+        block.append(head);
+
+        const meaning = document.createElement('p');
+        meaning.className = 'proof-block-meaning';
+        /* A missing key is not "no evidence needed". It is a controller that did
+         * not say, and unknown evidence supports no claim at all. */
+        meaning.textContent = entry.write_proof == null
+            ? 'The controller did not report what this verdict rests on. Nothing on this row should be read as a limit that was shown to be in force.'
+            : meta ? meta.meaning
+            : 'The controller reported a kind of evidence this interface does not recognise. It is shown above exactly as received and claims nothing.';
+        block.append(meaning);
+
+        const detail = document.createElement('p');
+        detail.className = 'proof-block-detail';
+        /* limit_demonstrated is the firmware's own flag and is the only field
+         * that says a limit was shown to be in force. It is read explicitly:
+         * truthiness would make a missing field read as a demonstrated limit. */
+        const parts = [
+            `Limit demonstrated by measurement: ${entry.limit_demonstrated === true ? 'yes' : 'no'}`,
+            `Measured output after the command: ${formatEvidenceKw(entry.measured_power_kw, 'Not reported')}`,
+            /* Without a pre-command baseline a limit can never be demonstrated,
+             * only found consistent, so the baseline is shown next to the
+             * measurement rather than left implicit. */
+            `Baseline before the command: ${entry.baseline_valid === true ? formatEvidenceKw(entry.baseline_power_kw, 'Not reported') : 'None recorded'}`,
+            `Times nothing could be proven: ${Number.isFinite(Number(entry.ambiguous_count)) ? Number(entry.ambiguous_count) : '--'}`,
+            `Times another master took scheduling: ${Number.isFinite(Number(entry.authority_lost_count)) ? Number(entry.authority_lost_count) : '--'}`,
+            /* A lost count of zero is ambiguous on its own: it means either that
+             * authority was never taken or that nothing ever checked. Those are
+             * not the same finding, so whether the target publishes an authority
+             * register at all is stated first, and the current holding is stated
+             * as three answers rather than a boolean. */
+            `Scheduling-authority register: ${entry.authority?.supported === true ? 'published by this target' : 'not published by this target, so contention cannot be detected'}`,
+            `Authority currently held by this controller: ${entry.authority?.supported !== true ? 'Not checked' : entry.authority?.read_valid !== true ? 'Unknown, the register could not be read' : entry.authority?.holds === true ? 'yes' : 'no'}`
+        ];
+        detail.textContent = parts.join(' · ');
+        block.append(detail);
+
+        /* Contention is not a confirmation state and is not folded into one. A
+         * different master owning the plant will fight this controller, and it is
+         * stated in words the moment it has ever happened. */
+        const lost = Number(entry.authority_lost_count);
+        if (Number.isFinite(lost) && lost > 0) {
+            const contention = document.createElement('p');
+            contention.className = 'proof-block-contention';
+            contention.textContent = 'A read-only register naming which authority owns scheduling of this target has, since this controller commanded it, named somebody else. Another master is scheduling this plant and will fight this controller for it. A limit this controller commanded cannot be relied on while that is true, whatever the verdict above says.';
+            block.append(contention);
+        }
+        return block;
     }
 
     /* The enable register, per inverter, immediately under the setpoint figures it
@@ -1477,6 +1690,13 @@
                  * underneath this controller. For Solis that returns the machine
                  * to 100 %, so it is reported rather than averaged away. */
                 `Times lost after being armed: ${Number.isFinite(lost) ? lost : '--'}`,
+                /* Published all along and not shown until now. With the state at
+                 * "not confirmed" these two say whether the controller has even
+                 * tried to arm the register yet and whether a writable and
+                 * readable one can be described at all - the difference between
+                 * waiting for the next poll and waiting forever. */
+                `Controller has attempted to arm it: ${prerequisite.write_issued === true ? 'yes' : 'no'}`,
+                `Profile can describe a writable and readable register: ${prerequisite.describable === true ? 'yes' : 'no'}`,
                 `Last error: ${verbatim(prerequisite.last_error_name, 'Not reported')}`
             ];
             detail.textContent = parts.join(' · ');
@@ -1497,6 +1717,82 @@
             item.append(text);
             return item;
         }));
+    }
+
+    /* All four kinds of limit evidence explained once, next to the four setpoint
+     * states, so a reader can see that they are two independent answers rather
+     * than one scale. Built once; these sentences never change. */
+    function renderProofLegend() {
+        const legend = byId('proofLegend');
+        if (!legend || legend.childElementCount) return;
+        legend.replaceChildren(...WRITE_PROOF_ORDER.map((name) => {
+            const item = document.createElement('div');
+            item.className = 'confirm-legend-item';
+            item.append(proofPill(name));
+            const text = document.createElement('small');
+            text.textContent = WRITE_PROOF_STATES[name].meaning;
+            item.append(text);
+            return item;
+        }));
+    }
+
+    /* The fleet evidence counts. Demonstrated, echo-only and ambiguous are three
+     * separate figures and are never summed: adding a stored-command echo to a
+     * demonstrated limit produces a number that claims more than the evidence
+     * supports, which is the whole defect. */
+    function provenanceCountLine(payload) {
+        const written = Number(payload?.written_count);
+        const demonstrated = Number(payload?.limit_demonstrated_count);
+        const echo = Number(payload?.setpoint_echo_count);
+        const ambiguous = Number(payload?.ambiguous_now_count);
+        const ambiguousTotal = Number(payload?.ambiguous_count);
+        const lost = Number(payload?.authority_lost_count);
+        if (![written, demonstrated, echo, ambiguous].every(Number.isFinite)) return null;
+        return `Written to: ${written}`
+            + ` · Limit demonstrated by measurement: ${demonstrated}`
+            + ` · Setpoint echo only (acceptance, not a limit): ${echo}`
+            + ` · Below the limit but already below it (nothing proven): ${ambiguous}`
+            + ` · Times nothing could be proven: ${Number.isFinite(ambiguousTotal) ? ambiguousTotal : '--'}`
+            + ` · Times another master took scheduling: ${Number.isFinite(lost) ? lost : '--'}`;
+    }
+
+    /* Fleet limit evidence, stated alongside the fleet verdict and never instead
+     * of it. The verdict says whether the writes were confirmed; this says what
+     * confirmed them, and the two together are the only honest reading. */
+    function renderWriteProvenance(payload) {
+        renderProofLegend();
+        setTextIfChanged('confirmProvenanceCounts',
+            provenanceCountLine(payload) || STATES.dataQuality.unavailable);
+        if (!payload) {
+            setTextIfChanged('confirmProvenance',
+                'The controller has not reported what any confirmation rests on. Unknown evidence is not a demonstrated limit: nothing on this panel shows that a limit is in force.');
+            setNoticeLine('confirmProvenanceDetail', '');
+            return;
+        }
+        const proofName = String(payload.write_proof || '').trim();
+        const meta = writeProofMeta(proofName);
+        /* Read explicitly. Truthiness would let a missing field read as a
+         * demonstrated limit, which is the one mistake this panel exists to stop. */
+        const demonstrated = payload.limit_demonstrated === true;
+        const echoOnly = payload.setpoint_echo_only === true;
+        const written = Number(payload.written_count);
+        let sentence;
+        if (Number.isFinite(written) && written === 0) {
+            sentence = 'No inverter has been written to, so there is no evidence to weigh and no limit has been demonstrated.';
+        } else if (demonstrated) {
+            sentence = 'Every inverter that has been written to had measured output above its new limit before the command and at or below it after. The limits are demonstrated, which is the strongest statement available about a power limit.';
+        } else if (echoOnly) {
+            sentence = 'At least one inverter is confirmed on a setpoint readback alone. On a plant-level logger that readback is an echo of a stored command: it shows the command was accepted and does not show the limit is in force. Read this fleet as accepted, not as limited.';
+        } else {
+            sentence = 'No limit has been demonstrated by measurement across this fleet. The weakest evidence any written inverter holds is shown beside the verdict; read the per-inverter rows for which one is which.';
+        }
+        /* The weakest evidence any written inverter holds is named, because the
+         * fleet is only ever as well evidenced as its least well evidenced
+         * member - the same rule the firmware applies to the verdict itself. */
+        setTextIfChanged('confirmProvenance', `${sentence} Weakest evidence held by any written inverter: `
+            + `${meta ? meta.label : verbatim(proofName)}.`);
+        /* The controller's own wording, written as received. */
+        setNoticeLine('confirmProvenanceDetail', payload.limit_evidence_notice);
     }
 
     /* Fleet roll-up for the enable register, stated alongside the fleet setpoint
@@ -1558,6 +1854,7 @@
         renderConfirmLegend();
         const payload = state.writeConfirmation;
         renderPrerequisiteFleet(payload);
+        renderWriteProvenance(payload);
         if (!payload) {
             setBadgeIfChanged('confirmFleetBadge', STATES.dataQuality.unavailable, '');
             if (state.confirmSignature !== '') {
@@ -1569,8 +1866,18 @@
 
         const fleet = String(payload.fleet_state || '').trim();
         const meta = writeStateMeta(fleet);
-        setBadgeIfChanged('confirmFleetBadge', `Fleet: ${meta ? meta.label : verbatim(fleet)}`,
-            fleet === 'confirmed' ? 'good' : fleet === 'mismatched' ? 'bad'
+        const proofMeta = writeProofMeta(String(payload.write_proof || '').trim());
+        const demonstrated = payload.limit_demonstrated === true;
+        /* The badge carries the verdict AND the evidence, in that order, in one
+         * string. The word "Confirmed" is never on screen here without what
+         * confirmed it beside it, and a fleet confirmed on an echo does not take
+         * the success tone: a green badge reading "Confirmed" is exactly how an
+         * accepted command becomes a limit the operator believes is in force. */
+        setBadgeIfChanged('confirmFleetBadge',
+            `Fleet: ${meta ? meta.label : verbatim(fleet)}`
+            + ` · ${proofMeta ? proofMeta.label : verbatim(payload.write_proof)}`,
+            fleet === 'confirmed' ? (demonstrated ? 'good' : 'warning')
+            : fleet === 'mismatched' ? 'bad'
             : fleet === 'pending' ? 'warning' : '');
         setTextIfChanged('confirmFleetDetail',
             `${meta ? meta.meaning : 'The controller reported a fleet confirmation state this interface does not recognise.'}`
