@@ -423,12 +423,28 @@ require('cJSON_AddBoolToObject(response, "lab_target", lab_target)' in PROFILE_A
 require("Report the stored declaration, not the requested one" in PROFILE_API,
         "the firmware's stored-declaration guarantee this panel relies on has changed")
 
-# No endpoint publishes the declaration currently held, so the panel must not
-# pretend to show it.
-require("does not publish the lab-target declaration it currently holds" in INDEX,
-        "the panel must say that the present declaration cannot be read back")
-require("inverter_profile_store_lab_target_get" not in PROFILE_API.split("profile_assignment_post", 1)[0],
-        "if a read path for the stored declaration appears, the caveat above must be revisited")
+# The declaration currently held IS now published, on the profiles GET, so the
+# panel must show the controller's state rather than echoing its own last request.
+# This replaces an earlier caveat asserting the opposite; the tripwire that
+# guarded it fired correctly when the read path was added.
+require("inverter_profile_store_lab_target_get" in PROFILE_API.split("profile_assignment_post", 1)[0],
+        "the profiles GET must publish the lab-target declaration currently held")
+require('cJSON_AddArrayToObject(root, "inverter_assignments")' in PROFILE_API,
+        "the profiles GET must expose per-inverter assignments")
+require("unreadable means" in PROFILE_API or 'lab_target = false' in PROFILE_API,
+        "an unreadable declaration must fail closed to 'not a lab target'")
+require("inverter_assignments" in APP,
+        "the panel must read the declarations the controller holds")
+require("renderLabAssignments" in APP,
+        "the panel must render the currently held declarations")
+# Whitespace-normalised: the phrase is prose in a wrapped comment, and asserting
+# the raw text would break on a harmless re-wrap.
+require("not what this browser last sent" in " ".join(APP.split()),
+        "the panel must distinguish controller state from its own last request")
+require("does not publish the lab-target declaration it currently holds" not in INDEX,
+        "the panel must no longer claim the present declaration cannot be read back")
+require("read from the controller itself" in INDEX,
+        "the panel must state that declarations come from the controller")
 
 # 44px hit targets on a control that arms an unqualified write path.
 require(".lab-target-panel .button { min-height: 44px; min-width: 44px; }" in lab_css,

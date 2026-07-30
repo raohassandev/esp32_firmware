@@ -156,6 +156,50 @@ static void test_every_sub_production_level_needs_a_declaration(void)
     }
 }
 
+/* A device needing a prerequisite enable write must be refused in BOTH modes.
+ *
+ * This is the nastiest failure mode in the catalogue. Solis (tag 3070 = 0xAA),
+ * Sungrow (tag 5007 = 0xAA) and Chint/CPS (0x2602 = 1) each require a register to
+ * be set before their setpoint does anything -- but the setpoint register still
+ * accepts the write and still echoes it back. A controller that commanded them
+ * would see a matching readback and report CONFIRMED while the inverter ignored
+ * the limit and kept generating. Being unable to command is recoverable; being
+ * told a plant is limited when it is not is not. */
+static void test_prerequisite_enable_is_refused(void)
+{
+    inverter_profile_t profile;
+    memset(&profile, 0, sizeof(profile));
+    profile.id = "test.prerequisite";
+    profile.has_power_limit = true;
+    profile.has_power_limit_readback = true;
+    profile.requires_prerequisite_enable = true;
+
+    /* Refused even at documented level with a simulator declared... */
+    profile.qualification = INVERTER_PROFILE_QUALIFICATION_DOCUMENTED;
+    assert(inverter_profile_write_permission(&profile, false) == INVERTER_WRITE_FORBIDDEN);
+    assert(inverter_profile_write_permission(&profile, true) == INVERTER_WRITE_FORBIDDEN);
+
+    /* ...and refused even if someone marks it production-approved, because the
+     * firmware still cannot sequence the prerequisite. */
+    profile.qualification = INVERTER_PROFILE_QUALIFICATION_PRODUCTION_APPROVED;
+    assert(inverter_profile_write_permission(&profile, false) == INVERTER_WRITE_FORBIDDEN);
+    assert(inverter_profile_write_permission(&profile, true) == INVERTER_WRITE_FORBIDDEN);
+    assert(!inverter_profile_allows_write(&profile));
+
+    /* Clearing the flag restores the ordinary rules, proving the flag is what
+     * caused the refusal rather than some other missing field. */
+    profile.requires_prerequisite_enable = false;
+    assert(inverter_profile_write_permission(&profile, false) == INVERTER_WRITE_PRODUCTION);
+
+    /* Every shipped profile that declares the prerequisite must be refused. */
+    for (size_t i = 0; i < inverter_profiles_count(); ++i) {
+        const inverter_profile_t *shipped = inverter_profiles_get(i);
+        if (!shipped->requires_prerequisite_enable) continue;
+        assert(inverter_profile_write_permission(shipped, false) == INVERTER_WRITE_FORBIDDEN);
+        assert(inverter_profile_write_permission(shipped, true) == INVERTER_WRITE_FORBIDDEN);
+    }
+}
+
 static void test_labels(void)
 {
     assert(strcmp(inverter_write_permission_label(INVERTER_WRITE_FORBIDDEN), "forbidden") == 0);
@@ -178,6 +222,7 @@ int main(void)
     test_documented_profile_is_lab_only_when_declared();
     test_production_survives_a_lab_declaration();
     test_every_sub_production_level_needs_a_declaration();
+    test_prerequisite_enable_is_refused();
     test_labels();
     printf("inverter write permission unit tests passed\n");
     return 0;

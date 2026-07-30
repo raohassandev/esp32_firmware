@@ -98,6 +98,26 @@ typedef struct {
      * a reduction is what endangers a generator. */
     uint32_t min_command_interval_ms;
 
+    /* True when the manual documents a register that must be written BEFORE a
+     * power-limit setpoint has any effect -- Solis tag 3070 (0xAA), Sungrow tag
+     * 5007 (0xAA), Chint/CPS 0x2602 (1) are the known cases.
+     *
+     * This firmware cannot perform a prerequisite write: there is no field to
+     * describe one and no code to sequence and verify it. That matters far more
+     * than it looks, because of how these devices fail. The setpoint register
+     * still ACCEPTS the write and still ECHOES it back, so the controller sees a
+     * matching readback and reports CONFIRMED -- while the inverter quietly
+     * ignores the limit and keeps generating. A false confirmation is the single
+     * worst outcome this module can produce: worse than a mismatch, worse than a
+     * timeout, because every layer above it, including the operator, is told the
+     * plant is under control when it is not.
+     *
+     * So a profile that sets this is refused write authority outright, in lab
+     * mode as well as production. Fail closed until the firmware can sequence and
+     * verify the prerequisite, or until enabling it becomes a checked
+     * commissioning step whose completion the controller can confirm. */
+    bool requires_prerequisite_enable;
+
     /*
      * Optional operational status register. Deliberately left unconfigured for
      * every shipped profile: no manufacturer status address is hardcoded in

@@ -337,6 +337,12 @@ static const inverter_profile_t PROFILES[] = {
     },
     {
         .id = "solis.commercial.pending",
+        /* Manual tag 3070 must be set to 0xAA before the setpoint at 3051 does
+         * anything. This firmware cannot sequence that write, and 3051 echoes
+         * the value back regardless, so commanding it would report CONFIRMED
+         * for a limit the inverter ignores. Refused until the prerequisite can
+         * be written and verified. */
+        .requires_prerequisite_enable = true,
         .manufacturer = "Solis",
         .model_family = "Three-phase commercial string inverter (RS485 MODBUS protocol)",
         .protocol = "Modbus RTU",
@@ -539,6 +545,11 @@ static const inverter_profile_t PROFILES[] = {
      */
     {
         .id = "growatt.tl3x.documented",
+        /* The inverter is locked to network power control after power-on and
+         * must be unlocked first; the manual's unlock password is redacted, and
+         * it auto-relocks after 5 minutes. Control would therefore stop
+         * silently mid-run even if the unlock were known. Refused. */
+        .requires_prerequisite_enable = true,
         .manufacturer = "Growatt",
         .model_family = "MAX / MID / MAC three-phase (TL3-X), input registers 0-249",
         .protocol = "Modbus RTU",
@@ -582,6 +593,9 @@ static const inverter_profile_t PROFILES[] = {
     },
     {
         .id = "growatt.tlx.documented",
+        /* Same power-on write lock and 5-minute auto-relock as the TL3-X entry,
+         * with the unlock password redacted in the manual. Refused. */
+        .requires_prerequisite_enable = true,
         .manufacturer = "Growatt",
         .model_family = "MIN / TL-X / TL-XH, input registers 3000-3249",
         .protocol = "Modbus RTU",
@@ -624,6 +638,10 @@ static const inverter_profile_t PROFILES[] = {
     },
     {
         .id = "sungrow.string.documented",
+        /* Manual tag 5007 must be set to 0xAA before the setpoint at 5007+1
+         * takes effect. Not sequenceable by this firmware, and the setpoint
+         * echoes regardless, so a command would falsely confirm. Refused. */
+        .requires_prerequisite_enable = true,
         .manufacturer = "Sungrow",
         .model_family = "PV grid-connected string inverter (SG-series)",
         .protocol = "Modbus RTU",
@@ -714,6 +732,10 @@ static const inverter_profile_t PROFILES[] = {
     },
     {
         .id = "chint.cps.sch100_125ktl.documented",
+        /* 0x2602 must be set to 1 before 0x1001 has any effect. Not sequenceable
+         * by this firmware, and 0x1001 echoes regardless, so a command would
+         * falsely confirm. Refused. */
+        .requires_prerequisite_enable = true,
         .manufacturer = "Chint Power Systems (CPS)",
         .model_family = "SCH100KTL / SCH125KTL-DO 100(125) kW 1500 V",
         .protocol = "Modbus RTU",
@@ -854,8 +876,13 @@ bool inverter_profile_allows_read(const inverter_profile_t *profile)
 
 bool inverter_profile_allows_write(const inverter_profile_t *profile)
 {
-    return profile && !profile->simulator_only && profile->has_power_limit &&
-           profile->has_power_limit_readback &&
+    /* A device whose setpoint needs a prerequisite enable write this firmware
+     * cannot perform is refused here too, not only in the permission gate. Other
+     * callers read this predicate directly, and every one of them must get the
+     * same answer: commanding such a device produces a CONFIRMED verdict for a
+     * limit the inverter is ignoring. */
+    return profile && !profile->simulator_only && !profile->requires_prerequisite_enable &&
+           profile->has_power_limit && profile->has_power_limit_readback &&
            profile->qualification == INVERTER_PROFILE_QUALIFICATION_PRODUCTION_APPROVED;
 }
 
@@ -868,6 +895,12 @@ inverter_write_permission_t inverter_profile_write_permission(const inverter_pro
     if (!profile->has_power_limit || !profile->has_power_limit_readback) {
         return INVERTER_WRITE_FORBIDDEN;
     }
+    /* A device needing a prerequisite enable write is refused in BOTH modes. Its
+     * setpoint register echoes the value back regardless, so commanding it would
+     * produce a CONFIRMED verdict for a limit the inverter is ignoring. Being
+     * unable to command is recoverable; being told a plant is limited when it is
+     * not is not. See requires_prerequisite_enable in the header. */
+    if (profile->requires_prerequisite_enable) return INVERTER_WRITE_FORBIDDEN;
     if (inverter_profile_allows_write(profile)) return INVERTER_WRITE_PRODUCTION;
     if (declared_lab_target) return INVERTER_WRITE_LAB_ONLY;
     return INVERTER_WRITE_FORBIDDEN;

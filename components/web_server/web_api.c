@@ -7,6 +7,7 @@
 #include <string.h>
 #include "cJSON.h"
 #include "config_manager.h"
+#include "commissioning_gate.h"
 #include "control_engine.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -156,6 +157,25 @@ static esp_err_t status_get(httpd_req_t *request)
             cJSON_AddBoolToObject(authority, "control_enabled", control.enabled);
             cJSON_AddBoolToObject(authority, "command_authority", commanding);
             cJSON_AddStringToObject(authority, "inhibit_reason", control.inhibit_reason);
+            /* Commissioning scope is published on this PUBLIC endpoint on purpose.
+             * The detailed gate lives behind the engineering gateway, but "the
+             * machines being commanded are declared simulators" is not an
+             * engineering detail -- it is the single fact that stops an operator
+             * reading a lab run as real plant control. Withholding it from
+             * unauthenticated clients would leave exactly the people most likely
+             * to be misled with no way to know, which defeats the purpose of
+             * marking lab mode at all.
+             *
+             * It leaks no secret: it says whether this controller is commissioned
+             * and whether its targets are real, which any operator watching the
+             * plant is entitled to know. */
+            cJSON_AddStringToObject(authority, "commissioning_scope",
+                                    commissioning_scope_label(
+                                        (commissioning_scope_t)control.commissioning_scope));
+            cJSON_AddBoolToObject(authority, "lab_simulator_mode",
+                                  (commissioning_scope_t)control.commissioning_scope ==
+                                      COMMISSIONING_SCOPE_LAB);
+            cJSON_AddBoolToObject(authority, "commissioned", control.commissioned);
             cJSON_AddNumberToObject(authority, "requested_pv_kw", control.requested_pv_kw);
             cJSON_AddNumberToObject(authority, "applied_pv_kw", control.applied_pv_kw);
             /* Null rather than zero when nothing has happened yet: zero would

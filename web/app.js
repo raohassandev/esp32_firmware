@@ -1626,10 +1626,39 @@
         try {
             const payload = await api('/api/inverter-profiles');
             state.labProfiles = Array.isArray(payload?.profiles) ? payload.profiles : [];
+            state.labAssignments = Array.isArray(payload?.inverter_assignments)
+                ? payload.inverter_assignments : [];
         } catch (error) {
             state.labProfiles = [];
+            state.labAssignments = [];
         }
         renderLabProfileOptions();
+        renderLabAssignments();
+    }
+
+    /* Renders the declarations the controller holds.
+     * Deliberately not what this browser last sent: a panel that echoes its own
+     * last request cannot tell an operator whether commands are reaching a
+     * simulator or a plant, which is the one thing here that must not be
+     * guessed. */
+    function renderLabAssignments() {
+        const target = byId('labTargetCurrentValue');
+        if (!target) return;
+        const assignments = Array.isArray(state.labAssignments) ? state.labAssignments : [];
+        if (!assignments.length) {
+            target.textContent = 'The controller has not reported any inverter assignments.';
+            return;
+        }
+        const declared = assignments.filter((entry) => entry && entry.lab_target === true);
+        if (!declared.length) {
+            target.textContent = `No inverter is declared a lab simulator (${assignments.length} `
+                + `slot${assignments.length === 1 ? '' : 's'} reported).`;
+            return;
+        }
+        target.textContent = declared
+            .map((entry) => `Inverter ${entry.inverter_index}: ${entry.profile_id} `
+                + `(write authority: ${entry.write_permission})`)
+            .join(' · ');
     }
 
     function refreshLabControl() {

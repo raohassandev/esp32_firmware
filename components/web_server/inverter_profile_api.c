@@ -39,6 +39,42 @@ static esp_err_t profiles_get(httpd_req_t *request)
 
     cJSON_AddNumberToObject(root, "count", inverter_profiles_count());
     cJSON_AddBoolToObject(root, "writes_require_production_approval", true);
+
+    /* The lab-target declaration currently held per inverter, and the write
+     * authority that follows from it combined with the assigned profile.
+     *
+     * Reported here because the declaration was previously only readable inside
+     * the POST that set it, so an interface could show what it had just
+     * requested but never what the controller actually holds. A UI that cannot
+     * read present state ends up guessing, and the one thing that must never be
+     * guessed is whether commands are going to a simulator or to a plant.
+     *
+     * A slot whose declaration cannot be read reports false: unreadable means
+     * "not a lab target", the same fail-closed answer the runtime uses. */
+    {
+        cJSON *assignments = cJSON_AddArrayToObject(root, "inverter_assignments");
+        for (uint8_t slot = 0; assignments && slot < APP_MAX_INVERTERS; ++slot) {
+            char profile_id[INVERTER_PROFILE_ID_MAX] = {0};
+            if (inverter_profile_store_get(slot, profile_id, sizeof(profile_id)) != ESP_OK) {
+                continue;
+            }
+            bool lab_target = false;
+            if (inverter_profile_store_lab_target_get(slot, &lab_target) != ESP_OK) {
+                lab_target = false;
+            }
+            const inverter_profile_t *assigned = inverter_profiles_find(profile_id);
+            cJSON *entry = cJSON_CreateObject();
+            if (!entry) continue;
+            cJSON_AddNumberToObject(entry, "inverter_index", slot);
+            cJSON_AddStringToObject(entry, "profile_id", profile_id);
+            cJSON_AddBoolToObject(entry, "lab_target", lab_target);
+            cJSON_AddStringToObject(entry, "write_permission",
+                                    inverter_write_permission_label(
+                                        inverter_profile_write_permission(assigned, lab_target)));
+            cJSON_AddItemToArray(assignments, entry);
+        }
+    }
+
     cJSON *profiles = cJSON_AddArrayToObject(root, "profiles");
 
     for (size_t index = 0; index < inverter_profiles_count(); ++index) {

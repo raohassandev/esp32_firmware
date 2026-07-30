@@ -185,7 +185,8 @@
                             <label class="field"><span>Lab target declaration</span><select id="labTargetDeclaration"><option value="true">Declare this endpoint a Modbus simulator</option><option value="false">Revoke the simulator declaration</option></select></label>
                         </div>
                         <label class="switch field-switch lab-target-ack"><input id="labTargetAcknowledge" type="checkbox"><span></span><b>I understand this is lab validation and not production control</b></label>
-                        <p class="lab-target-caveat">The controller does not publish the lab-target declaration it currently holds, so this panel cannot show the present state. Only the values returned by the last request below are reported.</p>
+                        <p class="lab-target-caveat">Declarations currently held by the controller are listed below, read from the controller itself rather than from what this browser last sent. A slot whose declaration cannot be read is reported as not a lab target.</p>
+                        <dl class="lab-target-current" id="labTargetCurrent"><dt>Current declarations</dt><dd id="labTargetCurrentValue">Not read yet.</dd></dl>
                         <div class="panel-actions"><button class="button danger-button" id="labTargetApply" type="button" disabled>Send declaration</button><span class="action-message" id="labTargetMessage" role="status"></span></div>
                         <dl class="lab-target-result" id="labTargetResult" hidden></dl>
                     </article>
