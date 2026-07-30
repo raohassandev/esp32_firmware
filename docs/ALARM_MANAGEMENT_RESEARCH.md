@@ -138,8 +138,77 @@ absence can do:
 6. **A6/A10 — rationalise priorities and measure rate** against EEMUA targets.
 7. **A8 — operator identity**, which needs a user model and is properly a P1 product item.
 
-A1 is fixed in the commit that accompanies this document. The rest are recorded as
-outstanding rather than silently deferred.
+---
+
+## 7. Status of the gaps, updated
+
+The table above is the ORIGINAL analysis, kept as written so the reasoning that
+justified each item is not lost. It is no longer the current state.
+
+| # | Gap | Status |
+|---|---|---|
+| A1 | RTN Unacknowledged not retained | **Closed.** Verified on hardware: `rtn_unacknowledged` observed live on two conditions. |
+| A2 | No alarm journal | **Closed.** 16384-record ring on the `storage` partition. Verified across a hard reset: records survived, sequence continued rather than resetting. |
+| A3 | No shelving | **Closed.** Time-bounded 60 s to 8 h, audited, expiry enforced on read as well as on the tick. |
+| A4 | No on-delay / deadband | **Closed.** 1000 ms on-delay, 2000 ms off-delay; suppressed transitions counted. |
+| A5 | Four alarms for one root cause | **Closed.** Causality table; `primary_active` is the triage number. |
+| A6 | No priority rationalisation | **Closed as a measurement, NOT as a pass.** See §8. |
+| A7 | No stale-alarm detection | **Closed.** 24 h threshold, reported in the summary. |
+| A8 | **No operator identity** | **STILL OPEN**, and it has a consequence bigger than it looks. See §9. |
+| A9 | No suppressed-by-design / out-of-service | **Closed.** Three independent suppression states, never collapsed. Verified on hardware from the journal: `design_suppressed` on all three downstream conditions when the network was lost, `design_released` when the cause cleared. |
+| A10 | No alarm-rate metrics | **Closed.** Rolling 10 min / 60 min / 24 h plus worst-ever, in EEMUA's unit. |
+
+## 8. A6: the distribution is measured, and it does not meet the target
+
+Measured on hardware from the same table the alarm list is served from:
+
+| Population | high | medium | low | total |
+|---|---|---|---|---|
+| Alarms an operator acknowledges | 50 % | 50 % | 0 % | 4 |
+| All tracked conditions | 29 % | 29 % | 43 % | 7 |
+
+EEMUA's 5/15/80 is **not met**, and below 20 conditions it is **not representable** —
+the smallest non-zero share of four alarms is 25 %. No severity was changed to
+improve the figure. The payload reports `meets_target: false` and
+`target_representable: false`, and a contract asserts the miss so that demoting an
+alarm to hit the number is caught rather than accepted.
+
+That is the honest reading of EEMUA on a small controller: the distribution is a
+target for a plant with hundreds of alarms, and a 12-condition controller cannot
+express it. Reporting the miss is worth more than arranging the number.
+
+## 9. A8 is still open, and it blocks the operator's own action
+
+Acknowledgement is, in ISA-18.2, the **operator's** act: it records that a human has
+taken responsibility. In this firmware every alarm action — acknowledge, shelve,
+unshelve, out-of-service — requires an authenticated **engineering** session, and the
+interface offers an operator a "sign in to acknowledge" link rather than a button.
+
+The consequence is concrete and observable: the development board has carried four
+unacknowledged alarms for an entire working session because nothing without
+engineering credentials can acknowledge them. **A1 is therefore closed in mechanism
+but inert in practice** — a fault that clears itself stays visible until acknowledged,
+and it can never be acknowledged by the person watching the plant.
+
+This is not simply a bug to reverse, which is why it is recorded here rather than
+changed. Without operator identity there is no accountable acknowledgement: an
+unauthenticated acknowledge would record that *someone* accepted responsibility while
+destroying the one signal that says nobody has. Requiring the only credential that
+exists is a defensible response to A8 being open.
+
+The resolutions, for the product owner:
+
+1. **Implement A8** (operator accounts) and make acknowledgement an operator action.
+   The correct fix, and the largest.
+2. **Allow unauthenticated acknowledgement** and accept that the journal records the
+   act without an actor. Cheap; weakens the audit trail A3 exists to protect.
+3. **Keep it as it is** and state in the handover that acknowledgement is an
+   engineering action, accepting that alarms accumulate unacknowledged between
+   engineering visits.
+
+`docs/SITE_ACCEPTANCE_TEST.md` §12.1 currently asks an operator to acknowledge and
+shelve an alarm unaided, which none of these options makes possible except (1) or (2).
+That test cannot pass as written until this is decided.
 
 ---
 
