@@ -5,9 +5,8 @@
  *   used to add the labels while this module reordered the items beneath them.
  *   Also the top-bar controls it creates: health button, overflow menu, page
  *   context line.
- * DOES NOT OWN: routing, titles, breadcrumbs (app.js); which nav entries are
- *   visible, which follows authorisation (product-mode.js) - nothing here sets
- *   hidden on a nav item; page content (product-experience-v2.js).
+ * DOES NOT OWN: routing, titles, breadcrumbs (app.js); backend authorization
+ *   (product-mode.js); page content (product-experience-v2.js).
  * Issues no request. Health arrives as the amx-controller-health event.
  */
 (() => {
@@ -23,7 +22,7 @@
         wifi: 'Network commissioning and recovery access',
         engineering: 'Restricted commissioning and service tools',
         commissioning: 'Guided site commissioning',
-        readiness: 'Software and field-test readiness checks'
+        readiness: 'Engineering readiness checks before field testing'
     };
 
     const byId = (id) => document.getElementById(id);
@@ -47,11 +46,7 @@
         if (context) context.textContent = ROUTE_CONTEXT[route()] || 'Automatrix PV-DG controller';
     }
 
-    /* Health is data published by app.js, not text read back out of the page.
-     * This used to query five rendered elements and apply English regular
-     * expressions to their contents, so a copy edit silently changed the header
-     * indicator - and it needed a characterData observer over a strip that
-     * refreshes every two seconds. Both are gone. */
+    /* Health is data published by app.js, not text read back out of the page. */
     let health = { tone: 'warning', label: 'Checking', rows: [] };
 
     function healthRows(detail) {
@@ -70,7 +65,7 @@
         panel.setAttribute('aria-modal', 'true');
         const head = node('div', 'shell-popover-head');
         head.append(node('h2', '', title));
-        const close = node('button', 'shell-popover-close', '×');
+        const close = node('button', 'shell-popover-close', 'Close');
         close.type = 'button';
         close.setAttribute('aria-label', 'Close');
         head.append(close);
@@ -105,7 +100,6 @@
             popover.show();
         });
         actions.insertBefore(button, actions.firstChild);
-        /* Idempotent: an unchanged refresh writes nothing. */
         const update = () => {
             const className = `shell-health-button ${health.tone}`;
             if (button.className !== className) button.className = className;
@@ -132,7 +126,7 @@
         if (!actions || byId('shellOverflowButton')) return;
         const popover = createPopover('Controller menu');
         popover.backdrop.id = 'shellMenuPopover';
-        const button = node('button', 'shell-overflow-button', '⋮');
+        const button = node('button', 'shell-overflow-button', 'Menu');
         button.id = 'shellOverflowButton';
         button.type = 'button';
         button.setAttribute('aria-label', 'Open controller menu');
@@ -151,7 +145,7 @@
             action('Kiosk display', document.documentElement.classList.contains('kiosk-mode') ? 'On' : 'Off', () => clickExisting('productKioskButton'));
             action('Theme', document.documentElement.dataset.theme || 'System', () => clickExisting('themeToggle'));
             action('Controller information', 'Identity and service state', () => { location.hash = '#/system'; });
-            action('Engineering workspace', document.documentElement.dataset.access === 'engineering' ? 'Development access' : 'Restricted', () => {
+            action('Engineering workspace', document.documentElement.dataset.access === 'engineering' ? 'Unlocked' : 'Restricted', () => {
                 const engineering = byId('engineeringNav') || byId('productEngineeringEntry');
                 if (engineering) engineering.click(); else location.hash = '#/engineering';
             });
@@ -161,38 +155,58 @@
         actions.append(button);
     }
 
-    /* Navigation order and section labels, one pass, one module.
+    /* app.js owns the normal four-group hierarchy: Operate, Commission,
+     * Maintain and Access. The static document declares data-shell-grouped once
+     * that hierarchy is present. Respect that contract instead of flattening the
+     * same navigation back into two competing groups.
      *
-     * The previous version latched after its first run, so an entry added later
-     * - operator-product-suite.js adds commissioning after this module starts -
-     * was never placed; and the labels came from product-experience-v2.js,
-     * which could not know whether the reorder had happened. This pass is
-     * repeatable instead of latched, and checks the list is not already in the
-     * intended order before writing, because re-appending a node in place still
-     * records a mutation. Visibility stays with product-mode.js. */
-    const OPERATE_ROUTES = ['dashboard', 'meters', 'inverters', 'control', 'alarms'];
-    const SERVICE_ROUTES = ['readiness', 'engineering', 'commissioning', 'wifi', 'system'];
+     * The two arrays remain as a fallback for an older shell that does not carry
+     * the grouped marker. Even there, protected control/service pages belong in
+     * Engineering, never in the operator group. */
+    const OPERATOR_ROUTES = ['dashboard', 'meters', 'inverters', 'alarms'];
+    const ENGINEERING_ROUTES = ['engineering', 'commissioning', 'readiness', 'wifi', 'control', 'system'];
+
+    /* Pre-lab readiness is a commissioning workflow, not a running-plant task.
+     * Its endpoint remains public and typing its URL still works: this is only a
+     * navigation offer, never an authorization boundary. Browser hiding is not
+     * security; product-mode.js and the server remain the owners of authority. */
+    function applyPresentationAccess() {
+        const authenticated = document.documentElement.dataset.access === 'engineering';
+        const readiness = document.querySelector('.nav-list [data-route="readiness"]');
+        if (!readiness) return;
+        readiness.dataset.engineeringNav = 'true';
+        readiness.hidden = !authenticated;
+        readiness.setAttribute('aria-hidden', authenticated ? 'false' : 'true');
+    }
 
     function groupNavigation() {
         const nav = document.querySelector('.nav-list');
         if (!nav) return;
-        nav.dataset.shellGrouped = 'true';
+
+        window.AutomatrixUi?.ensureNavigationHierarchy();
+        applyPresentationAccess();
+
+        if (nav.dataset.shellGrouped === 'true' && nav.querySelector('[data-nav-group]')) return;
 
         const ordered = [];
-        const operate = OPERATE_ROUTES.map((name) => nav.querySelector(`[data-route="${name}"]`)).filter(Boolean);
-        const service = SERVICE_ROUTES.map((name) => nav.querySelector(`[data-route="${name}"]`)).filter(Boolean);
-        /* Class name belongs to product-experience-v2.css; the element is
-         * created here because navigation has one owner. */
+        const operator = OPERATOR_ROUTES.map((name) => nav.querySelector(`[data-route="${name}"]`)).filter(Boolean);
+        const engineering = ENGINEERING_ROUTES.map((name) => nav.querySelector(`[data-route="${name}"]`)).filter(Boolean);
         const labels = [...nav.querySelectorAll(':scope > .experience-nav-label')];
-        if (operate.length) ordered.push(labels[0] || node('div', 'experience-nav-label', 'Operate'));
-        ordered.push(...operate);
-        if (service.length) ordered.push(labels[1] || node('div', 'experience-nav-label', 'Commission & service'));
-        ordered.push(...service);
+        const operatorLabel = labels[0] || node('div', 'experience-nav-label');
+        const engineeringLabel = labels[1] || node('div', 'experience-nav-label');
+        operatorLabel.hidden = false;
+        operatorLabel.removeAttribute('aria-hidden');
+        operatorLabel.textContent = 'Operator';
+        engineeringLabel.hidden = false;
+        engineeringLabel.removeAttribute('aria-hidden');
+        engineeringLabel.textContent = 'Engineering';
+        if (operator.length) ordered.push(operatorLabel, ...operator);
+        if (engineering.length) ordered.push(engineeringLabel, ...engineering);
         labels.slice(2).forEach((extra) => extra.remove());
 
         const tail = [...nav.children].slice(-ordered.length);
-        if (tail.length === ordered.length && ordered.every((item, index) => tail[index] === item)) return;
-        nav.append(...ordered);
+        if (!(tail.length === ordered.length && ordered.every((item, index) => tail[index] === item))) nav.append(...ordered);
+        nav.dataset.shellGrouped = 'true';
     }
 
     function removeDuplicateIntros() {
@@ -214,9 +228,7 @@
             groupNavigation();
             removeDuplicateIntros();
         });
-        /* One observer watches #mainContent for the whole application, in
-         * product-mode.js. Subscribe rather than add a third to the same node.
-         * Late nav entries arrive with their page, so grouping runs here too. */
+        window.addEventListener('amx-access-change', groupNavigation);
         window.AutomatrixEngineeringAccess?.onContentChange(() => {
             groupNavigation();
             removeDuplicateIntros();
