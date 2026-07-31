@@ -50,6 +50,14 @@
         { path: '/api/inverter-profile-assignment', routes: ['inverters', 'commissioning'] },
         { path: '/api/inverter-probe', routes: ['inverters', 'commissioning'] },
         { path: '/api/inverters/config', routes: ['inverters', 'commissioning'] },
+        /* Listed for the same reason as /api/inverters/config: it carries host,
+         * port, unit id and register address, and the firmware requires an
+         * engineering session for it. Without an entry here mayRequest() would
+         * report it permitted and the caller would spend a socket on a
+         * guaranteed 401. The operator projection is the shorter /api/meters,
+         * which stays unlisted and unauthenticated - startsWith() distinguishes
+         * them because this path is strictly longer. */
+        { path: '/api/meters/config', routes: ['meters', 'commissioning'] },
         { path: '/api/meters/em500/', routes: ['meters', 'commissioning'] }
     ];
 
