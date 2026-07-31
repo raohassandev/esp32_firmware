@@ -26,28 +26,7 @@
     system: { eyebrow: 'Engineering · Service', title: 'Controller', question: 'What maintenance action is required?', action: 'Export configuration before making service changes.' }
   };
 
-  /* Operator routes that render their own dense screen.
-   *
-   * On these, the masthead is the THIRD copy of the page's identity. The top
-   * bar already prints "Alarms and events" with "Conditions that require
-   * attention" under it, from the one route table in web/app.js; the masthead
-   * then prints an eyebrow, the same title again, an orienting question and a
-   * line of guidance - roughly 110px of restatement above the thing the reader
-   * came for.
-   *
-   * Four of these five routes were ALREADY drawing no masthead, because
-   * hideLegacyOperatorContent() in web/operator-view.js sweeps every child of
-   * the page that is not the product view. Alarms was the odd one out, and only
-   * because that sweep does not cover it. So this is not a new decision about
-   * whether the masthead belongs on an operator screen; it is the existing
-   * decision, applied on purpose and consistently, instead of falling out of
-   * which routes another module happens to enumerate.
-   *
-   * Engineering, commissioning, network setup and pre-lab readiness keep their
-   * masthead: those pages have no product view and no heading of their own, and
-   * the orienting question is the only framing they get. */
   const OPERATOR_PRODUCT_ROUTES = new Set(['dashboard', 'meters', 'inverters', 'control', 'system', 'alarms']);
-
   const route = () => location.hash.replace(/^#\/?/, '') || 'dashboard';
   const isEngineering = () => document.documentElement.dataset.access === 'engineering';
   const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
@@ -82,8 +61,6 @@
     });
   }
 
-  /* classList.add on a class already present records no mutation, so this is
-   * idempotent as written. */
   function removeCompetingControls() {
     ['productEngineeringEntry'].forEach(id => document.getElementById(id)?.classList.add('experience-secondary-control'));
     document.querySelectorAll('.product-tool-button, #themeToggle, #engineeringAccessButton').forEach(n => n.classList.add('experience-secondary-control'));
@@ -95,13 +72,8 @@
     const page = document.querySelector(`.page[data-page="${name}"]`);
     const meta = PAGE[name];
     if (page && meta) {
-      /* Engineering keeps every masthead: an engineer reading the same page
-       * unlocked has no product view under it on some routes. */
-      if (!isEngineering() && OPERATOR_PRODUCT_ROUTES.has(name)) {
-        page.querySelector(':scope > .experience-masthead')?.remove();
-      } else {
-        masthead(page, meta, name);
-      }
+      if (!isEngineering() && OPERATOR_PRODUCT_ROUTES.has(name)) page.querySelector(':scope > .experience-masthead')?.remove();
+      else masthead(page, meta, name);
       classifyPage(page, name);
     }
     if (document.body.dataset.experienceRoute !== name) document.body.dataset.experienceRoute = name;
@@ -121,12 +93,82 @@
     compose();
     window.addEventListener('hashchange', scheduleCompose);
     window.addEventListener('amx-access-change', scheduleCompose);
-    /* The single #mainContent observer lives in product-mode.js. compose()
-     * writes only inside a `.page`, and the shared notifier discards records
-     * its subscribers produce, so this cannot re-trigger itself. */
     window.AutomatrixEngineeringAccess?.onContentChange(scheduleCompose);
   }
 
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
+  else start();
+})();
+
+/* Preserve keyboard focus and open disclosure state when the existing operator
+ * renderers replace their child DOM during polling. Presentation only: no API,
+ * control, alarm or authorization behavior is changed. */
+(() => {
+  'use strict';
+  const ROOTS = '.operator-product-view, .alarm-console';
+  const state = new Map();
+  let restoring = false;
+  let queued = false;
+  const text = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+  const rootKey = (root) => root.id || `page:${root.closest('.page')?.dataset.page || 'unknown'}`;
+  const alarmId = (node) => text(node.closest('.alarm-row')?.querySelector('.alarm-id')?.textContent);
+  const detailKey = (details) => `${alarmId(details)}|${text(details.querySelector(':scope > summary')?.getAttribute('aria-label') || details.querySelector(':scope > summary')?.textContent)}`;
+  const focusKey = (node) => {
+    if (node.id) return `id:${node.id}`;
+    if (node.tagName === 'SUMMARY' && node.parentElement?.tagName === 'DETAILS') return `summary:${detailKey(node.parentElement)}`;
+    return '';
+  };
+  const recordFor = (root) => {
+    const key = rootKey(root);
+    if (!state.has(key)) state.set(key, { open: new Set(), focus: '' });
+    return state.get(key);
+  };
+  function restore() {
+    queued = false;
+    restoring = true;
+    document.querySelectorAll(ROOTS).forEach((root) => {
+      const record = state.get(rootKey(root));
+      if (!record) return;
+      root.querySelectorAll('details').forEach((details) => { details.open = record.open.has(detailKey(details)); });
+      if (record.focus && (document.activeElement === document.body || document.activeElement === document.documentElement)) {
+        let target = null;
+        if (record.focus.startsWith('id:')) target = document.getElementById(record.focus.slice(3));
+        else if (record.focus.startsWith('summary:')) {
+          const key = record.focus.slice(8);
+          target = [...root.querySelectorAll('details')].find((details) => detailKey(details) === key)?.querySelector(':scope > summary') || null;
+        }
+        if (target && !target.disabled && target.getClientRects().length) {
+          try { target.focus({ preventScroll: true }); } catch { target.focus(); }
+        }
+      }
+    });
+    restoring = false;
+  }
+  function schedule() {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(restore);
+  }
+  function start() {
+    document.addEventListener('focusin', (event) => {
+      const root = event.target.closest?.(ROOTS);
+      if (!root) return;
+      const key = focusKey(event.target);
+      if (key) recordFor(root).focus = key;
+    });
+    document.addEventListener('toggle', (event) => {
+      if (restoring || event.target.tagName !== 'DETAILS') return;
+      const root = event.target.closest(ROOTS);
+      if (!root) return;
+      const record = recordFor(root);
+      const key = detailKey(event.target);
+      if (event.target.open) record.open.add(key); else record.open.delete(key);
+    }, true);
+    const main = document.getElementById('mainContent');
+    if (main) new MutationObserver(schedule).observe(main, { childList: true, subtree: true });
+    window.addEventListener('amx-operator-view-rendered', schedule);
+    window.addEventListener('hashchange', schedule);
+  }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
   else start();
 })();
