@@ -367,10 +367,10 @@
  * unavailable, not as a manufactured 0-of-0 fleet. The response is cloned in
  * the browser; no second HTTP request is made.
  *
- * Acknowledgement is an operator action by design; shelving and out-of-service
- * remain Engineering actions. A stale 401 message told the operator to sign in
- * as Engineering. That message is corrected without changing the request,
- * endpoint or permission. */
+ * Alarm acknowledgement remains governed by the controller endpoint. The
+ * browser does not infer a required actor class from a 401; it reports that the
+ * request was refused and leaves the condition unchanged. Shelving and
+ * out-of-service controls remain Engineering actions. */
 (() => {
   'use strict';
   let queued = false;
@@ -491,7 +491,7 @@
     document.querySelectorAll('#alarmConsole .alarm-message').forEach((message) => {
       if (!clean(message.textContent).startsWith('Acknowledging an alarm requires an authenticated engineering session.')) return;
       write(message,
-        'The controller refused the acknowledgement request. Acknowledgement is an operator action; check the controller API or session configuration and retry. Nothing was changed.');
+        'The controller refused the acknowledgement request. Check the controller API or session configuration and retry. Nothing was changed.');
     });
   }
 
