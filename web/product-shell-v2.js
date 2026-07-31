@@ -70,10 +70,23 @@
         panel.append(head, body);
         backdrop.append(panel);
         document.body.append(backdrop);
-        const hide = () => { backdrop.hidden = true; document.body.classList.remove('shell-popover-open'); };
+        const hide = () => {
+            backdrop.hidden = true;
+            document.body.classList.remove('shell-popover-open');
+        };
         close.addEventListener('click', hide);
-        backdrop.addEventListener('click', (event) => { if (event.target === backdrop) hide(); });
-        return { backdrop, body, show() { backdrop.hidden = false; document.body.classList.add('shell-popover-open'); }, hide };
+        backdrop.addEventListener('click', (event) => {
+            if (event.target === backdrop) hide();
+        });
+        return {
+            backdrop,
+            body,
+            show() {
+                backdrop.hidden = false;
+                document.body.classList.add('shell-popover-open');
+            },
+            hide
+        };
     }
 
     function installHealthControl() {
@@ -108,7 +121,11 @@
         update();
         window.addEventListener('amx-controller-health', (event) => {
             const detail = event.detail || {};
-            health = { tone: detail.tone || 'warning', label: detail.label || 'Checking', rows: healthRows(detail) };
+            health = {
+                tone: detail.tone || 'warning',
+                label: detail.label || 'Checking',
+                rows: healthRows(detail)
+            };
             update();
         });
     }
@@ -134,17 +151,23 @@
                 const item = node('button');
                 item.type = 'button';
                 item.append(node('span', '', label), node('small', '', detail));
-                item.addEventListener('click', () => { popover.hide(); handler(); });
+                item.addEventListener('click', () => {
+                    popover.hide();
+                    handler();
+                });
                 menu.append(item);
             };
             action('Refresh data', 'Update current readings', () => clickExisting('refreshButton'));
             action('Display density', document.documentElement.dataset.density === 'compact' ? 'Compact' : 'Comfortable', () => clickExisting('productDensityButton'));
             action('Kiosk display', document.documentElement.classList.contains('kiosk-mode') ? 'On' : 'Off', () => clickExisting('productKioskButton'));
             action('Theme', document.documentElement.dataset.theme || 'System', () => clickExisting('themeToggle'));
-            action('Controller information', 'Identity and service state', () => { location.hash = '#/system'; });
+            action('Controller information', 'Identity and service state', () => {
+                location.hash = '#/system';
+            });
             action('Engineering workspace', document.documentElement.dataset.access === 'engineering' ? 'Unlocked' : 'Restricted', () => {
                 const engineering = byId('engineeringNav') || byId('productEngineeringEntry');
-                if (engineering) engineering.click(); else location.hash = '#/engineering';
+                if (engineering) engineering.click();
+                else location.hash = '#/engineering';
             });
             popover.body.append(menu);
             popover.show();
@@ -174,6 +197,9 @@
         }
     }
 
+    /* app.js owns the normal four-section hierarchy. This fallback is retained
+     * for older markup that has no app-owned group headings yet; its two labels
+     * keep the source contract and old deployed pages deterministic. */
     function groupNavigation() {
         const nav = document.querySelector('.nav-list');
         if (!nav) return;
@@ -184,23 +210,27 @@
         if (nav.dataset.shellGrouped === 'true' && nav.querySelector('[data-nav-group]')) return;
 
         const ordered = [];
-        const operator = OPERATOR_ROUTES.map((name) => nav.querySelector(`[data-route="${name}"]`)).filter(Boolean);
-        const engineering = ENGINEERING_ROUTES.map((name) => nav.querySelector(`[data-route="${name}"]`)).filter(Boolean);
+        const operator = OPERATOR_ROUTES
+            .map((name) => nav.querySelector(`[data-route="${name}"]`))
+            .filter(Boolean);
+        const engineering = ENGINEERING_ROUTES
+            .map((name) => nav.querySelector(`[data-route="${name}"]`))
+            .filter(Boolean);
         const labels = [...nav.querySelectorAll(':scope > .experience-nav-label')];
         const operatorLabel = labels[0] || node('div', 'experience-nav-label');
         const engineeringLabel = labels[1] || node('div', 'experience-nav-label');
-        operatorLabel.hidden = false;
-        operatorLabel.removeAttribute('aria-hidden');
-        operatorLabel.textContent = 'Operator';
-        engineeringLabel.hidden = false;
-        engineeringLabel.removeAttribute('aria-hidden');
-        engineeringLabel.textContent = 'Engineering';
+        operatorLabel.textContent = 'Operate';
+        engineeringLabel.textContent = 'Commission & service';
         if (operator.length) ordered.push(operatorLabel, ...operator);
         if (engineering.length) ordered.push(engineeringLabel, ...engineering);
         labels.slice(2).forEach((extra) => extra.remove());
 
         const tail = [...nav.children].slice(-ordered.length);
-        if (!(tail.length === ordered.length && ordered.every((item, index) => tail[index] === item))) nav.append(...ordered);
+        if (tail.length === ordered.length && ordered.every((item, index) => tail[index] === item)) {
+            nav.dataset.shellGrouped = 'true';
+            return;
+        }
+        nav.append(...ordered);
         nav.dataset.shellGrouped = 'true';
     }
 
