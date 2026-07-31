@@ -65,6 +65,22 @@ typedef struct {
      */
     bool deferred_this_phase;
 
+    /*
+     * WHY THIS PROFILE IS PARKED, AND WHAT WOULD UNPARK IT.
+     *
+     * The criterion from docs/RELEASE_READINESS.md section 4b.1, carried on the
+     * profile so the catalogue API can publish it. It existed only in that
+     * document and in comments here, which meant an engineer looking for their
+     * brand in the picker was told nothing: a parked profile and a profile with
+     * no register map at all both simply reported write_allowed:false, and the
+     * reasonable conclusion was that the product does not support the brand.
+     *
+     * Descriptive only. Nothing reads it to make a decision -- the refusal is
+     * deferred_this_phase above, and this string cannot lift it. NULL for a
+     * profile that is in scope.
+     */
+    const char *deferred_reason;
+
     bool has_identity_probe;
     uint8_t identity_function;
     uint16_t identity_address;

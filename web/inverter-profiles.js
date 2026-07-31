@@ -12,6 +12,37 @@
         return Boolean(access()?.mayRequest('/api/inverter-profiles'));
     }
 
+    /* PARKED PROFILES ARE NOT HIDDEN AND ARE NOT SELECTABLE BY ACCIDENT.
+     *
+     * This release phase is scoped to the Huawei SUN2000 inverter; twelve
+     * profiles are parked (docs/RELEASE_READINESS.md section 4b.1) and the write
+     * gate refuses every one of them. The picker used to list them exactly like
+     * the in-scope profile, so selecting KNOX Aiswei looked like a normal
+     * commissioning choice and led to a dead end with nothing on screen saying
+     * why.
+     *
+     * They are also not dropped from the catalogue. An engineer looking for
+     * their brand must find out WHY it is unavailable and WHAT would change
+     * that, rather than conclude the product does not support it - which is
+     * exactly what an empty list would tell them. So: out of the default list,
+     * behind an explicit disclosure, and marked and refused when shown. */
+    function isDeferred(profile) {
+        return profile?.deferred_this_phase === true;
+    }
+
+    function showingDeferred() {
+        return byId('inverterShowDeferred')?.checked === true;
+    }
+
+    function visibleProfiles() {
+        const all = Array.isArray(state.profiles) ? state.profiles : [];
+        return showingDeferred() ? all : all.filter((profile) => !isDeferred(profile));
+    }
+
+    function deferredCount() {
+        return (Array.isArray(state.profiles) ? state.profiles : []).filter(isDeferred).length;
+    }
+
     function manufacturers(profiles) {
         return [...new Set((profiles || []).map((profile) => profile.manufacturer).filter(Boolean))]
             .sort((left, right) => left.localeCompare(right));
@@ -23,6 +54,9 @@
 
     function writeStatus(profile) {
         if (!profile) return { label: 'Unavailable', tone: 'bad' };
+        /* Checked before every other verdict, because it is checked first by the
+         * firmware gate too and it holds in both production and lab mode. */
+        if (isDeferred(profile)) return { label: 'Deferred this phase', tone: 'bad' };
         if (profile.write_allowed) return { label: 'Write approved', tone: 'good' };
         /* power_limit_supported is the field the controller publishes.
          * profile.capabilities.power_limit never existed in the response, so
@@ -73,7 +107,11 @@
             <dl class="derived-fact" id="inverterChannelTransport">
                 <dt>Channel transport</dt><dd id="inverterChannelTransportValue">Reading the channel endpoint…</dd>
             </dl>
+            <!-- Refusal first, in its own line, because it is the reason the
+                 Apply button is disabled and it is not a detail. -->
+            <p class="scope-refusal" id="inverterProfileScope" role="status" hidden></p>
             <div class="device-readiness-note" id="inverterProfileNotice" role="status">Loading inverter profiles…</div>
+            <label class="switch field-switch scope-toggle"><input id="inverterShowDeferred" type="checkbox"><span></span><b id="inverterShowDeferredLabel">Show deferred profiles</b></label>
             <details class="page-drawer" id="inverterProfileDetails">
                 <summary>Profile details and register evidence</summary>
                 <dl class="derived-fact">
@@ -101,6 +139,7 @@
         }
 
         channel.addEventListener('change', renderChannelTransport);
+        byId('inverterShowDeferred').addEventListener('change', renderCatalogue);
         byId('inverterManufacturer').addEventListener('change', refreshModels);
         byId('inverterModelFamily').addEventListener('change', renderSelection);
         byId('inverterProfilesReload').addEventListener('click', () => loadProfiles(true));
@@ -151,10 +190,15 @@
         const select = byId('inverterModelFamily');
         if (!select) return;
         select.replaceChildren();
-        for (const profile of profilesForManufacturer(state.profiles, manufacturer)) {
+        for (const profile of profilesForManufacturer(visibleProfiles(), manufacturer)) {
             const option = document.createElement('option');
             option.value = profile.id;
-            option.textContent = profile.model_family;
+            /* Marked in the list itself, not only after selection: an engineer
+             * scanning the options should not have to select a parked profile to
+             * discover that it is parked. */
+            option.textContent = isDeferred(profile)
+                ? `${profile.model_family} · deferred this phase`
+                : profile.model_family;
             select.append(option);
         }
         renderSelection();
@@ -175,14 +219,37 @@
             return;
         }
 
-        if (apply) apply.disabled = state.saving;
-        if (probe) probe.disabled = state.probing || !profile.read_allowed;
+        const deferred = isDeferred(profile);
+        /* Non-applicable, not merely discouraged. Assigning a parked profile can
+         * only produce a channel the write gate refuses, so the action that would
+         * do it is refused here rather than left to fail later. */
+        if (apply) apply.disabled = state.saving || deferred;
+        if (probe) probe.disabled = state.probing || !profile.read_allowed || deferred;
         const status = writeStatus(profile);
-        setBadge(profile.qualification || status.label, status.tone);
+        setBadge(deferred ? status.label : (profile.qualification || status.label), status.tone);
+        renderScopeRefusal(profile);
 
         const summary = capabilitySummary(profile);
         if (notice) notice.textContent = `${profile.manufacturer} ${profile.model_family}: ${summary}. ${profile.write_allowed ? 'Production write permission is approved.' : 'Live writes remain locked.'}`;
         renderProfileLink(profile);
+    }
+
+    /* The refusal, its reason and its unpark criterion, in the engineer's path
+     * rather than in a document they would have to know exists. The controller
+     * supplies all three; nothing is restated here from memory. */
+    function renderScopeRefusal(profile) {
+        const target = byId('inverterProfileScope');
+        if (!target) return;
+        if (!isDeferred(profile)) {
+            target.hidden = true;
+            target.textContent = '';
+            return;
+        }
+        const reason = typeof profile.deferred_reason === 'string' ? profile.deferred_reason.trim() : '';
+        target.textContent = `${profile.manufacturer} ${profile.model_family} is deferred in this release phase and cannot be assigned. `
+            + (reason || 'The controller did not state a reason; see docs/RELEASE_READINESS.md section 4b.1.')
+            + ' This release phase is scoped to the EM500 meter and the Huawei SUN2000 inverter.';
+        target.hidden = false;
     }
 
     /* Reads the field names the controller actually publishes. This used to read
@@ -226,14 +293,27 @@
         if (!select) return;
         const previous = select.value;
         select.replaceChildren();
-        for (const manufacturer of manufacturers(state.profiles)) {
+        for (const manufacturer of manufacturers(visibleProfiles())) {
             const option = document.createElement('option');
             option.value = manufacturer;
             option.textContent = manufacturer;
             select.append(option);
         }
         if (previous && [...select.options].some((option) => option.value === previous)) select.value = previous;
+        renderDeferredToggle();
         refreshModels();
+    }
+
+    /* The count is stated whether or not the deferred profiles are on screen.
+     * Twelve profiles quietly missing from a list is how an engineer concludes
+     * the product has no profile for their brand. */
+    function renderDeferredToggle() {
+        const label = byId('inverterShowDeferredLabel');
+        if (!label) return;
+        const count = deferredCount();
+        label.textContent = count === 0
+            ? 'Show deferred profiles (none in this catalogue)'
+            : `Show ${count} profile${count === 1 ? '' : 's'} deferred in this release phase`;
     }
 
     async function applyProfile() {
@@ -242,6 +322,12 @@
         const notice = byId('inverterProfileNotice');
         const button = byId('inverterProfileApply');
         if (!profile || channel === null || state.saving) return;
+        /* Refused here as well as on the button, so a stale enabled button or a
+         * keyboard activation cannot start an assignment the phase scope forbids. */
+        if (isDeferred(profile)) {
+            renderScopeRefusal(profile);
+            return;
+        }
 
         state.saving = true;
         if (button) button.disabled = true;

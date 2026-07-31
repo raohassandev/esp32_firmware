@@ -188,6 +188,8 @@ jobs:
         run: python3 tests/source_semantics_and_power_scale_source_contract.py
       - name: Check release phase scope contract
         run: python3 tests/phase_scope_source_contract.py
+      - name: Check phase scope is visible in the inverter profile picker
+        run: python3 tests/inverter_phase_scope_ui_source_contract.py
       - name: Check meter role and schema 4 upgrade contract
         run: python3 tests/meter_role_source_contract.py
       - name: Check generator power policy contract
