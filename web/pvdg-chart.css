@@ -1,9 +1,7 @@
 /* The single time-series chart component (web/pvdg-chart.js).
  *
  * This sheet is loaded last so it can retire the old sparkline geometry without
- * editing the sheets that declared it. The old trend card was 220 px tall with a
- * 92 px SVG (34.5% of the card actually plotted); the plot area here is the
- * dominant element of the card by construction. */
+ * editing the sheets that declared it. */
 
 .op-sparkline,
 .op-trend-card,
@@ -11,9 +9,7 @@
 .op-history-stats,
 .op-history-section { display: none !important; }
 
-/* The mount point operator-view.js keeps across its own rebuilds. It is a plain
- * full-width block: the chart is the page's main figure, not a tile in a row. */
-.op-chart-host { display: block; margin-top: 16px; }
+.op-chart-host { display: block; margin-top: 12px; }
 
 .pvc-card {
     display: grid;
@@ -35,7 +31,6 @@
 .pvc-heading { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
 .pvc-title { margin: 0; font-size: 1.02rem; line-height: 1.2; }
 .pvc-subtitle { margin: 0; color: var(--muted); font-size: .8rem; line-height: 1.2; }
-
 .pvc-ranges { flex: 0 0 auto; }
 
 .pvc-legend {
@@ -52,7 +47,7 @@
     gap: 6px;
     padding: 2px 6px;
     border: 1px solid transparent;
-    border-radius: 8px;
+    border-radius: 4px;
     background: none;
     color: var(--text);
     font: inherit;
@@ -64,21 +59,15 @@
 .pvc-legend-item.off { color: var(--muted-2); text-decoration: line-through; }
 .pvc-legend-item.off .pvc-legend-mark { opacity: .4; }
 .pvc-legend-mark { width: 24px; height: 12px; flex: 0 0 auto; }
-
 .pvc-legend-key { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--muted); font-size: .74rem; }
 .pvc-key { display: inline-flex; align-items: center; gap: 4px; }
 
-/* The plot dominates the card by construction. With the default 500 px figure
- * the surrounding chrome is about 155 px (head 30, legend/quality 44, statistics
- * 22, note 16, values toggle 18, five 5 px gaps), so the figure is roughly 76%
- * and the axis-free inner plot rectangle - 500 less the 12 px and 28 px gutters,
- * i.e. 460 px - is roughly 70% of the card's usable height. The card this
- * replaces was 220 px with a 92 px sparkline: 41.8% figure, 34.5% plot. */
 .pvc-figure {
     position: relative;
-    height: var(--pvc-plot-height, 500px);
-    min-height: 240px;
-    border-radius: 10px;
+    height: var(--pvc-plot-height, 320px);
+    min-height: 220px;
+    border: 1px solid var(--line-soft);
+    border-radius: 4px;
     background: var(--surface-sunken, rgba(0, 0, 0, .12));
 }
 .pvc-figure:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; }
@@ -90,15 +79,8 @@
 .pvc-side-label { fill: var(--muted); font-size: 10px; letter-spacing: .04em; }
 .pvc-axis-label { fill: var(--muted); font-size: 11px; }
 .pvc-marker-label { fill: var(--muted); font-size: 10px; }
-
 .pvc-line { fill: none; stroke: var(--pvc-c); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .pvc-fill { fill: var(--pvc-c); }
-
-/* Categorical series steps. Checked with the palette validator against the dark
- * panel (#0e2035) and the light surface (#ffffff): lightness band, chroma floor,
- * CVD separation, normal-vision separation and 3:1 contrast all pass in both
- * modes. Slot order is fixed and never cycled; identity is also carried by the
- * dash pattern and legend glyph declared in web/pvdg-chart.js. */
 .pvc-s0 { --pvc-c: #3f97ec; }
 .pvc-s1 { --pvc-c: #c9761a; }
 .pvc-s2 { --pvc-c: #a37ae0; }
@@ -107,7 +89,6 @@ html[data-theme="light"] .pvc-s0 { --pvc-c: #1f7ae0; }
 html[data-theme="light"] .pvc-s1 { --pvc-c: #c2660d; }
 html[data-theme="light"] .pvc-s2 { --pvc-c: #8a5ad6; }
 html[data-theme="light"] .pvc-s3 { --pvc-c: #0f8a63; }
-
 .pvc-hatch-bg { fill: transparent; }
 .pvc-hatch-line { stroke: var(--muted-2); stroke-width: 2; opacity: .55; }
 .pvc-dot { fill: var(--muted-2); opacity: .35; }
@@ -117,7 +98,6 @@ html[data-theme="light"] .pvc-s3 { --pvc-c: #0f8a63; }
 .pvc-alarm-bar { fill: var(--warning, #f4c95d); opacity: .8; }
 .pvc-alarm-mark { fill: var(--warning, #f4c95d); }
 .pvc-control-line { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 2 4; opacity: .8; }
-
 .pvc-hit { fill: transparent; cursor: crosshair; }
 .pvc-crosshair { stroke: var(--text); stroke-width: 1; stroke-dasharray: 4 3; opacity: .7; }
 .pvc-point { stroke: var(--panel); stroke-width: 2; }
@@ -132,9 +112,8 @@ html[data-theme="light"] .pvc-s3 { --pvc-c: #0f8a63; }
     padding: 6px 8px;
     transform: translateX(8px);
     border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: 4px;
     background: var(--surface-overlay, var(--panel));
-    box-shadow: var(--shadow);
     color: var(--text);
     font-size: .76rem;
     line-height: 1.35;
@@ -148,14 +127,13 @@ html[data-theme="light"] .pvc-s3 { --pvc-c: #0f8a63; }
     display: grid;
     place-items: center;
     padding: 16px;
-    border-radius: 10px;
+    border-radius: 4px;
     background: var(--panel);
     color: var(--muted);
     text-align: center;
     font-size: .86rem;
 }
 .pvc-overlay-error { color: var(--bad); }
-
 .pvc-quality { display: flex; flex-wrap: wrap; gap: 6px; }
 .pvc-quality-pill {
     padding: 1px 8px;
@@ -168,7 +146,11 @@ html[data-theme="light"] .pvc-s3 { --pvc-c: #0f8a63; }
 .pvc-quality-pill.warning { border-color: var(--warning); color: var(--warning); }
 .pvc-quality-pill.bad { border-color: var(--bad); color: var(--bad); }
 
-.pvc-stats { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 20px; }
+/* Range statistics are already carried by the measurement instrument on the
+ * operational pages. Keeping the same current/min/avg/peak row under the chart
+ * duplicated evidence while consuming a full viewport row. The accessible
+ * chart summary and data table remain available. */
+.pvc-stats { display: none; }
 .pvc-stat-group { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
 .pvc-stat-series { display: inline-flex; align-items: center; gap: 5px; font-size: .8rem; font-weight: 600; }
 .pvc-stat-mark { width: 12px; height: 12px; flex: 0 0 auto; }
@@ -176,7 +158,6 @@ html[data-theme="light"] .pvc-s3 { --pvc-c: #0f8a63; }
 .pvc-stat span { color: var(--muted); }
 .pvc-stat strong { font-variant-numeric: tabular-nums; }
 .pvc-stat-basis { color: var(--muted-2); font-size: .7rem; }
-
 .pvc-note { margin: 0; color: var(--muted-2); font-size: .72rem; line-height: 1.35; }
 
 .pvc-summary,
@@ -202,19 +183,378 @@ html[data-theme="light"] .pvc-s3 { --pvc-c: #0f8a63; }
 .pvc-table th { color: var(--muted); font-weight: 600; }
 .pvc-table-note { margin: 6px 0 0; color: var(--muted-2); }
 
+/* ========================================================================== 
+   Operator industrial refinement — frontend only
+   This file is deliberately the final served stylesheet. These rules refine
+   presentation and responsive density only; no API, control or authorization
+   behavior is changed.
+   ========================================================================== */
+
+:root {
+    --industrial-radius: 6px;
+    --industrial-radius-sm: 4px;
+    --industrial-gap: 12px;
+    --industrial-panel-pad: 14px;
+    --industrial-sidebar: 220px;
+}
+
+body.product-experience-v2 {
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    letter-spacing: 0;
+    --experience-content-max: 1600px;
+    --experience-gap: var(--industrial-gap);
+    --experience-section-gap: var(--industrial-gap);
+}
+
+body.product-experience-v2,
+body.product-experience-v2 .app-shell,
+body.product-experience-v2 .workspace {
+    background-image: none;
+}
+
+body.product-experience-v2 .workspace {
+    margin-left: var(--industrial-sidebar);
+}
+
+body.product-experience-v2 .sidebar {
+    width: var(--industrial-sidebar);
+    border-right: 1px solid var(--line);
+    border-radius: 0;
+    box-shadow: none;
+    backdrop-filter: none;
+}
+
+body.product-experience-v2 .brand-block {
+    min-height: 64px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--line-soft);
+}
+
+body.product-experience-v2 .brand-mark {
+    width: 34px;
+    height: 34px;
+    border-radius: var(--industrial-radius-sm);
+    box-shadow: none;
+}
+
+body.product-experience-v2 .nav-list { padding: 8px; }
+body.product-experience-v2 .nav-group-title,
+body.product-experience-v2 .experience-nav-label {
+    margin: 12px 8px 5px;
+    font-size: 10px;
+    letter-spacing: .1em;
+}
+
+body.product-experience-v2 .nav-link {
+    min-height: 40px;
+    gap: 9px;
+    padding: 8px 10px;
+    border: 1px solid transparent;
+    border-radius: var(--industrial-radius-sm);
+}
+body.product-experience-v2 .nav-link:hover { border-color: var(--line-soft); }
+body.product-experience-v2 .nav-link.active {
+    border-color: var(--line);
+    box-shadow: none;
+}
+body.product-experience-v2 .nav-link.active::after {
+    inset: 6px auto 6px -8px;
+    width: 3px;
+    border-radius: 0;
+}
+
+/* Remove browser-dependent Unicode pictograms from the persistent shell.
+ * Route names and accessible labels remain; operational SVGs inside the actual
+ * mimic and equipment views are retained. */
+body.product-experience-v2 .nav-link > span:first-child,
+body.product-experience-v2 .product-mobile-link > span:first-child,
+body.product-experience-v2 .esb-mark,
+body.product-experience-v2 .lsb-mark { display: none; }
+body.product-experience-v2 .nav-link { grid-template-columns: minmax(0, 1fr) auto; }
+body.product-experience-v2 .menu-button,
+body.product-experience-v2 #refreshButton { font-size: 0; }
+body.product-experience-v2 .menu-button::before { content: "Menu"; font-size: 11px; font-weight: 800; }
+body.product-experience-v2 #refreshButton::before { content: "Refresh"; font-size: 11px; font-weight: 800; }
+
+body.product-experience-v2 .topbar {
+    min-height: 54px;
+    padding: 7px 16px;
+    border-bottom: 1px solid var(--line);
+    box-shadow: none;
+    backdrop-filter: none;
+}
+body.product-experience-v2 .page-heading h1 { font-size: 18px; }
+body.product-experience-v2 .breadcrumb { font-size: 11px; }
+body.product-experience-v2 .live-pill,
+body.product-experience-v2 .subtle-badge,
+body.product-experience-v2 .status-pill,
+body.product-experience-v2 .op-state-pill,
+body.product-experience-v2 .alarm-state-pill,
+body.product-experience-v2 .alarm-severity-pill {
+    border-radius: 999px;
+    box-shadow: none;
+}
+
+body.product-experience-v2 .status-strip {
+    min-height: 42px;
+    padding: 6px 16px;
+    gap: 0;
+    border-bottom: 1px solid var(--line);
+    box-shadow: none;
+}
+body.product-experience-v2 .status-item {
+    min-width: 0;
+    padding: 0 14px;
+    border-right: 1px solid var(--line-soft);
+}
+body.product-experience-v2 .status-item:first-child { padding-left: 0; }
+body.product-experience-v2 .status-item:last-child { border-right: 0; }
+body.product-experience-v2 .status-item strong { font-size: 12px; }
+body.product-experience-v2 .status-label { font-size: 10px; }
+
+body.product-experience-v2 .content {
+    width: 100%;
+    max-width: 1600px;
+    padding: 14px 16px 30px;
+    gap: var(--industrial-gap);
+}
+body.product-experience-v2 .experience-section { margin-top: var(--industrial-gap); }
+
+body.product-experience-v2 .panel,
+body.product-experience-v2 .metric-card,
+body.product-experience-v2 .asset-card,
+body.product-experience-v2 .op-card,
+body.product-experience-v2 .prelab-check,
+body.product-experience-v2 .engineering-tile,
+body.product-experience-v2 .commissioning-step,
+body.product-experience-v2 .alarm-controls,
+body.product-experience-v2 .alarm-message,
+body.product-experience-v2 .alarm-row,
+body.product-experience-v2 .op-event-row,
+body.product-experience-v2 .alarm-legend,
+body.product-experience-v2 .product-modal {
+    border-radius: var(--industrial-radius);
+    box-shadow: none;
+    backdrop-filter: none;
+    background-image: none;
+}
+
+body.product-experience-v2 .panel,
+body.product-experience-v2 .metric-card,
+body.product-experience-v2 .asset-card,
+body.product-experience-v2 .op-card,
+body.product-experience-v2 .prelab-check {
+    padding: var(--industrial-panel-pad);
+}
+
+body.product-experience-v2 .panel-header { margin-bottom: 10px; }
+body.product-experience-v2 .panel-header h3,
+body.product-experience-v2 .op-card-headline { font-size: 14px; }
+body.product-experience-v2 .eyebrow {
+    font-size: 10px;
+    letter-spacing: .1em;
+}
+body.product-experience-v2 .metric-value,
+body.product-experience-v2 .op-kpi-value,
+body.product-experience-v2 .op-measure-reading strong {
+    margin-top: 8px;
+    font-size: 26px;
+    line-height: 1.05;
+}
+body.product-experience-v2 .metric-value.compact { font-size: 21px; }
+
+body.product-experience-v2 .metric-grid,
+body.product-experience-v2 .op-summary-grid,
+body.product-experience-v2 .alarm-summary {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+}
+body.product-experience-v2 .dashboard-grid,
+body.product-experience-v2 .op-dashboard-grid {
+    grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+    gap: var(--industrial-gap);
+    align-items: stretch;
+}
+
+/* Flat mimic: the network itself is the visual hierarchy, not nested tiles. */
+body.product-experience-v2 .power-flow-panel,
+body.product-experience-v2 .op-flow-card { min-height: 214px; }
+body.product-experience-v2 .power-flow,
+body.product-experience-v2 .op-power-flow {
+    border-radius: var(--industrial-radius-sm);
+    box-shadow: none;
+    background-image: none;
+}
+body.product-experience-v2 .flow-node,
+body.product-experience-v2 .op-flow-node {
+    border-radius: var(--industrial-radius-sm);
+    box-shadow: none;
+}
+
+body.product-experience-v2 .health-row,
+body.product-experience-v2 .op-equipment-bar,
+body.product-experience-v2 .op-inverter-row {
+    min-height: 38px;
+    padding-block: 7px;
+    border-radius: var(--industrial-radius-sm);
+}
+body.product-experience-v2 .op-equipment-bar,
+body.product-experience-v2 .op-inverter-row {
+    transition: border-color .12s ease, background-color .12s ease;
+}
+body.product-experience-v2 .op-equipment-bar:hover,
+body.product-experience-v2 .op-inverter-row:hover,
+body.product-experience-v2 .op-equipment-bar:focus-within,
+body.product-experience-v2 .op-inverter-row:focus-within {
+    transform: none;
+    box-shadow: none;
+}
+
+body.product-experience-v2 .op-measure-card,
+body.product-experience-v2 .op-readiness-card { min-height: 138px; }
+body.product-experience-v2 .op-measure-track,
+body.product-experience-v2 .op-fleet-track,
+body.product-experience-v2 .commissioning-progress-bar {
+    border-radius: 2px;
+}
+
+/* Compact alarm work queue. ISA-18.2 state text and returned-to-normal
+ * acknowledgement semantics are unchanged; only the presentation is denser. */
+body.product-experience-v2 .alarm-console {
+    gap: 10px;
+    margin-top: 0;
+}
+body.product-experience-v2 .alarm-summary { gap: 8px; }
+body.product-experience-v2 .alarm-summary > * {
+    min-height: 72px;
+    padding: 10px 12px;
+}
+body.product-experience-v2 .alarm-controls {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(130px, 1fr));
+    gap: 8px;
+    padding: 8px 10px;
+}
+body.product-experience-v2 .alarm-control {
+    min-width: 0;
+    gap: 3px;
+    font-size: 9px;
+}
+body.product-experience-v2 .alarm-select { min-height: 38px; border-radius: 4px; }
+body.product-experience-v2 .alarm-legend {
+    padding: 8px 10px;
+    gap: 5px;
+}
+body.product-experience-v2 .alarm-list { gap: 6px; }
+body.product-experience-v2 .alarm-row {
+    grid-template-columns: 30px minmax(0, 1fr) auto;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 4px;
+}
+body.product-experience-v2 .alarm-marker,
+body.product-experience-v2 .op-event-marker {
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
+}
+body.product-experience-v2 .alarm-copy { gap: 5px; }
+body.product-experience-v2 .alarm-heading strong { font-size: 13px; }
+body.product-experience-v2 .alarm-meta { gap: 6px; }
+body.product-experience-v2 .op-more-quiet { margin-top: 6px; }
+body.product-experience-v2 .op-more-summary { min-height: 38px; }
+body.product-experience-v2 .op-event-list { gap: 6px; }
+body.product-experience-v2 .op-event-row {
+    grid-template-columns: 30px minmax(0, 1fr) auto;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 4px;
+}
+
+body.product-experience-v2 .button,
+body.product-experience-v2 input,
+body.product-experience-v2 select,
+body.product-experience-v2 textarea {
+    border-radius: 4px;
+    box-shadow: none;
+}
+body.product-experience-v2 .button { min-height: 38px; }
+body.product-experience-v2 input,
+body.product-experience-v2 select { min-height: 40px; }
+
+/* Tablet: collapse the persistent sidebar earlier and preserve useful content
+ * width at 1024x768. The existing menu behavior remains the owner of opening
+ * and closing the sidebar. */
+@media (max-width: 1180px) {
+    body.product-experience-v2 .workspace { margin-left: 0; }
+    body.product-experience-v2 .sidebar {
+        transform: translateX(-100%);
+        z-index: 1800;
+        box-shadow: 10px 0 30px rgba(0, 0, 0, .25);
+    }
+    body.product-experience-v2 .sidebar.open { transform: translateX(0); }
+    body.product-experience-v2 .menu-button { display: inline-grid; width: auto; padding-inline: 10px; }
+    body.product-experience-v2 .content { padding-inline: 12px; }
+    body.product-experience-v2 .dashboard-grid,
+    body.product-experience-v2 .op-dashboard-grid { grid-template-columns: minmax(0, 1.6fr) minmax(250px, 1fr); }
+    body.product-experience-v2 .pvc-figure { height: 280px; }
+}
+
 @media (max-width: 860px) {
-    .pvc-figure { height: min(var(--pvc-plot-height, 500px), 340px); }
-    .pvc-head { align-items: flex-start; }
+    body.product-experience-v2 .dashboard-grid,
+    body.product-experience-v2 .op-dashboard-grid,
+    body.product-experience-v2 .metric-grid,
+    body.product-experience-v2 .op-summary-grid,
+    body.product-experience-v2 .alarm-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    body.product-experience-v2 .alarm-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    body.product-experience-v2 .status-strip { overflow-x: auto; }
+    body.product-experience-v2 .status-item { flex: 0 0 auto; min-width: 108px; }
+    .pvc-figure { height: 260px; }
 }
 
 @media (max-width: 620px) {
+    body.product-experience-v2 .content { padding: 10px 8px calc(78px + env(safe-area-inset-bottom)); }
+    body.product-experience-v2 .topbar { padding-inline: 10px; }
+    body.product-experience-v2 .metric-grid,
+    body.product-experience-v2 .op-summary-grid,
+    body.product-experience-v2 .alarm-summary,
+    body.product-experience-v2 .dashboard-grid,
+    body.product-experience-v2 .op-dashboard-grid,
+    body.product-experience-v2 .alarm-controls {
+        grid-template-columns: minmax(0, 1fr);
+    }
+    body.product-experience-v2 .panel,
+    body.product-experience-v2 .metric-card,
+    body.product-experience-v2 .op-card { padding: 12px; }
+    body.product-experience-v2 .alarm-row,
+    body.product-experience-v2 .op-event-row {
+        grid-template-columns: 26px minmax(0, 1fr);
+    }
+    body.product-experience-v2 .alarm-row > :last-child,
+    body.product-experience-v2 .op-event-row > :last-child {
+        grid-column: 2;
+        justify-self: stretch;
+    }
+    body.product-experience-v2 .product-mobile-nav {
+        left: 0;
+        right: 0;
+        bottom: 0;
+        border-radius: 0;
+        border-inline: 0;
+        border-bottom: 0;
+        box-shadow: none;
+        backdrop-filter: none;
+        background: var(--panel);
+    }
     .pvc-card { padding: 10px; }
-    .pvc-figure { height: 280px; }
-    .pvc-stats { gap: 4px 14px; }
+    .pvc-figure { height: 236px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .pvc-card * { transition: none !important; }
+    .pvc-card *,
+    body.product-experience-v2 * { transition: none !important; animation: none !important; }
 }
 
 @media (forced-colors: active) {
