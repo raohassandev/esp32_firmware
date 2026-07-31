@@ -118,7 +118,7 @@ body.product-shell-v2 #refreshButton{width:auto;min-width:64px;padding-inline:10
     function labelControllerMenu() {
         const button = document.getElementById('shellOverflowButton');
         if (!button) return;
-        if (button.textContent !== 'More') button.textContent = 'More';
+        button.textContent = 'More';
         button.setAttribute('aria-label', 'Open controller actions');
     }
 
