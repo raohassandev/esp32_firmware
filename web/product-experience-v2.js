@@ -172,3 +172,122 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
   else start();
 })();
+
+/* One cautious operator verdict, derived only from status text the existing UI
+ * already maintains. Missing evidence stays UNKNOWN; this module makes no API
+ * request and never substitutes browser presentation for controller authority. */
+(() => {
+  'use strict';
+  let queued = false;
+  const clean = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+  const read = (id) => clean(document.getElementById(id)?.textContent);
+  const route = () => location.hash.replace(/^#\/?/, '') || 'dashboard';
+  const unknown = (value) => !value || /^(--|unknown|unavailable|checking|connecting|never|no sample)$/i.test(value);
+  const bad = (value) => /offline|stale|invalid|critical|fault|failed|fail-closed|unavailable|timed out/i.test(value);
+  const count = (value) => { const match = String(value || '').match(/\d+/); return match ? Number(match[0]) : null; };
+  const alarmsClear = (value) => count(value) === 0 || /^(none|normal|clear|no active alarms?)$/i.test(value);
+
+  function model() {
+    const pill = document.getElementById('controllerPill');
+    const controller = clean(pill?.textContent);
+    const source = read('sourceBannerLabel') || 'UNKNOWN';
+    const meter = read('statusMeter');
+    const control = read('statusControl');
+    const alarms = read('statusAlarms');
+    const updated = read('statusUpdated');
+    const alarmCount = count(alarms);
+
+    if (pill?.classList.contains('bad') || bad(controller) || bad(meter) || (alarmCount != null && alarmCount > 0)) {
+      const detail = alarmCount != null && alarmCount > 0
+        ? `${alarmCount} alarm${alarmCount === 1 ? '' : 's'} require review.`
+        : bad(meter) ? `Grid measurement reports ${meter || 'an unusable state'}.`
+          : `Controller connection reports ${controller || 'a fault state'}.`;
+      return { tone: 'bad', label: 'ATTENTION REQUIRED', detail, source, meter, control, alarms, updated };
+    }
+
+    const sourceKnown = /^(GRID|GENERATOR)$/i.test(source);
+    const allKnown = !unknown(controller) && sourceKnown && !unknown(meter)
+      && !unknown(control) && !unknown(alarms) && !unknown(updated);
+    if (!allKnown || !alarmsClear(alarms)) {
+      const missing = [];
+      if (!sourceKnown) missing.push('active source');
+      if (unknown(meter)) missing.push('meter state');
+      if (unknown(control)) missing.push('control state');
+      if (unknown(alarms)) missing.push('alarm state');
+      if (unknown(updated)) missing.push('data freshness');
+      return { tone: 'neutral', label: 'PLANT STATUS UNKNOWN', detail: missing.length ? `Waiting for ${missing.join(', ')}.` : 'Current browser data does not prove a normal state.', source, meter, control, alarms, updated };
+    }
+    return { tone: 'good', label: 'PLANT NORMAL', detail: 'Current controller data reports no active exception.', source, meter, control, alarms, updated };
+  }
+
+  function cell(label, id) {
+    const item = document.createElement('div');
+    item.className = 'plant-verdict-cell';
+    const caption = document.createElement('span');
+    caption.textContent = label;
+    const value = document.createElement('strong');
+    value.id = id;
+    item.append(caption, value);
+    return item;
+  }
+
+  function render() {
+    queued = false;
+    if (route() !== 'dashboard' || document.documentElement.dataset.access === 'engineering') return;
+    const view = document.getElementById('operatorDashboardView');
+    if (!view) return;
+    let rail = document.getElementById('plantVerdictRail');
+    if (!rail) {
+      rail = document.createElement('article');
+      rail.id = 'plantVerdictRail';
+      rail.setAttribute('aria-label', 'Plant operating verdict');
+      const primary = document.createElement('div');
+      primary.className = 'plant-verdict-primary';
+      const caption = document.createElement('span');
+      caption.className = 'plant-verdict-caption';
+      caption.textContent = 'Plant status';
+      const value = document.createElement('strong');
+      value.id = 'plantVerdictValue';
+      value.className = 'plant-verdict-value';
+      value.setAttribute('role', 'status');
+      const detail = document.createElement('small');
+      detail.id = 'plantVerdictDetail';
+      detail.className = 'plant-verdict-detail';
+      primary.append(caption, value, detail);
+      rail.append(primary, cell('Active source', 'plantVerdictSource'), cell('Grid measurement', 'plantVerdictMeter'),
+        cell('Control', 'plantVerdictControl'), cell('Alarms', 'plantVerdictAlarms'), cell('Updated', 'plantVerdictUpdated'));
+    }
+    const attention = document.getElementById('operatorAttentionHost');
+    if (attention?.parentElement === view) attention.after(rail);
+    else if (rail.parentElement !== view) view.prepend(rail);
+    const current = model();
+    rail.className = `plant-verdict-rail tone-${current.tone}`;
+    document.getElementById('plantVerdictValue').textContent = current.label;
+    document.getElementById('plantVerdictDetail').textContent = current.detail;
+    document.getElementById('plantVerdictSource').textContent = current.source || 'UNKNOWN';
+    document.getElementById('plantVerdictMeter').textContent = current.meter || 'Unknown';
+    document.getElementById('plantVerdictControl').textContent = current.control || 'Unknown';
+    document.getElementById('plantVerdictAlarms').textContent = current.alarms || 'Unknown';
+    document.getElementById('plantVerdictUpdated').textContent = current.updated || 'Unknown';
+  }
+
+  function schedule() {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(render);
+  }
+
+  function start() {
+    const observer = new MutationObserver(schedule);
+    ['controllerPill', 'sourceBannerLabel', 'statusMeter', 'statusControl', 'statusAlarms', 'statusUpdated'].forEach((id) => {
+      const target = document.getElementById(id);
+      if (target) observer.observe(target, { attributes: true, childList: true, characterData: true, subtree: true });
+    });
+    window.addEventListener('amx-operator-view-rendered', schedule);
+    window.addEventListener('hashchange', schedule);
+    window.addEventListener('amx-access-change', schedule);
+    schedule();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
+  else start();
+})();
