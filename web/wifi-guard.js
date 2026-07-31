@@ -59,7 +59,8 @@
             }
         }
 
-        const recoveryEnabled = byId('recoveryEnabled').checked;
+        // Always on; see wifi.js.
+        const recoveryEnabled = true;
         const recoverySsid = byId('recoverySsid').value.trim();
         const recoveryPassword = byId('recoveryPassword').value;
         if (recoveryEnabled && recoverySsid !== (state.baseline.fallback_ap_ssid || '') && !recoveryPassword) {

@@ -850,7 +850,7 @@
         setProfileForm('primary', wifi.primary || {});
         setProfileForm('fallback', wifi.fallback || {});
         byId('scanBeforeConnect').checked = Boolean(wifi.scan_before_connect);
-        byId('recoveryEnabled').checked = Boolean(wifi.fallback_ap_enabled);
+        byId('recoveryEnabled').checked = true;
         byId('recoverySsid').value = wifi.fallback_ap_ssid || '';
         byId('recoveryPassword').value = '';
         byId('wifiRetries').value = wifi.max_retries_per_profile ?? 5;
@@ -953,7 +953,8 @@
         collectProfile('primary', wifi.primary);
         collectProfile('fallback', wifi.fallback);
         wifi.scan_before_connect = byId('scanBeforeConnect').checked;
-        wifi.fallback_ap_enabled = byId('recoveryEnabled').checked;
+        // Always on; the firmware rejects a request that would disable it.
+        wifi.fallback_ap_enabled = true;
         wifi.fallback_ap_ssid = byId('recoverySsid').value.trim();
         const recoveryPassword = byId('recoveryPassword').value;
         if (recoveryPassword) wifi.fallback_ap_password = recoveryPassword;

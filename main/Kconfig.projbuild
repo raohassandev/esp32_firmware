@@ -20,6 +20,37 @@ config PVDG_DEFAULT_WIFI_PASSWORD
     string "Default fallback Wi-Fi password"
     default ""
 
+config PVDG_RECOVERY_AP_PASSWORD
+    string "Recovery access point passphrase (bench override)"
+    default ""
+    help
+      Passphrase for the always-on recovery access point, used only when the
+      unit has no usable stored passphrase of its own.
+
+      Leave EMPTY. An empty value makes each unit generate its own random
+      recovery-AP passphrase on first start, and the firmware prints the active
+      SSID and passphrase to the serial console once at every boot, so an
+      engineer with physical possession of the board can always read it. That
+      is what makes a per-device secret usable in the field rather than a
+      lockout.
+
+      A non-empty value here is shipped identically on every unit built from
+      this tree, and this repository is public, so anyone able to read it could
+      join the setup network of any controller in the field. WPA2 with a
+      published pre-shared key is an open network with extra steps. That is what
+      the previous hard-coded default did, and it is why this is now a
+      deliberate, documented choice rather than a constant in the source.
+
+      Set it only for a closed bench or factory batch whose units never leave
+      your control, and never for anything shipped to a customer.
+
+      tests/production_release_gate.py fails a production release when this is
+      non-empty at all, and fails it loudly when the value is shorter than the
+      WPA2 minimum of 8 characters or is one of the well known weak
+      passphrases ("12345678", "password", "admin" and similar). The stored
+      passphrase can always be replaced at runtime through /api/wifi/config
+      without a rebuild.
+
 config PVDG_APPLY_BUILD_WIFI_PROVISIONING
     bool "Allow this build to replace stored Wi-Fi credentials"
     default n

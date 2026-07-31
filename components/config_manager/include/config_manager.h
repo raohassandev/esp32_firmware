@@ -17,3 +17,8 @@ meter_role_assignment_t config_manager_role_assignment(const app_config_t *confi
 
 /* Stable lowercase identifier for a meter role, for APIs and logs. */
 const char *meter_role_name(uint8_t role);
+
+/* True when the recovery access point is still using the passphrase compiled
+ * into this build - a value that is identical on every unit and published in a
+ * public repository. Reports the fact, never the value. */
+bool config_manager_recovery_ap_is_build_default(const app_config_t *config);

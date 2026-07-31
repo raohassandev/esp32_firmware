@@ -1,4 +1,5 @@
 #include "config_manager.h"
+#include "device_identity.h"
 #include "esp_check.h"
 #include "esp_log.h"
 #include "esp_mac.h"
@@ -15,6 +16,13 @@
 #define KEY "config"
 #define MASKED_PASSWORD "********"
 #define CONFIG_JSON_MAX_DEPTH 16U
+
+/* Label the recovery access point is built from. The MAC suffix is appended at
+ * runtime, so what is stored here is a name, not a credential.
+ *
+ * Kept byte-identical to what shipped before, so upgrading a commissioned unit
+ * does not rename the network an engineer already has saved on their phone. */
+#define RECOVERY_AP_SSID_BASE "Automatrix-PVDG"
 
 static const char *TAG = "config";
 static app_config_t s_cfg;
@@ -143,13 +151,18 @@ static void defaults(app_config_t *c)
     strlcpy(c->wifi.primary.password, CONFIG_PVDG_PRIMARY_WIFI_PASSWORD, sizeof(c->wifi.primary.password));
     c->wifi.primary.ip_mode = APP_WIFI_IP_DHCP;
 
-    const char *default_ssid = CONFIG_PVDG_DEFAULT_WIFI_SSID;
-    c->wifi.fallback.enabled = default_ssid[0] != '\0' && strcmp(default_ssid, c->wifi.primary.ssid) != 0;
-    strlcpy(c->wifi.fallback.ssid, default_ssid, sizeof(c->wifi.fallback.ssid));
-    strlcpy(c->wifi.fallback.password, CONFIG_PVDG_DEFAULT_WIFI_PASSWORD, sizeof(c->wifi.fallback.password));
+    /* The second saved station starts empty and disabled. A relocated unit gets
+     * its extra networks from the operator through /api/wifi/config at runtime;
+     * nothing is seeded from the build, so no site's SSID or passphrase can be
+     * carried in the firmware image. */
+    c->wifi.fallback.enabled = false;
+    c->wifi.fallback.ssid[0] = '\0';
+    c->wifi.fallback.password[0] = '\0';
     c->wifi.fallback.ip_mode = APP_WIFI_IP_DHCP;
 
     c->wifi.scan_before_connect = true;
+    /* The recovery access point is not optional and is never a last resort: it
+     * runs alongside the station for the life of the unit. */
     c->wifi.fallback_ap_enabled = true;
     /* Recovery access point.
      *
@@ -162,11 +175,17 @@ static void defaults(app_config_t *c)
      * The SSID carries the last three bytes of the station MAC so that units are
      * distinguishable on site. That is an identifier, not a secret, and it is safe
      * to derive from the MAC; the password is not, precisely because the
-     * derivation would be public. */
-    uint8_t mac[6] = {0};
-    if (esp_read_mac(mac, ESP_MAC_WIFI_STA) != ESP_OK) memset(mac, 0, sizeof(mac));
+     * derivation would be public.
+     *
+     * The suffix comes from device_identity so that the AP name, the DHCP host
+     * name and the mDNS label are all built from one definition of "which unit
+     * is this" rather than three copies of the same MAC arithmetic. */
+    char suffix[DEVICE_IDENTITY_SUFFIX_SIZE] = {0};
+    if (device_identity_suffix(suffix, sizeof(suffix)) != ESP_OK) {
+        strlcpy(suffix, "000000", sizeof(suffix));
+    }
     snprintf(c->wifi.fallback_ap_ssid, sizeof(c->wifi.fallback_ap_ssid),
-             "Automatrix-PVDG-%02X%02X%02X", mac[3], mac[4], mac[5]);
+             RECOVERY_AP_SSID_BASE "-%s", suffix);
     strlcpy(c->wifi.fallback_ap_password, CONFIG_PVDG_RECOVERY_AP_PASSWORD,
             sizeof(c->wifi.fallback_ap_password));
     c->wifi.max_retries_per_profile = 5;
@@ -257,6 +276,16 @@ static void defaults(app_config_t *c)
      * safe direction - it fails closed sooner. */
     c->control.meter_stale_timeout_ms = 1000;
     c->wifi_provision_id = CONFIG_PVDG_WIFI_PROVISION_ID;
+}
+
+/* True when the active recovery passphrase is the one compiled into every image
+ * built from this source, i.e. a passphrase that is public knowledge. Used to
+ * raise the startup warning; it never reveals the value. */
+bool config_manager_recovery_ap_is_build_default(const app_config_t *c)
+{
+    if (!c) return false;
+    if (strlen(CONFIG_PVDG_RECOVERY_AP_PASSWORD) < DEVICE_IDENTITY_MIN_PASSPHRASE_LENGTH) return false;
+    return strcmp(c->wifi.fallback_ap_password, CONFIG_PVDG_RECOVERY_AP_PASSWORD) == 0;
 }
 
 #ifndef CONFIG_PVDG_APPLY_BUILD_WIFI_PROVISIONING
@@ -538,9 +567,26 @@ static uint64_t fnv1a64(const char *text)
 
 static bool ensure_recovery_ap_secret(app_config_t *c)
 {
-    if (!c->wifi.fallback_ap_enabled) return false;
+    bool changed = false;
 
-    const bool absent = c->wifi.fallback_ap_password[0] == '\0';
+    /* The recovery access point is the reachability guarantee for a controller
+     * that has been relocated to a site whose Wi-Fi it does not know. It is not
+     * a last resort and it is not optional, so a stored "disabled" is corrected
+     * here rather than honoured. This used to early-return, which meant a unit
+     * that had ever been saved with the AP off could never be reached again
+     * except by reflashing. */
+    if (!c->wifi.fallback_ap_enabled) {
+        ESP_LOGW(TAG, "Stored configuration had the recovery access point disabled; "
+                      "re-enabling it. It is the only guaranteed way back into a "
+                      "relocated controller and cannot be switched off.");
+        c->wifi.fallback_ap_enabled = true;
+        changed = true;
+    }
+
+    /* A passphrase shorter than the WPA2 minimum cannot secure the AP at all, so
+     * it counts as absent and is replaced rather than allowed to force the
+     * network open. */
+    const bool absent = strlen(c->wifi.fallback_ap_password) < DEVICE_IDENTITY_MIN_PASSPHRASE_LENGTH;
     const bool retired = !absent &&
                          fnv1a64(c->wifi.fallback_ap_password) ==
                              RETIRED_RECOVERY_AP_PASSWORD_FNV1A64;
@@ -548,7 +594,7 @@ static bool ensure_recovery_ap_secret(app_config_t *c)
         ESP_LOGW(TAG, "This unit is using the retired shared recovery-AP password, which "
                       "was published. Rotating it to one unique to this unit.");
     }
-    if (!absent && !retired) return false;
+    if (!absent && !retired) return changed;
 
     /* Character set excludes look-alikes (0/O, 1/l/I) because this gets read off a
      * console and typed into a phone. */
@@ -562,14 +608,60 @@ static bool ensure_recovery_ap_secret(app_config_t *c)
     secret[sizeof(secret) - 1U] = '\0';
     strlcpy(c->wifi.fallback_ap_password, secret, sizeof(c->wifi.fallback_ap_password));
 
-    ESP_LOGW(TAG, "Recovery access point '%s' had no password. Generated one unique to "
-                  "this unit and stored it. Record it now -- it is printed only once:",
+    /* The generated value is deliberately NOT printed here. There is exactly one
+     * place in this firmware that discloses the recovery passphrase --
+     * announce_recovery_ap_on_serial() in network_manager.c, which prints the
+     * ACTIVE passphrase to the serial console at every boot and explains why it
+     * is allowed to. Printing here as well would be a second disclosure site to
+     * audit, and a strictly worse one: it fires only at the moment of
+     * generation, so an engineer who missed that one boot could never recover
+     * the value. */
+    ESP_LOGW(TAG, "Recovery access point '%s' had no usable password. Generated one unique "
+                  "to this unit and stored it; it is printed to this console at every boot.",
              c->wifi.fallback_ap_ssid);
-    ESP_LOGW(TAG, "    recovery AP password: %s", secret);
-    ESP_LOGW(TAG, "It can be changed through the Wi-Fi configuration page at any time.");
     memset(secret, 0, sizeof(secret));
     memset(random_bytes, 0, sizeof(random_bytes));
     return true;
+}
+
+/* Brings the saved station profiles into line with what they actually describe.
+ *
+ * A controller was found in the field reporting
+ *     primary 'X' not visible, fallback '(disabled)' not visible
+ * while a network it already had credentials for was in range. The secondary
+ * profile held a usable SSID but carried enabled = false, so the connection
+ * sweep skipped it and the unit sat on its recovery AP instead of rejoining a
+ * network it knew.
+ *
+ * The rule is that "enabled" describes whether a profile is usable, not a
+ * separate switch an operator has to remember to set:
+ *   - a profile holding an SSID is available to the sweep, so it is enabled;
+ *   - a profile holding no SSID cannot be attempted, so it is disabled and the
+ *     sweep does not waste radio time on it.
+ *
+ * Only these two flags are touched. No SSID, passphrase, IP mode or static
+ * address is read, written or cleared here, so a commissioned unit keeps every
+ * credential it was given.
+ *
+ * Returns true when something changed, so the caller persists it. */
+static bool normalize_station_profiles(app_config_t *c)
+{
+    app_wifi_sta_profile_t *const profiles[] = {&c->wifi.primary, &c->wifi.fallback};
+    static const char *const names[] = {"primary", "secondary"};
+    bool changed = false;
+
+    for (size_t n = 0; n < sizeof(profiles) / sizeof(profiles[0]); ++n) {
+        const bool usable = profiles[n]->ssid[0] != '\0';
+        if (profiles[n]->enabled == usable) continue;
+        if (usable) {
+            ESP_LOGW(TAG, "Saved %s station '%s' was disabled; enabling it so a known "
+                          "network is rejoined before the unit settles for its recovery AP.",
+                     names[n], profiles[n]->ssid);
+        }
+        profiles[n]->enabled = usable;
+        changed = true;
+    }
+    return changed;
 }
 
 esp_err_t config_manager_init(void)
@@ -709,8 +801,13 @@ esp_err_t config_manager_init(void)
 
     /* Applies to a freshly defaulted unit AND to a commissioned one carrying the
      * old shared password, so an existing unit in the field stops using the
-     * published credential the first time it runs this firmware. */
+     * published credential the first time it runs this firmware.
+     *
+     * Runs after migration and after any build provisioning, so an upgraded unit
+     * ends up with an enabled, secured recovery AP without its commissioned
+     * station credentials being touched. */
     if (ensure_recovery_ap_secret(loaded)) stored_matches = false;
+    if (normalize_station_profiles(loaded)) stored_matches = false;
 
     set_active(loaded);
     if (!stored_matches) {
@@ -733,6 +830,18 @@ esp_err_t config_manager_get_snapshot(app_config_t *out)
 esp_err_t config_manager_save(const app_config_t *c)
 {
     if (!valid(c)) return ESP_ERR_INVALID_ARG;
+    /* Persistence gate for the always-on access point. Nothing may be written
+     * that would bring the AP up disabled or without a WPA2 passphrase, so no
+     * save path - API, import or internal - can turn the controller's only
+     * guaranteed way in into an open, unauthenticated network.
+     *
+     * This is checked here rather than in valid() on purpose: valid() also
+     * decides whether a stored blob is kept, and a commissioned unit must never
+     * lose its station credentials over a recovery-AP field. */
+    if (!c->wifi.fallback_ap_enabled ||
+        strlen(c->wifi.fallback_ap_password) < DEVICE_IDENTITY_MIN_PASSPHRASE_LENGTH) {
+        return ESP_ERR_INVALID_ARG;
+    }
     nvs_handle_t h;
     ESP_RETURN_ON_ERROR(nvs_open(NS, NVS_READWRITE, &h), TAG, "NVS open failed");
     esp_err_t err = nvs_set_blob(h, KEY, c, sizeof(*c));
@@ -943,10 +1052,13 @@ esp_err_t config_manager_import_json(const char *text)
         parse_wifi_profile(cJSON_GetObjectItemCaseSensitive(w, "fallback"), &c->wifi.fallback);
         cJSON *x = cJSON_GetObjectItemCaseSensitive(w, "scan_before_connect");
         if (cJSON_IsBool(x)) c->wifi.scan_before_connect = cJSON_IsTrue(x);
-        x = cJSON_GetObjectItemCaseSensitive(w, "fallback_ap_enabled");
-        if (cJSON_IsBool(x)) c->wifi.fallback_ap_enabled = cJSON_IsTrue(x);
+        /* fallback_ap_enabled is deliberately not importable. A configuration
+         * file must not be able to switch off the controller's guaranteed way
+         * in; read_password() likewise never clears the passphrase, only
+         * replaces it. */
         read_string(w, "fallback_ap_ssid", c->wifi.fallback_ap_ssid, sizeof(c->wifi.fallback_ap_ssid));
         read_password(w, "fallback_ap_password", c->wifi.fallback_ap_password, sizeof(c->wifi.fallback_ap_password));
+        c->wifi.fallback_ap_enabled = true;
         x = cJSON_GetObjectItemCaseSensitive(w, "max_retries_per_profile");
         if (cJSON_IsNumber(x)) c->wifi.max_retries_per_profile = (uint8_t)x->valueint;
         x = cJSON_GetObjectItemCaseSensitive(w, "reconnect_backoff_ms");
@@ -1008,6 +1120,8 @@ esp_err_t config_manager_restore_defaults(void)
     app_config_t *c = malloc(sizeof(*c));
     if (!c) return ESP_ERR_NO_MEM;
     defaults(c);
+    /* Restoring defaults must still leave a reachable, secured recovery AP. */
+    (void)ensure_recovery_ap_secret(c);
     esp_err_t err = config_manager_save(c);
     free(c);
     return err;

@@ -83,7 +83,8 @@
             primary,
             fallback,
             scan_before_connect: checked('scanBeforeConnect'),
-            fallback_ap_enabled: checked('recoveryEnabled'),
+            // Always on; the firmware rejects a request that would disable it.
+            fallback_ap_enabled: true,
             fallback_ap_ssid: value('recoverySsid'),
             fallback_ap_password: recoveryPassword,
             max_retries_per_profile: retries,

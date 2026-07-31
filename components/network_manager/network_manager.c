@@ -1,9 +1,11 @@
 #include "network_manager.h"
+#include "network_mdns.h"
 #include "network_scan_internal.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "config_manager.h"
+#include "device_identity.h"
 #include "esp_check.h"
 #include "esp_event.h"
 #include "esp_log.h"
@@ -21,6 +23,15 @@
 #define AP_RESCAN_INTERVAL_MS 15000
 #define AP_RESCAN_MAX_INTERVAL_MS 240000
 #define AP_RESCAN_MAX_SHIFT 4
+
+/* Home channel of the soft AP while the station is not associated. */
+#define RECOVERY_AP_HOME_CHANNEL 1
+
+/* Blind (scan-negative) station attempts exist only so a hidden SSID is not
+ * permanently skipped. They cost the shared radio, and the recovery AP now
+ * lives on that same radio, so they are limited to the first few sweeps after
+ * boot or an operator action rather than repeated for ever. */
+#define BLIND_ATTEMPT_SWEEPS 3
 #define OPERATOR_RESPONSE_DRAIN_MS 500
 #define OPERATOR_ADMISSION_QUIET_MS 500
 #define MANAGER_EVENT_QUEUE_LENGTH 8
@@ -69,7 +80,12 @@ static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 static bool s_using_fallback;
 static uint8_t s_retry_count;
 static uint32_t s_failed_sweeps;
-static bool s_force_primary_attempt;
+static bool s_force_blind_attempt;
+/* True once the recovery AP has actually been configured and put on air. It is
+ * the single answer to "may this code select APSTA?", so a unit whose AP was
+ * refused (only possible with an unusable passphrase) never has a half-
+ * configured, potentially unsecured AP switched back on by a later reconnect. */
+static bool s_recovery_ap_on_air;
 static bool s_event_queue_overflow;
 
 /* The HTTP task and Wi-Fi manager share this admission state. The same lock
@@ -183,11 +199,12 @@ static esp_err_t connect_profile(const app_wifi_sta_profile_t *profile, bool fal
 {
     if (!profile || !profile->enabled || !profile->ssid[0]) return ESP_ERR_INVALID_STATE;
 
-    portENTER_CRITICAL(&s_lock);
-    bool keep_ap = s_status.fallback_ap_active;
-    portEXIT_CRITICAL(&s_lock);
-
-    ESP_RETURN_ON_ERROR(esp_wifi_set_mode(keep_ap ? WIFI_MODE_APSTA : WIFI_MODE_STA), TAG, "STA mode failed");
+    /* The radio never leaves APSTA while the recovery AP is on air. Dropping to
+     * WIFI_MODE_STA to chase a station - which is what this used to do - takes
+     * the recovery AP down for the duration of the attempt, which is exactly
+     * when an engineer is most likely to be looking for it. */
+    ESP_RETURN_ON_ERROR(esp_wifi_set_mode(s_recovery_ap_on_air ? WIFI_MODE_APSTA : WIFI_MODE_STA),
+                        TAG, "radio mode failed");
     ESP_RETURN_ON_ERROR(apply_ip_profile(profile), TAG, "IP configuration failed");
 
     wifi_config_t wifi = {0};
@@ -245,45 +262,142 @@ static esp_err_t scan_configured_networks(bool *primary_found, bool *fallback_fo
     return err;
 }
 
-static esp_err_t start_fallback_ap(void)
+/* Brings up the recovery access point. Called once, from initialization, before
+ * the radio is started - the AP is not a fallback and does not wait for the
+ * station to fail.
+ *
+ * WPA2-PSK unconditionally. There is no branch that produces WIFI_AUTH_OPEN:
+ * this network is now permanently on an industrial controller, and an open
+ * permanently-on AP would put the web server on air for anyone in range. If the
+ * passphrase is somehow too short for WPA2 the AP is refused outright rather
+ * than downgraded, and config_manager_save() will not persist such a
+ * configuration in the first place. */
+static esp_err_t start_recovery_ap(void)
 {
-    if (!s_cfg.fallback_ap_enabled || !s_cfg.fallback_ap_ssid[0]) return ESP_ERR_INVALID_STATE;
-
-    portENTER_CRITICAL(&s_lock);
-    bool already_active = s_status.fallback_ap_active;
-    portEXIT_CRITICAL(&s_lock);
-    if (already_active) return ESP_OK;
+    if (!s_cfg.fallback_ap_ssid[0]) return ESP_ERR_INVALID_STATE;
+    if (strlen(s_cfg.fallback_ap_password) < DEVICE_IDENTITY_MIN_PASSPHRASE_LENGTH) {
+        ESP_LOGE(TAG, "Recovery AP refused: the stored passphrase is shorter than WPA2 allows. "
+                      "The AP is never brought up unsecured.");
+        return ESP_ERR_INVALID_STATE;
+    }
 
     wifi_config_t ap = {0};
     strlcpy((char *)ap.ap.ssid, s_cfg.fallback_ap_ssid, sizeof(ap.ap.ssid));
     strlcpy((char *)ap.ap.password, s_cfg.fallback_ap_password, sizeof(ap.ap.password));
     ap.ap.ssid_len = strlen(s_cfg.fallback_ap_ssid);
-    ap.ap.channel = 1;
+    ap.ap.channel = RECOVERY_AP_HOME_CHANNEL;
     ap.ap.max_connection = 4;
-    ap.ap.authmode = strlen(s_cfg.fallback_ap_password) >= 8 ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
+    ap.ap.authmode = WIFI_AUTH_WPA2_PSK;
+    ap.ap.pmf_cfg.capable = true;
 
     ESP_RETURN_ON_ERROR(esp_wifi_set_mode(WIFI_MODE_APSTA), TAG, "APSTA mode failed");
-    ESP_RETURN_ON_ERROR(esp_wifi_set_config(WIFI_IF_AP, &ap), TAG, "fallback AP config failed");
+    ESP_RETURN_ON_ERROR(esp_wifi_set_config(WIFI_IF_AP, &ap), TAG, "recovery AP config failed");
 
-    xEventGroupClearBits(s_events, READY_BIT);
+    s_recovery_ap_on_air = true;
     portENTER_CRITICAL(&s_lock);
-    s_status.network_ready = false;
     s_status.fallback_ap_active = true;
-    s_status.state = NETWORK_WIFI_AP_FALLBACK;
-    strlcpy(s_status.ssid, s_cfg.fallback_ap_ssid, sizeof(s_status.ssid));
+    s_status.ap_channel = RECOVERY_AP_HOME_CHANNEL;
+    strlcpy(s_status.ap_ssid, s_cfg.fallback_ap_ssid, sizeof(s_status.ap_ssid));
     portEXIT_CRITICAL(&s_lock);
 
-    ESP_LOGW(TAG, "No configured STA available; setup AP '%s' is active", s_cfg.fallback_ap_ssid);
+    /* The passphrase is deliberately absent from this line. */
+    ESP_LOGI(TAG, "Recovery AP '%s' is on air (WPA2, channel %d) and stays on air",
+             s_cfg.fallback_ap_ssid, RECOVERY_AP_HOME_CHANNEL);
     return ESP_OK;
+}
+
+/* ---------------------------------------------------------------------------
+ * DELIBERATE, REASONED EXCEPTION TO THE NO-CREDENTIAL-LOGGING RULE.
+ *
+ * Do not "fix" this by removing the passphrase from the line below.
+ *
+ * Every other rule in this firmware holds: the recovery passphrase never
+ * appears in an HTTP response, an API payload, the alarm journal, an exported
+ * configuration, or any log that a network client can read. This one line is
+ * the single exception, and it exists because of a real failure mode.
+ *
+ * The recovery AP is the guaranteed way into a controller that has been moved
+ * to a site whose Wi-Fi it does not know. When its passphrase is generated
+ * per device, there is no way to learn that passphrase over the network,
+ * because the network you would use to ask is the one you cannot join. An AP
+ * secret that is only retrievable over the AP it protects is not a secret, it
+ * is a lockout.
+ *
+ * The serial console is not a network. Reading it requires the enclosure to be
+ * open and a cable in the port - physical possession of the board. Anyone with
+ * that already has the flash contents, the NVS partition and JTAG. Printing
+ * here therefore concedes nothing to a remote attacker, and it is what headless
+ * industrial equipment does in place of a printed label.
+ *
+ * Printed exactly once, at boot, from initialization only.
+ * ------------------------------------------------------------------------- */
+static void announce_recovery_ap_on_serial(bool build_default_in_use)
+{
+    if (!s_recovery_ap_on_air) {
+        ESP_LOGE(TAG, "RECOVERY ACCESS POINT IS NOT ON AIR. It was refused rather than "
+                      "brought up unsecured. Reach this unit on its station address.");
+        return;
+    }
+
+    ESP_LOGW(TAG, "================ RECOVERY ACCESS POINT ================");
+    ESP_LOGW(TAG, "  SSID       : %s", s_cfg.fallback_ap_ssid);
+    ESP_LOGW(TAG, "  Passphrase : %s", s_cfg.fallback_ap_password);
+    ESP_LOGW(TAG, "  Address    : http://192.168.4.1  or  http://%s.local",
+             network_mdns_hostname());
+    ESP_LOGW(TAG, "  Serial console only. Never served over HTTP or any API.");
+    ESP_LOGW(TAG, "=======================================================");
+
+    if (build_default_in_use) {
+        ESP_LOGE(TAG, "***********************************************************");
+        ESP_LOGE(TAG, "*** THE RECOVERY AP IS USING THIS BUILD'S DEFAULT       ***");
+        ESP_LOGE(TAG, "*** PASSPHRASE. It is identical on every unit built     ***");
+        ESP_LOGE(TAG, "*** from this public source, so it is public knowledge. ***");
+        ESP_LOGE(TAG, "*** CHANGE IT VIA THE WI-FI PAGE BEFORE DEPLOYING THIS  ***");
+        ESP_LOGE(TAG, "*** CONTROLLER TO A SITE.                               ***");
+        ESP_LOGE(TAG, "***********************************************************");
+    }
+}
+
+/* One mutation site for the sweep counter, so the backoff below has a single
+ * source of truth. */
+static void note_failed_sweep(void)
+{
+    if (s_failed_sweeps < UINT32_MAX) s_failed_sweeps++;
+}
+
+/* One radio serves both interfaces, so the soft AP cannot choose its own
+ * channel: the driver drags it onto whatever channel the station associates on,
+ * and drags it back when the station drops. Clients already joined to the AP
+ * are on the old channel and will not follow - to them the AP simply vanishes
+ * and they must reconnect.
+ *
+ * That is inherent to APSTA on a single-radio part and cannot be prevented,
+ * only reported. This records the channel actually in use and says so once per
+ * change, so an engineer whose session dropped mid-configuration sees why, and
+ * so /api/status can show which channel to look on. */
+static void note_ap_channel(void)
+{
+    if (!s_recovery_ap_on_air) return;
+
+    uint8_t primary = 0;
+    wifi_second_chan_t second = WIFI_SECOND_CHAN_NONE;
+    if (esp_wifi_get_channel(&primary, &second) != ESP_OK || primary == 0U) return;
+
+    portENTER_CRITICAL(&s_lock);
+    const uint8_t previous = s_status.ap_channel;
+    s_status.ap_channel = primary;
+    portEXIT_CRITICAL(&s_lock);
+
+    if (previous != primary) {
+        ESP_LOGW(TAG, "Recovery AP moved to channel %u (was %u) because the radio follows the "
+                      "station; clients joined to the AP must reconnect",
+                 (unsigned)primary, (unsigned)previous);
+    }
 }
 
 static void choose_and_connect(void)
 {
-    network_status_t status;
-    network_manager_get_status(&status);
-    const bool ap_active = status.fallback_ap_active;
-
-    set_state(ap_active ? NETWORK_WIFI_AP_FALLBACK : NETWORK_WIFI_SCANNING);
+    set_state(NETWORK_WIFI_SCANNING);
 
     bool primary_found = true;
     bool fallback_found = true;
@@ -296,40 +410,61 @@ static void choose_and_connect(void)
         }
     }
 
-    /* Before the recovery AP is up, the primary profile is attempted even when
-     * the scan did not see it (hidden SSID or marginal signal). Once the
-     * recovery AP is serving, a blind attempt on an absent SSID is skipped so
-     * the radio spends its time on the AP instead of doomed connect attempts;
-     * boot and an operator rescan still force the attempt. */
-    const bool force_primary = s_force_primary_attempt;
-    s_force_primary_attempt = false;
-    if (s_cfg.primary.enabled && (primary_found || !ap_active || force_primary)) {
-        if (!primary_found) {
-            ESP_LOGW(TAG, "Primary SSID '%s' not visible in scan; attempting it anyway", s_cfg.primary.ssid);
+    /* Ordered walk of the saved stations. Every enabled profile is offered the
+     * radio before the unit settles for the recovery AP, so a controller
+     * carried back to a site it already knows rejoins that site on its own.
+     *
+     * Pass 0 takes the profiles the scan actually saw, strongest configuration
+     * first by declaration order. Pass 1 takes the enabled profiles the scan
+     * did not see, which is the only way to reach a hidden SSID; it is gated by
+     * allow_blind so a permanently absent network does not keep stealing the
+     * radio from the AP for ever. */
+    const app_wifi_sta_profile_t *const order[] = {&s_cfg.primary, &s_cfg.fallback};
+    const bool seen[] = {primary_found, fallback_found};
+    const size_t profile_count = sizeof(order) / sizeof(order[0]);
+
+    const bool allow_blind = s_force_blind_attempt || s_failed_sweeps < BLIND_ATTEMPT_SWEEPS;
+    s_force_blind_attempt = false;
+
+    for (int pass = 0; pass < 2; ++pass) {
+        if (pass == 1 && !allow_blind) break;
+        for (size_t n = 0; n < profile_count; ++n) {
+            if (!order[n]->enabled || !order[n]->ssid[0]) continue;
+            if (seen[n] != (pass == 0)) continue;
+            if (pass == 1) {
+                ESP_LOGW(TAG, "Saved SSID '%s' not visible in scan; attempting it anyway",
+                         order[n]->ssid);
+            }
+            clear_operator_reconnect_if_disconnecting();
+            if (connect_profile(order[n], n != 0) == ESP_OK) return;
         }
-        clear_operator_reconnect_if_disconnecting();
-        if (connect_profile(&s_cfg.primary, false) == ESP_OK) return;
-    }
-    if (s_cfg.fallback.enabled && fallback_found) {
-        clear_operator_reconnect_if_disconnecting();
-        if (connect_profile(&s_cfg.fallback, true) == ESP_OK) return;
     }
 
     clear_operator_reconnect_if_disconnecting();
-    if (ap_active) {
-        set_state(NETWORK_WIFI_AP_FALLBACK);
-        return;
-    }
-
-    esp_err_t ap_err = start_fallback_ap();
-    if (ap_err != ESP_OK) {
-        set_state(NETWORK_WIFI_DISCONNECTED);
-        ESP_LOGE(TAG, "No usable Wi-Fi profile and fallback AP failed: %s", esp_err_to_name(ap_err));
-    }
+    note_failed_sweep();
+    /* No station was worth attempting. The recovery AP has been serving since
+     * boot, so this is a reporting state, not a transition. */
+    set_state(NETWORK_WIFI_AP_FALLBACK);
 }
 
-/* Bounded exponential backoff between STA sweeps while the recovery AP is up,
- * so a visible but permanently unusable SSID is not retried continuously. */
+/* Retry and backoff policy, stated plainly because a stranded controller at a
+ * remote site is a truck roll:
+ *
+ *  1. The recovery AP is up from esp_wifi_start() and never comes down. The
+ *     time to reach a controller that has lost its network is therefore zero -
+ *     it is not gated on any retry budget expiring.
+ *  2. A disconnected station retries the SAME profile up to
+ *     max_retries_per_profile times (default 5) with immediate
+ *     re-association.
+ *  3. When that budget is spent, the next enabled saved profile is tried.
+ *  4. When every saved profile is spent, one failed sweep is counted and the
+ *     next full sweep is scheduled after
+ *         15 s << min(failed_sweeps, 4), capped at 240 s
+ *     so a visible but unusable SSID is not retried continuously and the AP
+ *     keeps the radio for the overwhelming majority of the time.
+ *  5. A successful association resets the sweep count to zero.
+ *  6. An operator rescan, a boot, or a Wi-Fi event queue overflow resets the
+ *     backoff and re-enables one blind (scan-negative) pass immediately. */
 static uint32_t ap_retry_delay_ms(void)
 {
     uint32_t shift = s_failed_sweeps < AP_RESCAN_MAX_SHIFT ? s_failed_sweeps : AP_RESCAN_MAX_SHIFT;
@@ -431,7 +566,7 @@ static void begin_operator_reconnect(bool *connect_pending,
 
     s_failed_sweeps = 0;
     s_retry_count = 0;
-    s_force_primary_attempt = true;
+    s_force_blind_attempt = true;
 
     esp_err_t scan_stop = esp_wifi_scan_stop();
     if (scan_stop != ESP_OK && scan_stop != ESP_ERR_WIFI_STATE) {
@@ -526,14 +661,12 @@ static void handle_sta_disconnected(uint8_t reason,
         return;
     }
 
-    ESP_LOGW(TAG, "All configured STA profiles exhausted (last reason=%u); enabling recovery AP",
+    ESP_LOGW(TAG, "All saved STA profiles exhausted (last reason=%u); "
+                  "the recovery AP is already serving and the sweep will repeat",
              (unsigned)reason);
-    if (s_failed_sweeps < UINT32_MAX) s_failed_sweeps++;
-    esp_err_t ap_error = start_fallback_ap();
-    if (ap_error != ESP_OK) {
-        set_state(NETWORK_WIFI_DISCONNECTED);
-        ESP_LOGE(TAG, "Recovery AP start failed: %s", esp_err_to_name(ap_error));
-    }
+    note_failed_sweep();
+    note_ap_channel();
+    set_state(NETWORK_WIFI_AP_FALLBACK);
     schedule_connect(connect_pending, connect_deadline,
                      ap_retry_delay_ms(), true);
 }
@@ -545,25 +678,17 @@ static void handle_sta_got_ip(const esp_netif_ip_info_t *ip_info)
     wifi_ap_record_t ap = {0};
     esp_err_t ap_info_error = esp_wifi_sta_get_ap_info(&ap);
 
-    portENTER_CRITICAL(&s_lock);
-    bool ap_was_active = s_status.fallback_ap_active;
-    portEXIT_CRITICAL(&s_lock);
-
-    bool ap_stopped = !ap_was_active;
-    if (ap_was_active) {
-        ESP_LOGI(TAG, "STA connected; stopping recovery AP");
-        esp_err_t mode_error = esp_wifi_set_mode(WIFI_MODE_STA);
-        ap_stopped = mode_error == ESP_OK;
-        if (mode_error != ESP_OK) {
-            ESP_LOGW(TAG, "Recovery AP could not be stopped: %s", esp_err_to_name(mode_error));
-        }
-    }
+    /* The recovery AP is NOT stopped here. Joining a site network is exactly
+     * when the previous code took the AP down, which is why a controller that
+     * later lost that network had no way back in until a retry budget expired.
+     * It stays up; only its channel moves. */
+    note_ap_channel();
 
     portENTER_CRITICAL(&s_lock);
     s_status.state = NETWORK_WIFI_CONNECTED;
     s_status.network_ready = true;
     s_status.using_fallback_sta = s_using_fallback;
-    s_status.fallback_ap_active = !ap_stopped;
+    s_status.fallback_ap_active = s_recovery_ap_on_air;
     strlcpy(s_status.ssid,
             s_using_fallback ? s_cfg.fallback.ssid : s_cfg.primary.ssid,
             sizeof(s_status.ssid));
@@ -603,7 +728,7 @@ static void recover_event_queue_overflow(bool *connect_pending,
     portEXIT_CRITICAL(&s_lock);
     s_retry_count = 0;
     s_failed_sweeps = 0;
-    s_force_primary_attempt = true;
+    s_force_blind_attempt = true;
     esp_err_t error = esp_wifi_disconnect();
     if (error != ESP_OK && error != ESP_ERR_WIFI_NOT_CONNECT) {
         ESP_LOGW(TAG, "Fail-safe disconnect returned %s", esp_err_to_name(error));
@@ -728,6 +853,7 @@ esp_err_t network_manager_init(void)
         return err;
     }
     s_cfg = cfg->wifi;
+    const bool build_default_secret = config_manager_recovery_ap_is_build_default(cfg);
     free(cfg);
 
     memset(&s_status, 0, sizeof(s_status));
@@ -735,14 +861,17 @@ esp_err_t network_manager_init(void)
     s_using_fallback = false;
     s_retry_count = 0;
     s_failed_sweeps = 0;
-    s_force_primary_attempt = false;
+    /* Boot gets one blind pass so a hidden primary SSID is reached immediately
+     * rather than after the first scan comes back negative. */
+    s_force_blind_attempt = true;
     s_event_queue_overflow = false;
+    s_recovery_ap_on_air = false;
     clear_operator_reconnect();
 
-    ESP_LOGI(TAG, "Profiles: primary '%s'%s, fallback '%s'%s, recovery AP '%s'%s",
+    ESP_LOGI(TAG, "Saved stations: primary '%s'%s, secondary '%s'%s; recovery AP '%s' (always on)",
              s_cfg.primary.ssid, s_cfg.primary.enabled ? "" : " (disabled)",
              s_cfg.fallback.ssid, s_cfg.fallback.enabled ? "" : " (disabled)",
-             s_cfg.fallback_ap_ssid, s_cfg.fallback_ap_enabled ? "" : " (disabled)");
+             s_cfg.fallback_ap_ssid);
 
     s_events = xEventGroupCreate();
     s_event_queue = xQueueCreate(MANAGER_EVENT_QUEUE_LENGTH,
@@ -756,19 +885,71 @@ esp_err_t network_manager_init(void)
     s_sta_netif = esp_netif_create_default_wifi_sta();
     s_ap_netif = esp_netif_create_default_wifi_ap();
     if (!s_sta_netif || !s_ap_netif) return ESP_ERR_NO_MEM;
-    esp_netif_set_hostname(s_sta_netif, CONFIG_PVDG_DEVICE_NAME);
+
+    /* The device name is free text and contains spaces, so it was never a legal
+     * DHCP host name or DNS label. Both interfaces now carry the MAC-derived
+     * label instead, which is what makes "<host>.local" work and what a DHCP
+     * lease table will show. */
+    char hostname[DEVICE_IDENTITY_HOSTNAME_SIZE] = {0};
+    if (device_identity_hostname(hostname, sizeof(hostname)) == ESP_OK) {
+        esp_netif_set_hostname(s_sta_netif, hostname);
+        esp_netif_set_hostname(s_ap_netif, hostname);
+        portENTER_CRITICAL(&s_lock);
+        strlcpy(s_status.hostname, hostname, sizeof(s_status.hostname));
+        portEXIT_CRITICAL(&s_lock);
+    } else {
+        ESP_LOGW(TAG, "Factory MAC unavailable; no unique host name is published");
+    }
 
     wifi_init_config_t init = WIFI_INIT_CONFIG_DEFAULT();
     ESP_RETURN_ON_ERROR(esp_wifi_init(&init), TAG, "Wi-Fi init failed");
     ESP_RETURN_ON_ERROR(esp_wifi_set_storage(WIFI_STORAGE_RAM), TAG, "Wi-Fi storage mode failed");
     ESP_RETURN_ON_ERROR(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, event_handler, NULL), TAG, "Wi-Fi handler failed");
     ESP_RETURN_ON_ERROR(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, event_handler, NULL), TAG, "IP handler failed");
-    ESP_RETURN_ON_ERROR(esp_wifi_set_mode(WIFI_MODE_STA), TAG, "Wi-Fi mode failed");
+
+    /* APSTA before the radio starts, and the recovery AP configured before the
+     * first station attempt: the unit is reachable from the moment the radio
+     * comes up, not from the moment a retry budget runs out.
+     *
+     * If the AP cannot be configured the radio is put back to station-only
+     * rather than started in APSTA with a half-applied AP configuration. That is
+     * the fail-closed direction for requirement "WPA2 always": an AP that could
+     * not be given its passphrase must not go on air at all. It is deliberately
+     * NOT fatal to init, because dropping the station as well would remove the
+     * one remaining way to reach the controller. */
+    ESP_RETURN_ON_ERROR(esp_wifi_set_mode(WIFI_MODE_APSTA), TAG, "APSTA mode failed");
+    if (start_recovery_ap() != ESP_OK) {
+        ESP_LOGE(TAG, "Recovery AP could not be configured; continuing station-only. "
+                      "The AP is NOT brought up unsecured.");
+        portENTER_CRITICAL(&s_lock);
+        s_status.fallback_ap_active = false;
+        s_status.ap_channel = 0;
+        s_status.ap_ssid[0] = '\0';
+        portEXIT_CRITICAL(&s_lock);
+    }
+
+    /* The single expression of the radio-mode rule, shared with connect_profile:
+     * concurrent whenever the recovery AP is on air, station-only only when it is
+     * not. Written this way so no reader - and no later edit - can select a
+     * station-only mode without saying, in the same statement, that the AP is
+     * already down. */
+    ESP_RETURN_ON_ERROR(esp_wifi_set_mode(s_recovery_ap_on_air ? WIFI_MODE_APSTA : WIFI_MODE_STA),
+                        TAG, "radio mode failed");
 
     if (xTaskCreate(manager_task, "wifi_manager", 6144, NULL, 12, &s_task) != pdPASS) return ESP_ERR_NO_MEM;
     ESP_RETURN_ON_ERROR(network_scan_service_init(s_task, MANAGER_WAKE_USER_SCAN),
                         TAG, "scan service init failed");
-    return esp_wifi_start();
+    ESP_RETURN_ON_ERROR(esp_wifi_start(), TAG, "Wi-Fi start failed");
+
+    /* After the radio is up so the responder attaches to live interfaces. A
+     * failure is not fatal: the unit is still reachable by address and over the
+     * recovery AP, it is simply harder to find. */
+    if (hostname[0]) {
+        (void)network_mdns_start(hostname, CONFIG_PVDG_DEVICE_NAME);
+    }
+
+    announce_recovery_ap_on_serial(build_default_secret);
+    return ESP_OK;
 }
 
 bool network_manager_is_connected(void)

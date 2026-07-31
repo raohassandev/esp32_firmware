@@ -24,7 +24,6 @@ CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
 CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
 CONFIG_HTTPD_MAX_URI_LEN=256
-CONFIG_PVDG_DEFAULT_WIFI_SSID="Rao1"
 CONFIG_PVDG_DEFAULT_ZLAN_HOST="192.168.100.200"
 
 # Scheduler granularity. The default 100 Hz gives a 10 ms tick, which quantises
@@ -34,3 +33,19 @@ CONFIG_PVDG_DEFAULT_ZLAN_HOST="192.168.100.200"
 # the work being scheduled. 1 kHz gives a 1 ms tick at the cost of more frequent
 # tick interrupts.
 CONFIG_FREERTOS_HZ=1000
+
+# The controller is relocated between sites, so it must be findable by name
+# rather than by whatever address the local DHCP server happened to hand out.
+# The responder is bound to BOTH predefined interfaces, so http://<host>.local
+# resolves on the site network and on the controller's own recovery AP.
+CONFIG_MDNS_PREDEF_NETIF_STA=y
+CONFIG_MDNS_PREDEF_NETIF_AP=y
+# There is no Ethernet on this board, and only one _http._tcp record is ever
+# published. Trimming the interface and service tables from the library defaults
+# of 3 and 10 returns static RAM on a part whose minimum free internal heap has
+# previously fallen to ~40 kB. MDNS_MAX_INTERFACES must not drop below the
+# number of predefined interfaces still enabled - the library enforces that with
+# a #warning, which this build treats as an error.
+CONFIG_MDNS_PREDEF_NETIF_ETH=n
+CONFIG_MDNS_MAX_INTERFACES=2
+CONFIG_MDNS_MAX_SERVICES=2

@@ -68,6 +68,12 @@ static esp_err_t status_get(httpd_req_t *request)
     cJSON_AddNumberToObject(root, "rssi", network.rssi);
     cJSON_AddBoolToObject(root, "using_fallback_sta", network.using_fallback_sta);
     cJSON_AddBoolToObject(root, "fallback_ap_active", network.fallback_ap_active);
+    /* Name and channel so an engineer knows what to look for. The passphrase is
+     * never carried in an HTTP response; it is disclosed on the serial console
+     * at boot and nowhere else. */
+    cJSON_AddStringToObject(root, "recovery_ap_ssid", network.ap_ssid);
+    cJSON_AddNumberToObject(root, "recovery_ap_channel", network.ap_channel);
+    cJSON_AddStringToObject(root, "mdns_hostname", network.hostname);
     cJSON_AddNumberToObject(root, "disconnect_count", network.disconnect_count);
     cJSON_AddNumberToObject(root, "reconnect_count", network.reconnect_count);
 
@@ -398,13 +404,21 @@ static bool parse_wifi_config(cJSON *root, const app_wifi_config_t *current,
         strlcpy(error, "fallback_ap_enabled must be boolean", error_size);
         return false;
     }
-    if (cJSON_IsBool(item)) next->fallback_ap_enabled = cJSON_IsTrue(item);
+    if (cJSON_IsBool(item) && !cJSON_IsTrue(item)) {
+        /* The recovery AP is the controller's guaranteed way in after it is
+         * moved to a site whose Wi-Fi it does not know. Switching it off is
+         * indistinguishable from bricking the unit remotely, so the request is
+         * refused rather than quietly ignored. */
+        strlcpy(error, "The recovery access point cannot be switched off; it is always on",
+                error_size);
+        return false;
+    }
+    next->fallback_ap_enabled = true;
 
     char requested_ap_ssid[sizeof(next->fallback_ap_ssid)];
     strlcpy(requested_ap_ssid, current->fallback_ap_ssid, sizeof(requested_ap_ssid));
     if (!copy_optional_string(root, "fallback_ap_ssid", requested_ap_ssid,
                               sizeof(requested_ap_ssid), error, error_size)) return false;
-    bool ap_ssid_changed = strcmp(requested_ap_ssid, current->fallback_ap_ssid) != 0;
     strlcpy(next->fallback_ap_ssid, requested_ap_ssid, sizeof(next->fallback_ap_ssid));
 
     item = cJSON_GetObjectItemCaseSensitive(root, "fallback_ap_password");
@@ -412,9 +426,12 @@ static bool parse_wifi_config(cJSON *root, const app_wifi_config_t *current,
         strlcpy(error, "Invalid recovery AP password", error_size);
         return false;
     }
-    if (ap_ssid_changed && (!cJSON_IsString(item) || !item->valuestring[0] || strcmp(item->valuestring, MASKED_PASSWORD) == 0)) {
-        next->fallback_ap_password[0] = '\0';
-    } else if (cJSON_IsString(item) && item->valuestring[0] && strcmp(item->valuestring, MASKED_PASSWORD) != 0) {
+    /* Renaming the AP used to clear its passphrase, which took the network open
+     * on the next boot. The stored passphrase is now only ever REPLACED, never
+     * cleared: an unsecured always-on AP on an industrial controller is not a
+     * state this API is allowed to produce. config_manager_save() refuses one
+     * regardless. */
+    if (cJSON_IsString(item) && item->valuestring[0] && strcmp(item->valuestring, MASKED_PASSWORD) != 0) {
         size_t length = strlen(item->valuestring);
         if (length < 8 || length > 64) {
             strlcpy(error, "Recovery AP password must contain 8-64 characters", error_size);

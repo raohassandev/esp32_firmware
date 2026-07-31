@@ -384,7 +384,10 @@
             valid = false;
         }
 
-        const recoveryEnabled = byId('recoveryEnabled').checked;
+        // The recovery access point is not optional. The firmware refuses to persist
+        // a configuration that would switch it off, so this always reports true and
+        // the control is shown checked and disabled.
+        const recoveryEnabled = true;
         const recoverySsid = byId('recoverySsid').value.trim();
         const recoveryPassword = byId('recoveryPassword').value;
         if (recoveryEnabled && !recoverySsid) {

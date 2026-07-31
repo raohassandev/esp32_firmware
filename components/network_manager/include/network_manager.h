@@ -48,6 +48,8 @@ typedef struct {
     network_wifi_state_t state;
     bool network_ready;
     bool using_fallback_sta;
+    /* True for the life of the unit: the recovery AP runs permanently beside
+     * the station rather than appearing after the station gives up. */
     bool fallback_ap_active;
     char ssid[33];
     char ip[16];
@@ -56,6 +58,16 @@ typedef struct {
     int8_t rssi;
     uint32_t reconnect_count;
     uint32_t disconnect_count;
+    /* Recovery AP name and the channel it is actually on. One radio serves both
+     * interfaces, so the AP follows the station's channel while associated.
+     * The passphrase is deliberately NOT here: this struct is serialized into
+     * HTTP responses. */
+    char ap_ssid[33];
+    uint8_t ap_channel;
+    /* Bare mDNS/DHCP label, e.g. "automatrix-a1b2c3". Empty when the responder
+     * could not start. Public information: it is broadcast in every mDNS
+     * answer. */
+    char hostname[32];
 } network_status_t;
 
 esp_err_t network_manager_init(void);
