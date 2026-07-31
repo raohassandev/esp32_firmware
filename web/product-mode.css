@@ -78,17 +78,44 @@ html[data-access="engineering"] #engineeringConsole { display: grid; }
  * solar fleet), the controller, and the demand column (facility load). */
 .op-flow-card { display: grid; gap: 14px; }
 .op-flow-coverage { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
-.op-flow-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0.95fr) minmax(0, 1fr); align-items: start; gap: 10px; }
+.op-flow-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0.95fr) minmax(0, 1fr); align-items: stretch; gap: 10px; }
+/* The supply column carries three nodes, the hub and the demand column one
+   each, so those two used to leave ~380px of blank column under a single card.
+   Centring puts the controller and the load opposite the middle of the supply
+   stack, which is where a single-line diagram would draw them anyway. */
 .op-flow-column { display: grid; gap: 10px; align-content: start; min-width: 0; }
+.op-flow-body > .op-flow-column:not(:first-child) { align-content: center; }
 .op-flow-slot { display: grid; gap: 4px; min-width: 0; }
-.op-flow-source, .op-flow-center { min-width: 0; display: grid; justify-items: center; align-content: start; gap: 6px; padding: 16px 14px; border: 1px solid var(--line-soft); border-radius: 16px; text-align: center; background: var(--panel-strong); }
+/* A node is a row, not a poster.
+ *
+ * Each one used to be a 372x150 centred block carrying three short lines - an
+ * icon, a label, a value and a state word - so the five nodes plus their arrows
+ * made the power-flow card 775px tall, the largest object on the plant overview
+ * and mostly air. The diagram's MEANING is the three columns and the arrows
+ * between them, which are untouched; the node itself only has to say what it is,
+ * what it reads and whether it is talking, and that is one line.
+ *
+ * The icon spans both rows on the left, the label and the communication state
+ * stack in the middle, and the value is set right where a column of numbers can
+ * be compared down the page. */
+.op-flow-source, .op-flow-center { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; column-gap: 12px; row-gap: 2px; padding: 12px 14px; border: 1px solid var(--line-soft); border-radius: 14px; text-align: left; background: var(--panel-strong); }
+.op-flow-source > .op-icon, .op-flow-center > .op-icon { grid-column: 1; grid-row: 1 / -1; width: 32px; height: 32px; border-radius: 9px; }
+.op-flow-source > .op-icon svg, .op-flow-center > .op-icon svg { width: 18px; height: 18px; }
+.op-flow-source > span:not(.op-icon), .op-flow-center > span:not(.op-icon) { grid-column: 2; }
+.op-flow-source > small, .op-flow-center > small { grid-column: 2; }
+.op-flow-source > strong, .op-flow-center > strong { grid-column: 3; grid-row: 1 / -1; text-align: right; }
 .op-flow-center, .op-flow-controller { border-color: var(--line-strong); background: var(--surface-raised); }
 /* Not measured is drawn as a deliberate absence: dashed, labelled, and never
  * dimmed to the point of reading as "off". A node showing 0 kW because nothing
  * is metering it is the failure this styling exists to prevent. */
 .op-flow-unmeasured { border-style: dashed; border-color: var(--line-strong); }
-.op-flow-source span:not(.op-icon), .op-flow-center span:not(.op-icon) { color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
-.op-flow-source strong, .op-flow-center strong { font-size: clamp(17px, 1.8vw, 24px); }
+.op-flow-source span:not(.op-icon), .op-flow-center span:not(.op-icon) { color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; overflow-wrap: anywhere; }
+/* A measured quantity is set as a quantity. A state word is set as a word: it
+   is not a reading, and giving it a reading's weight is how "Not measured"
+   starts looking like a number an operator can act on. */
+.op-flow-source strong, .op-flow-center strong { font-size: 22px; font-variant-numeric: tabular-nums; }
+.op-flow-source.kind-not_measured > strong,
+.op-flow-source.kind-command > strong { font-size: 13px; font-weight: 800; color: var(--muted); letter-spacing: 0; }
 .op-flow-source small, .op-flow-center small { color: var(--muted); line-height: 1.45; font-size: 11px; }
 .op-flow-kind { padding: 2px 9px; border: 1px solid var(--line); border-radius: 999px; font-size: 9px; font-weight: 850; letter-spacing: .07em; text-transform: uppercase; }
 .op-flow-source.op-flow-unmeasured .op-flow-kind { border-color: var(--line-strong); }

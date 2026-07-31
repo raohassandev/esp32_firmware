@@ -518,7 +518,14 @@
             : entry.id === 'generator' ? 'meter'
             : entry.id === 'load' ? 'shield'
             : 'control';
-        const card = node('div', `op-flow-source op-flow-${entry.id}${entry.measured ? '' : ' op-flow-unmeasured'}`);
+        /* The KIND of the value is on the element, so the stylesheet can set a
+         * measured reading and a state word differently. "Not measured" and
+         * "Monitoring only" were typeset at the same weight and size as
+         * "25.23 kW", which puts a word where a reader is looking for a
+         * quantity - the same confusion between a measurement and the absence
+         * of one that the rest of this work exists to remove. */
+        const card = node('div', `op-flow-source op-flow-${entry.id} kind-${String(entry.valueKind || 'not_measured')}`
+            + `${entry.measured ? '' : ' op-flow-unmeasured'}`);
         card.append(icon(iconName), node('span', '', entry.label), node('strong', '', entry.value));
         const link = entry.state === 'measured' ? stateWord('communication', 'online', 'Online')
             : entry.state === 'stale' ? stateWord('dataQuality', 'stale', 'Stale')
