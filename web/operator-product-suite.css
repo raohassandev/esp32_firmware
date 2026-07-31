@@ -380,3 +380,19 @@ html[data-theme="light"] .product-mobile-nav {
         margin: 0 !important;
     }
 }
+/* The "is it actually working?" panel. Sits above every measurement on the
+ * plant overview, because that is the question a visitor asks before any
+ * number on the page means anything to them. */
+.op-proof{margin-bottom:18px}
+.op-proof-reason{margin:.35rem 0 0;color:var(--muted);line-height:1.55;overflow-wrap:anywhere}
+.op-proof-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin-top:14px}
+.op-proof-device{display:grid;gap:3px;padding:12px 14px;border-radius:11px;background:var(--panel-strong);border:1px solid var(--line-soft);border-left-width:4px}
+/* Colour is the second signal, never the only one: every card also spells out
+ * "Answering" or "Not answering" in words. */
+.op-proof-device.ok{border-left-color:var(--green)}
+.op-proof-device.bad{border-left-color:var(--red)}
+.op-proof-device-name{font-size:.76rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);overflow-wrap:anywhere}
+.op-proof-device small{color:var(--muted)}
+.op-proof-command{margin:14px 0 0;color:var(--muted)}
+.op-proof-empty{padding:16px;border:1px dashed var(--line);border-radius:11px;color:var(--muted);text-align:center;grid-column:1/-1}
+@media(max-width:600px){.op-proof-grid{grid-template-columns:1fr}}

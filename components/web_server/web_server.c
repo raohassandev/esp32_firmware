@@ -115,6 +115,7 @@ static esp_err_t js_handler(httpd_req_t *request)
         web_assets_solar_grid_js,
         web_assets_operator_view_js,
         web_assets_operator_network_js,
+        web_assets_operator_proof_js,
         web_assets_operator_operations_js,
         web_assets_operator_product_suite_js,
         web_assets_prelab_readiness_js,
