@@ -1,9 +1,9 @@
 name: Apply operator browser runtime patch
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/operator-ui-refinement
+      - phase1-fix
   workflow_dispatch:
 
 permissions:
@@ -13,11 +13,12 @@ jobs:
   patch:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: agent/operator-ui-refinement
-      - name: Apply verified frontend patch
+          ref: ${{ github.event.pull_request.head.ref || 'agent/operator-ui-refinement' }}
+      - name: Apply and verify frontend patch
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -37,20 +38,21 @@ jobs:
 
           workflow_path = Path('.github/workflows/esp-idf-build.yml')
           workflow = workflow_path.read_text(encoding='utf-8')
-          step = '''      - name: Run operator UI Chromium runtime contract
-                run: node tests/operator_ui_browser_runtime_test.mjs
-          '''
+          step = (
+              '      - name: Run operator UI Chromium runtime contract\n'
+              '        run: node tests/operator_ui_browser_runtime_test.mjs\n'
+          )
           marker = '      - name: Run source mode safety unit tests\n'
           if 'Run operator UI Chromium runtime contract' not in workflow:
               if marker not in workflow:
                   raise SystemExit('could not locate browser contract insertion point')
               workflow = workflow.replace(marker, step + marker, 1)
               workflow_path.write_text(workflow, encoding='utf-8')
-
-          Path('.github/workflows/ui-browser-runtime-patch.yml').unlink()
           PY
+          node tests/operator_ui_browser_runtime_test.mjs
+          rm .github/workflows/ui-browser-runtime-patch.yml
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add web/pvdg-chart.css tests/operator_ui_browser_runtime_test.mjs .github/workflows/esp-idf-build.yml .github/workflows/ui-browser-runtime-patch.yml
+          git add web/pvdg-chart.css .github/workflows/esp-idf-build.yml .github/workflows/ui-browser-runtime-patch.yml
           git commit -m "test(web): enforce responsive operator runtime"
-          git push origin HEAD:agent/operator-ui-refinement
+          git push origin HEAD:${{ github.event.pull_request.head.ref || 'agent/operator-ui-refinement' }}
