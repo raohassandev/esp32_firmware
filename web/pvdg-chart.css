@@ -64,7 +64,7 @@
 
 .pvc-figure {
     position: relative;
-    height: var(--pvc-plot-height, 320px);
+    height: var(--pvc-plot-height, 500px);
     min-height: 220px;
     border: 1px solid var(--line-soft);
     border-radius: 4px;
@@ -204,6 +204,7 @@ body.product-experience-v2 {
     --experience-content-max: 1600px;
     --experience-gap: var(--industrial-gap);
     --experience-section-gap: var(--industrial-gap);
+    --pvc-plot-height: 320px;
 }
 
 body.product-experience-v2,
