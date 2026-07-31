@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git push *)",
+      "Bash(node tools/huawei_sun2000_modbus_simulator.js --port=1504)",
+      "Bash(netsh wlan show *)",
+      "Bash(ping *)"
+    ]
+  }
+}

@@ -264,7 +264,17 @@ function handleRequest(socket, frame, scenario) {
 }
 
 function createServer(scenario = SCENARIO) {
-    return net.createServer((socket) => {
+    const server = net.createServer((socket) => {
+        // A client that vanishes is normal, not fatal. The controller resets
+        // this connection every time it reboots or re-establishes its Modbus
+        // session, and node turns an unhandled socket 'error' into a process
+        // exit -- so the simulator was dying whenever the device under test
+        // restarted, and the run that followed measured nothing while looking
+        // like a plant with no solar. A Modbus server that cannot outlive its
+        // client's reset is not a useful stand-in for one that can.
+        socket.on('error', (error) => {
+            console.warn(`client socket error (ignored): ${error.code || error.message}`);
+        });
         let pending = Buffer.alloc(0);
         socket.on('data', (chunk) => {
             pending = Buffer.concat([pending, chunk]);
@@ -278,6 +288,13 @@ function createServer(scenario = SCENARIO) {
             }
         });
     });
+    /* Listen failures and post-accept errors must be visible rather than
+     * terminating: the whole point of this process is to stay up while the
+     * device under test is restarted repeatedly. */
+    server.on('error', (error) => {
+        console.error(`server error: ${error.code || error.message}`);
+    });
+    return server;
 }
 
 function request(port, unitId, functionCode, address, valueOrCount, extra, timeoutMs = 800) {
@@ -381,6 +398,27 @@ async function runSelfTest() {
 
         const unknown = await request(port, 99, 3, REG.ACTIVE_POWER, 2);
         assert.strictEqual(unknown.readUInt8(7), 0x83);
+
+        // SURVIVING AN ABRUPT CLIENT RESET.
+        //
+        // The controller resets this connection every time it reboots. Without a
+        // socket 'error' handler node turns that into a process exit, and the
+        // simulator died mid-run: the test that followed measured a plant with
+        // no solar and looked like a real result. Asserted here because the
+        // failure is silent -- nothing in a passing register read reveals it.
+        await new Promise((resolve) => {
+            const rude = net.connect(port, '127.0.0.1', () => {
+                rude.write(Buffer.from([0, 1, 0, 0, 0, 6, unitId, 3]));  // half a frame
+                if (rude.resetAndDestroy) rude.resetAndDestroy();
+                else rude.destroy();
+            });
+            rude.on('error', () => {});
+            rude.on('close', resolve);
+        });
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        const afterReset = await request(port, unitId, 3, REG.MODEL_NAME, 1);
+        assert.strictEqual(afterReset.readUInt16BE(9), 0x5355,
+                           'server must still answer after a client resets the connection');
 
         console.log(JSON.stringify({
             result: 'PASS',
