@@ -79,6 +79,11 @@ jobs:
             tests/source_mode_unit_test.c components/control_engine/source_mode.c \
             -lm -o /tmp/source_mode_unit_test
           /tmp/source_mode_unit_test
+      - name: Run generator safe-PV convergence unit tests
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -Wall -Wextra -Werror             -Icomponents/control_engine/include             tests/generator_safe_pv_convergence_test.c             components/control_engine/source_mode.c             -lm -o /tmp/generator_safe_pv_convergence_test
+          /tmp/generator_safe_pv_convergence_test
       - name: Run grid control gate unit tests
         run: |
           set -euo pipefail

@@ -216,7 +216,14 @@ typedef struct {
 typedef struct {
     /* The plant load measurement is fresh. False fails the whole evaluation. */
     bool evidence_fresh;
-    /* Load the generators are carrying, kW, non-negative. */
+    /* TOTAL plant load, kW, non-negative: the source meter reading PLUS measured
+     * solar. Not the generator's own output.
+     *
+     * safe_pv_kw is derived as this minus the required generator load and is
+     * used as an absolute cap on the PV command, so the two must describe the
+     * same quantity. Passing the generator's output instead makes the cap a
+     * measure of present headroom, and driving PV to a cap that falls as PV
+     * rises settles at half the correct value. */
     float facility_load_kw;
     /* No generator-role meter is configured ANYWHERE, so per-engine attribution
      * does not exist on this site. With exactly one engine slot in service the

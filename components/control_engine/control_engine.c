@@ -588,9 +588,44 @@ static void control_task(void *argument)
          * is an unprotected machine. */
         if (source.mode == SOURCE_MODE_GENERATOR_ONLY ||
             source.mode == SOURCE_MODE_ISLAND) {
+            /*
+             * THE PLANT LOAD, NOT THE GENERATOR'S SHARE OF IT.
+             *
+             * This passed the source meter reading alone. In generator mode that
+             * meter reads what the GENERATOR is producing, and the plant is
+             * carrying that plus whatever the inverters are generating. The
+             * limit module subtracts the required generator load from what it is
+             * given and hands the remainder back as an ABSOLUTE cap on PV, so
+             * feeding it the generator's own output made the cap a measure of
+             * present headroom rather than of allowable PV -- and a cap that
+             * moves whenever PV moves.
+             *
+             * That converges to half the correct answer. With load L and floor
+             * R, the cap is (L - PV) - R, and driving PV to the cap settles at
+             * PV = (L - R) / 2 instead of L - R. A plant would have run at half
+             * the solar it could safely carry, silently, with every number on
+             * screen looking reasonable.
+             *
+             * Total load = source meter + measured solar, which is the site
+             * definition: Total kW = Grid + Gen + Solar.
+             *
+             * Only inverters reporting a VALID measurement contribute. An
+             * inverter whose telemetry is stale or unsupported contributes zero,
+             * which understates the load and therefore understates the PV cap:
+             * the error direction is toward a more loaded generator, which is
+             * the safe direction. Reading cached state only; no Modbus here. */
+            float measured_solar_kw = 0.0f;
+            for (uint8_t slot = 0U; slot < inverter_manager_get_count(); ++slot) {
+                inverter_data_t solar = {0};
+                if (!inverter_manager_get_data(slot, &solar)) continue;
+                if (!solar.telemetry_valid || solar.telemetry_stale) continue;
+                if (!isfinite(solar.measured_power_kw) || solar.measured_power_kw < 0.0f) continue;
+                measured_solar_kw += solar.measured_power_kw;
+            }
+
             generator_fleet_input_t fleet_input = {
                 .evidence_fresh = measurement_fresh,
-                .facility_load_kw = fabsf(measured_grid_kw),
+                .facility_load_kw = fabsf(measured_grid_kw) + measured_solar_kw,
                 /* Only when the site has no generator-role meter at all: then a
                  * single commissioned engine is unambiguous, which is the legacy
                  * single-generator behaviour. */
