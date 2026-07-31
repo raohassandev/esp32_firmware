@@ -582,11 +582,12 @@ static void control_task(void *argument)
             source = source_mode_from_measured_source(measured, measured_fresh);
             if (synchronised && measured_fresh) {
                 source.mode = SOURCE_MODE_GRID_GENERATOR_SYNC;
-                /* Named, never released. grid_control_gate_step() refuses this
-                 * mode, and the generator floor is not derived for it, so
-                 * releasing control here would command from the grid policy
-                 * with a generator floor of zero. */
-                source.control_allowed = false;
+                /* Vouched for, because the strategy now exists: the grid policy
+                 * sets the target and the generator floor caps the maximum, so
+                 * the more restrictive protection wins. Reaching this state at
+                 * all already required an engineer to commission the plant as
+                 * able to synchronise. */
+                source.control_allowed = true;
             }
             evidence_fresh = measured_fresh;
         }
@@ -683,7 +684,8 @@ static void control_task(void *argument)
          * the other with a floor of zero while the gate released control, which
          * is an unprotected machine. */
         if (source.mode == SOURCE_MODE_GENERATOR_ONLY ||
-            source.mode == SOURCE_MODE_ISLAND) {
+            source.mode == SOURCE_MODE_ISLAND ||
+            source.mode == SOURCE_MODE_GRID_GENERATOR_SYNC) {
             /*
              * THE PLANT LOAD, NOT THE GENERATOR'S SHARE OF IT.
              *
@@ -719,9 +721,36 @@ static void control_task(void *argument)
                 measured_solar_kw += solar.measured_power_kw;
             }
 
+            /* IN PARALLEL THE SOURCE METER IS NOT THE WHOLE SUPPLY.
+             *
+             * With grid and generator both on the bus the source meter reads the
+             * GRID's share only, so the plant load is grid + generator + solar.
+             * Omitting the generator's own output would understate the load,
+             * understate the floor's headroom, and curtail PV harder than
+             * necessary -- safe, but it would throw away solar on exactly the
+             * sites that paid for a synchroniser.
+             *
+             * Summed from the generator-role meters, which the loop already
+             * reads for the running-set decision. A generator with no meter
+             * contributes nothing, which understates the load and therefore errs
+             * toward a more loaded generator. */
+            float parallel_generator_kw = 0.0f;
+            if (source.mode == SOURCE_MODE_GRID_GENERATOR_SYNC) {
+                for (uint8_t slot = 0U; slot < APP_MAX_GENERATORS; ++slot) {
+                    const uint8_t meter_index = roles.generator_index[slot];
+                    if (!roles.valid || meter_index == METER_ROLE_INDEX_NONE) continue;
+                    meter_data_t generator_meter = {0};
+                    if (!meter_manager_get_data(meter_index, &generator_meter)) continue;
+                    if (!meter_sample_fresh(&generator_meter, timestamp)) continue;
+                    if (!isfinite(generator_meter.active_power_kw)) continue;
+                    parallel_generator_kw += fabsf(generator_meter.active_power_kw);
+                }
+            }
+
             generator_fleet_input_t fleet_input = {
                 .evidence_fresh = measurement_fresh,
-                .facility_load_kw = fabsf(measured_grid_kw) + measured_solar_kw,
+                .facility_load_kw = fabsf(measured_grid_kw) + measured_solar_kw +
+                                    parallel_generator_kw,
                 /* Only when the site has no generator-role meter at all: then a
                  * single commissioned engine is unambiguous, which is the legacy
                  * single-generator behaviour. */

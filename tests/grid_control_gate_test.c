@@ -93,16 +93,31 @@ static void test_island_releases(void)
     assert(output.control_allowed);
 }
 
-/* Parallel operation needs one PV setpoint to satisfy two objectives at once --
- * hold the generator above its floor AND respect the grid export policy -- and
- * that strategy is not implemented. Releasing it would command from the grid
- * policy with a generator floor of zero: an unprotected machine. It stays shut
- * until the strategy exists. */
-static void test_synchronised_stays_blocked(void)
+/* Parallel operation is released now that the strategy exists: the grid policy
+ * sets the target and the generator floor caps the maximum, so the more
+ * restrictive of the two protections wins. The floor derivation for this mode
+ * lives in the control engine; what this asserts is that the gate no longer
+ * refuses it outright. */
+static void test_synchronised_is_released(void)
 {
     grid_gate_memory_t memory = {0};
     grid_gate_output_t output = settle(&memory, SOURCE_MODE_GRID_GENERATOR_SYNC, 1000U);
-    assert(!output.control_allowed);
+    assert(output.control_allowed);
+    assert(output.state == GRID_GATE_READY);
+}
+
+/* But it is still a source CHANGE, so moving into or out of parallel restarts
+ * the stabilisation timer like any other changeover. A plant that has just
+ * paralleled has not proven steady yet. */
+static void test_entering_parallel_restarts_stabilisation(void)
+{
+    grid_gate_memory_t memory = {0};
+    assert(settle(&memory, SOURCE_MODE_GRID_ONLY, 1000U).control_allowed);
+
+    grid_gate_input_t input = input_at(8000U, SOURCE_MODE_GRID_GENERATOR_SYNC);
+    assert(!grid_control_gate_step(&memory, &input).control_allowed);
+    input.timestamp_ms = 8000U + 5000U;
+    assert(grid_control_gate_step(&memory, &input).control_allowed);
 }
 
 static void test_transfer_and_no_source_stay_blocked(void)
@@ -188,7 +203,8 @@ int main(void)
     test_grid_releases_after_stabilisation();
     test_generator_releases();
     test_island_releases();
-    test_synchronised_stays_blocked();
+    test_synchronised_is_released();
+    test_entering_parallel_restarts_stabilisation();
     test_transfer_and_no_source_stay_blocked();
     test_conflict_reports_itself();
     test_changeover_restarts_stabilisation();

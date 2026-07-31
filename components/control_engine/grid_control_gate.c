@@ -40,17 +40,29 @@ grid_gate_output_t grid_control_gate_step(grid_gate_memory_t *memory,
      * alone", and the control engine derives a generator-safe PV limit for
      * both, so both are released.
      *
-     * GRID_GENERATOR_SYNC is deliberately NOT released. Running the two in
-     * parallel needs one PV setpoint to satisfy two objectives at once -- hold
-     * the generator above its floor AND respect the grid export policy -- and
-     * that strategy is not implemented. Releasing it here would command from
-     * the grid policy alone with a generator floor of zero, which is an
-     * unprotected machine. TRANSFER, NO_SOURCE and UNKNOWN stay closed for the
-     * reasons they always did.
+     * GRID_GENERATOR_SYNC is released now that the strategy exists. One PV
+     * setpoint has to satisfy two objectives -- hold the generator above its
+     * floor AND respect the grid export policy -- and it does so by taking the
+     * MORE RESTRICTIVE of the two: the grid policy sets the target the loop
+     * drives toward, and the generator floor caps the maximum it may reach. The
+     * conservative direction is the correct one when two protections disagree.
+     *
+     * ITS LIMITATION IS STATED RATHER THAN HIDDEN. The floor is derived as it is
+     * for a generator carrying alone: reduce PV and the generator picks up load.
+     * On a plant where the generator is BASE-LOADED, its own controller holds it
+     * at a fixed kW and PV changes flow to the grid instead, so the floor does
+     * not bind the way this assumes and PV may be curtailed harder than the
+     * machine requires. That errs toward a more loaded generator, which is the
+     * safe direction, and it costs yield rather than protection. It has not been
+     * exercised on a synchronised plant; see docs/RELEASE_READINESS.md.
+     *
+     * TRANSFER, NO_SOURCE and UNKNOWN stay closed for the reasons they always
+     * did.
      */
     const bool source_carrying = input->source_mode == SOURCE_MODE_GRID_ONLY ||
                                  input->source_mode == SOURCE_MODE_GENERATOR_ONLY ||
-                                 input->source_mode == SOURCE_MODE_ISLAND;
+                                 input->source_mode == SOURCE_MODE_ISLAND ||
+                                 input->source_mode == SOURCE_MODE_GRID_GENERATOR_SYNC;
     const bool healthy = input->evidence_fresh && source_carrying &&
                          input->source_control_allowed;
     const bool conflict = input->evidence_fresh &&

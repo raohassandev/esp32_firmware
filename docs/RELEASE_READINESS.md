@@ -638,6 +638,40 @@ Until then the honest mitigation is the controller-side half, which is
 implemented: an inverter that stops answering leaves the commandable fleet after
 the grace window, and PV is recomputed without it.
 
+## 4f. Parallel operation: implemented, never exercised
+
+Grid and generator running in parallel is now a released control mode. The
+strategy is that the two objectives are reconciled by taking the MORE
+RESTRICTIVE of them: the grid policy sets the target the loop drives toward, and
+the generator's minimum-loading floor caps the maximum PV it may reach.
+
+**What has NOT happened.** No synchronised plant has been connected to this
+controller. Every part of this was reasoned from the plant model and exercised
+against unit tests; none of it has seen two sources on one bus.
+
+**The known approximation, stated plainly.** The generator floor is derived the
+same way it is for a generator carrying the plant alone: lower PV and the
+generator picks up load. That holds when the generator is the SWING machine. It
+does not hold when the generator is BASE-LOADED -- its own controller holds it at
+a fixed kW, and a PV change flows to the grid instead. On such a plant the floor
+does not bind the way this assumes, and PV may be curtailed harder than the
+machine actually requires.
+
+The error direction is toward a *more* loaded generator, so it costs yield rather
+than protection. That is the acceptable direction to be wrong in, and it is still
+wrong: a base-loaded site will under-produce until this is refined with
+measurements from a real synchronised plant.
+
+**Reaching this mode requires a deliberate commissioning statement.** Source
+detection must be in dual-meter topology and `dual_meter.sync_capable` must be
+set. A plant that has not been declared able to synchronise treats two live
+sources as a conflict and stops PV, which is where every uncommissioned unit
+sits.
+
+**What would clear this section.** A synchronised site, with the sharing mode
+recorded (isochronous or base-load), and measurements of what the generator
+actually does when PV moves.
+
 ## 5. Open decisions
 
 These are product decisions, deliberately not made unilaterally.
