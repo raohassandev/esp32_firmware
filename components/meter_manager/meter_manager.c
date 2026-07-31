@@ -281,6 +281,77 @@ static void poll_phases(meter_runtime_t *meter, const meter_profile_t *profile,
     }
 }
 
+/*
+ * THE MEASUREMENT AND ENERGY BLOCKS.
+ *
+ * Everything the instrument measures that the control loop does NOT need:
+ * voltages, currents, line-to-line, power factor, frequency, reactive and
+ * apparent power, asymmetry, neutral current, and the cumulative counters.
+ *
+ * THREE RULES, EACH FOR A REASON.
+ *
+ * ONE TRANSACTION EACH. The measurement set is 72 contiguous registers and the
+ * counters are 40, both well inside the 125-register limit of one request. Read
+ * field by field this would be thirty round trips per cycle on a bus the control
+ * loop shares at 300 ms, which does not fit -- so the alternative to a block read
+ * was never "slower", it was "never acquired", which is the state this replaces.
+ *
+ * THEIR OWN CADENCE. Voltage and power factor do not need the control rate, and
+ * energy counters change by the hour. Polling them at the control rate would
+ * halve the rate of the one measurement that actually regulates the plant.
+ *
+ * THEIR FAILURE IS NOT A CONTROL FAILURE. A block that does not answer leaves
+ * the previous sample in place with its own timestamp, so a page can say how old
+ * it is. It never marks the meter offline, never counts against poll quality and
+ * never blocks a control decision, because the control decision does not use it.
+ */
+#define METER_MEASUREMENT_BLOCK_INTERVAL_MS 1000U
+#define METER_ENERGY_BLOCK_INTERVAL_MS 30000U
+
+static void poll_measurement_block(meter_runtime_t *meter, const meter_profile_t *profile,
+                                   uint32_t *next_due_ms, uint32_t timestamp)
+{
+    if (!profile || !profile->has_measurement_block) return;
+    if (timestamp < *next_due_ms) return;
+    *next_due_ms = timestamp + METER_MEASUREMENT_BLOCK_INTERVAL_MS;
+
+    uint16_t registers[EM500_BLOCK_REGISTERS] = {0};
+    em500_measurements_t decoded;
+    if (serialized_read_announced(meter, meter->config.function_code,
+                                  EM500_BLOCK_START, EM500_BLOCK_REGISTERS,
+                                  registers, false) != ESP_OK) {
+        return;
+    }
+    if (!em500_block_decode(registers, EM500_BLOCK_REGISTERS, &decoded)) return;
+
+    meter_data_t next = data_snapshot(meter);
+    next.measurements = decoded;
+    next.measurements_updated_ms = now_ms();
+    store_data(meter, &next);
+}
+
+static void poll_energy_block(meter_runtime_t *meter, const meter_profile_t *profile,
+                              uint32_t *next_due_ms, uint32_t timestamp)
+{
+    if (!profile || !profile->has_energy_block) return;
+    if (timestamp < *next_due_ms) return;
+    *next_due_ms = timestamp + METER_ENERGY_BLOCK_INTERVAL_MS;
+
+    uint16_t registers[EM500_ENERGY_REGISTERS] = {0};
+    em500_energy_t decoded;
+    if (serialized_read_announced(meter, meter->config.function_code,
+                                  EM500_ENERGY_START, EM500_ENERGY_REGISTERS,
+                                  registers, false) != ESP_OK) {
+        return;
+    }
+    if (!em500_energy_decode(registers, EM500_ENERGY_REGISTERS, &decoded)) return;
+
+    meter_data_t next = data_snapshot(meter);
+    next.energy = decoded;
+    next.energy_updated_ms = now_ms();
+    store_data(meter, &next);
+}
+
 static void meter_task(void *argument)
 {
     meter_runtime_t *meter = argument;
@@ -288,6 +359,10 @@ static void meter_task(void *argument)
     const float scale = effective_active_power_scale(&meter->config);
     const meter_profile_t *profile = meter_profile_for_model(meter->config.model);
     uint16_t registers[2] = {0};
+    /* Both blocks are due immediately, so the first successful cycle populates
+     * the pages rather than leaving them empty for the first interval. */
+    uint32_t measurement_due_ms = 0;
+    uint32_t energy_due_ms = 0;
 
     if (legacy_em500_scale_fingerprint(&meter->config)) {
         ESP_LOGW(TAG, "%s legacy EM500 scale %.8f normalized to %.8f kW/raw",
@@ -361,6 +436,14 @@ static void meter_task(void *argument)
         }
 
         store_data(meter, &next);
+
+        /* After the control measurement is stored, and only on a cycle that
+         * succeeded: spending the bus on a link that has just failed to answer
+         * delays the recovery of the one reading control depends on. */
+        if (success) {
+            poll_measurement_block(meter, profile, &measurement_due_ms, completed_ms);
+            poll_energy_block(meter, profile, &energy_due_ms, completed_ms);
+        }
 
         /* Poll-on-completion when the configured delay is zero: the next request
          * goes out as soon as this one finished, so the sample rate is set by the

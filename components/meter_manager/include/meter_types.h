@@ -2,6 +2,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "em500_block.h"
+
 typedef struct {
     float active_power_kw;
     /* Per-phase active power, kW, import-positive.
@@ -19,6 +21,25 @@ typedef struct {
      * justify. Computed here, not yet on a screen. */
     float phase_power_kw[3];
     bool phase_valid[3];
+    /* Everything else the instrument measures: voltages, currents, power factor,
+     * frequency, reactive and apparent power, asymmetry, neutral current.
+     *
+     * NOT part of the control path. The control loop needs active power and
+     * nothing more, and it needs it at the poll rate. This block is what a person
+     * needs -- to see that the meter is wired correctly, that the CTs are on the
+     * right phases, that a limit is being enforced for a reason the totals do not
+     * show. It is therefore polled on its own slower cadence and its failure never
+     * fails a control cycle.
+     *
+     * measurements.valid is false until the first block read succeeds, so a page
+     * can say "not yet read" instead of drawing a plant at 0 V. */
+    em500_measurements_t measurements;
+    uint32_t measurements_updated_ms;
+    /* Cumulative energy. Counters, not rates: they only ever move forward, they
+     * change slowly, and they are what a factory owner actually checks -- so they
+     * are polled slower still. */
+    em500_energy_t energy;
+    uint32_t energy_updated_ms;
     bool online;
     bool degraded;
     bool connection_initialized;

@@ -63,6 +63,17 @@ typedef struct {
     bool has_phase_power;
     uint16_t phase_power_address[3];
 
+    /* Whether this family's manual documents its full instantaneous measurement
+     * set, and its cumulative energy counters, as contiguous runs that can each
+     * be read in ONE transaction -- the layout in em500_block.h.
+     *
+     * These are not control inputs. They are what a person needs to see that the
+     * meter is wired the way the drawing says and that the controller is acting
+     * on real measurements. A family without the flag simply has no such page,
+     * rather than a page of registers guessed from a family that does. */
+    bool has_measurement_block;
+    bool has_energy_block;
+
     /* The digital-input word this family uses for source detection, and whether
      * its bits are an OR of all inputs (a bitmask) or an enumeration. Zero
      * address means the family has no documented source indication, and source
