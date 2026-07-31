@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "network_manager.c" "network_scan.c" "network_wifi_copy.c" "network_mdns.c"
+    SRCS "captive_portal.c" "network_manager.c" "network_scan.c" "network_wifi_copy.c" "network_mdns.c"
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "."
     REQUIRES esp_wifi esp_event esp_netif esp_timer config_manager device_identity

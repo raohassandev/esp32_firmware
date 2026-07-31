@@ -1,4 +1,6 @@
 #include "network_manager.h"
+
+#include "captive_portal.h"
 #include "network_mdns.h"
 #include "network_scan_internal.h"
 #include <stdio.h>
@@ -21,7 +23,19 @@
 #define READY_BIT BIT0
 #define MAX_SCAN_RESULTS 32
 #define AP_RESCAN_INTERVAL_MS 15000
-#define AP_RESCAN_MAX_INTERVAL_MS 240000
+/* The longest a disconnected controller may go without looking again.
+ *
+ * Was four minutes. The product owner set two: a site whose router has just come
+ * back should rejoin promptly, and four minutes of silence on a controller that
+ * looks dead is long enough for somebody to power-cycle it and conclude the
+ * product is unreliable.
+ *
+ * The doubling backoff below it is kept. It exists so a VISIBLE but unusable
+ * SSID -- wrong passphrase, saturated AP -- is not retried continuously, because
+ * the recovery access point shares this radio and every scan takes it off air.
+ * Two minutes is the ceiling of that backoff, not the interval: the first retry
+ * is still 15 seconds after the sweep fails. */
+#define AP_RESCAN_MAX_INTERVAL_MS 120000
 #define AP_RESCAN_MAX_SHIFT 4
 
 /* Home channel of the soft AP while the station is not associated. */
@@ -294,6 +308,25 @@ static esp_err_t start_recovery_ap(void)
     ESP_RETURN_ON_ERROR(esp_wifi_set_config(WIFI_IF_AP, &ap), TAG, "recovery AP config failed");
 
     s_recovery_ap_on_air = true;
+
+    /* The captive portal follows the access point on air, so joining the setup
+     * network opens the setup page. Bound to the AP's own address only -- see
+     * captive_portal.h for why INADDR_ANY would take the site LAN down.
+     *
+     * A failure here is logged and not propagated: the recovery AP itself is the
+     * guaranteed way back into a controller, and refusing to bring it up because
+     * a convenience could not start would turn a smaller problem into the exact
+     * lockout the AP exists to prevent. */
+    esp_netif_ip_info_t ap_ip = {0};
+    if (s_ap_netif && esp_netif_get_ip_info(s_ap_netif, &ap_ip) == ESP_OK &&
+        ap_ip.ip.addr != 0U) {
+        const esp_err_t portal = captive_portal_start(ap_ip.ip.addr);
+        if (portal != ESP_OK) {
+            ESP_LOGW(TAG, "Captive portal did not start (%s); the recovery AP is on air "
+                          "and reachable by address", esp_err_to_name(portal));
+        }
+    }
+
     portENTER_CRITICAL(&s_lock);
     s_status.fallback_ap_active = true;
     s_status.ap_channel = RECOVERY_AP_HOME_CHANNEL;

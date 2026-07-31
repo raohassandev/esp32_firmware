@@ -462,10 +462,19 @@ static bool parse_wifi_config(cJSON *root, const app_wifi_config_t *current,
         strlcpy(error, "The primary Wi-Fi profile must remain enabled", error_size);
         return false;
     }
-    if (next->fallback.enabled && strcmp(next->primary.ssid, next->fallback.ssid) == 0) {
-        strlcpy(error, "Primary and fallback SSIDs must be different", error_size);
-        return false;
-    }
+    /* THE TWO PROFILES MAY NAME THE SAME NETWORK.
+     *
+     * This used to be refused, on the reasoning that a fallback identical to the
+     * primary adds nothing. That is true of the RETRY behaviour and false of
+     * everything else: plenty of sites have exactly one Wi-Fi, and telling their
+     * engineer that the controller will not accept it twice is a rule with no
+     * safety behind it. It also made the recovery-AP passphrase unwritable on a
+     * unit that had somehow acquired two identical profiles, because the whole
+     * configuration round-trip was rejected on a field nobody was editing.
+     *
+     * What still must hold is that the primary is enabled and named -- a
+     * controller with no station profile at all has nothing to fall back FROM. */
+
     if (next->fallback_ap_enabled && !next->fallback_ap_ssid[0]) {
         strlcpy(error, "Recovery AP SSID is required", error_size);
         return false;
