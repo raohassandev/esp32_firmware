@@ -92,7 +92,7 @@ const alarmMarkup = `
   </details>
 </article>`;
 const html = `<!doctype html><html data-access="operator"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<style>:root{--panel:#102238;--line:#29415b;--line-soft:#1c3249;--line-strong:#49627d;--text:#eef5fb;--muted:#9bb0c3;--good:#43c495;--bad:#ff6b74;--warning:#f2bb55;--info:#55a8f5}.metric-grid,.dashboard-grid{display:grid}.content{display:block}.product-mobile-nav{display:none;position:fixed;height:64px}.pvc-figure{width:100%}</style>
+<style>*,*::before,*::after{box-sizing:border-box}html,body{margin:0;max-width:100%}:root{--panel:#102238;--line:#29415b;--line-soft:#1c3249;--line-strong:#49627d;--text:#eef5fb;--muted:#9bb0c3;--good:#43c495;--bad:#ff6b74;--warning:#f2bb55;--info:#55a8f5}.metric-grid,.dashboard-grid{display:grid}.content{display:block}.product-mobile-nav{display:none;position:fixed;height:64px}.pvc-figure{width:100%}</style>
 <style>${safeCss}</style></head><body class="product-experience-v2">
 <div id="controllerPill" class="live-pill neutral">Online</div><div id="sourceBannerLabel">GRID</div>
 <div id="statusMeter">Good</div><div id="statusControl">Active</div><div id="statusAlarms">0</div><div id="statusUpdated">Now</div>

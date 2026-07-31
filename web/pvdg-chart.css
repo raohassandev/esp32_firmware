@@ -512,7 +512,7 @@ body.product-experience-v2 select { min-height: 40px; }
     body.product-experience-v2 .alarm-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     body.product-experience-v2 .status-strip { overflow-x: auto; }
     body.product-experience-v2 .status-item { flex: 0 0 auto; min-width: 108px; }
-    .pvc-figure { height: 260px; }
+    body.product-experience-v2 .pvc-figure { height: 260px; }
 }
 
 @media (max-width: 620px) {
@@ -550,7 +550,7 @@ body.product-experience-v2 select { min-height: 40px; }
         background: var(--panel);
     }
     .pvc-card { padding: 10px; }
-    .pvc-figure { height: 236px; }
+    body.product-experience-v2 .pvc-figure { height: 236px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
