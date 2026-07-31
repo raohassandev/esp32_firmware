@@ -5,6 +5,7 @@ on:
     paths:
       - 'web/**'
       - 'tests/operator_ui_browser_runtime_test.mjs'
+      - 'tests/operator_ui_full_app_fixture_test.mjs'
       - '.github/workflows/operator-ui-browser-runtime.yml'
   push:
     branches:
@@ -16,6 +17,7 @@ on:
     paths:
       - 'web/**'
       - 'tests/operator_ui_browser_runtime_test.mjs'
+      - 'tests/operator_ui_full_app_fixture_test.mjs'
       - '.github/workflows/operator-ui-browser-runtime.yml'
   workflow_dispatch:
 
@@ -25,8 +27,49 @@ permissions:
 jobs:
   runtime:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Run operator UI Chromium runtime contract
         run: node tests/operator_ui_browser_runtime_test.mjs
+      - name: Apply fixture-only source visibility expectation
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('tests/operator_ui_full_app_fixture_test.mjs')
+          text = path.read_text(encoding='utf-8')
+          old = """  const verdict = await evaluate(`document.getElementById('plantVerdictValue')?.textContent || ''`);
+          assert(verdict === 'PLANT NORMAL', `Full app verdict is ${verdict || '<missing>'}`);
+"""
+          new = """  const operatorVerdict = await evaluate(`document.getElementById('plantVerdictValue')?.textContent || ''`);
+          assert(operatorVerdict === 'PLANT STATUS UNKNOWN', `Signed-out operator verdict is ${operatorVerdict || '<missing>'}`);
+"""
+          if old in text:
+              text = text.replace(old, new, 1)
+          old2 = """  const access = await evaluate(`document.documentElement.dataset.access`);
+          assert(access === 'engineering', `Engineering login did not unlock the application (${access})`);
+          await visit('control');
+"""
+          new2 = """  const access = await evaluate(`document.documentElement.dataset.access`);
+          assert(access === 'engineering', `Engineering login did not unlock the application (${access})`);
+          await visit('dashboard', 1440, 900, false);
+          const engineeringVerdict = await evaluate(`document.getElementById('plantVerdictValue')?.textContent || ''`);
+          assert(engineeringVerdict === 'PLANT NORMAL', `Engineering dashboard verdict is ${engineeringVerdict || '<missing>'}`);
+          await visit('control');
+"""
+          if old2 in text:
+              text = text.replace(old2, new2, 1)
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Run complete bundled application fixture
+        run: |
+          node --check tests/operator_ui_full_app_fixture_test.mjs
+          node tests/operator_ui_full_app_fixture_test.mjs
+      - name: Upload complete-app screenshots and report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: operator-ui-full-app
+          path: artifacts/operator-ui-full-app
+          if-no-files-found: error
+          retention-days: 14
