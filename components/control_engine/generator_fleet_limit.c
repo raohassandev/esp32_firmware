@@ -457,3 +457,13 @@ bool generator_sharing_mode_supported(uint8_t mode)
     return mode == (uint8_t)GENERATOR_SHARING_ISOCHRONOUS ||
            mode == (uint8_t)GENERATOR_SHARING_BASE_LOAD;
 }
+
+float generator_urgent_ramp_multiplier(bool generator_carrying, bool fleet_known,
+                                       float generator_load_kw, float online_rated_kw)
+{
+    if (!generator_carrying || !fleet_known) return 1.0f;
+    if (!isfinite(generator_load_kw) || generator_load_kw < 0.0f) return 1.0f;
+    if (!isfinite(online_rated_kw) || online_rated_kw <= 0.0f) return 1.0f;
+    const float urgent_below_kw = online_rated_kw * GENERATOR_URGENT_LOADING_FRACTION;
+    return generator_load_kw < urgent_below_kw ? GENERATOR_URGENT_RAMP_MULTIPLIER : 1.0f;
+}

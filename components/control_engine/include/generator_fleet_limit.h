@@ -360,6 +360,36 @@ float generator_base_load_tolerance_band_kw(float tolerance_kw,
                                             float tolerance_percent_of_rating,
                                             float rated_kw);
 
+/* The fraction of aggregate rating below which a generator is treated as
+ * URGENTLY underloaded, and the factor its recovery is accelerated by. */
+#define GENERATOR_URGENT_LOADING_FRACTION 0.25f
+#define GENERATOR_URGENT_RAMP_MULTIPLIER 2.0f
+
+/*
+ * How much faster PV must be REDUCED, given how badly the generators are
+ * underloaded. Returns 1.0 normally and GENERATOR_URGENT_RAMP_MULTIPLIER while
+ * the load is below GENERATOR_URGENT_LOADING_FRACTION of the online rating.
+ *
+ * Direction matters and only one direction is affected. Below its minimum
+ * loading a generator is wet-stacking and heading toward reverse power, and the
+ * only lever this controller has to raise generator load is to LOWER PV. So the
+ * boost applies to the PV ramp-DOWN rate. Applying it to ramp-up would raise PV
+ * faster while the machine is already starved, which is the opposite of the
+ * intent and would be actively dangerous.
+ *
+ * The threshold sits BELOW the minimum-loading target (25 percent against a
+ * default 30) on purpose: it is not the target, it is the point at which
+ * reaching the target stops being routine and becomes urgent. Between 25 and 30
+ * percent the normal commissioned rate is enough.
+ *
+ * Returns 1.0 for any input it cannot trust -- an unknown running set, a
+ * non-finite measurement, a zero or negative rating -- so an uncertain plant
+ * ramps at the rate the engineer commissioned rather than at one this function
+ * inferred.
+ */
+float generator_urgent_ramp_multiplier(bool generator_carrying, bool fleet_known,
+                                       float generator_load_kw, float online_rated_kw);
+
 #ifdef __cplusplus
 }
 #endif

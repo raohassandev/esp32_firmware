@@ -695,8 +695,19 @@ static void control_task(void *argument)
             .interval_seconds = interval_seconds,
             .ramp_up_kw_per_second = ramp_kw_per_second(&ramp, true, fleet_capacity_kw,
                                                         fleet_valid, interval_seconds),
-            .ramp_down_kw_per_second = ramp_kw_per_second(&ramp, false, fleet_capacity_kw,
-                                                          fleet_valid, interval_seconds),
+            /* Accelerated ONLY downward, and only while the generators are
+             * urgently underloaded. Lowering PV is the single lever this
+             * controller has to raise generator load, so that is the direction
+             * worth hurrying; hurrying upward would feed PV into a starving
+             * machine. The multiplier is 1.0 for anything the fleet module will
+             * not vouch for, so an uncertain plant ramps at the commissioned
+             * rate rather than one inferred here. */
+            .ramp_down_kw_per_second =
+                ramp_kw_per_second(&ramp, false, fleet_capacity_kw, fleet_valid,
+                                   interval_seconds) *
+                generator_urgent_ramp_multiplier(generator_carrying, fleet_limit.known,
+                                                 fabsf(measured_grid_kw),
+                                                 fleet_limit.online_rated_kw),
             .integral_kw = integral_kw,
             .generator_safe_limit_kw = generator_safe_limit_kw,
         };
