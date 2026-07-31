@@ -46,6 +46,18 @@
         return item.telemetry_stale ? 'Stale' : 'Offline';
     }
 
+    /* The diagnosis itself lives in devices-utils.js, where it is unit-tested
+     * (web/tests/devices-utils.test.js) rather than only rendered. This file
+     * supplies the channel endpoint that names the configured unit id, which is
+     * the fact the offline case most often turns on. */
+    const utils = () => window.PvdgDeviceUtils;
+
+    function endpointFor(index) {
+        const channels = Array.isArray(window.PvdgInverterEndpoints) ? window.PvdgInverterEndpoints : null;
+        if (!channels) return null;
+        return channels.find((entry) => Number(entry.index) === Number(index)) || null;
+    }
+
     function ensureScaffold() {
         const page = document.querySelector('[data-page="inverters"]');
         if (!page || byId('inverterLiveTelemetry')) return;
@@ -63,6 +75,11 @@
         message.id = 'inverterTelemetryLiveMessage';
         const summary = node('div', 'device-summary');
         summary.id = 'inverterTelemetryLiveSummary';
+        /* Above the numbers, not below them: an engineer who sees "Unavailable"
+         * should read the cause in the same glance. */
+        const findings = node('div', 'device-findings');
+        findings.id = 'inverterTelemetryFindings';
+        findings.setAttribute('role', 'status');
         /* A table, not a column of cards. Every inverter answers the same eight
          * questions, so the answers belong in aligned columns where they can be
          * compared down the page. As stacked cards each channel occupied most of
@@ -82,7 +99,7 @@
         body.id = 'inverterTelemetryLiveRows';
         table.append(head, body);
         wrap.append(table);
-        panel.append(header, message, summary, wrap);
+        panel.append(header, message, summary, findings, wrap);
         const config = byId('inverterConfigurationEditor');
         if (config) config.after(panel);
         else page.append(panel);
@@ -93,6 +110,23 @@
         card.append(node('span', '', label), node('strong', '', value));
         if (detail) card.append(node('small', '', detail));
         return card;
+    }
+
+    function renderFindings(data, inverters) {
+        const target = byId('inverterTelemetryFindings');
+        if (!target) return;
+        const helpers = utils();
+        if (!helpers) return;
+        const findings = inverters
+            .map((item) => helpers.diagnoseInverter(item, endpointFor(item.index)))
+            .filter(Boolean);
+        const fleet = helpers.diagnoseInverterFleet(data, findings.length);
+        target.replaceChildren();
+        if (fleet) target.append(node('p', 'device-finding fleet', fleet));
+        findings.forEach((finding) => target.append(node('p', `device-finding ${finding.tone}`, finding.text)));
+        if (!fleet && !findings.length) {
+            target.append(node('p', 'device-finding good', 'Every configured inverter is answering with a fresh production sample.'));
+        }
     }
 
     function render(data) {
@@ -106,10 +140,18 @@
             summaryCard('Online', values.online ?? 0, `${data?.count ?? 0} configured runtime channels`),
             summaryCard('Measured production', formatPower(values.measured_total_kw), `${values.telemetry_valid ?? 0} valid telemetry channels`),
             summaryCard('Identity verified', values.identity_verified ?? 0, `${values.stale ?? 0} stale channels`),
-            summaryCard('Commandable capacity', formatPower(values.commandable_rated_kw), `${values.command_mismatched ?? 0} readback mismatches`)
+            /* A bare "0.00 kW" reads as a measurement of a fleet that is there
+             * and producing nothing. It is not: it is the capacity the control
+             * loop may command, and zero almost always means a condition is
+             * unmet rather than a plant at rest. */
+            summaryCard('Commandable capacity', formatPower(values.commandable_rated_kw),
+                Number(values.commandable_rated_kw) === 0
+                    ? 'Nothing is eligible to be commanded — see below'
+                    : `${values.command_mismatched ?? 0} readback mismatches`)
         );
         rows.replaceChildren();
         const inverters = Array.isArray(data?.inverters) ? data.inverters : [];
+        renderFindings(data, inverters);
         if (!inverters.length) {
             const empty = node('tr');
             const cell = node('td', 'device-empty', 'No inverter runtime channels are available.');

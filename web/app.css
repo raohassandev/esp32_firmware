@@ -875,6 +875,19 @@ input:disabled, select:disabled, textarea:disabled {
 .scope-refusal[hidden] { display: none; }
 .scope-toggle { margin-top: 12px; min-height: 44px; }
 
+/* ------------------------------------------------------------------ findings
+ *
+ * What is actually wrong, above the numbers rather than below them, at full
+ * contrast. "Unavailable" and "Commandable 0 kW" are true and useless on their
+ * own; the cause belongs in the same glance. */
+.device-findings { display: grid; gap: 6px; margin-top: 12px; }
+.device-finding { margin: 0; padding: 9px 12px; border-left: 3px solid var(--gate-boundary); color: var(--text); font-size: 11px; line-height: 1.6; }
+.device-finding.fleet { font-weight: 700; }
+.device-finding.bad { border-left-color: var(--confirm-mismatched); }
+.device-finding.warning { border-left-color: var(--confirm-unverified); }
+.device-finding.good { border-left-color: var(--confirm-confirmed); color: var(--muted); }
+.device-finding.neutral { color: var(--muted); }
+
 /* ------------------------------------------------------------- dense tables
  *
  * Every inverter answers the same questions, so the answers belong in aligned
