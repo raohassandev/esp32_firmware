@@ -311,3 +311,103 @@
 `;
   document.head.append(style);
 })();
+
+/* False-certainty guard for derived operator presentation.
+ *
+ * Several operator cards are rebuilt from boolean fields in operator-view.js.
+ * JavaScript maps an absent boolean to false, which made an endpoint that had
+ * not reported yet look exactly like a confirmed Offline state. The controller
+ * status strip already preserves the distinction by publishing Checking,
+ * Unavailable, Unknown or Never. This guard carries that distinction into the
+ * derived cards after each render. It never changes a reported Online, Offline,
+ * Normal, Warning or Critical state and it issues no request.
+ *
+ * The acknowledgement correction is equally narrow. Acknowledgement is an
+ * operator action by design; shelving and out-of-service remain Engineering
+ * actions. A stale 401 message told the operator to sign into Engineering. That
+ * message is corrected without changing the request, endpoint or permission. */
+(() => {
+  'use strict';
+  let queued = false;
+  const clean = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+  const unknown = (value) => !value || /^(--|unknown|unavailable|checking|connecting|never|no sample)$/i.test(clean(value));
+  const status = (id) => clean(document.getElementById(id)?.textContent);
+
+  function statusRow(root, label) {
+    return [...(root?.querySelectorAll('.op-status-row') || [])].find((row) => {
+      const text = clean(row.querySelector('.op-status-lead span:last-child')?.textContent);
+      return text === label;
+    }) || null;
+  }
+
+  function markUnknown(root, label, value, detail) {
+    const row = statusRow(root, label);
+    if (!row) return;
+    const strong = row.querySelector('.op-status-copy strong');
+    const small = row.querySelector('.op-status-copy small');
+    if (strong && strong.textContent !== value) strong.textContent = value;
+    if (small && small.textContent !== detail) small.textContent = detail;
+    ['good', 'bad', 'warning'].forEach((tone) => row.classList.remove(tone));
+    row.classList.add('neutral');
+  }
+
+  function correctDerivedStates() {
+    const network = status('statusNetwork');
+    const meter = status('statusMeter');
+    const alarms = status('statusAlarms');
+
+    if (unknown(network)) {
+      markUnknown(document.getElementById('operatorDashboardView'), 'Controller network', 'Unknown',
+        'The controller has not reported network state.');
+      markUnknown(document.getElementById('operatorSystemView'), 'Connection', 'Unknown',
+        'The controller has not reported network state.');
+    }
+    if (unknown(meter)) {
+      markUnknown(document.getElementById('operatorDashboardView'), 'Grid measurement', 'Unavailable',
+        'The controller has not reported measurement state.');
+      markUnknown(document.getElementById('operatorMeterView'), 'Communication', 'Unknown',
+        'The controller has not reported meter communication state.');
+      markUnknown(document.getElementById('operatorMeterView'), 'Data quality', 'Unavailable',
+        'No current measurement quality has been reported.');
+    }
+    if (unknown(alarms)) {
+      markUnknown(document.getElementById('operatorSystemView'), 'Alarms', 'Unknown',
+        'The controller has not reported alarm state.');
+    }
+  }
+
+  function correctAcknowledgementMessage() {
+    document.querySelectorAll('#alarmConsole .alarm-message').forEach((message) => {
+      if (!clean(message.textContent).startsWith('Acknowledging an alarm requires an authenticated engineering session.')) return;
+      const corrected = 'The controller refused the acknowledgement request. Acknowledgement is an operator action; check the controller API or session configuration and retry. Nothing was changed.';
+      if (message.textContent !== corrected) message.textContent = corrected;
+    });
+  }
+
+  function reconcile() {
+    queued = false;
+    correctDerivedStates();
+    correctAcknowledgementMessage();
+  }
+
+  function schedule() {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(reconcile);
+  }
+
+  function start() {
+    const main = document.getElementById('mainContent');
+    if (main) new MutationObserver(schedule).observe(main, { childList: true, subtree: true, characterData: true });
+    ['statusNetwork', 'statusMeter', 'statusAlarms'].forEach((id) => {
+      const target = document.getElementById(id);
+      if (target) new MutationObserver(schedule).observe(target, { childList: true, characterData: true, subtree: true });
+    });
+    window.addEventListener('amx-operator-view-rendered', schedule);
+    window.addEventListener('hashchange', schedule);
+    schedule();
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
+  else start();
+})();
