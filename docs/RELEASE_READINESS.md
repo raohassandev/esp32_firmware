@@ -587,6 +587,57 @@ rebuild, replace the stored passphrase through `/api/wifi/config`. Any unit whos
 stored passphrase is still `12345678` when it leaves the bench carries this
 section with it.
 
+## 4e. The inverter comms-loss fail-safe mostly does not exist
+
+The product owner's instruction was to write each inverter's communications
+fail-safe parameter periodically, so that a controller failure drives the
+inverter to zero on its own:
+
+> *"Hr inverter men communication fail-safe ka 1 setting parameter hota he. age
+> communication master device ya controller se fail ho jae to inverter khud hi
+> apni power ZERO pe le jata he."*
+
+Eight manuals in this catalogue were read for exactly that register. **Seven
+record that no such register is documented for a third-party control link.**
+
+| Brand | What the manual actually has |
+|---|---|
+| Growatt TL3-X | *"none documented for the Modbus control link. No watchdog, timeout or fallback-limit register for a third-party controller appears in this map."* |
+| Growatt TLX | Same finding. |
+| Solis | Tag 3153 *"Internal EPM failsafe switch"* (p.33) — concerns the **EPM export meter**, not the control link. |
+| SAJ | p.13 holding 42 *"bfailsafeEn; G100 fail safe"* — **G100 export limitation**, tied to the export meter. |
+| Sungrow | None documented. |
+| Chint CPS | None documented. |
+| SolarEdge | 46002 belongs to a **dispatch group**, not the percentage path. |
+| Knox / AiSWEI | *"none documented for a third-party control link"*; the one present is an export-meter scheme. |
+
+The pattern is consistent and worth stating plainly: these inverters ship a
+fail-safe for **loss of the export meter in a grid-export-limitation scheme**,
+which is a different fault with a different remedy. Losing *this* controller is
+not a condition they are documented to detect.
+
+**What that means for the plant.** On loss of communications the last written
+limit simply stands. For a PV-DG site that is the wrong direction: the generator
+protection depends on the controller being able to lower PV, and a controller
+that has stopped talking cannot. The inverter holds whatever it was last told
+rather than reverting to something safe.
+
+**Why nothing is written.** There is no register to write. Inventing one, or
+repurposing an export-meter fail-safe whose semantics are documented to be about
+something else, is exactly the class of guess this project refuses.
+
+**What would change it.** A manufacturer citation, per brand, for a register
+that (a) detects loss of the Modbus master specifically, (b) states the timeout
+units and range, and (c) states whether it is stored in non-volatile memory —
+because the owner also asked for a periodic re-assert every 30 minutes, and a
+flash-backed register written 48 times a day wears out. The mechanism to carry
+that, when it exists, is **read first and write only on a difference**, so a
+plant whose inverters have not been reset performs zero writes.
+
+Until then the honest mitigation is the controller-side half, which is
+implemented: an inverter that stops answering leaves the commandable fleet after
+the grace window, and PV is recomputed without it.
+
 ## 5. Open decisions
 
 These are product decisions, deliberately not made unilaterally.
