@@ -5,6 +5,7 @@
 #include "esp_check.h"
 #include "esp_timer.h"
 #include "http_json.h"
+#include "field_verification.h"
 #include "inverter_manager.h"
 #include "inverter_profile_store.h"
 #include "inverter_profiles.h"
@@ -71,6 +72,30 @@ static esp_err_t profiles_get(httpd_req_t *request)
             cJSON_AddStringToObject(entry, "write_permission",
                                     inverter_write_permission_label(
                                         inverter_profile_write_permission(assigned, lab_target)));
+
+            /* The field-verification badge, computed from live evidence on every
+             * request rather than stored. It is a statement to a human and is
+             * deliberately NOT an input to write_permission above: a plant must
+             * not become commandable because it has been polled successfully. */
+            inverter_data_t data = {0};
+            field_verification_input_t evidence = { .lab_target = lab_target };
+            if (inverter_manager_get_data(slot, &data)) {
+                evidence.identity_supported = data.identity_supported;
+                evidence.identity_verified = data.identity_verified;
+                evidence.read_successes = data.read_successes;
+                evidence.consecutive_read_failures = data.consecutive_read_failures;
+                evidence.telemetry_valid = data.telemetry_valid;
+                evidence.telemetry_stale = data.telemetry_stale;
+                evidence.profile_commands = assigned && assigned->has_power_limit;
+                evidence.write_attempted = data.has_command || data.has_readback;
+                evidence.write_confirmed =
+                    data.write_confirmation == (uint8_t)INVERTER_WRITE_CONFIRMED;
+            }
+            const field_verification_t verification = field_verification_evaluate(&evidence);
+            cJSON_AddStringToObject(entry, "field_verification",
+                                    field_verification_name(verification));
+            cJSON_AddNumberToObject(entry, "clean_reads", (double)evidence.read_successes);
+            cJSON_AddNumberToObject(entry, "reads_required", FIELD_VERIFICATION_MIN_READS);
             cJSON_AddItemToArray(assignments, entry);
         }
     }

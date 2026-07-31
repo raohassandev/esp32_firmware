@@ -79,6 +79,11 @@ jobs:
             tests/source_mode_unit_test.c components/control_engine/source_mode.c \
             -lm -o /tmp/source_mode_unit_test
           /tmp/source_mode_unit_test
+      - name: Run field verification badge unit tests
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -Wall -Wextra -Werror             -Icomponents/inverter_manager/include             tests/field_verification_test.c             components/inverter_manager/field_verification.c             -o /tmp/field_verification_test
+          /tmp/field_verification_test
       - name: Run phase selection unit tests
         run: |
           set -euo pipefail
