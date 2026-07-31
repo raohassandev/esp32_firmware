@@ -18,6 +18,7 @@ load = grid + generator + solar has more unknowns than equations, and the result
 would be the most convincing wrong number on the screen.
 """
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -112,6 +113,20 @@ require("a limit written to the fleet, not measured production" in UTILS,
         "the applied PV command must be distinguished from measured production")
 require("valueKind" in UTILS and "'command'" in UTILS,
         "commanded values must be typed separately from measured values")
+
+# The type must survive into the DOM, or the distinction exists only in the
+# model. "Not measured" and "Monitoring only" were set at the same size and
+# weight as "25.23 kW" - a word standing where a reader is looking for a
+# quantity, which is the same confusion between a measurement and the absence
+# of one that the unmeasured rules elsewhere exist to prevent.
+OPERATOR_CSS = (ROOT / "web/product-mode.css").read_text(encoding="utf-8")
+require("kind-${String(entry.valueKind" in OPERATOR,
+        "the flow node must carry its value KIND into the DOM, or the model's "
+        "distinction between a measurement and a command cannot be styled")
+_flow_rules = re.sub(r"/\*.*?\*/", "", OPERATOR_CSS, flags=re.S)
+require(".op-flow-source.kind-not_measured > strong" in _flow_rules
+        and ".op-flow-source.kind-command > strong" in _flow_rules,
+        "a state word must not be typeset as a measured quantity")
 
 
 # ----------------------------------------------- no extra load on the controller

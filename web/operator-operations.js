@@ -181,6 +181,39 @@
         return wrap;
     }
 
+    /* The same drawer without the level BADGE - said once for the section
+     * instead of once per row.
+     *
+     * The badge is right and it stays; what was wrong was the arithmetic. One
+     * badge per drawer, two drawers per row, four rows on the screen is eight
+     * identical ENGINEERING pills in one list, and a label repeated eight times
+     * is a label nobody reads by the third. The level survives in three places
+     * that cost no height: the level- class the stylesheet colours the drawer
+     * with, the accessible name, and the tooltip.
+     *
+     * This is still presentation and never permission. The controller refuses
+     * shelving and out-of-service without an engineering session whether or not
+     * a badge was drawn next to the control. */
+    function levelledDetails(level, summaryText, ...children) {
+        const word = level === 'service' ? 'Service' : 'Engineering';
+        const wrap = node('details', `op-more op-more-quiet level-${level}`);
+        const head = node('summary', 'op-more-summary');
+        head.append(node('span', '', summaryText));
+        head.title = `${word}: ${summaryText}`;
+        head.setAttribute('aria-label', `${word}. ${summaryText}`);
+        wrap.append(head, ...children.filter(Boolean));
+        return wrap;
+    }
+
+    /* The one statement of the level for a whole section, carrying the badge the
+     * rows no longer repeat. */
+    function levelNote(level, text) {
+        const word = level === 'service' ? 'Service' : 'Engineering';
+        const note = node('div', `op-level-note level-${level}`);
+        note.append(node('span', 'op-more-level', word), node('small', '', text));
+        return note;
+    }
+
     async function api(path, options = {}) {
         const controller = new AbortController();
         const timer = window.setTimeout(() => controller.abort(), 6000);
@@ -655,20 +688,17 @@
             drawer.append(node('small', 'alarm-suppression-reason',
                 `Recorded reason: ${alarm.out_of_service_reason_text}`));
         }
-        block.append(details('engineering', 'Why this is suppressed', drawer));
+        block.append(levelledDetails('engineering', 'Why this is suppressed', drawer));
         return block;
     }
 
     /* The asymmetry, made visible by where the controls sit. Acknowledge is a
      * plain button on the row: it is the operator's action under ISA-18.2 and it
      * needs no session. Shelving and out-of-service hide a live condition, still
-     * require an engineering session, and therefore live one level down behind a
-     * drawer that says so. The drawer is a signpost, not a lock - the controller
-     * refuses these without a session regardless of what the browser drew. */
-    function suppressionControls(alarm) {
-        return details('engineering', 'Shelve or take out of service', suppressionActions(alarm));
-    }
-
+     * require an engineering session, and therefore live one level down inside
+     * the row's Engineering drawer. The drawer is a signpost, not a lock - the
+     * controller refuses these without a session regardless of what the browser
+     * drew. */
     function suppressionActions(alarm) {
         const wrap = node('div', 'alarm-suppress-actions');
         if (!engineeringAuthorized()) {
@@ -758,37 +788,39 @@
             node('strong', '', alarm.title || 'Controller condition'),
             node('span', `alarm-severity-pill severity-${severity}`, severity)
         );
-        const stateLine = node('div', 'alarm-state-line');
-        stateLine.append(
-            node('span', `alarm-state-pill tone-${meta.tone}`, meta.label),
-            node('small', 'alarm-age', formatAge(alarm.last_raised_age_ms))
-        );
-        copy.append(heading, stateLine, suppressionBlock(alarm));
+        /* The pill and the age share the heading line rather than opening a
+         * second one: a triage list is read down the left edge, and every line
+         * a row spends is a line of the next row pushed off the screen. */
+        const stateLine = node('span', 'alarm-state-line');
+        const pill = node('span', `alarm-state-pill tone-${meta.tone}`, meta.label);
+        /* The meaning of the state, per row, at zero height. The screen states
+         * it once in the legend above the list; this is the same sentence
+         * available on the row that carries the pill, for a reader who has
+         * scrolled past the legend. Same wording, one source: ALARM_STATES. */
+        pill.title = meta.meaning;
+        stateLine.append(pill, node('small', 'alarm-age', formatAge(alarm.last_raised_age_ms)));
+        heading.append(stateLine);
+        copy.append(heading, suppressionBlock(alarm));
         /* The one sentence an operator acts on. The controller wrote it. */
         if (alarm.recommended_action) copy.append(node('small', 'alarm-action', alarm.recommended_action));
 
-        /* The single state whose obligation is not legible from the pill.
+        /* The returned-to-normal obligation sentence used to be printed on every
+         * returned row. On the live controller that is four identical
+         * paragraphs on one screen, because a site that has rebooted returns
+         * every condition at once - which is exactly the shape this state
+         * exists to describe, so the repetition is the normal case and not an
+         * unlucky one.
          *
-         * Every other state reads correctly at a glance: unacknowledged is
-         * present and has an Acknowledge button beside it, acknowledged says it
-         * is still present, normal is finished. Returned-to-normal is the one
-         * where what the operator SEES - the condition is gone - contradicts
-         * what they must DO, and the controller's recommended_action is about
-         * the plant fault, not about the outstanding acknowledgement. Leaving
-         * that sentence in the closed lifecycle drawer meant the row that is
-         * the whole reason for this screen was the one row you had to open
-         * something to understand.
-         *
-         * It is drawn only for this state and only from ALARM_STATES, so it is
-         * the same wording as the drawer rather than a second explanation, and
-         * the cost scales with outstanding work rather than with list length -
-         * "a sentence of lifecycle per row, repeated down the whole list" is
-         * what the prose reduction removed and it is not coming back. */
-        if (returned) copy.append(node('small', 'alarm-state-obligation', meta.meaning));
+         * It is not deleted and it has not moved into a drawer. It is stated
+         * ONCE, unmissably, in the legend directly above the list, wherever the
+         * list contains a state that needs explaining, and it is on every pill
+         * as a tooltip. What must be legible without opening anything is the
+         * OBLIGATION - that this is outstanding work - and that is carried by
+         * the pill's own words, "Returned to normal · never acknowledged", by
+         * the row counting toward the outstanding tile, and by the Acknowledge
+         * button sitting on the row. None of those moved. */
 
         const history = node('div', 'op-more-body');
-        /* Not repeated one level down when it is already on the row. */
-        if (!returned) history.append(node('p', 'alarm-state-meaning', meta.meaning));
         if (alarm.detail) history.append(node('p', '', alarm.detail));
         /* A6: the priority and the reason it was assigned still travel with the
          * alarm. The rationalisation is only reviewable if the reasoning is on
@@ -812,12 +844,87 @@
             alarmMetaRow('Acknowledged', alarm.acknowledged ? formatAge(alarm.acknowledged_age_ms) : 'No')
         );
         history.append(metaGrid);
-        copy.append(details('engineering', 'Condition history', history));
+
+        /* ONE drawer per row, not two.
+         *
+         * Every row used to mount a full-width "Condition history" panel AND a
+         * full-width "Shelve or take out of service" panel, so a single
+         * condition cost 238px and four conditions filled the screen twice
+         * over. A triage list is a list; it is read by running down it to find
+         * the one that matters, and it stops being a list when each entry is a
+         * stack of engineering panels.
+         *
+         * Nothing is removed. The history, the priority rationale, the six
+         * metadata fields and every suppression control are all still here, in
+         * the same order, one level down, behind one summary instead of two.
+         *
+         * What did NOT move, deliberately: Acknowledge stays a plain button on
+         * the row needing no session, because ISA-18.2 assigns acknowledgement
+         * to the operator and burying it is how the outstanding list stopped
+         * meaning anything. Shelving and out-of-service stay behind the
+         * Engineering level, and stay refused by the controller without a
+         * session regardless of what this file draws. */
+        const drawer = node('div', 'op-more-body');
+        drawer.append(history, node('div', 'alarm-drawer-rule'), suppressionActions(alarm));
+        copy.append(levelledDetails('engineering', 'Condition history, shelving and out-of-service', drawer));
 
         const actions = node('div', 'alarm-actions');
-        actions.append(acknowledgeControl(alarm), suppressionControls(alarm));
+        actions.append(acknowledgeControl(alarm));
         row.append(marker, copy, actions);
         return row;
+    }
+
+    /* ------------------------------------------------------------ state legend
+     *
+     * The sentence "The condition cleared itself before anyone accepted it. It
+     * is not resolved work: it stays on this list until someone acknowledges
+     * that it happened." was printed on EVERY returned-to-normal row. On the
+     * live controller that is four identical paragraphs on one screen, and it
+     * is the normal case rather than an unlucky one: a site that has restarted
+     * returns every condition at once, which is precisely the situation this
+     * state exists to describe.
+     *
+     * A sentence repeated four times is not read four times; it teaches the
+     * reader to skip the paragraph, including on the row where it matters. It
+     * is now stated once, here, above the list, behind nothing - and it is
+     * still on every pill as a tooltip.
+     *
+     * Two rules this must not break, and does not:
+     *
+     *   - Only states PRESENT in the visible list are explained. A legend that
+     *     explains four states when the screen is showing one is the same
+     *     defect at a different scale.
+     *   - The pill itself never moves. "Returned to normal · never
+     *     acknowledged" is on the first screen of every such row, behind
+     *     nothing, and the row still counts toward the outstanding tile and
+     *     still carries its own Acknowledge button. This legend explains the
+     *     pill; it does not stand in for it.
+     *
+     * Wording comes from ALARM_STATES, so the legend, the tooltip and the
+     * lifecycle reference below the list are one sentence with one source and
+     * cannot drift apart. */
+    function alarmStateLegend(visible) {
+        const present = [];
+        const seen = Object.create(null);
+        (Array.isArray(visible) ? visible : []).forEach((alarm) => {
+            const key = String(alarm && alarm.state);
+            if (!ALARM_STATES[key] || seen[key]) return;
+            seen[key] = true;
+            present.push(key);
+        });
+        if (!present.length) return null;
+        const wrap = node('div', 'alarm-legend');
+        wrap.append(node('span', 'alarm-legend-title', 'What these states mean'));
+        const items = node('div', 'alarm-legend-items');
+        present.forEach((key) => {
+            const entry = ALARM_STATES[key];
+            const item = node('div', 'alarm-legend-item');
+            item.append(node('span', `alarm-state-pill tone-${entry.tone}`, entry.label),
+                node('small', '', entry.meaning));
+            items.append(item);
+        });
+        wrap.append(items);
+        return wrap;
     }
 
     function renderAlarmConsole() {
@@ -831,15 +938,12 @@
         /* The page name, the breadcrumb and the document title already say
          * "Alarms and events" - the heading and the paragraph that used to
          * restate it, and then list the columns the reader can see, are gone.
-         * Counts first, then the list. */
-        const head = node('div', 'op-section-head');
-        head.append(node('div'));
-        const refresh = node('button', 'button secondary', 'Refresh');
-        refresh.type = 'button';
-        refresh.addEventListener('click', refreshAlarms);
-        head.append(refresh);
-        view.append(head);
-
+         *
+         * The Refresh button that used to sit in a header row of its own has
+         * gone the same way as the operator screens': the row was a full-width
+         * flex band holding one control and an empty div, and the shell's
+         * top-bar refresh already exists. This list also re-reads the
+         * controller every ten seconds. */
         view.append(alarmSummaryTiles(alarms, summary, payload.rate));
 
         const controls = node('div', 'alarm-controls');
@@ -877,12 +981,25 @@
 
         const list = node('div', 'alarm-list');
         const visible = filteredAlarms();
+        /* The legend goes above the list, behind nothing, and carries the state
+         * meanings ONCE for the states this screen is actually showing. */
+        const legend = alarmStateLegend(visible);
+        if (legend) view.append(legend);
         if (!alarms.length) {
             list.append(node('div', 'op-empty-state good',
                 'The controller has raised no alarm condition since it started.'));
         } else if (!visible.length) {
             list.append(node('div', 'op-empty-state',
                 `${alarms.length} condition(s) are recorded but none match the current filter.`));
+        }
+        /* The ENGINEERING badge, once for the whole list instead of twice on
+         * every row. It says what the level means here, which the eight
+         * identical pills it replaces never did. */
+        if (visible.length) {
+            view.append(levelNote('engineering',
+                'Each condition carries a drawer with its history and the suppression controls. '
+                + 'Shelving and taking a condition out of service need an engineering session; '
+                + 'acknowledging does not, and its button is on the row.'));
         }
         visible.forEach((alarm) => list.append(alarmRow(alarm)));
         view.append(list);
@@ -1164,6 +1281,17 @@
         return state.chart;
     }
 
+    /* The measurement bars above the chart quote the same window the chart is
+     * drawing, so they have to be told when that window changes - a range
+     * button, a poll, or a history error that invalidates the figures. This
+     * fires only on history arriving, never on a render, so it cannot loop with
+     * the operator view's own rebuild. */
+    function announceHistory() {
+        window.dispatchEvent(new CustomEvent('amx-operator-history', {
+            detail: { range: state.range, ok: !state.historyError }
+        }));
+    }
+
     function applyHistory() {
         const instance = state.chart;
         if (!instance) return;
@@ -1243,6 +1371,7 @@
             state.historyError = error?.message || 'Controller history is unavailable.';
         }
         applyHistory();
+        announceHistory();
     }
 
     async function refreshAll() {
@@ -1262,9 +1391,11 @@
              * counts a fault that cleared itself unacknowledged. */
             renderAlarmPage();
             scheduleEnhance();
+            announceHistory();
         } catch (error) {
             state.historyError = error?.message || 'Controller history is unavailable.';
             applyHistory();
+            announceHistory();
             console.warn('Operator history/events unavailable:', error);
         } finally {
             state.busy = false;
@@ -1305,6 +1436,39 @@
             refreshAlarms();
         }, 10000);
     }
+
+    /* ------------------------------------------------- shared range statistics
+     *
+     * This module already holds the controller's history, and web/pvdg-chart.js
+     * already knows how to turn it into honest statistics - measured samples
+     * only, an unmeasured sample counted as missing rather than as zero. The
+     * measurement bars on the grid-power and inverter pages need exactly those
+     * numbers over exactly the window the chart below them is drawing, so they
+     * read them from here instead of computing a second, quietly different set.
+     *
+     * Nothing is recomputed and no chart internals are reimplemented: this is a
+     * read-only view over state.history using PvdgChart's own pure functions.
+     * If the history has not arrived, or the range contains no measured sample,
+     * `available` is false and the caller must draw nothing rather than zero. */
+    function rangeStats(key) {
+        const chart = window.PvdgChart;
+        const info = chart && typeof chart.rangeInfo === 'function' ? chart.rangeInfo(state.range) : null;
+        const label = info ? info.label : String(state.range);
+        if (!chart || typeof chart.stats !== 'function' || !state.history) {
+            return { available: false, rangeLabel: label, stats: null };
+        }
+        const points = chart.toPoints(state.history.samples, key, { now: state.historyAt || Date.now() });
+        const figures = chart.stats(points);
+        return {
+            /* count is the number of MEASURED samples. Zero of them means this
+             * window has nothing to say, which is not the same as a flat zero. */
+            available: figures.count > 0,
+            rangeLabel: label,
+            stats: figures
+        };
+    }
+
+    window.AutomatrixOperations = Object.freeze({ rangeStats });
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
     else start();

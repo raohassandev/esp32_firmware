@@ -26,6 +26,28 @@
     system: { eyebrow: 'Engineering · Service', title: 'Controller', question: 'What maintenance action is required?', action: 'Export configuration before making service changes.' }
   };
 
+  /* Operator routes that render their own dense screen.
+   *
+   * On these, the masthead is the THIRD copy of the page's identity. The top
+   * bar already prints "Alarms and events" with "Conditions that require
+   * attention" under it, from the one route table in web/app.js; the masthead
+   * then prints an eyebrow, the same title again, an orienting question and a
+   * line of guidance - roughly 110px of restatement above the thing the reader
+   * came for.
+   *
+   * Four of these five routes were ALREADY drawing no masthead, because
+   * hideLegacyOperatorContent() in web/operator-view.js sweeps every child of
+   * the page that is not the product view. Alarms was the odd one out, and only
+   * because that sweep does not cover it. So this is not a new decision about
+   * whether the masthead belongs on an operator screen; it is the existing
+   * decision, applied on purpose and consistently, instead of falling out of
+   * which routes another module happens to enumerate.
+   *
+   * Engineering, commissioning, network setup and pre-lab readiness keep their
+   * masthead: those pages have no product view and no heading of their own, and
+   * the orienting question is the only framing they get. */
+  const OPERATOR_PRODUCT_ROUTES = new Set(['dashboard', 'meters', 'inverters', 'control', 'system', 'alarms']);
+
   const route = () => location.hash.replace(/^#\/?/, '') || 'dashboard';
   const isEngineering = () => document.documentElement.dataset.access === 'engineering';
   const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
@@ -73,7 +95,13 @@
     const page = document.querySelector(`.page[data-page="${name}"]`);
     const meta = PAGE[name];
     if (page && meta) {
-      masthead(page, meta, name);
+      /* Engineering keeps every masthead: an engineer reading the same page
+       * unlocked has no product view under it on some routes. */
+      if (!isEngineering() && OPERATOR_PRODUCT_ROUTES.has(name)) {
+        page.querySelector(':scope > .experience-masthead')?.remove();
+      } else {
+        masthead(page, meta, name);
+      }
       classifyPage(page, name);
     }
     if (document.body.dataset.experienceRoute !== name) document.body.dataset.experienceRoute = name;

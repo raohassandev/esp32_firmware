@@ -180,7 +180,7 @@ body { font-size: 15px; line-height: 1.5; }
 .experience-guidance, .experience-scope, .prelab-nav-state { font-size: 12px; }
 
 /* Primary numeric values 24-32px, fixed rather than viewport-scaled. */
-.metric-value, .op-kpi-value, .op-gauge-copy strong { font-size: 28px; letter-spacing: -0.02em; }
+.metric-value, .op-kpi-value, .op-measure-reading strong { font-size: 28px; letter-spacing: -0.02em; }
 .metric-value.compact { font-size: 24px; }
 .page-intro h2, .experience-copy h2 { font-size: 26px; }
 .page-heading h1, body.product-shell-v2 .page-heading h1 { font-size: 20px; }
@@ -202,6 +202,6 @@ body { font-size: 15px; line-height: 1.5; }
 
 @media (max-width: 650px) {
     .esb-timer strong { font-size: 24px; }
-    .metric-value, .op-kpi-value, .op-gauge-copy strong { font-size: 25px; }
+    .metric-value, .op-kpi-value, .op-measure-reading strong { font-size: 25px; }
     .page-intro h2, .experience-copy h2 { font-size: 22px; }
 }

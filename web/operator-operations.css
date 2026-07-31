@@ -107,18 +107,60 @@
 .alarm-severity-pill.severity-critical { color: var(--bad); border-color: var(--bad); }
 .alarm-severity-pill.severity-warning { color: var(--warning); border-color: var(--warning); }
 .alarm-severity-pill.severity-information { color: var(--info); border-color: var(--info); }
-.alarm-state-line { display: grid; gap: 4px; }
+/* The state pill and the age ride on the heading line. A triage list is read by
+   running down its left edge; a row that opens a second line for its state pill
+   pushes the next condition off the screen for no information gained. */
+.alarm-state-line { display: inline-flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .alarm-state-pill { justify-self: start; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 11px; font-weight: 850; }
 .alarm-state-pill.tone-bad { color: var(--bad); border-color: var(--bad); }
 .alarm-state-pill.tone-warning { color: var(--warning); border-color: var(--warning); }
 .alarm-state-pill.tone-good { color: var(--good); border-color: var(--good); }
 .alarm-state-meaning { color: var(--muted); font-size: 11px; line-height: 1.45; }
 .alarm-action { color: var(--muted); font-size: 11px; line-height: 1.45; }
-/* The outstanding acknowledgement on a returned-to-normal row. Drawn as
-   ordinary text rather than muted: it is the obligation, not a footnote, and a
-   row that is styled quieter than the ones still present is the "resolved"
-   reading this screen exists to prevent. */
-.alarm-state-obligation { color: var(--text); font-size: 11px; line-height: 1.45; }
+
+/* ------------------------------------------------------------- state legend
+   The state meanings, once per screen, above the list, behind nothing. This
+   replaces the same sentence printed on every returned-to-normal row - four
+   identical paragraphs on the live controller, because a site that has
+   restarted returns every condition at once. The pill on each row is unchanged
+   and still carries the meaning as a tooltip; what is gone is the repetition,
+   not the sentence.
+
+   Deliberately NOT a <details>. The returned-to-normal obligation is the reason
+   this screen exists and it must not be behind a disclosure control. */
+.alarm-legend { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--line-soft); border-radius: 12px; background: var(--surface-sunken); }
+.alarm-legend-title { color: var(--muted); font-size: 10px; font-weight: 850; letter-spacing: .07em; text-transform: uppercase; }
+.alarm-legend-items { display: grid; gap: 8px; }
+.alarm-legend-item { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr); gap: 12px; align-items: baseline; }
+.alarm-legend-item small { color: var(--muted); font-size: 11px; line-height: 1.45; }
+
+/* The level said once for a section, carrying the badge the rows no longer
+   repeat. Eight identical ENGINEERING pills in one list is a label nobody reads
+   by the third; one that also says what the level MEANS here is a label that
+   does some work. */
+.op-level-note { display: flex; align-items: baseline; gap: 10px; padding: 10px 12px; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--surface-sunken); }
+.op-level-note small { color: var(--muted); font-size: 11px; line-height: 1.45; }
+.op-level-note.level-engineering .op-more-level { color: var(--accent-text); border-color: var(--accent-text); }
+
+/* A drawer whose level is carried by its rule, its accessible name and its
+   tooltip rather than by a repeated pill.
+
+   What made the old row read as "a stack of panels" was not the drawer's WIDTH
+   but its chrome: closed, it was a bordered, filled box, and two of them per
+   row turned every list entry into a section. Closed, this one is a single
+   rule and a label - a row affordance. It BECOMES a panel when it is opened,
+   which is when it holds a panel's worth of content.
+
+   It deliberately keeps the full row width. It is the row's one disclosure
+   control and it is used on a wall-mounted touch panel; shrinking a 44px target
+   to the width of its own text would be trading a real ergonomic property for
+   an appearance. */
+.op-more-quiet { margin-top: 10px; border: 0; border-top: 1px solid var(--line-soft); border-radius: 0; background: transparent; }
+.op-more-quiet > .op-more-summary { padding-left: 0; padding-right: 0; color: var(--muted); }
+.op-more-quiet[open] { margin-top: 12px; border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: 8px; background: var(--surface-sunken); }
+.op-more-quiet[open] > .op-more-summary { padding-left: 12px; padding-right: 12px; }
+.op-more-quiet[open].level-engineering { border-left-color: var(--accent-text); }
+.alarm-drawer-rule { height: 1px; margin: 4px 0; background: var(--line-soft); }
 .alarm-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 2px; }
 .alarm-meta-item { display: grid; gap: 3px; padding: 8px 10px; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--surface-sunken); }
 .alarm-meta-item span { color: var(--muted); font-size: 9px; font-weight: 850; letter-spacing: .06em; text-transform: uppercase; }
@@ -335,18 +377,23 @@ html[data-theme="light"] .alarm-meta-item { background: var(--panel); }
    accent means "this is a measured flow going this way". */
 .op-flow-glyph.dir-unknown { color: var(--muted-2); }
 
-/* ---------------------------------------------------------- unmeasured gauge
- * SAFETY-RELEVANT. A gauge with no measurement draws no needle at all, and the
- * track it draws must not read as a scale with the needle resting at zero. On a
- * controller whose whole purpose is preventing reverse power, "nothing is
- * measuring this" and "this is zero" are the two readings that must never look
- * alike. The track therefore becomes dashed - an incomplete instrument, not a
- * complete one reading nothing - the tone colour is dropped so a .good gauge
- * does not paint itself green with no data behind it, and the value slot shows
- * the em dash and the words "Not measured" that the markup already carries. */
-.op-gauge-unmeasured .op-gauge-track { stroke: var(--line-strong); stroke-dasharray: 6 7; }
-.op-gauge-unmeasured .op-gauge-copy strong { color: var(--muted-2); }
-.op-gauge-unmeasured .op-gauge-copy small { color: var(--muted); font-weight: 850; letter-spacing: .06em; text-transform: uppercase; }
+/* ------------------------------------------------ unmeasured, on any instrument
+ * SAFETY-RELEVANT, and unchanged in substance from the rule that used to be
+ * written here for the semicircular gauge. An instrument with no measurement
+ * draws no marker at all, and the track it draws must not read as a complete
+ * scale whose indicator happens to be resting at zero. On a controller whose
+ * whole purpose is preventing reverse power, "nothing is measuring this" and
+ * "this is zero" are the two readings that must never look alike.
+ *
+ * The gauge is gone; the rule moved to the component that replaced it, where
+ * the track goes dashed and the tone colour is dropped so a .good instrument
+ * cannot paint itself green with no data behind it. The declarations live in
+ * web/product-mode.css beside the rest of .op-measure. This block asserts the
+ * remaining half of the rule that is not about the track: a tone class must
+ * never colour the reading of an instrument that has no reading. */
+.op-measure-unmeasured.good .op-measure-reading strong,
+.op-measure-unmeasured.warning .op-measure-reading strong,
+.op-measure-unmeasured.bad .op-measure-reading strong { color: var(--muted-2); }
 
 @media (max-width: 760px) {
     /* The table keeps its columns and scrolls rather than reflowing into cards:

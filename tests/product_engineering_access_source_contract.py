@@ -89,12 +89,76 @@ require("X-Engineering-Token" not in JS,
         "operator browser code must rely on the HTTP-only session cookie")
 
 for token in [
-    "Electrical supply status", "Inverter fleet status", "installed capacity",
-    "Solar production", "/api/meters",
-    "/api/inverters", "/api/inverter-telemetry", "op-gauge",
-    "operatorTrendHost", "Fleet availability",
+    "installed capacity", "Solar production", "/api/meters",
+    "/api/inverters", "/api/inverter-telemetry",
+    "operatorTrendHost",
 ]:
     require(token in OPERATOR, f"operator product view missing {token}")
+
+# "Electrical supply status" and "Inverter fleet status" were on the list above.
+# They were section headings printed under a top bar that already prints "Grid
+# power" and "Solar inverters" with a subtitle each, so they were the third copy
+# of the page's identity, and the row that carried them was a 60px band with one
+# button in it. They are gone for the same reason the capitalised page names
+# below are forbidden. The property is now asserted as structure rather than as
+# a pinned sentence: a header with nothing to say must produce no element.
+require("if (!title && !subtitle) return null;" in OPERATOR,
+        "an operator section header with no title must render nothing at all; the "
+        "empty header row was the largest single piece of dead space in the product")
+require("view.append(sectionHeader('', '', 'Refresh'))" not in OPERATOR,
+        "a section header must not be emitted purely to carry a Refresh button")
+
+# "op-gauge" and "Fleet availability" were on the list above. Both are gone, and
+# both are replaced by components that carry more than one number each. These
+# assertions are deliberately stronger than the two tokens they replace: they
+# pin the SAFETY behaviour of the replacements, not merely their existence.
+for token in ["op-measure", "function measureBar", "function fleetCard", "op-fleet-bar"]:
+    require(token in OPERATOR,
+            f"operator product view missing the instrument that replaced the gauge: {token}")
+
+# A gauge drew |value| against a maximum recomputed from the live reading, so
+# import and export folded onto the same side and the zero-export boundary was
+# not on the instrument at all. The replacement must put zero on the scale.
+require("'Zero export'" in OPERATOR and "signed: true" in OPERATOR,
+        "the grid-power instrument must carry the zero-export boundary on its scale")
+
+# SAFETY. An unmeasured quantity gets no marker anywhere on the track. The
+# marker is drawn inside a conditional on the measured-ness of the value, and
+# the track is marked so the stylesheet can draw it as an incomplete instrument.
+require("op-measure-unmeasured" in OPERATOR,
+        "an instrument with no measurement must be marked as such, not drawn as a "
+        "complete scale whose indicator happens to rest at zero")
+require("if (known) {" in OPERATOR,
+        "the current-value marker must be drawn only when the value is measured")
+
+# SAFETY. "0.00 %" for fleet availability with no inverter enabled is a
+# fabricated measurement: the denominator is zero. The replacement must refuse
+# to state a percentage it cannot compute.
+require("enabled > 0 ? (online / enabled) * 100 : NaN" in OPERATOR,
+        "fleet availability must be unavailable, not zero, when no inverter is "
+        "enabled; there is no denominator for the percentage")
+# Bound to the fleet card itself, not to the file: commandable_rated_kw also
+# appears in the control screen's prerequisites, so a file-wide check would stay
+# green with the fleet card's capacity accounting deleted.
+_fleet = OPERATOR[OPERATOR.index("function fleetCard("):]
+_fleet = _fleet[:_fleet.index("\n    function ")]
+for _figure in ["configured_rated_kw", "enabled_rated_kw", "commandable_rated_kw"]:
+    require(_figure in _fleet,
+            f"the fleet card must account for {_figure}; commandable capacity in "
+            "particular is what automatic control can actually move, and it is the "
+            "number the control loop runs on")
+require("'Commandable'" in _fleet,
+        "the fleet card must label the commandable capacity for a reader")
+
+# SAFETY. Number(null) is 0, and /api/inverters returns measured_power_kw: null
+# for an inverter that is not enabled. Coercing that to a reading printed
+# "0.00 kW" for an inverter nobody was measuring. The numeric guard must reject
+# the values that mean "not measured" whatever they coerce to.
+require("value === null || value === undefined || value === ''" in OPERATOR
+        and "typeof value === 'boolean'" in OPERATOR,
+        "the operator view must not accept null, empty string or a boolean as a "
+        "measurement; Number(null) is 0 and that prints an unmeasured quantity as "
+        "zero on a reverse-power controller")
 
 # "Grid Power" and "Solar Inverters" used to be on the list above. They were the
 # operator-only spellings of two page names, printed as an eyebrow over each
