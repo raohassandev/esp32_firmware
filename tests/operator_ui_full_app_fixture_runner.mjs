@@ -65,11 +65,11 @@ const newViewport = `        viewport: innerWidth,
 if (source.includes(oldViewport)) source = source.replace(oldViewport, newViewport);
 if (!source.includes(newViewport)) throw new Error('Could not add topbar clipping measurement');
 
-const oldActiveAssertion = `    assert(state.active === route, \`${route} activated \${state.active || '<none>'}\`);
+const oldActiveAssertion = `    assert(state.active === route, \`\${route} activated \${state.active || '<none>'}\`);
 `;
-const newActiveAssertion = `    assert(state.active === route, \`${route} activated \${state.active || '<none>'}\`);
+const newActiveAssertion = `    assert(state.active === route, \`\${route} activated \${state.active || '<none>'}\`);
     assert(state.topbarClipped.length === 0,
-      \`${route} clips topbar controls at \${width}px: \${state.topbarClipped.join(', ')}\`);
+      \`\${route} clips topbar controls at \${width}px: \${state.topbarClipped.join(', ')}\`);
 `;
 if (source.includes(oldActiveAssertion)) source = source.replace(oldActiveAssertion, newActiveAssertion);
 if (!source.includes(newActiveAssertion)) throw new Error('Could not add topbar clipping assertion');
