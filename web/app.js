@@ -2076,13 +2076,28 @@
 
     /* ------------------------------------------------------- lab target control */
 
+    /* ONE CONTROL PER FACT.
+     *
+     * Which register map a channel uses is decided once, in the profile
+     * catalogue, and is read back here from the controller's own
+     * inverter_assignments. This panel used to carry its own "Profile to assign"
+     * select, so two controls on the same page could name two different profiles
+     * for the same channel and whichever was pressed last silently won. The
+     * declaration - whether the endpoint is a simulator - is this panel's own
+     * fact and stays editable here. */
+    function assignedProfileId(index) {
+        const assignments = Array.isArray(state.labAssignments) ? state.labAssignments : [];
+        const entry = assignments.find((item) => Number(item?.inverter_index) === index) || null;
+        return entry && typeof entry.profile_id === 'string' ? entry.profile_id : '';
+    }
+
     function labTargetSelections() {
         const index = Number(byId('labTargetInverter')?.value);
-        const profileId = byId('labTargetProfile')?.value || '';
+        const resolved = Number.isInteger(index) && index >= 0 ? index : null;
         const declare = byId('labTargetDeclaration')?.value === 'true';
         return {
-            index: Number.isInteger(index) && index >= 0 ? index : null,
-            profileId,
+            index: resolved,
+            profileId: resolved === null ? '' : assignedProfileId(resolved),
             declare
         };
     }
@@ -2100,30 +2115,39 @@
         if (badge) {
             if (!authorized) setBadge('labTargetBadge', 'Sign in to declare a lab target', '');
             else if (!state.labProfiles.length) setBadge('labTargetBadge', 'Profile catalogue unavailable', 'bad');
+            /* Named precisely rather than left to the disabled button: an
+             * unassigned channel has nothing to declare, and that is a different
+             * blocker from a missing acknowledgement. */
+            else if (index !== null && !profileId) setBadge('labTargetBadge', 'No profile assigned to this inverter', 'bad');
             else if (!acknowledged) setBadge('labTargetBadge', 'Acknowledgement required', 'warning');
             else setBadge('labTargetBadge', 'Ready to send', 'warning');
         }
     }
 
-    function renderLabProfileOptions() {
-        const select = byId('labTargetProfile');
-        if (!select) return;
-        const previous = select.value;
-        select.replaceChildren();
-        state.labProfiles.forEach((profile) => {
-            const option = document.createElement('option');
-            option.value = profile.id;
-            /* The profile's own qualification word is part of the label: choosing
-             * a simulator-only profile and choosing to declare the endpoint a
-             * simulator are two separate decisions and must both be visible. */
-            option.textContent = `${profile.manufacturer || 'Unknown'} ${profile.model_family || ''}`.trim()
-                + ` · ${verbatim(profile.qualification, 'qualification unknown')}`
-                + (profile.simulator_only === true ? ' · simulator-only profile' : '');
-            select.append(option);
-        });
-        if (previous && [...select.options].some((option) => option.value === previous)) {
-            select.value = previous;
+    /* Displays the assignment the controller holds for the selected channel.
+     * The profile's own qualification word stays part of the line: choosing a
+     * simulator-only profile and declaring the endpoint a simulator are two
+     * separate decisions and both must be visible at the moment of declaring. */
+    function renderLabAssignedProfile() {
+        const target = byId('labTargetProfileAssigned');
+        if (!target) return;
+        const index = Number(byId('labTargetInverter')?.value);
+        if (!Number.isInteger(index) || index < 0) {
+            target.textContent = 'Select an inverter.';
+            return;
         }
+        const profileId = assignedProfileId(index);
+        if (!profileId) {
+            target.textContent = `Inverter ${index + 1} has no profile assigned. Assign one in the profile catalogue above before declaring it a lab target.`;
+            return;
+        }
+        const profile = state.labProfiles.find((entry) => entry.id === profileId) || null;
+        target.textContent = profile
+            ? `${`${profile.manufacturer || 'Unknown'} ${profile.model_family || ''}`.trim()}`
+              + ` · ${verbatim(profile.qualification, 'qualification unknown')}`
+              + (profile.simulator_only === true ? ' · simulator-only profile' : '')
+              + ` · ${profileId}`
+            : `${profileId} — the controller holds this assignment but the catalogue does not describe it.`;
         renderLabTargetReadiness();
     }
 
@@ -2324,7 +2348,8 @@
         ensureLabInverterOptions();
         if (!access || !access.mayRequest('/api/inverter-profiles')) {
             state.labProfiles = [];
-            renderLabProfileOptions();
+            state.labAssignments = [];
+            renderLabAssignedProfile();
             return;
         }
         try {
@@ -2336,7 +2361,7 @@
             state.labProfiles = [];
             state.labAssignments = [];
         }
-        renderLabProfileOptions();
+        renderLabAssignedProfile();
         renderLabAssignments();
     }
 
@@ -2360,7 +2385,10 @@
             return;
         }
         target.textContent = declared
-            .map((entry) => `Inverter ${entry.inverter_index}: ${entry.profile_id} `
+            /* +1 so this reads as the same channel the rest of the page names.
+             * It printed the raw zero-based index, so a declaration on the first
+             * channel appeared as "Inverter 0" beside panels calling it 1. */
+            .map((entry) => `Inverter ${Number(entry.inverter_index) + 1}: ${entry.profile_id} `
                 + `(write authority: ${entry.write_permission})`)
             .join(' · ');
     }
@@ -2375,8 +2403,7 @@
     function bindLabControl() {
         ensureLabInverterOptions();
         byId('labTargetAcknowledge')?.addEventListener('change', renderLabTargetReadiness);
-        byId('labTargetInverter')?.addEventListener('change', renderLabTargetReadiness);
-        byId('labTargetProfile')?.addEventListener('change', renderLabTargetReadiness);
+        byId('labTargetInverter')?.addEventListener('change', renderLabAssignedProfile);
         byId('labTargetDeclaration')?.addEventListener('change', renderLabTargetReadiness);
         byId('labTargetApply')?.addEventListener('click', applyLabTarget);
         renderLabTargetReadiness();

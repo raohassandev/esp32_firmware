@@ -236,7 +236,12 @@
                         </div>
                         <div class="field-grid">
                             <label class="field"><span>Inverter</span><select id="labTargetInverter"></select></label>
-                            <label class="field"><span>Profile to assign</span><select id="labTargetProfile"></select></label>
+                            <!-- Not a second profile picker. The profile assigned
+                                 to a channel is chosen once, in the profile
+                                 catalogue above, and this panel declares what the
+                                 endpoint IS; it does not re-decide which register
+                                 map is in use. Read back from the controller. -->
+                            <div class="field"><span>Profile currently assigned</span><output id="labTargetProfileAssigned" class="derived-value">Reading the controller…</output></div>
                             <label class="field"><span>Lab target declaration</span><select id="labTargetDeclaration"><option value="true">Declare this endpoint a Modbus simulator</option><option value="false">Revoke the simulator declaration</option></select></label>
                         </div>
                         <label class="switch field-switch lab-target-ack"><input id="labTargetAcknowledge" type="checkbox"><span></span><b>I understand this is lab validation and not production control</b></label>
