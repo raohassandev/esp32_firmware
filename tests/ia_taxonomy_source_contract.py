@@ -124,8 +124,16 @@ APP_CODE = re.sub(r"(?m)^\s*//.*$", "", re.sub(r"/\*.*?\*/", "", APP, flags=re.S
 route_table = APP_CODE[APP_CODE.index("const ROUTES = {"):]
 route_table = route_table[:route_table.index("\n    };")]
 route_records = re.findall(r"(\w+): \{([^}]*)\}", route_table)
-require(len(route_records) == 10,
-        f"the route table no longer parses as ten records (found {len(route_records)})")
+# A FLOOR, not a literal. The number of routes is supposed to grow -- adding a
+# page is ordinary work -- and pinning the exact count makes this contract fail
+# on every new route for no reason connected to what it checks. What the count
+# is actually standing in for is "the regex still matches the table"; a parse
+# that has silently stopped working returns zero or one record, not eleven. So
+# the floor catches the failure this was defending against and stays quiet for
+# the change it was never about.
+require(len(route_records) >= 10,
+        f"the route table parsed as only {len(route_records)} records, so the "
+        f"extraction has probably stopped matching and the checks below are vacuous")
 
 SUPPRESSED = 0
 for route, body in route_records:

@@ -630,6 +630,117 @@ static esp_err_t restart_post(httpd_req_t *request)
     return send_json_text(request, NULL, "{\"restarting\":true}");
 }
 
+
+/*
+ * OPERATOR NETWORK CONTROLS.
+ *
+ * The site owner has to be able to move their own controller onto a different
+ * Wi-Fi -- they change routers, they change premises, and they do not have the
+ * engineering password. Requiring one for that turns a five-minute job into a
+ * site visit.
+ *
+ * SO THE SURFACE IS NARROWED INSTEAD OF THE AUTHENTICATION BEING DROPPED. These
+ * two routes do exactly one thing between them: list what is in range, and join
+ * one of them with a passphrase. Everything else on the network page stays
+ * behind engineering, and each exclusion is a way a controller could be lost or
+ * taken:
+ *
+ *   - The recovery AP passphrase and SSID. That access point is the guaranteed
+ *     way back into a unit whose station credentials are wrong. An operator who
+ *     could change it could lock the controller away from everyone including
+ *     themselves.
+ *   - Static IP, gateway, netmask, DNS. Wrong values here strand a unit on a
+ *     network it appears to have joined, which is harder to diagnose than a
+ *     wrong passphrase.
+ *   - Retry and backoff timing, and the fallback profile.
+ *
+ * WHAT THIS DOES COST, stated rather than glossed: anyone already on the site
+ * network can move the controller to a different access point. The mitigations
+ * are that the recovery AP stays on air and out of reach, so the unit is never
+ * lost -- and that a wrong join is recoverable by an engineer with physical
+ * access. Recorded in docs/RELEASE_READINESS.md as a product decision.
+ */
+static esp_err_t network_scan_get(httpd_req_t *request)
+{
+    return wifi_scan_get(request);
+}
+
+static esp_err_t network_join_post(httpd_req_t *request)
+{
+    cJSON *root = NULL;
+    esp_err_t read_err = http_json_parse_bounded(request, 512U, WEB_API_BODY_DEADLINE_MS,
+                                                 WEB_API_JSON_MAX_DEPTH, &root);
+    if (read_err != ESP_OK) {
+        cJSON_Delete(root);
+        return send_json_error(request, "400 Bad Request",
+                               "A JSON body with ssid and password is required");
+    }
+
+    const cJSON *ssid = cJSON_GetObjectItemCaseSensitive(root, "ssid");
+    const cJSON *password = cJSON_GetObjectItemCaseSensitive(root, "password");
+    if (!cJSON_IsString(ssid) || !ssid->valuestring[0] ||
+        strlen(ssid->valuestring) > 32U) {
+        cJSON_Delete(root);
+        return send_json_error(request, "400 Bad Request", "A network name is required");
+    }
+    /* An open network is a legitimate choice, so an empty passphrase is
+     * accepted; a too-long one is not. WPA2 refuses under 8 characters, and
+     * accepting one here would produce a join that silently never succeeds. */
+    const char *pass = cJSON_IsString(password) ? password->valuestring : "";
+    const size_t pass_len = strlen(pass);
+    if (pass_len > 64U || (pass_len > 0U && pass_len < 8U)) {
+        cJSON_Delete(root);
+        return send_json_error(request, "400 Bad Request",
+                               "A Wi-Fi passphrase must be 8-64 characters, or empty for an open network");
+    }
+
+    app_config_t *config = malloc(sizeof(*config));
+    if (!config) {
+        cJSON_Delete(root);
+        return httpd_resp_send_500(request);
+    }
+    if (config_manager_get_snapshot(config) != ESP_OK) {
+        cJSON_Delete(root);
+        free(config);
+        return send_json_error(request, "500 Internal Server Error",
+                               "Current configuration is unavailable");
+    }
+
+    /* The primary station profile ONLY. Addressing mode is reset to DHCP with
+     * the credentials, because a static address belonging to the previous
+     * network is the most common way a join appears to work and then does not:
+     * the unit associates and is unreachable. An engineer who needs a static
+     * address sets it afterwards on the engineering page. */
+    strlcpy(config->wifi.primary.ssid, ssid->valuestring, sizeof(config->wifi.primary.ssid));
+    strlcpy(config->wifi.primary.password, pass, sizeof(config->wifi.primary.password));
+    config->wifi.primary.enabled = true;
+    config->wifi.primary.ip_mode = APP_WIFI_IP_DHCP;
+    config->wifi.primary.static_ip[0] = 0;
+    config->wifi.primary.gateway[0] = 0;
+    config->wifi.primary.netmask[0] = 0;
+    /* Never touched here, and named so the omission is visible rather than
+     * accidental: the recovery access point stays exactly as it is. */
+    config->wifi.fallback_ap_enabled = true;
+
+    const esp_err_t saved = config_manager_save(config);
+    const bool was_static = false;
+    (void)was_static;
+    free(config);
+    cJSON_Delete(root);
+    if (saved != ESP_OK) {
+        return send_json_error(request, "500 Internal Server Error",
+                               "The network could not be saved");
+    }
+
+    char response[320];
+    snprintf(response, sizeof(response),
+             "{\"saved\":true,\"restart_required\":true,"
+             "\"recovery_ap_unchanged\":true,"
+             "\"notice\":\"The controller joins this network after a restart. "
+             "If it cannot, the setup access point stays available.\"}");
+    return send_json_text(request, NULL, response);
+}
+
 esp_err_t web_api_register(httpd_handle_t server)
 {
     const httpd_uri_t handlers[] = {
@@ -640,7 +751,9 @@ esp_err_t web_api_register(httpd_handle_t server)
         {.uri = "/api/wifi/scan", .method = HTTP_GET, .handler = wifi_scan_get},
         {.uri = "/api/wifi/scan", .method = HTTP_POST, .handler = wifi_scan_post},
         {.uri = "/api/wifi/rescan", .method = HTTP_POST, .handler = wifi_rescan_post},
-        {.uri = "/api/system/restart", .method = HTTP_POST, .handler = restart_post}
+        {.uri = "/api/system/restart", .method = HTTP_POST, .handler = restart_post},
+        {.uri = "/api/network/scan", .method = HTTP_GET, .handler = network_scan_get},
+        {.uri = "/api/network/join", .method = HTTP_POST, .handler = network_join_post}
     };
 
     for (size_t index = 0; index < sizeof(handlers) / sizeof(handlers[0]); ++index) {

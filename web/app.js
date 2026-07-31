@@ -66,6 +66,13 @@
         meters: { name: 'Grid power', short: 'Grid', group: 'operate', icon: '▤' },
         inverters: { name: 'Solar inverters', short: 'Solar', group: 'operate', icon: '◇' },
         alarms: { name: 'Alarms and events', short: 'Alarms', group: 'operate', icon: '△' },
+        /* The site owner's own Wi-Fi page, in Operate rather than Commission.
+         * Changing the router is something the person who runs the plant does,
+         * not a commissioning step -- and putting it in Commission would file it
+         * under a heading they have been told not to touch. The engineer's
+         * network page is the separate 'wifi' route below and keeps everything
+         * that can strand a controller. */
+        network: { name: 'Wi-Fi network', short: 'Wi-Fi', group: 'operate', icon: '≈' },
         commissioning: { name: 'Commissioning', group: 'commission', icon: '✓' },
         readiness: { name: 'Pre-lab readiness', short: 'Readiness', group: 'commission', icon: '⌾' },
         wifi: { name: 'Network setup', short: 'Network', group: 'commission', icon: '⌁' },
@@ -82,7 +89,7 @@
     const PAGE_TYPES = {
         dashboard: 'operational', meters: 'operational', inverters: 'operational',
         alarms: 'operational',
-        wifi: 'form', control: 'form', system: 'form',
+        network: 'form', wifi: 'form', control: 'form', system: 'form',
         commissioning: 'guided', readiness: 'guided', engineering: 'guided'
     };
 

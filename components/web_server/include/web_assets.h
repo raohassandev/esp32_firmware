@@ -21,6 +21,7 @@ const char *web_assets_js(size_t *length);
 const char *web_assets_theme_js(size_t *length);
 const char *web_assets_product_mode_js(size_t *length);
 const char *web_assets_operator_view_js(size_t *length);
+const char *web_assets_operator_network_js(size_t *length);
 const char *web_assets_operator_operations_js(size_t *length);
 const char *web_assets_operator_product_suite_js(size_t *length);
 const char *web_assets_prelab_readiness_js(size_t *length);

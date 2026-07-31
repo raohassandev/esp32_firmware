@@ -79,6 +79,7 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/app.js" "${CMAKE_CURRENT_BIN
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/theme.js" "${CMAKE_CURRENT_BINARY_DIR}/theme.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/product-mode.js" "${CMAKE_CURRENT_BINARY_DIR}/product-mode.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-view.js" "${CMAKE_CURRENT_BINARY_DIR}/operator-view.js" COPYONLY)
+configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-network.js" "${CMAKE_CURRENT_BINARY_DIR}/operator-network.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-operations.js" "${CMAKE_CURRENT_BINARY_DIR}/operator-operations.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-product-suite.js" "${CMAKE_CURRENT_BINARY_DIR}/operator-product-suite.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/prelab-readiness.js" "${CMAKE_CURRENT_BINARY_DIR}/prelab-readiness.js" COPYONLY)
@@ -181,6 +182,7 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/theme.js"
         "${CMAKE_CURRENT_BINARY_DIR}/product-mode.js"
         "${CMAKE_CURRENT_BINARY_DIR}/operator-view.js"
+        "${CMAKE_CURRENT_BINARY_DIR}/operator-network.js"
         "${CMAKE_CURRENT_BINARY_DIR}/operator-operations.js"
         "${CMAKE_CURRENT_BINARY_DIR}/operator-product-suite.js"
         "${CMAKE_CURRENT_BINARY_DIR}/prelab-readiness.js"

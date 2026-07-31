@@ -276,7 +276,16 @@ static bool public_uri(const char *uri)
     return strcmp(uri, "/") == 0 || strcmp(uri, "/favicon.ico") == 0 ||
            strcmp(uri, "/app.css") == 0 || strcmp(uri, "/app.js") == 0 ||
            strcmp(uri, "/api/status") == 0 || strcmp(uri, "/api/telemetry") == 0 ||
-           strncmp(uri, "/api/engineering/", 17) == 0;
+           strncmp(uri, "/api/engineering/", 17) == 0 ||
+           /* The two operator network controls. Deliberately the narrowest pair
+            * that lets a site owner move their own controller onto a different
+            * Wi-Fi: list what is in range, and join one. The recovery AP
+            * passphrase, static addressing and the fallback profile all stay
+            * behind an engineering session, so a unit can be moved but never
+            * locked away. See network_join_post() for what each exclusion
+            * prevents. */
+           strcmp(uri, "/api/network/scan") == 0 ||
+           strcmp(uri, "/api/network/join") == 0;
 }
 
 esp_err_t engineering_register_uri_handler(httpd_handle_t server, const httpd_uri_t *uri_handler)

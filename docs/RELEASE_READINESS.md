@@ -672,6 +672,47 @@ sits.
 recorded (isochronous or base-load), and measurements of what the generator
 actually does when PV moves.
 
+## 4g. The operator can change their own Wi-Fi, and what that costs
+
+The site owner has to be able to move their own controller onto a different
+Wi-Fi. They change routers, they change premises, and they do not have the
+engineering password -- requiring one turns a five-minute job into a site visit.
+
+So two routes are reachable without an engineering session, and only two:
+
+| Route | What it does |
+|---|---|
+| `GET /api/network/scan` | Lists what is in radio range |
+| `POST /api/network/join` | Sets the primary station SSID and passphrase |
+
+**The surface was narrowed instead of the authentication being dropped.** Each
+exclusion is a way a controller could otherwise be lost or taken, and all of them
+stay behind an engineering session:
+
+- **The recovery AP passphrase and SSID.** That access point is the guaranteed
+  way back into a unit whose station credentials are wrong. An operator who could
+  change it could lock the controller away from everyone, themselves included.
+- **Static IP, gateway, netmask, DNS.** Wrong values strand a unit on a network
+  it appears to have joined, which is far harder to diagnose than a wrong
+  passphrase. `join` additionally RESETS addressing to DHCP, because a static
+  address belonging to the previous network is the commonest way a join looks
+  successful and is not.
+- **The fallback station profile, retry counts and backoff timing.**
+
+**What it costs, stated rather than glossed.** Anyone already on the site network
+can move the controller to a different access point. There is no additional
+authentication in front of that.
+
+The mitigations are that the recovery access point stays on air and out of reach,
+so the unit is never actually lost; that a wrong join is recoverable by anyone
+with physical access to the board; and that the change requires a restart, so it
+is not silent.
+
+**This is a product decision, not a security finding that was missed.** If the
+judgement changes, the remedy is one line: remove the two paths from
+`public_uri()` in `engineering_guard.c` and the page reverts to requiring a
+session.
+
 ## 5. Open decisions
 
 These are product decisions, deliberately not made unilaterally.

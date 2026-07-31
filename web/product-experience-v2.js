@@ -22,6 +22,7 @@
     readiness: { eyebrow: 'Validation', title: 'Pre-lab readiness', question: 'What still blocks controlled hardware testing?', action: 'Clear software and configuration blockers before connecting field equipment.' },
     engineering: { eyebrow: 'Restricted workspace', title: 'Engineering', question: 'Which commissioning task are you performing?', action: 'Use only the relevant workflow and keep automatic control locked.' },
     commissioning: { eyebrow: 'Guided workflow', title: 'Commissioning', question: 'Has each site-readiness gate been verified in order?', action: 'Complete the sequence and retain the exported evidence.' },
+    network: { eyebrow: 'Connection', title: 'Wi-Fi network', question: 'Is the controller on the network you expect?', action: 'Change the network here if the router or the site has changed.' },
     wifi: { eyebrow: 'Engineering · Network', title: 'Network setup', question: 'Can the controller remain reachable after this change?', action: 'Keep the recovery access point enabled until the station connection is proven.' },
     system: { eyebrow: 'Engineering · Service', title: 'Controller', question: 'What maintenance action is required?', action: 'Export configuration before making service changes.' }
   };

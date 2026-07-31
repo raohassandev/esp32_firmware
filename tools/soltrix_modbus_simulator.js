@@ -6,7 +6,7 @@ const assert = require('assert');
 const args = new Set(process.argv.slice(2));
 const portArg = process.argv.find((arg) => arg.startsWith('--port='));
 const scenarioArg = process.argv.find((arg) => arg.startsWith('--scenario='));
-const PORT = Number(portArg ? portArg.split('=')[1] : 1502);
+const PORT = Number(portArg ? portArg.split('=')[1] : 1503);
 const SCENARIO = String(scenarioArg ? scenarioArg.split('=')[1] : 'normal').toLowerCase();
 const SELF_TEST = args.has('--self-test');
 
@@ -35,7 +35,7 @@ const EM500_TARIFF1_IMPORT_ADDRESS = 0x1B48;
 const EM500_TARIFF2_IMPORT_ADDRESS = 0x1B5C;
 
 const DEVICES = new Map([
-    [21, { kind: 'inverter', name: 'Huawei SUN2000', identityAddress: 40000, identity: 0xA021, powerAddress: 40010, powerW: 31000, limitAddress: 40125, limitRaw: 620 }],
+    [21, { kind: 'inverter', name: 'Huawei SUN2000', identityAddress: 40000, identity: 0xA021, powerAddress: 40010, powerW: 32000, limitAddress: 40125, limitRaw: 620 }],
     [22, { kind: 'inverter', name: 'GoodWe Commercial', identityAddress: 41000, identity: 0xA022, powerAddress: 41010, powerW: 27500, limitAddress: 41125, limitRaw: 550 }],
     [23, { kind: 'inverter', name: 'Solis Commercial', identityAddress: 42000, identity: 0xA023, powerAddress: 42010, powerW: 18500, limitAddress: 42125, limitRaw: 370 }],
 ]);

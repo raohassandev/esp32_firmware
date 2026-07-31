@@ -114,6 +114,7 @@ static esp_err_t js_handler(httpd_req_t *request)
         web_assets_source_detection_js,
         web_assets_solar_grid_js,
         web_assets_operator_view_js,
+        web_assets_operator_network_js,
         web_assets_operator_operations_js,
         web_assets_operator_product_suite_js,
         web_assets_prelab_readiness_js,
@@ -142,7 +143,7 @@ esp_err_t web_server_start(void)
      * web_server start and leaves the unit with no web interface. A slot is a
      * few bytes, headroom is not. tests/uri_handler_capacity_source_contract.py
      * counts the routes and fails if this number stops leading them. */
-    config.max_uri_handlers = 56;
+    config.max_uri_handlers = 62;
     config.stack_size = 8192;
     /* The default of 7 leaves only 4 client sockets once httpd takes its 3
      * internal ones, and a browser opens up to 6 keep-alive connections per
