@@ -43,6 +43,37 @@ if (source.includes(previousEngineering)) source = source.replace(previousEngine
 else if (source.includes(oldEngineering)) source = source.replace(oldEngineering, newEngineering);
 if (!source.includes(newEngineering)) throw new Error('Could not apply Engineering source visibility expectation');
 
+const oldViewport = `        viewport: innerWidth
+`;
+const newViewport = `        viewport: innerWidth,
+        topbarClipped: (() => {
+          const topbar=document.querySelector('.topbar');
+          const bounds=topbar?.getBoundingClientRect();
+          if (!topbar || !bounds) return [];
+          return [...topbar.querySelectorAll(':scope > *, .topbar-actions > *')]
+            .filter((node) => {
+              const style=getComputedStyle(node);
+              if (style.display === 'none' || style.visibility === 'hidden') return false;
+              const rect=node.getBoundingClientRect();
+              const outside=rect.left < bounds.left - 1 || rect.right > bounds.right + 1;
+              const cropped=node.scrollWidth > Math.ceil(rect.width) + 1;
+              return outside || cropped;
+            })
+            .map((node) => node.id || node.className || node.tagName);
+        })()
+`;
+if (source.includes(oldViewport)) source = source.replace(oldViewport, newViewport);
+if (!source.includes(newViewport)) throw new Error('Could not add topbar clipping measurement');
+
+const oldActiveAssertion = `    assert(state.active === route, \`${route} activated \${state.active || '<none>'}\`);
+`;
+const newActiveAssertion = `    assert(state.active === route, \`${route} activated \${state.active || '<none>'}\`);
+    assert(state.topbarClipped.length === 0,
+      \`${route} clips topbar controls at \${width}px: \${state.topbarClipped.join(', ')}\`);
+`;
+if (source.includes(oldActiveAssertion)) source = source.replace(oldActiveAssertion, newActiveAssertion);
+if (!source.includes(newActiveAssertion)) throw new Error('Could not add topbar clipping assertion');
+
 writeFileSync(runtimePath, source, 'utf8');
 try {
   await import(`${pathToFileURL(runtimePath).href}?run=${Date.now()}`);
