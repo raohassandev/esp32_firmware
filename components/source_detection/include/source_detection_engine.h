@@ -16,7 +16,22 @@ typedef enum {
 typedef enum {
     SOURCE_STATE_UNKNOWN = 0,
     SOURCE_STATE_GRID = 1,
-    SOURCE_STATE_GENERATOR = 2
+    SOURCE_STATE_GENERATOR = 2,
+    /* Both sources measured on the bus at once, on a plant that was commissioned
+     * as able to run them in parallel.
+     *
+     * Distinguished from CONFLICT because the two demand opposite responses. On
+     * a plant that cannot synchronise, two live sources is a dangerous
+     * contradiction and PV must stop. On one that can, it is normal operation --
+     * and reporting it as a conflict would inhibit control every time the site
+     * ran the way it was built to.
+     *
+     * The controller still commands nothing in this state: holding the generator
+     * above its floor AND respecting the grid export policy needs one PV
+     * setpoint to satisfy two objectives, and that strategy does not exist yet.
+     * The difference is that it is reported as an unimplemented mode rather than
+     * as a fault, which sends an engineer somewhere useful. */
+    SOURCE_STATE_SYNCHRONISED = 3
 } source_state_t;
 
 typedef enum {
@@ -68,6 +83,18 @@ typedef struct {
     bool single_bitmask_semantics;
     float grid_threshold_kw;
     float generator_threshold_kw;
+    /* Can this plant run grid and generator in parallel?
+     *
+     * A commissioning question, not something to infer. Two loaded sources on a
+     * plant with no synchroniser means somebody has changed the power network or
+     * a changeover has failed -- and by the electrical grammar of the thing, if
+     * they were not synchronised there would already have been a bang. The
+     * controller cannot tell the two situations apart from power measurements
+     * alone, so it is told.
+     *
+     * Defaults false, which is the fail-closed direction: an uncommissioned
+     * plant treats two live sources as a fault and stops PV. */
+    bool sync_capable;
 } source_detection_policy_t;
 
 typedef struct {

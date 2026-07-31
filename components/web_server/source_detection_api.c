@@ -73,6 +73,7 @@ static void add_config_json(cJSON *root, const source_detection_config_t *config
                             config->dual.grid_threshold_kw);
     cJSON_AddNumberToObject(dual, "generator_threshold_kw",
                             config->dual.generator_threshold_kw);
+    cJSON_AddBoolToObject(dual, "sync_capable", config->dual.sync_capable != 0U);
 }
 
 static void add_status_json(cJSON *root, const source_detection_status_t *status)
@@ -273,6 +274,18 @@ static bool parse_config(cJSON *root, source_detection_config_t *config,
             !read_float(dual, "generator_threshold_kw",
                         &config->dual.generator_threshold_kw, error, error_size)) {
             return false;
+        }
+
+        /* Absent leaves whatever was commissioned, and a plant that has never
+         * been asked stays false -- two live sources is a fault until somebody
+         * states that this site synchronises. */
+        cJSON *sync = cJSON_GetObjectItemCaseSensitive(dual, "sync_capable");
+        if (sync) {
+            if (!cJSON_IsBool(sync)) {
+                strlcpy(error, "dual_meter.sync_capable must be true or false", error_size);
+                return false;
+            }
+            config->dual.sync_capable = cJSON_IsTrue(sync) ? 1U : 0U;
         }
     }
 

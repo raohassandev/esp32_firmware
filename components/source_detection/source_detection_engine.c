@@ -121,7 +121,19 @@ source_detection_observation_t source_detection_observe(
 
         const bool grid_active = evidence->grid_power_kw > policy->grid_threshold_kw;
         const bool generator_active = evidence->generator_power_kw > policy->generator_threshold_kw;
-        if (grid_active && generator_active) return unknown(SOURCE_REASON_CONFLICT);
+        if (grid_active && generator_active) {
+            /* Normal operation on a plant built to synchronise; a contradiction
+             * on one that is not. Only the commissioned answer distinguishes
+             * them, because the measurements are identical. */
+            if (!policy->sync_capable) return unknown(SOURCE_REASON_CONFLICT);
+            source_detection_observation_t both = {
+                .candidate_state = SOURCE_STATE_SYNCHRONISED,
+                .reason = SOURCE_REASON_NONE,
+                .evidence_fresh = true,
+                .conflict = false,
+            };
+            return both;
+        }
         if (!grid_active && !generator_active) return unknown(SOURCE_REASON_NO_SOURCE);
 
         source_detection_observation_t result = {
@@ -213,6 +225,7 @@ const char *source_detection_state_name(source_state_t state)
     switch (state) {
     case SOURCE_STATE_GRID: return "grid";
     case SOURCE_STATE_GENERATOR: return "generator";
+    case SOURCE_STATE_SYNCHRONISED: return "synchronised";
     case SOURCE_STATE_UNKNOWN:
     default: return "unknown";
     }

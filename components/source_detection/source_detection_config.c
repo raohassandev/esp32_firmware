@@ -85,6 +85,11 @@ source_detection_policy_t source_detection_config_policy(
     policy.single_bitmask_semantics = single_meter_is_em500;
     policy.grid_threshold_kw = config->dual.grid_threshold_kw;
     policy.generator_threshold_kw = config->dual.generator_threshold_kw;
+    /* Copied straight through, like every other commissioned fact. A zeroed
+     * policy therefore says "this plant cannot synchronise", which is the
+     * fail-closed answer: two live sources is treated as a fault until an
+     * engineer states otherwise. */
+    policy.sync_capable = config->dual.sync_capable != 0U;
     return policy;
 }
 

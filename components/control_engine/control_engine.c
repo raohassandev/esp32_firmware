@@ -559,6 +559,7 @@ static void control_task(void *argument)
         } else {
             measured_source_t measured = MEASURED_SOURCE_UNKNOWN;
             bool measured_fresh = false;
+            bool synchronised = false;
             source_detection_status_t detection;
             if (source_detection_get_status(&detection) == ESP_OK) {
                 measured_fresh = detection.configured && detection.evidence_fresh &&
@@ -566,8 +567,27 @@ static void control_task(void *argument)
                 detection_configured = detection.configured;
                 if (detection.state == SOURCE_STATE_GRID) measured = MEASURED_SOURCE_GRID;
                 else if (detection.state == SOURCE_STATE_GENERATOR) measured = MEASURED_SOURCE_GENERATOR;
+                /* Parallel operation on a plant commissioned to synchronise.
+                 * Reported by NAME rather than falling through to UNKNOWN,
+                 * because the two mean different things to whoever reads the
+                 * screen: "unknown" sends an engineer to look for a broken
+                 * sensor, "synchronised" tells them the plant is doing exactly
+                 * what it was built to do and this controller has no strategy
+                 * for it yet. Either way the gate refuses it and PV is held at
+                 * zero, so the honesty costs nothing in behaviour. */
+                else if (detection.state == SOURCE_STATE_SYNCHRONISED) {
+                    synchronised = true;
+                }
             }
             source = source_mode_from_measured_source(measured, measured_fresh);
+            if (synchronised && measured_fresh) {
+                source.mode = SOURCE_MODE_GRID_GENERATOR_SYNC;
+                /* Named, never released. grid_control_gate_step() refuses this
+                 * mode, and the generator floor is not derived for it, so
+                 * releasing control here would command from the grid policy
+                 * with a generator floor of zero. */
+                source.control_allowed = false;
+            }
             evidence_fresh = measured_fresh;
         }
         grid_gate_input_t gate_input = {

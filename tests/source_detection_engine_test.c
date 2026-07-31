@@ -338,8 +338,66 @@ static void test_flapping_input_never_settles(void)
     assert(result.state == SOURCE_STATE_GENERATOR);
 }
 
+/*
+ * TWO LIVE SOURCES MEAN OPPOSITE THINGS ON DIFFERENT PLANTS.
+ *
+ * On a site with no synchroniser it is a contradiction and PV must stop. On one
+ * built to run in parallel it is normal, and reporting it as a fault would
+ * inhibit control every time the plant did what it was designed to do. The
+ * measurements are identical; only the commissioned answer separates them.
+ */
+static void test_dual_meter_both_loaded(void)
+{
+    source_detection_policy_t policy = {
+        .mode = SOURCE_DETECTION_MODE_DUAL_METER,
+        /* common_policy_valid() requires both timers to be non-zero; omitting
+         * debounce_ms made the first draft of this test read invalid_config and
+         * look like a defect in the code under test. */
+        .debounce_ms = 3000U,
+        .stale_timeout_ms = 5000U,
+        .grid_threshold_kw = 1.0f,
+        .generator_threshold_kw = 1.0f,
+        .sync_capable = false,
+    };
+    source_detection_evidence_t evidence = {
+        .grid_has_sample = true,
+        .generator_has_sample = true,
+        .grid_power_kw = 40.0f,
+        .generator_power_kw = 30.0f,
+        .grid_age_ms = 100U,
+        .generator_age_ms = 100U,
+    };
+
+    source_detection_observation_t out = source_detection_observe(&policy, &evidence);
+    assert(out.candidate_state == SOURCE_STATE_UNKNOWN);
+    assert(out.reason == SOURCE_REASON_CONFLICT);
+
+    /* The same measurements on a plant commissioned to synchronise. */
+    policy.sync_capable = true;
+    out = source_detection_observe(&policy, &evidence);
+    assert(out.candidate_state == SOURCE_STATE_SYNCHRONISED);
+    assert(out.reason == SOURCE_REASON_NONE);
+    assert(!out.conflict);
+
+    /* And sync_capable must not change the ordinary single-source answers. */
+    evidence.generator_power_kw = 0.0f;
+    out = source_detection_observe(&policy, &evidence);
+    assert(out.candidate_state == SOURCE_STATE_GRID);
+    evidence.generator_power_kw = 30.0f;
+    evidence.grid_power_kw = 0.0f;
+    out = source_detection_observe(&policy, &evidence);
+    assert(out.candidate_state == SOURCE_STATE_GENERATOR);
+
+    /* Nor may it invent a source when neither is loaded. */
+    evidence.generator_power_kw = 0.0f;
+    out = source_detection_observe(&policy, &evidence);
+    assert(out.candidate_state == SOURCE_STATE_UNKNOWN);
+    assert(out.reason == SOURCE_REASON_NO_SOURCE);
+}
+
 int main(void)
 {
+    test_dual_meter_both_loaded();
     test_single_grid_generator_unknown();
     test_single_non_zero_grid_value_keeps_strict_equality();
     test_bitmask_rule_is_confined_to_em500();

@@ -35,7 +35,27 @@ typedef struct {
 typedef struct {
     uint8_t grid_meter_index;
     uint8_t generator_meter_index;
-    uint16_t reserved;
+    /* CAN THIS PLANT RUN GRID AND GENERATOR IN PARALLEL? Non-zero means yes.
+     *
+     * A commissioning question, never an inference. Two loaded sources on a
+     * plant with no synchroniser means a changeover has failed or somebody has
+     * rewired the site -- and by the electrical grammar of it, unsynchronised
+     * sources on one bus would already have made a bang. The controller cannot
+     * tell that apart from normal parallel running using power measurements
+     * alone, so it is told which plant this is.
+     *
+     * REUSED FROM THE FORMER `reserved` FIELD, deliberately, so the persisted
+     * blob does not change size. A size change makes every stored
+     * source-detection configuration unreadable, and this loader responds to
+     * that by falling back to disabled defaults -- which would silently
+     * de-commission source detection on every unit in the field and require an
+     * engineer to visit each one.
+     *
+     * That reuse is only safe because source_detection_config_defaults() begins
+     * with memset(0) and every stored blob descends from it, so the field reads
+     * false on existing configurations. False is also the fail-closed answer:
+     * an uncommissioned plant treats two live sources as a fault and stops PV. */
+    uint16_t sync_capable;
     float grid_threshold_kw;
     float generator_threshold_kw;
 } source_detection_dual_config_t;
