@@ -27,15 +27,20 @@ const port = await new Promise((resolvePromise, reject) => {
     server.close((error) => error ? reject(error) : resolvePromise(address.port));
   });
 });
+const browserVersion = execFileSync(browser, ['--version'], { encoding: 'utf8' }).trim();
+let browserLog = '';
 const chrome = spawn(browser, [
-  '--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
-  '--no-first-run', '--remote-allow-origins=*', '--remote-debugging-address=127.0.0.1',
+  '--headless', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
+  '--disable-breakpad', '--disable-crash-reporter', '--noerrdialogs', '--no-first-run',
+  '--remote-allow-origins=*', '--remote-debugging-address=127.0.0.1',
   `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, 'about:blank'
-], { stdio: 'ignore' });
+], { stdio: ['ignore', 'pipe', 'pipe'] });
+chrome.stdout.on('data', (chunk) => { browserLog = `${browserLog}${chunk}`.slice(-4000); });
+chrome.stderr.on('data', (chunk) => { browserLog = `${browserLog}${chunk}`.slice(-4000); });
 
 const sleep = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
 async function waitForPort() {
-  for (let attempt = 0; attempt < 160; attempt += 1) {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
     try {
       const response = await fetch(`http://127.0.0.1:${port}/json/version`);
       if (response.ok) return;
@@ -43,7 +48,7 @@ async function waitForPort() {
     if (chrome.exitCode != null) throw new Error(`Browser exited before DevTools started (${chrome.exitCode})`);
     await sleep(50);
   }
-  throw new Error(`Timed out waiting for browser DevTools on port ${port}`);
+  throw new Error(`Timed out waiting for ${browserVersion} DevTools on port ${port}. Browser output: ${browserLog || '<none>'}`);
 }
 
 class Cdp {
