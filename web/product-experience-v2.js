@@ -291,3 +291,21 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
   else start();
 })();
+
+/* Scoped responsive presentation for the verdict rail. Kept in the already
+ * served frontend module so the backend asset registry remains untouched. */
+(() => {
+  'use strict';
+  const style = document.createElement('style');
+  style.id = 'plantVerdictStyles';
+  style.textContent = `
+.plant-verdict-rail{display:grid;grid-template-columns:minmax(260px,1.6fr) repeat(5,minmax(105px,1fr));border:1px solid var(--line);border-left:4px solid var(--line-strong);border-radius:6px;overflow:hidden;background:var(--panel)}
+.plant-verdict-rail.tone-good{border-left-color:var(--good)}.plant-verdict-rail.tone-bad{border-left-color:var(--bad)}
+.plant-verdict-primary,.plant-verdict-cell{min-width:0;padding:10px 12px}.plant-verdict-primary{display:grid;gap:3px;align-content:center}.plant-verdict-cell{display:grid;gap:3px;align-content:center;border-left:1px solid var(--line-soft)}
+.plant-verdict-caption,.plant-verdict-cell span{color:var(--muted);font-size:10px;font-weight:850;letter-spacing:.07em;text-transform:uppercase}.plant-verdict-value{font-size:20px;line-height:1.15;letter-spacing:-.01em}.plant-verdict-detail{color:var(--muted);font-size:12px;line-height:1.35}.plant-verdict-cell strong{overflow:hidden;font-size:13px;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums}
+.plant-verdict-rail.tone-good .plant-verdict-value{color:var(--good)}.plant-verdict-rail.tone-bad .plant-verdict-value{color:var(--bad)}
+@media(max-width:1180px){.plant-verdict-rail{grid-template-columns:repeat(3,minmax(0,1fr))}.plant-verdict-primary{grid-column:span 2}.plant-verdict-cell:nth-child(4){border-left:0;border-top:1px solid var(--line-soft)}.plant-verdict-cell:nth-child(n+5){border-top:1px solid var(--line-soft)}}
+@media(max-width:650px){.plant-verdict-rail{grid-template-columns:repeat(2,minmax(0,1fr))}.plant-verdict-primary{grid-column:1/-1}.plant-verdict-cell{border-top:1px solid var(--line-soft)}.plant-verdict-cell:nth-child(even){border-left:0}.plant-verdict-value{font-size:18px}}
+`;
+  document.head.append(style);
+})();
