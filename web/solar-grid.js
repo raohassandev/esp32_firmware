@@ -55,6 +55,20 @@
         droop: 'Droop (speed-droop characteristic)'
     };
 
+    /* Conventional starting points, proposed when a rating is entered and never
+     * imposed over a figure an engineer has already typed.
+     *
+     * 30 percent is the loading below which a diesel set wet-stacks; most
+     * manufacturers state it or something near it. 5 percent of rating is the
+     * reverse-power cushion the product owner specified, and it is a FRACTION of
+     * rating rather than a fixed kW because the risk scales with the machine: 25
+     * kW of margin is generous on a 500 kW set and most of a 50 kW one.
+     *
+     * Both are conventions, not manufacturer data for any particular engine. The
+     * form says so on screen, and either can be overwritten. */
+    const DEFAULT_MINIMUM_LOADING_PERCENT = 30;
+    const DEFAULT_REVERSE_POWER_MARGIN_FRACTION = 0.05;
+
     const ENGINE_ROLE_LABELS = [
         [0, 'Not commissioned'],
         [1, 'Swing - absorbs the remaining load'],
@@ -390,6 +404,44 @@
             field('Reverse-power margin (kW)', numberInput(`engine${slot}Margin`, 0, '0.1'))
         );
         block.append(grid);
+
+        /* PROPOSED, NOT IMPOSED.
+         *
+         * Entering a rating fills the two figures that are conventionally derived
+         * from it -- 30 percent minimum loading, and a reverse-power margin of 5
+         * percent of rating -- but ONLY while they are still empty or zero. An
+         * engineer who has typed a figure has made a decision about this machine,
+         * and a later edit to the rating must never overwrite it.
+         *
+         * They are filled into the visible controls rather than applied in the
+         * firmware, so what is stored is always what was on screen when Save was
+         * pressed. A default the engineer never saw is how a plant acquires a
+         * safety figure nobody chose. */
+        const ratedInput = grid.querySelector(`#engine${slot}Rated`);
+        const proposeFrom = () => {
+            const rated = Number(ratedInput.value);
+            if (!Number.isFinite(rated) || rated <= 0) return;
+            const loading = byId(`engine${slot}Loading`);
+            const margin = byId(`engine${slot}Margin`);
+            if (loading && !(Number(loading.value) > 0)) loading.value = String(DEFAULT_MINIMUM_LOADING_PERCENT);
+            if (margin && !(Number(margin.value) > 0)) {
+                margin.value = (rated * DEFAULT_REVERSE_POWER_MARGIN_FRACTION).toFixed(1);
+            }
+            const note = byId(`engine${slot}Proposed`);
+            if (note) {
+                note.hidden = false;
+                note.textContent = `Filled from the rating: ${DEFAULT_MINIMUM_LOADING_PERCENT}% minimum loading and a reverse-power margin of `
+                    + `${(rated * DEFAULT_REVERSE_POWER_MARGIN_FRACTION).toFixed(1)} kW `
+                    + `(${Math.round(DEFAULT_REVERSE_POWER_MARGIN_FRACTION * 100)}% of rating). Change either if this machine differs.`;
+            }
+        };
+        ratedInput.addEventListener('change', proposeFrom);
+        ratedInput.addEventListener('blur', proposeFrom);
+
+        const proposed = node('p', 'engine-note');
+        proposed.id = `engine${slot}Proposed`;
+        proposed.hidden = true;
+        block.append(proposed);
 
         const roleGrid = node('div', 'field-grid');
         const role = node('select');

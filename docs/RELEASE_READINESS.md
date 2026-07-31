@@ -603,6 +603,45 @@ These are product decisions, deliberately not made unilaterally.
 | D5 | Repeated-mismatch policy | An inverter that mismatches then confirms a safe zero rejoins the fleet. `mismatch_count` is retained but there is no "N strikes and out" latch, so a marginal inverter will cycle. |
 | D6 | `.eyebrow` brand orange at **2.23:1** on light background, 10 px | Left untouched, colour and size, pending a brand decision. Pinned by contract so it cannot be silently half-fixed. |
 
+### 5.1 Deferred to phase 2: ramp rate has to scale with engine size
+
+Recorded from the product owner, 2026-07-31, and deliberately **not** implemented
+now:
+
+> *"agr generator ka size km he let say 50kva tu load variation ane pe is ke
+> frequency destablize ho jati he, jis ki wja se inverter de-synch ho jate hen.
+> is liye chote gen pe ramp rate km rkha jata he, bra generator brdasht kr jata
+> he."*
+
+A small engine's speed governor cannot absorb a step change the way a large one
+can. Move PV too quickly on a 50 kVA set and the frequency excursion is large
+enough that the grid-tied inverters drop out on their own protection — so the
+controller's attempt to protect the generator *disconnects the very equipment it
+was commanding*, and the plant loses PV entirely rather than being curtailed.
+
+What this firmware does today: the ramp is a single commissioned rate per
+profile, plus the urgency doubling below 25 percent loading added in this phase.
+Neither is aware of engine size. A rate that is safe on 500 kVA can therefore be
+commissioned unchanged on 50 kVA.
+
+What phase 2 needs, and why it is not a five-minute change:
+
+- A rate derived from, or at least bounded by, the engine rating rather than
+  entered free-hand — and the relationship is not linear, so it cannot be
+  invented. It needs either manufacturer governor data or measurement on
+  representative sets.
+- The urgency doubling must be bounded by the same limit. Doubling a rate that
+  is already at a small engine's stability limit is exactly the case that
+  de-synchronises the inverters, and it would do so while the plant is *already*
+  in an underloaded state.
+- A recorded frequency measurement during a ramp on a small set, because "the
+  inverters dropped out" is the observable symptom and frequency is the cause;
+  without the measurement the two are indistinguishable from a comms fault.
+
+Until then the safe commissioning posture is: on small engines, enter a
+conservatively low ramp rate and confirm on site that PV steps do not trip the
+inverters.
+
 ## 6. Inputs still required
 
 - **Generator ratings: rated kW, minimum loading %, reserve kW, reverse-power
