@@ -4,10 +4,11 @@
  *   question, guidance, scope marker) and the operator/engineering
  *   classification of the page element.
  * DOES NOT OWN: the navigation list - ordering and section labels moved to
- *   product-shell-v2.js, the single navigation owner; this module used to
- *   insert labels into a list another module was reordering. Nor routing or
- *   the route title (app.js): the masthead heading is page furniture. Nor any
- *   observer of its own; it subscribes to the shared one in product-mode.js.
+ *   product-shell-v2.js, the single navigation owner; product-experience-v2
+ *   used to add labels while the shell reordered the links beneath them. Nor
+ *   routing or the route title (app.js): the masthead heading is page furniture.
+ * Nor a DOM observer of its own; it subscribes to the shared notifier in
+ * product-mode.js.
  * Issues no request.
  */
 (() => {
@@ -30,7 +31,12 @@
   const ENGINEERING_PAGE_ROUTES = new Set(['engineering', 'commissioning', 'readiness', 'wifi', 'control', 'system']);
   const route = () => location.hash.replace(/^#\/?/, '') || 'dashboard';
   const isEngineering = () => document.documentElement.dataset.access === 'engineering';
-  const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+  const el = (tag, cls, text) => {
+    const node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text != null) node.textContent = text;
+    return node;
+  };
   let composeQueued = false;
 
   function masthead(page, meta, name) {
@@ -64,8 +70,9 @@
   }
 
   function removeCompetingControls() {
-    ['productEngineeringEntry'].forEach(id => document.getElementById(id)?.classList.add('experience-secondary-control'));
-    document.querySelectorAll('.product-tool-button, #themeToggle, #engineeringAccessButton').forEach(n => n.classList.add('experience-secondary-control'));
+    ['productEngineeringEntry'].forEach((id) => document.getElementById(id)?.classList.add('experience-secondary-control'));
+    document.querySelectorAll('.product-tool-button, #themeToggle, #engineeringAccessButton')
+      .forEach((node) => node.classList.add('experience-secondary-control'));
   }
 
   function compose() {
@@ -74,8 +81,11 @@
     const page = document.querySelector(`.page[data-page="${name}"]`);
     const meta = PAGE[name];
     if (page && meta) {
-      if (!isEngineering() && OPERATOR_PRODUCT_ROUTES.has(name)) page.querySelector(':scope > .experience-masthead')?.remove();
-      else masthead(page, meta, name);
+      if (!isEngineering() && OPERATOR_PRODUCT_ROUTES.has(name)) {
+        page.querySelector(':scope > .experience-masthead')?.remove();
+      } else {
+        masthead(page, meta, name);
+      }
       classifyPage(page, name);
     }
     if (document.body.dataset.experienceRoute !== name) document.body.dataset.experienceRoute = name;
@@ -103,8 +113,8 @@
 })();
 
 /* Preserve keyboard focus and open disclosure state when the existing operator
- * renderers replace their child DOM during polling. Presentation only: no API,
- * control, alarm or authorization behavior is changed. */
+ * renderers replace their child DOM during polling. The shared content notifier
+ * is used instead of installing another observer on #mainContent. */
 (() => {
   'use strict';
   const ROOTS = '.operator-product-view, .alarm-console';
@@ -117,7 +127,9 @@
   const detailKey = (details) => `${alarmId(details)}|${text(details.querySelector(':scope > summary')?.getAttribute('aria-label') || details.querySelector(':scope > summary')?.textContent)}`;
   const focusKey = (node) => {
     if (node.id) return `id:${node.id}`;
-    if (node.tagName === 'SUMMARY' && node.parentElement?.tagName === 'DETAILS') return `summary:${detailKey(node.parentElement)}`;
+    if (node.tagName === 'SUMMARY' && node.parentElement?.tagName === 'DETAILS') {
+      return `summary:${detailKey(node.parentElement)}`;
+    }
     return '';
   };
   const recordFor = (root) => {
@@ -125,19 +137,25 @@
     if (!state.has(key)) state.set(key, { open: new Set(), focus: '' });
     return state.get(key);
   };
+
   function restore() {
     queued = false;
     restoring = true;
     document.querySelectorAll(ROOTS).forEach((root) => {
       const record = state.get(rootKey(root));
       if (!record) return;
-      root.querySelectorAll('details').forEach((details) => { details.open = record.open.has(detailKey(details)); });
+      root.querySelectorAll('details').forEach((details) => {
+        details.open = record.open.has(detailKey(details));
+      });
       if (record.focus && (document.activeElement === document.body || document.activeElement === document.documentElement)) {
         let target = null;
-        if (record.focus.startsWith('id:')) target = document.getElementById(record.focus.slice(3));
-        else if (record.focus.startsWith('summary:')) {
+        if (record.focus.startsWith('id:')) {
+          target = document.getElementById(record.focus.slice(3));
+        } else if (record.focus.startsWith('summary:')) {
           const key = record.focus.slice(8);
-          target = [...root.querySelectorAll('details')].find((details) => detailKey(details) === key)?.querySelector(':scope > summary') || null;
+          target = [...root.querySelectorAll('details')]
+            .find((details) => detailKey(details) === key)
+            ?.querySelector(':scope > summary') || null;
         }
         if (target && !target.disabled && target.getClientRects().length) {
           try { target.focus({ preventScroll: true }); } catch { target.focus(); }
@@ -146,11 +164,13 @@
     });
     restoring = false;
   }
+
   function schedule() {
     if (queued) return;
     queued = true;
     requestAnimationFrame(restore);
   }
+
   function start() {
     document.addEventListener('focusin', (event) => {
       const root = event.target.closest?.(ROOTS);
@@ -164,13 +184,14 @@
       if (!root) return;
       const record = recordFor(root);
       const key = detailKey(event.target);
-      if (event.target.open) record.open.add(key); else record.open.delete(key);
+      if (event.target.open) record.open.add(key);
+      else record.open.delete(key);
     }, true);
-    const main = document.getElementById('mainContent');
-    if (main) new MutationObserver(schedule).observe(main, { childList: true, subtree: true });
+    window.AutomatrixEngineeringAccess?.onContentChange(schedule, { deep: true });
     window.addEventListener('amx-operator-view-rendered', schedule);
     window.addEventListener('hashchange', schedule);
   }
+
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
   else start();
 })();
@@ -186,7 +207,10 @@
   const route = () => location.hash.replace(/^#\/?/, '') || 'dashboard';
   const unknown = (value) => !value || /^(--|unknown|unavailable|checking|connecting|never|no sample)$/i.test(value);
   const bad = (value) => /offline|stale|invalid|critical|fault|failed|fail-closed|unavailable|timed out/i.test(value);
-  const count = (value) => { const match = String(value || '').match(/\d+/); return match ? Number(match[0]) : null; };
+  const count = (value) => {
+    const match = String(value || '').match(/\d+/);
+    return match ? Number(match[0]) : null;
+  };
   const alarmsClear = (value) => count(value) === 0 || /^(none|normal|clear|no active alarms?)$/i.test(value);
 
   function model() {
@@ -202,7 +226,8 @@
     if (pill?.classList.contains('bad') || bad(controller) || bad(meter) || (alarmCount != null && alarmCount > 0)) {
       const detail = alarmCount != null && alarmCount > 0
         ? `${alarmCount} alarm${alarmCount === 1 ? '' : 's'} require review.`
-        : bad(meter) ? `Grid measurement reports ${meter || 'an unusable state'}.`
+        : bad(meter)
+          ? `Grid measurement reports ${meter || 'an unusable state'}.`
           : `Controller connection reports ${controller || 'a fault state'}.`;
       return { tone: 'bad', label: 'ATTENTION REQUIRED', detail, source, meter, control, alarms, updated };
     }
@@ -217,9 +242,19 @@
       if (unknown(control)) missing.push('control state');
       if (unknown(alarms)) missing.push('alarm state');
       if (unknown(updated)) missing.push('data freshness');
-      return { tone: 'neutral', label: 'PLANT STATUS UNKNOWN', detail: missing.length ? `Waiting for ${missing.join(', ')}.` : 'Current browser data does not prove a normal state.', source, meter, control, alarms, updated };
+      return {
+        tone: 'neutral',
+        label: 'PLANT STATUS UNKNOWN',
+        detail: missing.length ? `Waiting for ${missing.join(', ')}.` : 'Current browser data does not prove a normal state.',
+        source, meter, control, alarms, updated
+      };
     }
-    return { tone: 'good', label: 'PLANT NORMAL', detail: 'Current controller data reports no active exception.', source, meter, control, alarms, updated };
+    return {
+      tone: 'good',
+      label: 'PLANT NORMAL',
+      detail: 'Current controller data reports no active exception.',
+      source, meter, control, alarms, updated
+    };
   }
 
   function cell(label, id) {
@@ -256,8 +291,14 @@
       detail.id = 'plantVerdictDetail';
       detail.className = 'plant-verdict-detail';
       primary.append(caption, value, detail);
-      rail.append(primary, cell('Active source', 'plantVerdictSource'), cell('Grid measurement', 'plantVerdictMeter'),
-        cell('Control', 'plantVerdictControl'), cell('Alarms', 'plantVerdictAlarms'), cell('Updated', 'plantVerdictUpdated'));
+      rail.append(
+        primary,
+        cell('Active source', 'plantVerdictSource'),
+        cell('Grid measurement', 'plantVerdictMeter'),
+        cell('Control', 'plantVerdictControl'),
+        cell('Alarms', 'plantVerdictAlarms'),
+        cell('Updated', 'plantVerdictUpdated')
+      );
     }
     const attention = document.getElementById('operatorAttentionHost');
     if (attention?.parentElement === view) attention.after(rail);
@@ -280,16 +321,15 @@
   }
 
   function start() {
-    const observer = new MutationObserver(schedule);
-    ['controllerPill', 'sourceBannerLabel', 'statusMeter', 'statusControl', 'statusAlarms', 'statusUpdated'].forEach((id) => {
-      const target = document.getElementById(id);
-      if (target) observer.observe(target, { attributes: true, childList: true, characterData: true, subtree: true });
-    });
+    window.addEventListener('amx-controller-status', schedule);
+    window.addEventListener('amx-controller-health', schedule);
     window.addEventListener('amx-operator-view-rendered', schedule);
     window.addEventListener('hashchange', schedule);
     window.addEventListener('amx-access-change', schedule);
+    window.AutomatrixEngineeringAccess?.onContentChange(schedule, { deep: true });
     schedule();
   }
+
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
   else start();
 })();
@@ -320,18 +360,57 @@
  * status strip already preserves the distinction by publishing Checking,
  * Unavailable, Unknown or Never. This guard carries that distinction into the
  * derived cards after each render. It never changes a reported Online, Offline,
- * Normal, Warning or Critical state and it issues no request.
+ * Normal, Warning or Critical state and it issues no additional request.
  *
- * The acknowledgement correction is equally narrow. Acknowledgement is an
- * operator action by design; shelving and out-of-service remain Engineering
- * actions. A stale 401 message told the operator to sign into Engineering. That
- * message is corrected without changing the request, endpoint or permission. */
+ * The same pass records whether the existing /api/inverters response actually
+ * contained its inventory and summary fields. A missing summary is rendered as
+ * unavailable, not as a manufactured 0-of-0 fleet. The response is cloned in
+ * the browser; no second HTTP request is made.
+ *
+ * Acknowledgement is an operator action by design; shelving and out-of-service
+ * remain Engineering actions. A stale 401 message told the operator to sign in
+ * as Engineering. That message is corrected without changing the request,
+ * endpoint or permission. */
 (() => {
   'use strict';
   let queued = false;
+  const fleetEvidence = { seen: false, inventory: false, summary: false };
   const clean = (value) => String(value || '').replace(/\s+/g, ' ').trim();
   const unknown = (value) => !value || /^(--|unknown|unavailable|checking|connecting|never|no sample)$/i.test(clean(value));
   const status = (id) => clean(document.getElementById(id)?.textContent);
+  const finiteNumber = (value) => value !== null && value !== undefined && value !== ''
+    && typeof value !== 'boolean' && Number.isFinite(Number(value));
+
+  function requestPath(input) {
+    const raw = typeof input === 'string' ? input : input?.url || '';
+    try { return new URL(raw, location.href).pathname; } catch { return String(raw).split('?', 1)[0]; }
+  }
+
+  function requestMethod(input, init) {
+    return String(init?.method || input?.method || 'GET').toUpperCase();
+  }
+
+  const upstreamFetch = window.fetch;
+  window.fetch = async function experienceFetch(input, init) {
+    const response = await upstreamFetch.call(this, input, init);
+    if (requestMethod(input, init) === 'GET' && requestPath(input) === '/api/inverters' && response.ok) {
+      response.clone().json().then((payload) => {
+        const summary = payload && typeof payload.summary === 'object' ? payload.summary : null;
+        fleetEvidence.seen = true;
+        fleetEvidence.inventory = Array.isArray(payload?.inverters);
+        fleetEvidence.summary = Boolean(summary)
+          && ['enabled', 'online', 'configured_rated_kw', 'enabled_rated_kw', 'commandable_rated_kw']
+            .every((key) => finiteNumber(summary[key]));
+        schedule();
+      }).catch(() => {
+        fleetEvidence.seen = true;
+        fleetEvidence.inventory = false;
+        fleetEvidence.summary = false;
+        schedule();
+      });
+    }
+    return response;
+  };
 
   function statusRow(root, label) {
     return [...(root?.querySelectorAll('.op-status-row') || [])].find((row) => {
@@ -349,6 +428,37 @@
     if (small && small.textContent !== detail) small.textContent = detail;
     ['good', 'bad', 'warning'].forEach((tone) => row.classList.remove(tone));
     row.classList.add('neutral');
+  }
+
+  function write(node, value) {
+    if (node && node.textContent !== value) node.textContent = value;
+  }
+
+  function correctFleet() {
+    if (!fleetEvidence.seen) return;
+    if (!fleetEvidence.summary) {
+      markUnknown(document.getElementById('operatorDashboardView'), 'Solar fleet', 'Unavailable',
+        'The controller did not report fleet summary counts.');
+      const card = document.querySelector('#operatorInverterView .op-fleet-card');
+      if (card) {
+        const pill = card.querySelector('.op-state-pill');
+        write(pill, 'Unavailable');
+        pill?.classList.remove('good', 'bad', 'warning');
+        const reading = card.querySelector('.op-measure-reading strong');
+        const unit = card.querySelector('.op-measure-reading .op-measure-unit');
+        write(reading, '— of —');
+        write(unit, 'reported');
+        card.querySelectorAll('.op-fleet-key strong, .op-measure-stat strong').forEach((value) => write(value, '—'));
+        write(card.querySelector('.op-measure-window'),
+          'The controller did not report fleet summary counts. No zero values are inferred.');
+        card.classList.add('op-fleet-unavailable');
+      }
+    }
+    if (!fleetEvidence.inventory) {
+      const empty = [...document.querySelectorAll('#operatorInverterView .op-empty-state')]
+        .find((node) => clean(node.textContent) === 'No solar inverter has been commissioned.');
+      write(empty, 'Inverter inventory unavailable. The controller did not report a device list.');
+    }
   }
 
   function correctDerivedStates() {
@@ -374,13 +484,14 @@
       markUnknown(document.getElementById('operatorSystemView'), 'Alarms', 'Unknown',
         'The controller has not reported alarm state.');
     }
+    correctFleet();
   }
 
   function correctAcknowledgementMessage() {
     document.querySelectorAll('#alarmConsole .alarm-message').forEach((message) => {
       if (!clean(message.textContent).startsWith('Acknowledging an alarm requires an authenticated engineering session.')) return;
-      const corrected = 'The controller refused the acknowledgement request. Acknowledgement is an operator action; check the controller API or session configuration and retry. Nothing was changed.';
-      if (message.textContent !== corrected) message.textContent = corrected;
+      write(message,
+        'The controller refused the acknowledgement request. Acknowledgement is an operator action; check the controller API or session configuration and retry. Nothing was changed.');
     });
   }
 
@@ -397,14 +508,11 @@
   }
 
   function start() {
-    const main = document.getElementById('mainContent');
-    if (main) new MutationObserver(schedule).observe(main, { childList: true, subtree: true, characterData: true });
-    ['statusNetwork', 'statusMeter', 'statusAlarms'].forEach((id) => {
-      const target = document.getElementById(id);
-      if (target) new MutationObserver(schedule).observe(target, { childList: true, characterData: true, subtree: true });
-    });
+    window.addEventListener('amx-controller-status', schedule);
+    window.addEventListener('amx-controller-health', schedule);
     window.addEventListener('amx-operator-view-rendered', schedule);
     window.addEventListener('hashchange', schedule);
+    window.AutomatrixEngineeringAccess?.onContentChange(schedule, { deep: true });
     schedule();
   }
 
