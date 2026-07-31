@@ -1,13 +1,10 @@
-/* ui-enhancements.js - collapsible sections in the EM500 meter workspace.
+/* ui-enhancements.js - small interaction hardening that does not own data.
  *
- * OWNS: the expand/collapse affordance on `.em500-panel`, and nothing else.
- *   Touches only #em500Content.
- * DOES NOT OWN: what those panels contain, when they are rebuilt, or which is
- *   open by default. em500-core.js renders them and declares the default as
- *   data-collapsed-by-default. This module used to decide by matching the
- *   heading text against a hardcoded list of English section names, so a
- *   wording change silently collapsed what an engineer opens the view to read.
- *   It reads no user-visible text now, and issues no request.
+ * OWNS: the expand/collapse affordance on `.em500-panel`, plus removal of the
+ * operator-only plant verdict when the shared access state enters Engineering.
+ * DOES NOT OWN: panel contents, data refreshes, routing, authentication or any
+ * controller request. The verdict cleanup only removes stale presentation that
+ * was rendered for the previous operator access state.
  */
 (() => {
     'use strict';
@@ -70,4 +67,21 @@
     /* #em500Content appears well after load. Rather than poll for it, listen to
      * the one #mainContent observer the application already has. */
     window.AutomatrixEngineeringAccess?.onContentChange(decorateMeterPanels, { deep: true });
+})();
+
+/* The plant verdict is deliberately an operator-only summary. The verdict
+ * renderer exits in Engineering mode, but an already-rendered rail from the
+ * preceding operator session used to remain in the DOM with its last value.
+ * Remove it at the access transition; the underlying controller-owned source,
+ * meter, control and alarm panels remain available and continue to refresh. */
+(() => {
+    'use strict';
+
+    function removeStaleOperatorVerdict() {
+        if (document.documentElement.dataset.access !== 'engineering') return;
+        document.getElementById('plantVerdictRail')?.remove();
+    }
+
+    window.addEventListener('amx-access-change', removeStaleOperatorVerdict);
+    document.addEventListener('DOMContentLoaded', removeStaleOperatorVerdict, { once: true });
 })();
