@@ -1,10 +1,9 @@
 /* ui-enhancements.js - small interaction hardening that does not own data.
  *
- * OWNS: the expand/collapse affordance on `.em500-panel`, plus removal of the
- * operator-only plant verdict when the shared access state enters Engineering.
- * DOES NOT OWN: panel contents, data refreshes, routing, authentication or any
- * controller request. The verdict cleanup only removes stale presentation that
- * was rendered for the previous operator access state.
+ * OWNS: the expand/collapse affordance on `.em500-panel`, removal of stale
+ * operator-only presentation at an access transition, and narrow-shell control
+ * consolidation. DOES NOT OWN: panel contents, data refreshes, routing,
+ * authentication or any controller request.
  */
 (() => {
     'use strict';
@@ -84,4 +83,42 @@
 
     window.addEventListener('amx-access-change', removeStaleOperatorVerdict);
     document.addEventListener('DOMContentLoaded', removeStaleOperatorVerdict, { once: true });
+})();
+
+/* The shell already has one controller menu containing Refresh and Theme.
+ * Keeping separate 44px topbar buttons as well made the 1024px action cluster
+ * crop its labels and left almost no title at 390px. On tablet and phone those
+ * duplicate actions stay available through the menu, while the navigation
+ * button, page title, health state and menu remain persistent. */
+(() => {
+    'use strict';
+
+    const style = document.createElement('style');
+    style.id = 'narrowShellControlStyles';
+    style.textContent = `
+.shell-overflow-button{width:auto;min-width:58px;padding:0 12px;font-size:12px;font-weight:800}
+@media(max-width:1180px){
+  body.product-shell-v2 #refreshButton,
+  body.product-shell-v2 #themeToggleButton{display:none!important}
+  body.product-shell-v2 .topbar-actions{gap:6px}
+}
+@media(max-width:650px){
+  body.product-shell-v2 .topbar{gap:6px}
+  body.product-shell-v2 .page-heading h1{max-width:46vw}
+  .shell-overflow-button{min-width:50px;padding-inline:8px;font-size:11px}
+}
+@media(max-width:420px){
+  body.product-shell-v2 .page-heading h1{max-width:42vw}
+  body.product-shell-v2 .topbar-actions{gap:4px}
+}
+`;
+    document.head.append(style);
+
+    /* product-shell-v2 predates theme.js's current button id. Bridge the menu's
+     * Theme item to the installed control without changing either owner. */
+    document.addEventListener('click', (event) => {
+        const item = event.target.closest?.('.shell-menu button:nth-child(4)');
+        if (!item) return;
+        document.getElementById('themeToggleButton')?.click();
+    });
 })();
