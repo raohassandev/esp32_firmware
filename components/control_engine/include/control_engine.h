@@ -3,6 +3,7 @@
 #include "esp_err.h"
 #include "control_types.h"
 #include "generator_fleet_limit.h"
+#include "phase_selection.h"
 
 esp_err_t control_engine_init(void);
 void control_engine_get_status(control_status_t *out_status);
@@ -62,3 +63,10 @@ void control_engine_force_disable(void);
  * an HTTP handler. Returns ESP_ERR_INVALID_STATE when arming is refused.
  */
 esp_err_t control_engine_set_enabled(bool enabled);
+
+/* Which measurement the control loop last enforced the grid policy on, and
+ * whether per-phase control was actually applied or fell back to the total.
+ * Returns false until the loop has evaluated once, so "no verdict yet" stays
+ * distinguishable from "the total was used". Reads a snapshot under a spinlock
+ * and performs no I/O. */
+bool control_engine_get_phase_selection(phase_selection_t *out_selection);

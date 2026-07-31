@@ -13,6 +13,7 @@
 #include "grid_control_gate.h"
 #include "inverter_manager.h"
 #include "meter_manager.h"
+#include "phase_selection.h"
 #include "power_control_policy.h"
 #include "safety_manager.h"
 #include "solar_grid_config.h"
@@ -90,6 +91,49 @@ bool control_engine_get_generator_fleet(generator_fleet_limit_t *out_limit)
     const bool valid = s_fleet_limit_valid;
     *out_limit = s_fleet_limit;
     portEXIT_CRITICAL(&s_fleet_lock);
+    return valid;
+}
+
+
+/* The commissioned basis of the meter holding the GRID role. Read from the
+ * snapshot taken at init, like every other meter fact this loop uses -- meter
+ * configuration changes already require a restart. Defaults to the stricter
+ * basis when no grid meter is resolved, which costs nothing: with no meter there
+ * is no measurement and the freshness gate already holds PV down. */
+static uint32_t s_grid_phase_basis = METER_PHASE_BASIS_LOWEST_PHASE;
+
+static uint32_t grid_phase_basis(void)
+{
+    return s_grid_phase_basis;
+}
+
+/* The selection the loop last acted on, published so an engineer can see WHICH
+ * conductor a limit is being enforced on, and whether per-phase control is
+ * actually in force or has fallen back to the total.
+ *
+ * HMI-EVIDENCE: "enforced on L2 at -20 kW while the total reads +90 kW" is the
+ * single sentence that explains a curtailment nobody looking at the total can
+ * account for. Without it an operator sees PV held down on a site that appears
+ * to be importing comfortably, and concludes the controller is broken. */
+static phase_selection_t s_phase_selection;
+static bool s_phase_selection_valid;
+static portMUX_TYPE s_phase_lock = portMUX_INITIALIZER_UNLOCKED;
+
+static void store_phase_selection(const phase_selection_t *selection)
+{
+    portENTER_CRITICAL(&s_phase_lock);
+    s_phase_selection = *selection;
+    s_phase_selection_valid = true;
+    portEXIT_CRITICAL(&s_phase_lock);
+}
+
+bool control_engine_get_phase_selection(phase_selection_t *out_selection)
+{
+    if (!out_selection) return false;
+    portENTER_CRITICAL(&s_phase_lock);
+    const bool valid = s_phase_selection_valid;
+    *out_selection = s_phase_selection;
+    portEXIT_CRITICAL(&s_phase_lock);
     return valid;
 }
 
@@ -455,7 +499,39 @@ static void control_task(void *argument)
         bool measurement_fresh = have_grid && meter_sample_fresh(&grid, timestamp);
         bool fleet_valid = isfinite(fleet_capacity_kw) && fleet_capacity_kw > 0.0f;
         float raw_grid_kw = measurement_fresh ? grid.active_power_kw : NAN;
-        float measured_grid_kw = oriented_grid_power(raw_grid_kw);
+
+        /*
+         * WHICH MEASUREMENT THE GRID POLICY IS ENFORCED ON.
+         *
+         * On an unbalanced three-phase site a limit satisfied by the TOTAL can be
+         * violated on a single conductor: the total reads zero while one phase
+         * exports, and the utility meters the phase. Where the site commissioned
+         * lowest-phase control and all three phases were read, the policy is
+         * driven by the worst conductor instead of the sum.
+         *
+         * The selection is a pure function so the reasoning is executed by
+         * tests/phase_selection_test.c rather than asserted here. It orients the
+         * SELECTED value, not the phases: sign convention is a property of the
+         * installation, so it applies identically to whichever figure is chosen,
+         * and orienting first would mean the minimum was taken over the wrong
+         * sign on an export-positive site -- selecting the phase LEAST able to
+         * export rather than the one most able to.
+         */
+        phase_selection_input_t phase_input = {
+            .total_kw = raw_grid_kw,
+            .total_valid = measurement_fresh,
+            .basis = (uint8_t)(grid_phase_basis() == METER_PHASE_BASIS_LOWEST_PHASE
+                                   ? PHASE_BASIS_PER_PHASE : PHASE_BASIS_TOTAL),
+        };
+        for (int phase = 0; phase < 3; ++phase) {
+            phase_input.phase_kw[phase] = grid.phase_power_kw[phase];
+            phase_input.phase_valid[phase] = measurement_fresh && grid.phase_valid[phase];
+        }
+        const phase_selection_t phase = phase_selection_evaluate(&phase_input);
+        store_phase_selection(&phase);
+
+        float measured_grid_kw = oriented_grid_power(phase.valid ? phase.controlling_kw
+                                                                 : raw_grid_kw);
 
         grid_evidence_runtime_t evidence = evidence_snapshot();
         bool evidence_fresh = evidence.configured && evidence.last_update_ms != 0U &&
@@ -945,6 +1021,9 @@ esp_err_t control_engine_init(void)
     portENTER_CRITICAL(&s_lock);
     s_roles = roles;
     portEXIT_CRITICAL(&s_lock);
+    s_grid_phase_basis = roles.valid && roles.grid_index != METER_ROLE_INDEX_NONE
+                             ? config->meters[roles.grid_index].phase_control_basis
+                             : METER_PHASE_BASIS_LOWEST_PHASE;
 
     /* Commissioning evidence from persisted configuration. Each `known` flag is
      * set only now that the corresponding state has actually been read. */

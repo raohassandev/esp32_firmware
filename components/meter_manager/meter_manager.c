@@ -1,4 +1,6 @@
 #include "meter_manager.h"
+
+#include "meter_profiles.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -235,11 +237,56 @@ static void record_failure(meter_runtime_t *meter, esp_err_t err)
     log_meter_failure(meter, err, next.consecutive_failures);
 }
 
+/*
+ * PER-PHASE ACQUISITION.
+ *
+ * Read only when BOTH are true: the site commissioned lowest-phase control, and
+ * the commissioned model has a transcribed map that states where its phases
+ * are. Neither alone is enough -- a basis with no map has nowhere to read, and a
+ * map the site did not ask to use is three extra transactions per cycle on a bus
+ * the control loop shares.
+ *
+ * Failure is per phase and is NOT fatal to the poll. The total is the
+ * measurement the control loop cannot run without; the phases refine it. A phase
+ * that does not answer is marked invalid and phase_selection_evaluate() falls
+ * back to the total rather than guessing which conductor is worst.
+ */
+static void poll_phases(meter_runtime_t *meter, const meter_profile_t *profile,
+                        meter_data_t *next, float scale, size_t count)
+{
+    for (int phase = 0; phase < 3; ++phase) {
+        next->phase_valid[phase] = false;
+        next->phase_power_kw[phase] = 0.0f;
+    }
+    if (!profile || !profile->has_phase_power) return;
+    if (meter->config.phase_control_basis != METER_PHASE_BASIS_LOWEST_PHASE) return;
+
+    uint16_t registers[2] = {0};
+    for (int phase = 0; phase < 3; ++phase) {
+        float decoded = 0.0f;
+        /* Same function code, type, order and scale as the total: the phases are
+         * the same quantity on the same instrument, and reading them with a
+         * different interpretation would be inventing one. */
+        if (serialized_read_announced(meter, meter->config.function_code,
+                                      profile->phase_power_address[phase],
+                                      count, registers, false) == ESP_OK &&
+            modbus_decode_scaled(registers, count,
+                                 meter->config.active_power_type,
+                                 meter->config.active_power_order,
+                                 scale, 0.0f, &decoded) == ESP_OK &&
+            isfinite(decoded)) {
+            next->phase_power_kw[phase] = decoded;
+            next->phase_valid[phase] = true;
+        }
+    }
+}
+
 static void meter_task(void *argument)
 {
     meter_runtime_t *meter = argument;
     const size_t count = modbus_data_register_count(meter->config.active_power_type);
     const float scale = effective_active_power_scale(&meter->config);
+    const meter_profile_t *profile = meter_profile_for_model(meter->config.model);
     uint16_t registers[2] = {0};
 
     if (legacy_em500_scale_fingerprint(&meter->config)) {
@@ -279,6 +326,10 @@ static void meter_task(void *argument)
                        isfinite(decoded);
         if (success) {
             next.active_power_kw = decoded;
+            /* After the total, and only on a cycle whose total succeeded: three
+             * phase reads against an instrument that has just failed to answer
+             * would spend the bus on a link that is already down. */
+            poll_phases(meter, profile, &next, scale, count);
             next.last_update_ms = next.last_attempt_ms;
             next.success_count++;
             next.consecutive_failures = 0;

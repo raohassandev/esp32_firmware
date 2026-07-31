@@ -4,6 +4,21 @@
 
 typedef struct {
     float active_power_kw;
+    /* Per-phase active power, kW, import-positive.
+     *
+     * Read only when the commissioned model has a transcribed map with phase
+     * addresses AND the site asked for per-phase control. phase_valid is per
+     * phase and NOT a single flag: phase_selection_evaluate() needs all three to
+     * identify the worst conductor, and knowing WHICH one is missing is what
+     * lets it fall back to the total honestly rather than pick the worst of the
+     * two that answered.
+     *
+     * HMI-EVIDENCE: the three phase readings, side by side with the total, are
+     * how an operator sees an unbalanced site at a glance -- and how an engineer
+     * explains why a limit is being enforced that the total does not appear to
+     * justify. Computed here, not yet on a screen. */
+    float phase_power_kw[3];
+    bool phase_valid[3];
     bool online;
     bool degraded;
     bool connection_initialized;
