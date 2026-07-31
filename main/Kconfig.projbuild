@@ -22,8 +22,17 @@ config PVDG_DEFAULT_WIFI_PASSWORD
 
 config PVDG_RECOVERY_AP_PASSWORD
     string "Recovery access point passphrase (bench override)"
-    default ""
+    default "12345678"
     help
+      CURRENTLY SET TO A WEAK, PUBLISHED VALUE ON THE OWNER'S EXPRESS
+      INSTRUCTION, FOR BENCH USE ONLY.
+
+      "12345678" is one of the passphrases tests/production_release_gate.py
+      names as well known and weak, so that gate now fails, deliberately and by
+      design. It is meant to fail. It is the record that this build cannot go to
+      a site, and it must not be edited to make the failure go away -- restore
+      the empty default instead. See docs/RELEASE_READINESS.md section 4d.
+
       Passphrase for the always-on recovery access point, used only when the
       unit has no usable stored passphrase of its own.
 

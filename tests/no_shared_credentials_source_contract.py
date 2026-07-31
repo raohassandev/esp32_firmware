@@ -59,9 +59,37 @@ require("CONFIG_PVDG_RECOVERY_AP_PASSWORD" in defaults_body,
 
 kconfig_block = KCONFIG[KCONFIG.index("config PVDG_RECOVERY_AP_PASSWORD"):]
 kconfig_block = kconfig_block[:kconfig_block.index("\nconfig ")]
-require(re.search(r'default\s*""', kconfig_block) is not None,
-        "PVDG_RECOVERY_AP_PASSWORD must default to empty, so a build that does not "
-        "deliberately set it ships no shared credential")
+
+# A non-empty default ships one credential on every unit built from a public
+# repository. It is allowed only as a DELIBERATE, RECORDED exception, never as
+# something a build can acquire quietly.
+#
+# The wording matters. This does not ask "is it empty" any more; it asks "is it
+# empty, OR has someone written down that it is not, and does the release gate
+# still refuse the build?". Both halves are load bearing. Deleting the record
+# fails this contract; silencing the gate fails it too. So the only way to ship
+# a shared credential is to leave both the record and the refusal standing,
+# which is exactly the state that stops it reaching a site.
+default_match = re.search(r'default\s*"([^"]*)"', kconfig_block)
+require(default_match is not None,
+        "PVDG_RECOVERY_AP_PASSWORD has no default at all, so the recovery AP "
+        "passphrase is undefined")
+
+if default_match is not None and default_match.group(1) != "":
+    readiness = (ROOT / "docs" / "RELEASE_READINESS.md").read_text(encoding="utf-8", errors="replace")
+    require("## 4d." in readiness and "recovery-AP passphrase" in readiness,
+            "PVDG_RECOVERY_AP_PASSWORD is non-empty but docs/RELEASE_READINESS.md "
+            "section 4d does not record the exception. A shared credential may be "
+            "carried deliberately and in writing; it may not be carried silently.")
+    gate = (ROOT / "tests" / "production_release_gate.py").read_text(encoding="utf-8", errors="replace")
+    require("recovery AP passphrase default is a well known weak passphrase" in gate
+            and "sdkconfig pins a compiled-in recovery AP passphrase" in gate,
+            "PVDG_RECOVERY_AP_PASSWORD is non-empty but the production release gate "
+            "no longer refuses a compiled-in passphrase, so nothing would stop this "
+            "build reaching a site")
+    require("CURRENTLY SET TO A WEAK" in kconfig_block or "BENCH" in kconfig_block.upper(),
+            "a non-empty recovery AP passphrase must say so in its own help text; an "
+            "engineer reading menuconfig must not have to find the release gate first")
 
 # ---------------------------------------------------------------------------
 # An empty password must be replaced per device, not left open

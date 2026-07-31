@@ -543,6 +543,50 @@ schema 6 with every meter acquiring a model out of padding bytes. A 32-bit field
 makes schema 6 strictly larger. A `_Static_assert` in `config_manager.c` fails the
 build if this is ever narrowed.
 
+## 4d. Directed by the product owner: a weak, published recovery-AP passphrase
+
+`CONFIG_PVDG_RECOVERY_AP_PASSWORD` is set to **`12345678`** on the owner's
+express and repeated instruction. *"last time is ka password fix kia tha
+12345678 — is ko filhal ye hi fix kr do. is ko release gate men likh den."*
+
+This section is the "likh den".
+
+**What it changes.** The always-on recovery access point
+`Automatrix-PVDG-<suffix>` now accepts a passphrase that is compiled into a
+**public** repository and is one of the most-guessed strings in existence.
+Anyone within radio range of a controller can join its setup network. From
+there the operator API is reachable without authentication, and the engineering
+routes are reachable by anyone who also has the engineering password. WPA2 with
+a published pre-shared key is an open network with extra steps.
+
+It also replaces a working per-device secret. With the default empty, each unit
+generates its own 16-character passphrase from the hardware RNG on first start
+and prints it to the serial console at every boot, so an engineer holding the
+board can always read it. That mechanism is not removed — it is simply no longer
+reached, because a compiled value is only used when a unit has no usable stored
+passphrase of its own.
+
+**Why it is recorded here rather than argued.** The concern was raised, and the
+owner reaffirmed the instruction. It is his product and his risk to carry. What
+is not negotiable is that the risk stays *visible*, so:
+
+| Signal | Behaviour |
+|---|---|
+| `tests/production_release_gate.py` | **Fails**, naming it: *"recovery AP passphrase default is a well known weak passphrase"* and *"sdkconfig pins a compiled-in recovery AP passphrase"*. Two independent blockers, one for the Kconfig default and one for the pinned `sdkconfig`. |
+| Serial console, every boot | `config_manager_recovery_ap_is_build_default()` returns true, so `announce_recovery_ap_on_serial()` prints the build-default banner: *"identical on every unit built from this public source, so it is public knowledge."* |
+| This section | The written record that the failure above is intended and must not be silenced. |
+
+**The gate failing is the point.** It is not a defect to be worked around. Anyone
+who "fixes" the release gate to make this pass has removed the only automated
+statement that this build cannot be deployed. The remedy is to restore the empty
+default, not to edit the test.
+
+**What clears it.** Set `CONFIG_PVDG_RECOVERY_AP_PASSWORD` back to `""`, rebuild,
+and let each unit generate its own passphrase; or, per unit and without a
+rebuild, replace the stored passphrase through `/api/wifi/config`. Any unit whose
+stored passphrase is still `12345678` when it leaves the bench carries this
+section with it.
+
 ## 5. Open decisions
 
 These are product decisions, deliberately not made unilaterally.
