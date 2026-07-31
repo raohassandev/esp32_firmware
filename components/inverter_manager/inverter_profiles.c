@@ -30,6 +30,10 @@ static const inverter_profile_t PROFILES[] = {
         .id = SAFE_DEFAULT_PROFILE_ID,
         .manufacturer = "Custom",
         .deferred_this_phase = true,
+        .deferred_reason =
+            "Out of scope for this release phase, and it carries no register map at "
+            "all. Unparking needs the phase scope to widen; the evidence gate would "
+            "still refuse it until it is given a register map.",
         .model_family = "Advanced Modbus percentage control",
         .protocol = "Modbus",
         .connection = INVERTER_PROFILE_CONNECTION_MODBUS_TCP,
@@ -155,6 +159,9 @@ static const inverter_profile_t PROFILES[] = {
         .id = "soltrix.sim.goodwe.v1",
         .manufacturer = "SolTrix Simulator",
         .deferred_this_phase = true,
+        .deferred_reason =
+            "Out of scope for this release phase. This is the GoodWe lab rig and has no "
+            "purpose before the scope widens to GoodWe.",
         .model_family = "GoodWe commercial contract",
         .protocol = "Modbus TCP simulator",
         .connection = INVERTER_PROFILE_CONNECTION_MODBUS_TCP,
@@ -196,6 +203,9 @@ static const inverter_profile_t PROFILES[] = {
         .id = "soltrix.sim.solis.v1",
         .manufacturer = "SolTrix Simulator",
         .deferred_this_phase = true,
+        .deferred_reason =
+            "Out of scope for this release phase. This is the Solis lab rig and has no "
+            "purpose before the scope widens to Solis.",
         .model_family = "Solis commercial contract",
         .protocol = "Modbus TCP simulator",
         .connection = INVERTER_PROFILE_CONNECTION_MODBUS_TCP,
@@ -355,6 +365,13 @@ static const inverter_profile_t PROFILES[] = {
         .command_register_is_flash_backed = true,
         .manufacturer = "GoodWe",
         .deferred_this_phase = true,
+        .deferred_reason =
+            "Out of scope for this release phase, and separately refused on evidence: "
+            "command register 42407 is flash-backed and the manual states no permitted "
+            "write rate, so commanding it continuously would wear out the inverter's "
+            "non-volatile memory while every write reported success. Unparking needs "
+            "the phase scope to widen AND a permitted write rate stated by GoodWe. "
+            "Both, not either.",
         .model_family = "GT series three-phase grid-connected string inverter",
         .protocol = "Modbus RTU",
         .connection = INVERTER_PROFILE_CONNECTION_MODBUS_RTU_GATEWAY,
@@ -510,6 +527,10 @@ static const inverter_profile_t PROFILES[] = {
         .requires_prerequisite_enable = true,
         .manufacturer = "Solis",
         .deferred_this_phase = true,
+        .deferred_reason =
+            "Out of scope for this release phase. Parking is the only thing holding it: "
+            "it reaches lab authority on its own evidence the moment the scope widens "
+            "to Solis.",
         .model_family = "Three-phase commercial string inverter (RS485 MODBUS protocol)",
         .protocol = "Modbus RTU",
         .connection = INVERTER_PROFILE_CONNECTION_MODBUS_RTU_GATEWAY,
@@ -718,6 +739,12 @@ static const inverter_profile_t PROFILES[] = {
         .requires_prerequisite_enable = true,
         .manufacturer = "Growatt",
         .deferred_this_phase = true,
+        .deferred_reason =
+            "Out of scope for this release phase, and separately refused on evidence: "
+            "network power control is locked after power-on, the manual's unlock "
+            "password is redacted, and the lock re-arms after five minutes, so control "
+            "would stop silently mid-run even if the unlock were known. Unparking needs "
+            "the phase scope to widen AND the unlock procedure from Growatt.",
         .model_family = "MAX / MID / MAC three-phase (TL3-X), input registers 0-249",
         .protocol = "Modbus RTU",
         .connection = INVERTER_PROFILE_CONNECTION_MODBUS_RTU_GATEWAY,
@@ -765,6 +792,12 @@ static const inverter_profile_t PROFILES[] = {
         .requires_prerequisite_enable = true,
         .manufacturer = "Growatt",
         .deferred_this_phase = true,
+        .deferred_reason =
+            "Out of scope for this release phase, and separately refused on evidence: "
+            "network power control is locked after power-on, the manual's unlock "
+            "password is redacted, and the lock re-arms after five minutes, so control "
+            "would stop silently mid-run even if the unlock were known. Unparking needs "
+            "the phase scope to widen AND the unlock procedure from Growatt.",
         .model_family = "MIN / TL-X / TL-XH, input registers 3000-3249",
         .protocol = "Modbus RTU",
         .connection = INVERTER_PROFILE_CONNECTION_MODBUS_RTU_GATEWAY,
@@ -828,6 +861,9 @@ static const inverter_profile_t PROFILES[] = {
         .requires_prerequisite_enable = true,
         .manufacturer = "Sungrow",
         .deferred_this_phase = true,
+        .deferred_reason =
+            "Out of scope for this release phase. Parking is the only thing holding it: "
+            "it reaches lab authority immediately when the scope widens to Sungrow.",
         .model_family = "PV grid-connected string inverter (SG-series)",
         .protocol = "Modbus RTU",
         .connection = INVERTER_PROFILE_CONNECTION_MODBUS_RTU_GATEWAY,
@@ -923,6 +959,12 @@ static const inverter_profile_t PROFILES[] = {
         .requires_prerequisite_enable = true,
         .manufacturer = "Chint Power Systems (CPS)",
         .deferred_this_phase = true,
+        .deferred_reason =
+            "Out of scope for this release phase, and separately refused on evidence: "
+            "0x2602 is cited for writing only and nothing establishes that it can be "
+            "read, so the enable cannot be verified and the setpoint would be accepted, "
+            "echoed back and ignored. Unparking needs the phase scope to widen AND one "
+            "citation or site read showing 0x2602 is readable.",
         .model_family = "SCH100KTL / SCH125KTL-DO 100(125) kW 1500 V",
         .protocol = "Modbus RTU",
         .connection = INVERTER_PROFILE_CONNECTION_MODBUS_RTU_GATEWAY,
@@ -1022,6 +1064,12 @@ static const inverter_profile_t PROFILES[] = {
         .id = "foxess.commercial.pending",
         .manufacturer = "FoxESS",
         .deferred_this_phase = true,
+        .deferred_reason =
+            "Out of scope for this release phase. It is commandable in lab, but its "
+            "addressing convention is deduced rather than proven: if the deduction is "
+            "wrong, 49007 becomes 49006, a reactive-power register. Unparking needs the "
+            "phase scope to widen; one read of 30000 on the physical machine closes the "
+            "addressing risk.",
         .model_family = "FOX commercial inverter (native Modbus map, not the R-Series SunSpec map)",
         .protocol = "Modbus RTU / Modbus TCP",
         .connection = INVERTER_PROFILE_CONNECTION_MODBUS_TCP,
@@ -1156,6 +1204,12 @@ static const inverter_profile_t PROFILES[] = {
         .requires_prerequisite_enable = true,
         .manufacturer = "AISWEI (Knox / Solplanet ASW)",
         .deferred_this_phase = true,
+        .deferred_reason =
+            "Out of scope for this release phase, and separately refused on evidence: "
+            "register 44001 must enable active-power control before 45403 takes effect, "
+            "and 45403 echoes the write either way, so the enable cannot be verified. "
+            "Unparking needs the phase scope to widen AND a citation or site read "
+            "establishing 44001 readback.",
         .model_family = "ASW three-phase string inverter (ASW xxK-LT G2 class)",
         .protocol = "Modbus RTU",
         .connection = INVERTER_PROFILE_CONNECTION_MODBUS_RTU_GATEWAY,
@@ -1283,6 +1337,14 @@ static const inverter_profile_t PROFILES[] = {
         .id = "solaredge.terramax.documented",
         .manufacturer = "SolarEdge",
         .deferred_this_phase = true,
+        .deferred_reason =
+            "Out of scope for this release phase, and separately refused on evidence: "
+            "SolarEdge reports AC power with a runtime scale factor this profile "
+            "structure cannot express, so telemetry never becomes valid and the "
+            "inverter is never eligible for a command; the manual also contradicts "
+            "itself on Float32 versus integer. Unparking needs the phase scope to widen "
+            "AND runtime scale-factor support. Even unparked it would never become "
+            "eligible to command.",
         .model_family = "TerraMax three-phase inverter (SunSpec + dynamic power control)",
         .protocol = "Modbus TCP / RTU (SunSpec)",
         /* p.7-8: "MODBUS/TCP ... Here, it is used for remote 3rd party monitoring

@@ -49,6 +49,36 @@
         return { wrapper, input };
     }
 
+    /* SINGLE SOURCE OF TRUTH FOR THE CHANNEL TRANSPORT.
+     *
+     * This editor owns the endpoint: host, port, unit id and timeout. Every
+     * other panel on this page that needs to state how the controller reaches an
+     * inverter reads it from here instead of deriving a second answer of its own.
+     * The profile catalogue used to print its own "Connection / Protocol" pair
+     * taken from the selected profile, which describes the link the vendor manual
+     * was written against and not the link this controller opens - so a channel
+     * commissioned as Modbus TCP could be shown as Modbus RTU because the
+     * selected profile happened to be an RTU device.
+     *
+     * Republished rather than re-fetched: the HTTP server offers only four client
+     * sockets, so a second poller for data already on the wire is avoidable load.
+     * The last value is also parked on window so a panel that initialises after
+     * this one does not have to wait for the next load. */
+    function publishEndpoints() {
+        const channels = state.inverters.map((inverter, index) => ({
+            index,
+            enabled: inverter.enabled === true,
+            name: inverter.name || `Inverter ${index + 1}`,
+            host: inverter.host || '',
+            port: inverter.port,
+            unit_id: inverter.unit_id,
+            timeout_ms: inverter.timeout_ms,
+            rated_kw: inverter.rated_kw
+        }));
+        window.PvdgInverterEndpoints = channels;
+        window.dispatchEvent(new CustomEvent('amx-inverter-endpoints', { detail: channels }));
+    }
+
     function setMessage(message, tone = '') {
         const target = byId('inverterConfigMessage');
         if (!target) return;
@@ -145,6 +175,7 @@
                 ? config.inverters.slice(0, 12).map(normalized)
                 : [];
             render();
+            publishEndpoints();
             setMessage(`Loaded ${state.inverters.length} inverter channel${state.inverters.length === 1 ? '' : 's'}.`, 'good');
         } catch (error) {
             setMessage(`Inverter configuration unavailable: ${error.message}`, 'bad');
@@ -168,6 +199,10 @@
             });
             if (!response.ok) throw new Error(await response.text() || `HTTP ${response.status}`);
             const result = await response.json();
+            /* Only after the controller has accepted them: the readouts that
+             * follow this one state what the controller holds, never what this
+             * browser has typed but not yet sent. */
+            publishEndpoints();
             setMessage(`Saved ${result.inverter_count} inverter channels. Automatic control is disabled. Restart the controller before testing communication.`, 'good');
         } catch (error) {
             setMessage(`Inverter configuration save failed: ${error.message}`, 'bad');

@@ -1377,6 +1377,27 @@
         if (node.textContent !== text) node.textContent = text;
     }
 
+    /* DISCLOSURE.
+     *
+     * The Inverters page carried roughly ten screens of permanently visible
+     * prose. Every sentence of it is true and most of it is load-bearing - it is
+     * why this product refuses to command equipment on insufficient evidence -
+     * but an engineer standing at a plant needs two things by default: the
+     * verdict, and, if the verdict is not qualified, what evidence is missing.
+     * The reasoning behind the verdict is a level down, never deleted, and
+     * always reachable from the finding it explains.
+     *
+     * One helper so the treatment is identical everywhere and so a reader who
+     * has learned to open one drawer has learned to open all of them. */
+    function disclosure(summaryText, ...nodes) {
+        const details = document.createElement('details');
+        details.className = 'page-drawer';
+        const summary = document.createElement('summary');
+        summary.textContent = summaryText;
+        details.append(summary, ...nodes.filter(Boolean));
+        return details;
+    }
+
     /* Same reasoning as setTextIfChanged: these badges are refreshed on the 2 s
      * status poll, and web/product-mode.js watches #mainContent for childList
      * changes, so writing an unchanged label is a DOM mutation for nothing. */
@@ -1677,6 +1698,71 @@
         return cell;
     }
 
+    /* WHAT IS MISSING, IN ONE LINE.
+     *
+     * An engineer reading a row that is not qualified should not have to infer
+     * the cause from a wall of explanation. This names the single thing standing
+     * between this row and a demonstrated limit, in the order that matters: an
+     * unarmed enable register outranks everything below it, because it means the
+     * setpoint is being ignored no matter how well it reads back.
+     *
+     * It claims nothing the verdict does not already claim - it only says the
+     * same thing shorter and first. */
+    function rowGapText(entry, stateName, proofName) {
+        const prereq = String(entry.prerequisite?.state || '').trim();
+        if (!entry.prerequisite) {
+            return 'Missing: an enable-register state. The controller did not report one, and unknown is not armed.';
+        }
+        if (prereq === 'unverifiable') {
+            return 'Missing: a readable enable register. This profile cannot describe one, so this inverter is refused write authority permanently. Cite the register and its readback in the profile.';
+        }
+        if (prereq !== 'confirmed' && prereq !== 'not_required') {
+            return 'Missing: a read confirming the enable register. Until it holds, the setpoint is accepted and echoed back while the inverter keeps generating at full output.';
+        }
+        if (entry.write_issued === false) {
+            return 'Nothing has been written to this inverter yet, so there is nothing to confirm.';
+        }
+        if (stateName === 'mismatched') {
+            return 'A readback disagreed with the requested setpoint. The controller has driven this inverter to its safe fallback and the fault stays latched until a readback confirms that value.';
+        }
+        if (stateName === 'pending') {
+            return 'Missing: a readback. The write was accepted by the transport and nothing has confirmed it yet.';
+        }
+        if (entry.limit_demonstrated === true) {
+            return 'Nothing is missing: measured output was above the new limit before the command and at or below it after.';
+        }
+        if (proofName === 'setpoint_readback') {
+            return 'Missing: a measurement. This rests on a setpoint echo, which shows the command was accepted and does not show the limit is in force.';
+        }
+        if (proofName === 'ambiguous_headroom') {
+            return 'Missing: a sample taken while generating above the new limit. Output is at or below it but was already there, so nothing has been proven either way.';
+        }
+        if (entry.baseline_valid !== true) {
+            return 'Missing: a pre-command baseline. Without one a limit can never be demonstrated, only found consistent.';
+        }
+        return 'Missing: any evidence for or against this command. Neither a qualified setpoint readback nor a usable measurement was obtained.';
+    }
+
+    /* The full meaning of the setpoint state, for the drawer. Called only from
+     * inside disclosure(). */
+    function rowMeaningElement(entry, meta) {
+        const meaning = document.createElement('p');
+        meaning.className = 'confirm-row-meaning';
+        meaning.textContent = entry.write_issued === false
+            ? 'No write has been issued to this inverter, so there is nothing to confirm.'
+            : meta ? meta.meaning
+            : 'The controller reported a confirmation state this interface does not recognise. It is shown above exactly as received.';
+        return meaning;
+    }
+
+    function rowGapElement(entry, stateName, proofName) {
+        const line = document.createElement('p');
+        line.className = 'confirm-row-gap';
+        line.textContent = rowGapText(entry, stateName, proofName);
+        if (entry.limit_demonstrated === true) line.classList.add('gap-none');
+        return line;
+    }
+
     function confirmRowElement(entry) {
         const name = String(entry.state || '').trim();
         const meta = writeStateMeta(name);
@@ -1693,13 +1779,11 @@
          * verdict pill on its own is the defect this panel exists to remove. */
         const proofName = String(entry.write_proof || '').trim();
         head.append(title, confirmStatePill(name), proofPill(proofName));
-
-        const meaning = document.createElement('p');
-        meaning.className = 'confirm-row-meaning';
-        meaning.textContent = entry.write_issued === false
-            ? 'No write has been issued to this inverter, so there is nothing to confirm.'
-            : meta ? meta.meaning
-            : 'The controller reported a confirmation state this interface does not recognise. It is shown above exactly as received.';
+        /* The enable-register verdict joins the other two in the head rather than
+         * waiting inside the block below, because a setpoint reading Confirmed
+         * next to an unarmed enable register is the dangerous combination on this
+         * panel and it must be legible without opening anything. */
+        head.append(prerequisitePill(String(entry.prerequisite?.state || '').trim()));
 
         /* Requested and confirmed are separate figures with separate labels.
          * readback_percent is shown as a third figure because it is the raw
@@ -1730,8 +1814,14 @@
             counters.append(item);
         });
 
-        row.append(head, meaning, values, counters, provenanceBlock(entry),
-                   prerequisiteBlock(entry));
+        /* DEFAULT VIEW: the three verdicts, the three figures, the counters, and
+         * - when the verdict is not qualified - one line naming the evidence
+         * that is missing. Everything that explains WHY is one level down. */
+        const gap = rowGapElement(entry, name, proofName);
+        row.append(head, values, gap, counters,
+                   disclosure('Why this verdict, and what it rests on',
+                              rowMeaningElement(entry, meta), provenanceBlock(entry),
+                              prerequisiteBlock(entry)));
         /* The row is marked by its EVIDENCE as well as by its verdict. A limit
          * demonstrated by measurement and a stored-command echo must not look
          * alike, and the ambiguous case must look like neither. */
@@ -1879,18 +1969,43 @@
         return block;
     }
 
+    /* A legend is built as a dense row of the pills themselves plus ONE drawer
+     * holding all four definitions. The vocabulary stays on screen - a reader
+     * scanning rows needs to recognise the pills - while the paragraph defining
+     * each one is a level down. Three legends of four definitions each was over
+     * six hundred words of permanently visible text explaining a vocabulary most
+     * readers of this page already know. */
+    /* Built only to fill a drawer, and called only from inside disclosure(), so
+     * that "this prose is not in the default view" is a property of the code
+     * rather than a claim about it. */
+    function legendDefinitions(order, pillFor, states) {
+        const list = document.createElement('div');
+        list.className = 'legend-definitions';
+        order.forEach((name) => {
+            const item = document.createElement('div');
+            item.className = 'confirm-legend-item';
+            item.append(pillFor(name));
+            const text = document.createElement('small');
+            text.textContent = states[name].meaning;
+            item.append(text);
+            list.append(item);
+        });
+        return list;
+    }
+
+    function legendElement(order, pillFor, states, summaryText) {
+        const pills = document.createElement('div');
+        pills.className = 'legend-pill-row';
+        order.forEach((name) => pills.append(pillFor(name)));
+        return [pills, disclosure(summaryText, legendDefinitions(order, pillFor, states))];
+    }
+
     function renderConfirmLegend() {
         const legend = byId('confirmLegend');
         if (!legend || legend.childElementCount) return;
-        legend.replaceChildren(...WRITE_CONFIRMATION_ORDER.map((name) => {
-            const item = document.createElement('div');
-            item.className = 'confirm-legend-item';
-            item.append(confirmStatePill(name));
-            const text = document.createElement('small');
-            text.textContent = WRITE_CONFIRMATION_STATES[name].meaning;
-            item.append(text);
-            return item;
-        }));
+        legend.replaceChildren(...legendElement(
+            WRITE_CONFIRMATION_ORDER, confirmStatePill, WRITE_CONFIRMATION_STATES,
+            'What each setpoint state means'));
     }
 
     /* All four kinds of limit evidence explained once, next to the four setpoint
@@ -1899,15 +2014,9 @@
     function renderProofLegend() {
         const legend = byId('proofLegend');
         if (!legend || legend.childElementCount) return;
-        legend.replaceChildren(...WRITE_PROOF_ORDER.map((name) => {
-            const item = document.createElement('div');
-            item.className = 'confirm-legend-item';
-            item.append(proofPill(name));
-            const text = document.createElement('small');
-            text.textContent = WRITE_PROOF_STATES[name].meaning;
-            item.append(text);
-            return item;
-        }));
+        legend.replaceChildren(...legendElement(
+            WRITE_PROOF_ORDER, proofPill, WRITE_PROOF_STATES,
+            'What each kind of limit evidence proves'));
     }
 
     /* The fleet evidence counts. Demonstrated, echo-only and ambiguous are three
@@ -1990,15 +2099,9 @@
     function renderPrerequisiteLegend() {
         const legend = byId('prereqLegend');
         if (!legend || legend.childElementCount) return;
-        legend.replaceChildren(...PREREQUISITE_STATE_ORDER.map((name) => {
-            const item = document.createElement('div');
-            item.className = 'confirm-legend-item';
-            item.append(prerequisitePill(name));
-            const text = document.createElement('small');
-            text.textContent = PREREQUISITE_STATES[name].meaning;
-            item.append(text);
-            return item;
-        }));
+        legend.replaceChildren(...legendElement(
+            PREREQUISITE_STATE_ORDER, prerequisitePill, PREREQUISITE_STATES,
+            'What each enable-register state means'));
     }
 
     function renderPrerequisiteFleet(payload) {
@@ -2053,8 +2156,12 @@
             fleet === 'confirmed' ? (demonstrated ? 'good' : 'warning')
             : fleet === 'mismatched' ? 'bad'
             : fleet === 'pending' ? 'warning' : '');
+        /* The verdict, not its definition. This line used to carry the whole
+         * paragraph explaining the fleet state; that paragraph is unchanged and
+         * is one click away in the setpoint-state legend below, where it is
+         * stated once for all four states instead of re-stated on every poll. */
         setTextIfChanged('confirmFleetDetail',
-            `${meta ? meta.meaning : 'The controller reported a fleet confirmation state this interface does not recognise.'}`
+            `${meta ? meta.label : 'The controller reported a fleet confirmation state this interface does not recognise.'}`
             + ` The fleet takes its least trustworthy member's state.`
             + (payload.confirmation_fault === true
                 ? ' A confirmation fault is latched on at least one inverter.'
@@ -2076,13 +2183,28 @@
 
     /* ------------------------------------------------------- lab target control */
 
+    /* ONE CONTROL PER FACT.
+     *
+     * Which register map a channel uses is decided once, in the profile
+     * catalogue, and is read back here from the controller's own
+     * inverter_assignments. This panel used to carry its own "Profile to assign"
+     * select, so two controls on the same page could name two different profiles
+     * for the same channel and whichever was pressed last silently won. The
+     * declaration - whether the endpoint is a simulator - is this panel's own
+     * fact and stays editable here. */
+    function assignedProfileId(index) {
+        const assignments = Array.isArray(state.labAssignments) ? state.labAssignments : [];
+        const entry = assignments.find((item) => Number(item?.inverter_index) === index) || null;
+        return entry && typeof entry.profile_id === 'string' ? entry.profile_id : '';
+    }
+
     function labTargetSelections() {
         const index = Number(byId('labTargetInverter')?.value);
-        const profileId = byId('labTargetProfile')?.value || '';
+        const resolved = Number.isInteger(index) && index >= 0 ? index : null;
         const declare = byId('labTargetDeclaration')?.value === 'true';
         return {
-            index: Number.isInteger(index) && index >= 0 ? index : null,
-            profileId,
+            index: resolved,
+            profileId: resolved === null ? '' : assignedProfileId(resolved),
             declare
         };
     }
@@ -2100,30 +2222,39 @@
         if (badge) {
             if (!authorized) setBadge('labTargetBadge', 'Sign in to declare a lab target', '');
             else if (!state.labProfiles.length) setBadge('labTargetBadge', 'Profile catalogue unavailable', 'bad');
+            /* Named precisely rather than left to the disabled button: an
+             * unassigned channel has nothing to declare, and that is a different
+             * blocker from a missing acknowledgement. */
+            else if (index !== null && !profileId) setBadge('labTargetBadge', 'No profile assigned to this inverter', 'bad');
             else if (!acknowledged) setBadge('labTargetBadge', 'Acknowledgement required', 'warning');
             else setBadge('labTargetBadge', 'Ready to send', 'warning');
         }
     }
 
-    function renderLabProfileOptions() {
-        const select = byId('labTargetProfile');
-        if (!select) return;
-        const previous = select.value;
-        select.replaceChildren();
-        state.labProfiles.forEach((profile) => {
-            const option = document.createElement('option');
-            option.value = profile.id;
-            /* The profile's own qualification word is part of the label: choosing
-             * a simulator-only profile and choosing to declare the endpoint a
-             * simulator are two separate decisions and must both be visible. */
-            option.textContent = `${profile.manufacturer || 'Unknown'} ${profile.model_family || ''}`.trim()
-                + ` · ${verbatim(profile.qualification, 'qualification unknown')}`
-                + (profile.simulator_only === true ? ' · simulator-only profile' : '');
-            select.append(option);
-        });
-        if (previous && [...select.options].some((option) => option.value === previous)) {
-            select.value = previous;
+    /* Displays the assignment the controller holds for the selected channel.
+     * The profile's own qualification word stays part of the line: choosing a
+     * simulator-only profile and declaring the endpoint a simulator are two
+     * separate decisions and both must be visible at the moment of declaring. */
+    function renderLabAssignedProfile() {
+        const target = byId('labTargetProfileAssigned');
+        if (!target) return;
+        const index = Number(byId('labTargetInverter')?.value);
+        if (!Number.isInteger(index) || index < 0) {
+            target.textContent = 'Select an inverter.';
+            return;
         }
+        const profileId = assignedProfileId(index);
+        if (!profileId) {
+            target.textContent = `Inverter ${index + 1} has no profile assigned. Assign one in the profile catalogue above before declaring it a lab target.`;
+            return;
+        }
+        const profile = state.labProfiles.find((entry) => entry.id === profileId) || null;
+        target.textContent = profile
+            ? `${`${profile.manufacturer || 'Unknown'} ${profile.model_family || ''}`.trim()}`
+              + ` · ${verbatim(profile.qualification, 'qualification unknown')}`
+              + (profile.simulator_only === true ? ' · simulator-only profile' : '')
+              + ` · ${profileId}`
+            : `${profileId} — the controller holds this assignment but the catalogue does not describe it.`;
         renderLabTargetReadiness();
     }
 
@@ -2324,7 +2455,8 @@
         ensureLabInverterOptions();
         if (!access || !access.mayRequest('/api/inverter-profiles')) {
             state.labProfiles = [];
-            renderLabProfileOptions();
+            state.labAssignments = [];
+            renderLabAssignedProfile();
             return;
         }
         try {
@@ -2336,7 +2468,7 @@
             state.labProfiles = [];
             state.labAssignments = [];
         }
-        renderLabProfileOptions();
+        renderLabAssignedProfile();
         renderLabAssignments();
     }
 
@@ -2360,7 +2492,10 @@
             return;
         }
         target.textContent = declared
-            .map((entry) => `Inverter ${entry.inverter_index}: ${entry.profile_id} `
+            /* +1 so this reads as the same channel the rest of the page names.
+             * It printed the raw zero-based index, so a declaration on the first
+             * channel appeared as "Inverter 0" beside panels calling it 1. */
+            .map((entry) => `Inverter ${Number(entry.inverter_index) + 1}: ${entry.profile_id} `
                 + `(write authority: ${entry.write_permission})`)
             .join(' · ');
     }
@@ -2375,8 +2510,7 @@
     function bindLabControl() {
         ensureLabInverterOptions();
         byId('labTargetAcknowledge')?.addEventListener('change', renderLabTargetReadiness);
-        byId('labTargetInverter')?.addEventListener('change', renderLabTargetReadiness);
-        byId('labTargetProfile')?.addEventListener('change', renderLabTargetReadiness);
+        byId('labTargetInverter')?.addEventListener('change', renderLabAssignedProfile);
         byId('labTargetDeclaration')?.addEventListener('change', renderLabTargetReadiness);
         byId('labTargetApply')?.addEventListener('click', applyLabTarget);
         renderLabTargetReadiness();

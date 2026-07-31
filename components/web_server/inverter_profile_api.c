@@ -90,6 +90,18 @@ static esp_err_t profiles_get(httpd_req_t *request)
         cJSON_AddStringToObject(item, "qualification", inverter_profile_qualification_label(profile->qualification));
         cJSON_AddStringToObject(item, "manual_reference", profile->manual_reference ? profile->manual_reference : "");
         cJSON_AddBoolToObject(item, "simulator_only", profile->simulator_only);
+        /* PHASE SCOPE, PUBLISHED.
+         *
+         * A parked profile and a profile with no register map both reported
+         * write_allowed:false and nothing else, so the picker could not tell them
+         * apart and an engineer who selected a parked brand was given no reason
+         * and no way forward. The flag and the criterion that would lift it are
+         * now stated. Descriptive only: the refusal itself is
+         * inverter_profile_write_permission(), which checks deferred_this_phase
+         * first and in both modes, and nothing here can lift it. */
+        cJSON_AddBoolToObject(item, "deferred_this_phase", profile->deferred_this_phase);
+        cJSON_AddStringToObject(item, "deferred_reason",
+                                profile->deferred_reason ? profile->deferred_reason : "");
         cJSON_AddBoolToObject(item, "read_allowed", inverter_profile_allows_read(profile));
         cJSON_AddBoolToObject(item, "write_allowed", inverter_profile_allows_write(profile));
         cJSON_AddBoolToObject(item, "identity_probe_supported", profile->has_identity_probe);

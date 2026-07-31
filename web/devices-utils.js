@@ -64,6 +64,111 @@
         return { label: 'Last write failed', tone: 'bad', detail: 'The most recent command transaction failed.' };
     }
 
+    /* ------------------------------------------------------ inverter diagnosis
+     *
+     * WHAT IS ACTUALLY WRONG, rather than that something is.
+     *
+     * "Unavailable" and "Commandable 0 kW" are both true and both useless on
+     * their own. The owner review that prompted this had Unit ID 1 configured
+     * against a simulator serving units 21, 22 and 23: the page reported an
+     * offline inverter and zero commandable capacity, and pointed at nothing, so
+     * the cause had to be inferred from a wall of text that never mentioned it.
+     *
+     * Every statement below is drawn from a field the controller publishes plus
+     * the endpoint the configuration editor holds. Two rules:
+     *
+     *  1. Where the evidence narrows the cause to more than one possibility, ALL
+     *     of them are named. Guessing a single cause is how an engineer spends an
+     *     afternoon on the wrong one. A Modbus TCP gateway or simulator that does
+     *     not host a unit id normally stays silent, so a timeout genuinely does
+     *     not distinguish a wrong address from a wrong unit, and it does not
+     *     claim to.
+     *  2. Nothing is concluded from a field the controller did not send.
+     *
+     * The conditions are tested in the order recompute_commandable_capacity()
+     * applies them in inverter_manager.c, so the line names the first thing
+     * actually standing in the way rather than the first thing noticed. */
+    function endpointPhrase(endpoint) {
+        if (!endpoint || !endpoint.host) return 'its configured endpoint';
+        return `${endpoint.host}:${endpoint.port} unit ${endpoint.unit_id}`;
+    }
+
+    function transportFault(item, endpoint) {
+        const name = String((item && item.last_error_name) || '');
+        const where = endpointPhrase(endpoint);
+        const unit = endpoint ? `Unit ID ${endpoint.unit_id} is configured. ` : '';
+        if (name.includes('NOT_FOUND')) {
+            return `The host name in ${where} does not resolve. Correct the host in the endpoint editor.`;
+        }
+        if (name.includes('TIMEOUT')) {
+            return `No reply from ${where} within the configured timeout. ${unit}`
+                + 'Nothing is listening at that address and port, or the device is there but does not serve that unit id — a Modbus TCP gateway or simulator will normally stay silent for a unit it does not host.';
+        }
+        if (name.includes('INVALID_RESPONSE')) {
+            return `${where} answered, but not to this request. ${unit}`
+                + 'Either the device returned a Modbus exception, or the reply carried a different unit id. Confirm the device serves that unit id and that the assigned profile’s registers exist on it.';
+        }
+        if (name && name !== 'ESP_OK') return `Reads from ${where} are failing with ${name}.`;
+        return `Reads from ${where} are failing and the controller has not named an error.`;
+    }
+
+    function diagnoseInverter(item, endpoint) {
+        if (!item) return null;
+        const label = `Inverter ${Number(item.index) + 1}`;
+        if (endpoint && endpoint.enabled === false) {
+            return { tone: 'neutral', text: `${label}: disabled in the endpoint editor, so it is not polled and not commandable.` };
+        }
+        if (item.connection_initialized === false) {
+            return { tone: 'bad', text: `${label}: the Modbus channel was never initialised, so no read has been attempted. Check the host and port in the endpoint editor.` };
+        }
+        const successes = Number(item.read_successes || 0);
+        const attempts = successes + Number(item.read_errors || 0);
+        if (attempts === 0) return { tone: 'neutral', text: `${label}: no read has completed yet.` };
+        if (successes === 0) {
+            return { tone: 'bad', text: `${label}: has never answered. ${transportFault(item, endpoint)}` };
+        }
+        if (!item.online) {
+            return { tone: 'bad', text: `${label}: answered before and has stopped. `
+                + `${Number(item.consecutive_read_failures || 0)} consecutive failures. ${transportFault(item, endpoint)}` };
+        }
+        if (item.identity_supported && !item.identity_verified) {
+            return { tone: 'bad', text: `${label}: the identity register did not match the assigned profile. The profile is probably for a different model, and its other register addresses should not be trusted on this machine.` };
+        }
+        if (item.telemetry_supported === false) {
+            return { tone: 'warning', text: `${label}: the assigned profile has no active-power register, so production is not measured and this inverter can never become commandable. Automatic control needs measured output.` };
+        }
+        if (item.telemetry_stale) {
+            return { tone: 'warning', text: `${label}: replying, but the last valid production sample is stale, so it is excluded from commandable capacity until a fresh one arrives.` };
+        }
+        if (!item.telemetry_valid) {
+            return { tone: 'warning', text: `${label}: replying, but no valid production sample has been decoded. Check that the profile’s active-power register and data type match this machine.` };
+        }
+        if (endpoint && !(Number(endpoint.rated_kw) > 0)) {
+            return { tone: 'warning', text: `${label}: rated power is not set, so it contributes nothing to commandable capacity. Set it in the endpoint editor.` };
+        }
+        if (item.command_mismatch) {
+            return { tone: 'bad', text: `${label}: a setpoint readback disagreed with the commanded value. It is held at its safe fallback and removed from commandable capacity until a readback confirms that value.` };
+        }
+        return null;
+    }
+
+    /* The fleet answer to "why is commandable capacity zero". Write permission
+     * and the enable-register state are decided elsewhere and reported by their
+     * own panels, so this says what it can see and points at them rather than
+     * restating a verdict it does not own. */
+    function diagnoseInverterFleet(data, findingCount) {
+        const count = Number((data && data.count) || 0);
+        const commandable = finite(data && data.summary && data.summary.commandable_rated_kw);
+        if (!(count > 0)) {
+            return 'No inverter channel is configured, so there is nothing to poll and nothing to command.';
+        }
+        if (commandable !== 0) return '';
+        if (findingCount > 0) {
+            return `Commandable capacity is 0 kW because no inverter currently meets every condition for it. ${findingCount} of ${count} channel${count === 1 ? '' : 's'} ${findingCount === 1 ? 'has' : 'have'} a finding below.`;
+        }
+        return 'Commandable capacity is 0 kW although every channel is answering. The remaining conditions are write permission for the assigned profile, a confirmed enable register and no latched confirmation fault — all reported in the setpoint confirmation panel above.';
+    }
+
     function endpointLabel(endpoint) {
         if (!endpoint) return 'Unavailable';
         const host = endpoint.host || '--';
@@ -355,6 +460,8 @@
         formatAge,
         meterState,
         inverterState,
+        diagnoseInverter,
+        diagnoseInverterFleet,
         endpointLabel,
         readinessTone,
         describeProvenance,
