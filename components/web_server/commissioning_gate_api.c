@@ -5,8 +5,10 @@
 
 #include "cJSON.h"
 #include "commissioning_gate.h"
+#include "config_manager.h"
 #include "control_engine.h"
 #include "esp_err.h"
+#include "http_json.h"
 #include "inverter_manager.h"
 #include "inverter_write_confirmation.h"
 #include "write_provenance_api.h"
@@ -328,9 +330,129 @@ static esp_err_t confirmation_get(httpd_req_t *request)
     return send_json(request, root);
 }
 
+/*
+ * POST /api/control/enable   body: {"enabled": true | false}
+ *
+ * WHY THIS EXISTS. There was no way to arm automatic control. control.enabled
+ * was written false in four places and true in none, and no route reached it.
+ * The control engine was complete -- step, ramp, readback confirmation -- and
+ * unreachable, which is the reason the loop had never run end to end. The
+ * missing piece was never hardware; it was the switch.
+ *
+ * WHAT PROTECTS THE PLANT IS NOT THIS HANDLER. The control task re-evaluates the
+ * commissioning gate every cycle and withholds command authority on its own, so
+ * arming cannot grant authority the gate refuses. The check here exists so an
+ * engineer is told why nothing happened rather than arming into a controller
+ * that silently does nothing.
+ *
+ * The intent is PERSISTED. A controller that disarmed on every power blip would
+ * be unusable on a site nobody is standing at, and persisting is safe precisely
+ * because the gate is re-evaluated on boot: a stored "armed" that no longer
+ * qualifies commands nothing. It is also cleared by every configuration write
+ * that invalidates commissioning -- meter, inverter and solar-grid saves each
+ * force control.enabled false already.
+ *
+ * Disarming is unconditional. Being unable to command is recoverable; being
+ * unable to stop commanding is not. So a disable is honoured even if persisting
+ * it fails, and the failure is reported alongside rather than instead.
+ *
+ * Engineering-gated: no public_uri() entry, so the guard defaults it to
+ * GATEWAY_MODE_PROTECTED. No Modbus I/O happens here -- control_engine_set_enabled()
+ * takes a spinlock and returns; the control task applies the change on its next
+ * cycle.
+ */
+static esp_err_t control_enable_post(httpd_req_t *request)
+{
+    cJSON *root = NULL;
+    esp_err_t err = http_json_parse_bounded(request, 256U, 5000U, 4U, &root);
+    if (err != ESP_OK) {
+        cJSON_Delete(root);
+        cJSON *error = cJSON_CreateObject();
+        if (!error) return httpd_resp_send_500(request);
+        cJSON_AddStringToObject(error, "error", "A JSON body with a boolean 'enabled' is required");
+        httpd_resp_set_status(request, "400 Bad Request");
+        return send_json(request, error);
+    }
+
+    const cJSON *item = cJSON_GetObjectItemCaseSensitive(root, "enabled");
+    if (!cJSON_IsBool(item)) {
+        cJSON_Delete(root);
+        cJSON *error = cJSON_CreateObject();
+        if (!error) return httpd_resp_send_500(request);
+        cJSON_AddStringToObject(error, "error", "'enabled' must be true or false");
+        httpd_resp_set_status(request, "400 Bad Request");
+        return send_json(request, error);
+    }
+    const bool wanted = cJSON_IsTrue(item);
+    cJSON_Delete(root);
+
+    const esp_err_t applied = control_engine_set_enabled(wanted);
+
+    /* Persist only what was actually applied. Storing an armed intent the engine
+     * refused would arm the plant on the next reboot on the strength of a
+     * request that was declined. */
+    bool persisted = false;
+    if (applied == ESP_OK) {
+        app_config_t *config = malloc(sizeof(*config));
+        if (config) {
+            if (config_manager_get_snapshot(config) == ESP_OK) {
+                config->control.enabled = wanted;
+                persisted = config_manager_save(config) == ESP_OK;
+            }
+            free(config);
+        }
+    }
+
+    commissioning_status_t status;
+    control_engine_get_commissioning(&status);
+    control_status_t control = {0};
+    control_engine_get_status(&control);
+
+    cJSON *response = cJSON_CreateObject();
+    if (!response) return httpd_resp_send_500(request);
+    cJSON_AddBoolToObject(response, "requested", wanted);
+    cJSON_AddBoolToObject(response, "enabled", control.enabled);
+    cJSON_AddBoolToObject(response, "persisted", persisted);
+    cJSON_AddBoolToObject(response, "commissioned", status.commissioned);
+    cJSON_AddStringToObject(response, "scope", commissioning_scope_label(status.scope));
+    cJSON_AddNumberToObject(response, "unmet_count", status.unmet_count);
+    if (applied != ESP_OK) {
+        cJSON_AddStringToObject(response, "error",
+                                status.commissioned
+                                    ? "A previous disable has not yet confirmed safe zero"
+                                    : commissioning_gate_summary(&status));
+        httpd_resp_set_status(request, "409 Conflict");
+        return send_json(request, response);
+    }
+    /* Scope travels with the verdict, in the response that grants the authority.
+     * An engineer who armed in lab scope must be told, in the same breath, that
+     * what they armed is not production control and is not evidence about
+     * physical equipment. */
+    if (wanted && status.scope == COMMISSIONING_SCOPE_LAB) {
+        cJSON_AddStringToObject(response, "notice",
+                                "Armed in lab simulator scope. Commands are issued to an endpoint "
+                                "declared a simulator. This is not production control and is not "
+                                "evidence about physical equipment.");
+    }
+    if (applied == ESP_OK && !persisted) {
+        cJSON_AddStringToObject(response, "persist_error",
+                                "Applied to the running controller but not persisted; "
+                                "this will not survive a restart");
+    }
+    return send_json(request, response);
+}
+
 esp_err_t commissioning_gate_api_register(httpd_handle_t server)
 {
     if (!server) return ESP_ERR_INVALID_ARG;
+    const httpd_uri_t arm = {
+        .uri = "/api/control/enable",
+        .method = HTTP_POST,
+        .handler = control_enable_post,
+    };
+    esp_err_t armed = httpd_register_uri_handler(server, &arm);
+    if (armed != ESP_OK) return armed;
+
     const httpd_uri_t gate = {
         .uri = "/api/commissioning/gate",
         .method = HTTP_GET,

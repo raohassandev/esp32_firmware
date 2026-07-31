@@ -1096,3 +1096,43 @@ void control_engine_force_disable(void)
     portEXIT_CRITICAL(&s_lock);
     ESP_LOGW(TAG, "Runtime control disable latched; control task will confirm safe zero before clearing the pending state");
 }
+
+esp_err_t control_engine_set_enabled(bool enabled)
+{
+    if (!enabled) {
+        control_engine_force_disable();
+        return ESP_OK;
+    }
+
+    /* The gate as the last control cycle evaluated it. Deliberately not
+     * recomputed here: recomputing would answer from configuration, while the
+     * loop's verdict also carries what it observed on the bus, and the loop's
+     * verdict is the one that will decide whether anything is commanded. */
+    commissioning_status_t commissioning;
+    control_engine_get_commissioning(&commissioning);
+    if (!commissioning.commissioned) {
+        ESP_LOGW(TAG, "Arm refused: commissioning gate not satisfied (%u unmet)",
+                 (unsigned)commissioning.unmet_count);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    /* A latched disable is not finished until the loop has actually driven the
+     * fleet to zero. Arming across that window would leave the safe-zero write
+     * racing the first commanded setpoint, and which one landed last would
+     * depend on timing. */
+    bool settling = false;
+    portENTER_CRITICAL(&s_lock);
+    settling = s_safe_zero_pending;
+    if (!settling) {
+        s_config.enabled = true;
+        s_runtime_forced_disabled = false;
+    }
+    portEXIT_CRITICAL(&s_lock);
+
+    if (settling) {
+        ESP_LOGW(TAG, "Arm refused: a previous disable has not yet confirmed safe zero");
+        return ESP_ERR_INVALID_STATE;
+    }
+    ESP_LOGW(TAG, "Automatic control armed; the commissioning gate is re-evaluated every cycle");
+    return ESP_OK;
+}

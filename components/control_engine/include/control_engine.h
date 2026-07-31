@@ -39,3 +39,26 @@ bool control_engine_get_generator_fleet(generator_fleet_limit_t *out_limit);
 /* Latches the running controller disabled. The control task applies a safe zero
  * on its next cycle; the caller never performs inverter I/O synchronously. */
 void control_engine_force_disable(void);
+
+/*
+ * Arms or disarms automatic control on the RUNNING engine.
+ *
+ * Until this existed there was no way to arm at all: control.enabled was set to
+ * false in four places and to true in none, and no route in the web server
+ * reached it. The control loop was complete and unreachable, which is why it had
+ * never run end to end.
+ *
+ * Arming is REFUSED unless the commissioning gate is satisfied at the moment of
+ * the call, and refused while a previous disable is still settling to safe zero.
+ * Neither refusal is what actually protects the plant: the control task
+ * re-evaluates the gate every cycle and withholds command authority on its own.
+ * They exist so an engineer is told why nothing happened, instead of arming into
+ * a controller that silently does nothing.
+ *
+ * Disarming is unconditional and always succeeds. Being unable to command is
+ * recoverable; being unable to stop commanding is not.
+ *
+ * Performs no I/O and takes only the engine spinlock, so it is safe to call from
+ * an HTTP handler. Returns ESP_ERR_INVALID_STATE when arming is refused.
+ */
+esp_err_t control_engine_set_enabled(bool enabled);
