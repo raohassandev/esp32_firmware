@@ -55,6 +55,103 @@ static void test_no_shipped_profile_can_command_production(void)
     assert(production_capable == 0);
 }
 
+/*
+ * ONLY HUAWEI IS COMMANDABLE IN THIS RELEASE PHASE.
+ *
+ * The product owner scoped this phase to Huawei, the brand with the strongest
+ * evidence in the catalogue. Every other manufacturer's profile is parked, and
+ * parked means refused in BOTH modes -- no lab declaration routes around it.
+ *
+ * The test walks the real catalogue rather than a list of names, so a profile
+ * added tomorrow is checked too. It asserts in both directions: parked profiles
+ * are FORBIDDEN, and at least one in-scope profile is NOT forbidden when
+ * declared a lab target, so the phase gate cannot be satisfied by parking
+ * everything.
+ */
+static void test_only_huawei_is_in_scope_for_this_phase(void)
+{
+    size_t parked = 0;
+    size_t in_scope = 0;
+    size_t in_scope_commandable_in_lab = 0;
+
+    for (size_t i = 0; i < inverter_profiles_count(); ++i) {
+        const inverter_profile_t *profile = inverter_profiles_get(i);
+        assert(profile != NULL);
+
+        if (profile->deferred_this_phase) {
+            parked++;
+            /* Refused in both modes, and refused by the strongest verdict there
+             * is. A parked profile contributes no commandable capacity at all. */
+            assert(inverter_profile_write_permission(profile, false) ==
+                   INVERTER_WRITE_FORBIDDEN);
+            assert(inverter_profile_write_permission(profile, true) ==
+                   INVERTER_WRITE_FORBIDDEN);
+            assert(!inverter_profile_allows_write(profile));
+            continue;
+        }
+
+        in_scope++;
+        /* Every profile still in scope belongs to the one brand the owner named.
+         * The simulator profiles that model it are in scope for the same reason:
+         * they are the lab rig for that brand. Anything else in this arm is a
+         * profile that escaped the parking decision. */
+        assert(strstr(profile->id, "huawei") != NULL);
+        if (inverter_profile_write_permission(profile, true) != INVERTER_WRITE_FORBIDDEN) {
+            in_scope_commandable_in_lab++;
+        }
+    }
+
+    /* The catalogue must actually carry parked profiles, or this test is vacuous
+     * and the parking could have been silently reverted. */
+    assert(parked > 0);
+    /* And the phase must not have parked everything: at least one Huawei profile
+     * remains commandable as a declared lab target, which is the whole point of
+     * scoping to a brand rather than to nothing. */
+    assert(in_scope > 0);
+    assert(in_scope_commandable_in_lab > 0);
+}
+
+/* Parking ADDS a refusal; it never removes one and it never grants anything.
+ *
+ * Proved on constructed profiles rather than the catalogue, so it is a property
+ * of the rule. A profile that would be PRODUCTION becomes FORBIDDEN when parked
+ * and returns to PRODUCTION when unparked -- which is what makes the scope
+ * reversible without re-arguing any of the safety cases underneath it. And a
+ * profile that is refused for a SAFETY reason stays refused whether it is parked
+ * or not, so unparking can never be mistaken for a safety clearance. */
+static void test_phase_parking_only_ever_adds_a_refusal(void)
+{
+    inverter_profile_t profile;
+    memset(&profile, 0, sizeof(profile));
+    profile.id = "test.production";
+    profile.qualification = INVERTER_PROFILE_QUALIFICATION_PRODUCTION_APPROVED;
+    profile.has_power_limit = true;
+    profile.has_power_limit_readback = true;
+
+    assert(!profile.deferred_this_phase);
+    assert(inverter_profile_write_permission(&profile, false) == INVERTER_WRITE_PRODUCTION);
+    assert(inverter_profile_allows_write(&profile));
+
+    profile.deferred_this_phase = true;
+    assert(inverter_profile_write_permission(&profile, false) == INVERTER_WRITE_FORBIDDEN);
+    assert(inverter_profile_write_permission(&profile, true) == INVERTER_WRITE_FORBIDDEN);
+    assert(!inverter_profile_allows_write(&profile));
+
+    /* Unparking restores exactly the previous verdict, granting nothing new. */
+    profile.deferred_this_phase = false;
+    assert(inverter_profile_write_permission(&profile, false) == INVERTER_WRITE_PRODUCTION);
+
+    /* A safety refusal is untouched by the phase flag in either position: an
+     * unparked profile with no readback is still forbidden. Unparking is a
+     * product decision and must never read as a safety clearance. */
+    profile.has_power_limit_readback = false;
+    assert(inverter_profile_write_permission(&profile, false) == INVERTER_WRITE_FORBIDDEN);
+    assert(inverter_profile_write_permission(&profile, true) == INVERTER_WRITE_FORBIDDEN);
+    profile.deferred_this_phase = true;
+    assert(inverter_profile_write_permission(&profile, false) == INVERTER_WRITE_FORBIDDEN);
+    assert(inverter_profile_write_permission(&profile, true) == INVERTER_WRITE_FORBIDDEN);
+}
+
 /* A simulator-only profile can never reach production authority, no matter what
  * is declared about its endpoint. */
 static void test_simulator_profiles_never_reach_production(void)
@@ -425,6 +522,8 @@ int main(void)
     test_forbidden_is_zero();
     test_null_profile_is_forbidden();
     test_no_shipped_profile_can_command_production();
+    test_only_huawei_is_in_scope_for_this_phase();
+    test_phase_parking_only_ever_adds_a_refusal();
     test_simulator_profiles_never_reach_production();
     test_readback_is_mandatory_even_in_lab();
     test_documented_profile_is_lab_only_when_declared();

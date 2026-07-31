@@ -297,7 +297,96 @@ require("meter_model_in_phase_scope" in CONFIG_TYPES and
         "not, so a model appended tomorrow is refused until somebody adds it here")
 
 # ---------------------------------------------------------------------------
-# 5. Registered in CI, and stated in the release document.
+# 5. Inverter control is confined to Huawei, and the write gate is untouched.
+# ---------------------------------------------------------------------------
+
+PROFILES = code("components/inverter_manager/inverter_profiles.c")
+PROFILES_SQ = squeeze(PROFILES)
+PROFILES_H = squeeze(code("components/inverter_manager/include/inverter_profiles.h"))
+
+require("bool deferred_this_phase;" in PROFILES_H,
+        "the phase scope must be a field on the profile itself, so it travels with "
+        "the profile to every caller")
+
+# Refused FIRST and UNCONDITIONALLY -- before the lab-declaration branch, so no
+# lab target can route around it.
+require("if (profile->deferred_this_phase) return INVERTER_WRITE_FORBIDDEN;" in PROFILES_SQ,
+        "a parked profile must be refused outright by the write-permission gate")
+gate_body = PROFILES_SQ.split("inverter_write_permission_t inverter_profile_write_permission", 1)
+require(len(gate_body) == 2, "the write-permission gate must exist")
+gate_body = gate_body[1]
+require(gate_body.index("deferred_this_phase") < gate_body.index("declared_lab_target)"
+                                                                 " return INVERTER_WRITE_LAB_ONLY"),
+        "the phase refusal must come BEFORE the lab-declaration branch, or a "
+        "declared lab target would be granted authority over a parked profile")
+require("return profile && !profile->deferred_this_phase && !profile->simulator_only &&"
+        in PROFILES_SQ,
+        "inverter_profile_allows_write() must refuse a parked profile too; other "
+        "callers read that predicate directly and all of them must agree")
+
+# THE WRITE GATE ITSELF IS UNCHANGED. Parking adds a refusal; it must not have
+# been used as an excuse to relax any of the rules underneath it.
+for rule in [
+    "if (!profile) return INVERTER_WRITE_FORBIDDEN;",
+    "if (!profile->has_power_limit || !profile->has_power_limit_readback) "
+    "{ return INVERTER_WRITE_FORBIDDEN; }",
+    "if (inverter_profile_prerequisite_blocks_write(profile)) return INVERTER_WRITE_FORBIDDEN;",
+    "if (inverter_profile_allows_write(profile)) return INVERTER_WRITE_PRODUCTION;",
+    "if (declared_lab_target) return INVERTER_WRITE_LAB_ONLY;",
+]:
+    require(rule in PROFILES_SQ,
+            f"the existing write gate must be intact; missing: {rule}")
+require("INVERTER_WRITE_FORBIDDEN = 0" in PROFILES_H,
+        "FORBIDDEN must stay the zero value, so zeroed state denies")
+require("profile->qualification == INVERTER_PROFILE_QUALIFICATION_PRODUCTION_APPROVED"
+        in PROFILES_SQ,
+        "production authority must still require production approval; the phase "
+        "scope is not a promotion and simulator agreement promotes nothing")
+
+# Exactly the non-Huawei profiles are parked. Checked by pairing each id with the
+# parked flag inside its own catalogue entry, so a flag cannot drift to the wrong
+# profile.
+entries = re.split(r"\n        \.id = ", "\n" + PROFILES)[1:]
+parked = []
+in_scope = []
+for entry in entries:
+    identifier = entry.split(",", 1)[0].strip()
+    body = entry.split("\n        .id = ", 1)[0]
+    (parked if ".deferred_this_phase = true" in body else in_scope).append(identifier)
+
+require(len(entries) >= 16, f"the catalogue lost profiles: only {len(entries)} found. "
+                            "Parked profiles are kept, never deleted")
+require(parked, "no profile is parked; the phase scope is not in force")
+for identifier in in_scope:
+    # No exemptions, including for the macro-named safe default. An id that does
+    # not say "huawei" is not a Huawei profile, and the phase is confined to the
+    # one brand the owner named.
+    require("huawei" in identifier.lower(),
+            f"{identifier} is in scope but is not a Huawei profile. This phase is "
+            f"confined to the one brand the owner named")
+for identifier in parked:
+    require("huawei" not in identifier.lower(),
+            f"{identifier} is a Huawei profile but was parked; Huawei is the brand "
+            f"this phase is scoped TO")
+
+# The executable proof must assert the property, not merely exercise it.
+PERMISSION_TEST = (ROOT / "tests/inverter_write_permission_test.c").read_text(encoding="utf-8")
+require("assert(production_capable == 0);" in PERMISSION_TEST,
+        "the write-permission test must still prove NO SHIPPED PROFILE CAN COMMAND "
+        "PRODUCTION EQUIPMENT. That is the property protecting a real plant from a "
+        "transcribed register map, and nothing in this phase may weaken it")
+require("test_only_huawei_is_in_scope_for_this_phase" in PERMISSION_TEST and
+        "test_phase_parking_only_ever_adds_a_refusal" in PERMISSION_TEST,
+        "the phase scope must be proved by the executable test over the real "
+        "catalogue, not only asserted against source text here")
+require("assert(parked > 0);" in PERMISSION_TEST,
+        "the catalogue must be asserted to actually contain parked profiles, or "
+        "the parking test passes vacuously once somebody reverts it")
+require("tests/inverter_write_permission_test.c" in WORKFLOW,
+        "the write-permission test must run in CI")
+
+# ---------------------------------------------------------------------------
+# 6. Registered in CI, and stated in the release document.
 # ---------------------------------------------------------------------------
 
 require("tests/phase_scope_source_contract.py" in WORKFLOW,
@@ -306,8 +395,24 @@ require("tests/source_detection_engine_test.c" in WORKFLOW,
         "the executable proof of the confinement must run in CI")
 require("tests/commissioning_gate_test.c" in WORKFLOW,
         "the executable proof of the meter refusal must run in CI")
+require("## 0. The scope of this release phase" in DOC,
+        "docs/RELEASE_READINESS.md must state this phase's scope in its own section")
 require("EM500" in DOC and "SUN2000" in DOC,
-        "docs/RELEASE_READINESS.md must state the phase scope")
+        "the phase scope section must name both the meter and the inverter")
+require("## 4b. Deferred by the product owner: inverter profile qualification" in DOC,
+        "the per-brand inverter unpark criteria must survive")
+require("### 4b.1 Parked by the phase scope" in DOC,
+        "every profile parked by the phase scope needs its unpark criterion recorded")
+require("## 4c. Deferred by the product owner: meter models" in DOC,
+        "the per-model meter unpark criteria must be recorded, in the same shape "
+        "as the inverter ones")
+for identifier in parked:
+    slug = identifier.strip('"')
+    if slug.startswith("SAFE_DEFAULT"):
+        continue
+    require(slug in DOC,
+            f"{slug} is parked in the firmware but is not listed with an unpark "
+            f"criterion in docs/RELEASE_READINESS.md")
 
 if failures:
     for failure in failures:

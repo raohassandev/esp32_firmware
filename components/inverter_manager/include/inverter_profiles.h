@@ -38,6 +38,33 @@ typedef struct {
     const char *manual_reference;
     bool simulator_only;
 
+    /*
+     * PARKED FOR THIS RELEASE PHASE BY PRODUCT DECISION.
+     *
+     * The product owner scoped this phase to Huawei, which is the brand with the
+     * strongest evidence in this catalogue. Every other manufacturer's profile is
+     * parked: kept in the catalogue, kept with its citations, and refused for
+     * writing until the phase scope widens. Deleting them would throw away the
+     * manual transcription work and, worse, would remove the record of WHY each
+     * one is not commandable.
+     *
+     * THIS IS NOT A SUBSTITUTE FOR ANY EXISTING REFUSAL. It is checked first and
+     * it only ever ADDS a refusal -- the readback requirement, the prerequisite
+     * rule, the flash-backed rate rule and the production-qualification rule all
+     * still apply underneath it, unchanged. Unparking a profile therefore
+     * restores exactly the verdict it had before, which is what makes this
+     * reversible without re-arguing the safety cases.
+     *
+     * Zero means in scope, so the flag reads as an exception list in the
+     * catalogue. That is the one place the default is deliberately permissive,
+     * and it is safe because being in scope grants nothing on its own: a profile
+     * still has to pass every rule below to reach even LAB_ONLY.
+     *
+     * Per-brand unpark criteria are recorded in docs/RELEASE_READINESS.md
+     * section 4b.
+     */
+    bool deferred_this_phase;
+
     bool has_identity_probe;
     uint8_t identity_function;
     uint16_t identity_address;

@@ -29,6 +29,7 @@ static const inverter_profile_t PROFILES[] = {
     {
         .id = SAFE_DEFAULT_PROFILE_ID,
         .manufacturer = "Custom",
+        .deferred_this_phase = true,
         .model_family = "Advanced Modbus percentage control",
         .protocol = "Modbus",
         .connection = INVERTER_PROFILE_CONNECTION_MODBUS_TCP,
@@ -153,6 +154,7 @@ static const inverter_profile_t PROFILES[] = {
     {
         .id = "soltrix.sim.goodwe.v1",
         .manufacturer = "SolTrix Simulator",
+        .deferred_this_phase = true,
         .model_family = "GoodWe commercial contract",
         .protocol = "Modbus TCP simulator",
         .connection = INVERTER_PROFILE_CONNECTION_MODBUS_TCP,
@@ -193,6 +195,7 @@ static const inverter_profile_t PROFILES[] = {
     {
         .id = "soltrix.sim.solis.v1",
         .manufacturer = "SolTrix Simulator",
+        .deferred_this_phase = true,
         .model_family = "Solis commercial contract",
         .protocol = "Modbus TCP simulator",
         .connection = INVERTER_PROFILE_CONNECTION_MODBUS_TCP,
@@ -351,6 +354,7 @@ static const inverter_profile_t PROFILES[] = {
          * this profile is refused rather than commanded at a rate we invented. */
         .command_register_is_flash_backed = true,
         .manufacturer = "GoodWe",
+        .deferred_this_phase = true,
         .model_family = "GT series three-phase grid-connected string inverter",
         .protocol = "Modbus RTU",
         .connection = INVERTER_PROFILE_CONNECTION_MODBUS_RTU_GATEWAY,
@@ -505,6 +509,7 @@ static const inverter_profile_t PROFILES[] = {
          * be written and verified. */
         .requires_prerequisite_enable = true,
         .manufacturer = "Solis",
+        .deferred_this_phase = true,
         .model_family = "Three-phase commercial string inverter (RS485 MODBUS protocol)",
         .protocol = "Modbus RTU",
         .connection = INVERTER_PROFILE_CONNECTION_MODBUS_RTU_GATEWAY,
@@ -712,6 +717,7 @@ static const inverter_profile_t PROFILES[] = {
          * silently mid-run even if the unlock were known. Refused. */
         .requires_prerequisite_enable = true,
         .manufacturer = "Growatt",
+        .deferred_this_phase = true,
         .model_family = "MAX / MID / MAC three-phase (TL3-X), input registers 0-249",
         .protocol = "Modbus RTU",
         .connection = INVERTER_PROFILE_CONNECTION_MODBUS_RTU_GATEWAY,
@@ -758,6 +764,7 @@ static const inverter_profile_t PROFILES[] = {
          * with the unlock password redacted in the manual. Refused. */
         .requires_prerequisite_enable = true,
         .manufacturer = "Growatt",
+        .deferred_this_phase = true,
         .model_family = "MIN / TL-X / TL-XH, input registers 3000-3249",
         .protocol = "Modbus RTU",
         .connection = INVERTER_PROFILE_CONNECTION_MODBUS_RTU_GATEWAY,
@@ -820,6 +827,7 @@ static const inverter_profile_t PROFILES[] = {
          * echoes regardless, so a command would falsely confirm. Refused. */
         .requires_prerequisite_enable = true,
         .manufacturer = "Sungrow",
+        .deferred_this_phase = true,
         .model_family = "PV grid-connected string inverter (SG-series)",
         .protocol = "Modbus RTU",
         .connection = INVERTER_PROFILE_CONNECTION_MODBUS_RTU_GATEWAY,
@@ -914,6 +922,7 @@ static const inverter_profile_t PROFILES[] = {
          * falsely confirm. Refused. */
         .requires_prerequisite_enable = true,
         .manufacturer = "Chint Power Systems (CPS)",
+        .deferred_this_phase = true,
         .model_family = "SCH100KTL / SCH125KTL-DO 100(125) kW 1500 V",
         .protocol = "Modbus RTU",
         .connection = INVERTER_PROFILE_CONNECTION_MODBUS_RTU_GATEWAY,
@@ -1012,6 +1021,7 @@ static const inverter_profile_t PROFILES[] = {
     {
         .id = "foxess.commercial.pending",
         .manufacturer = "FoxESS",
+        .deferred_this_phase = true,
         .model_family = "FOX commercial inverter (native Modbus map, not the R-Series SunSpec map)",
         .protocol = "Modbus RTU / Modbus TCP",
         .connection = INVERTER_PROFILE_CONNECTION_MODBUS_TCP,
@@ -1145,6 +1155,7 @@ static const inverter_profile_t PROFILES[] = {
          * the prerequisite can be written and verified. */
         .requires_prerequisite_enable = true,
         .manufacturer = "AISWEI (Knox / Solplanet ASW)",
+        .deferred_this_phase = true,
         .model_family = "ASW three-phase string inverter (ASW xxK-LT G2 class)",
         .protocol = "Modbus RTU",
         .connection = INVERTER_PROFILE_CONNECTION_MODBUS_RTU_GATEWAY,
@@ -1271,6 +1282,7 @@ static const inverter_profile_t PROFILES[] = {
     {
         .id = "solaredge.terramax.documented",
         .manufacturer = "SolarEdge",
+        .deferred_this_phase = true,
         .model_family = "TerraMax three-phase inverter (SunSpec + dynamic power control)",
         .protocol = "Modbus TCP / RTU (SunSpec)",
         /* p.7-8: "MODBUS/TCP ... Here, it is used for remote 3rd party monitoring
@@ -1941,9 +1953,13 @@ bool inverter_profile_allows_read(const inverter_profile_t *profile)
 
 bool inverter_profile_allows_write(const inverter_profile_t *profile)
 {
-    /* Two independent refusals, both repeated here rather than left to the
+    /* Three independent refusals, all repeated here rather than left to the
      * permission gate, because other callers read this predicate directly and
      * every one of them must get the same answer.
+     *
+     * A profile parked for this release phase: a product decision, not a safety
+     * one, but it must reach every caller identically or the two predicates
+     * would disagree about the same profile.
      *
      * A prerequisite enable register this profile cannot describe or cannot read
      * back: commanding such a device produces a CONFIRMED verdict for a limit the
@@ -1952,7 +1968,7 @@ bool inverter_profile_allows_write(const inverter_profile_t *profile)
      * A flash-backed command register with no manufacturer-stated write rate:
      * commanding it continuously wears out the inverter's non-volatile memory, a
      * permanent hardware failure while every write reports success. */
-    return profile && !profile->simulator_only &&
+    return profile && !profile->deferred_this_phase && !profile->simulator_only &&
            !inverter_profile_prerequisite_blocks_write(profile) &&
            !(profile->command_register_is_flash_backed && profile->min_command_interval_ms == 0U) &&
            profile->has_power_limit && profile->has_power_limit_readback &&
@@ -1963,6 +1979,15 @@ inverter_write_permission_t inverter_profile_write_permission(const inverter_pro
                                                               bool declared_lab_target)
 {
     if (!profile) return INVERTER_WRITE_FORBIDDEN;
+    /* PARKED FOR THIS RELEASE PHASE. Checked first because it is the cheapest and
+     * because it is unconditional: a parked profile is refused in BOTH modes, so
+     * no lab declaration, configuration or API call routes around it.
+     *
+     * It ADDS a refusal and never removes one. Every rule below still runs for an
+     * in-scope profile, so unparking restores exactly the verdict a profile had
+     * before rather than granting it anything new. See deferred_this_phase in the
+     * header. */
+    if (profile->deferred_this_phase) return INVERTER_WRITE_FORBIDDEN;
     /* Confirmability is not negotiable in either mode: without a readback there
      * is no way to tell a command that landed from one that was ignored. */
     if (!profile->has_power_limit || !profile->has_power_limit_readback) {

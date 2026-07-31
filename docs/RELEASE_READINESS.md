@@ -13,6 +13,43 @@ against a passing build.
 
 ---
 
+## 0. The scope of this release phase
+
+**This phase is one meter and one inverter brand: the EM500 (Lovato-derived)
+meter and the Huawei SUN2000 inverter. Everything else is parked.**
+
+The product owner scoped it deliberately: *"for now our objective is to focus
+only. We will look on other meters later. if you have configured/added, mark them
+block for this phase, in this phase we will mature only EM500."*
+
+| In scope | What that means |
+|---|---|
+| **EM500 (Lovato-derived) meter** | The only meter model whose register semantics this firmware claims to know. Register `0x2100` is its documented "OR of all digital inputs", which is what licenses reading it as a bitmask. |
+| **Huawei** — `huawei.sun2000.pending`, `huawei.smartlogger.plant`, and the two `soltrix.sim.huawei.*` lab rigs | The brand with the strongest evidence in the catalogue: register `40125`, scale ×10 (45 % → `450`, 100 % → `1000`), manual-transcribed with citations. **LAB-only.** |
+
+**Parked is refused, not removed.** Every parked meter model and inverter profile
+keeps its entry, its citations and its reasons. Each is refused at commissioning
+with a message naming it as deferred, and each has a stated unpark criterion —
+meters in §4c, inverters in §4b.
+
+**Huawei stays LAB-only.** The phase scope is not a promotion. Simulator
+agreement never promotes a profile to production; only real-hardware readback
+evidence does, and none exists. `INVERTER_WRITE_FORBIDDEN` / `LAB_ONLY` /
+`PRODUCTION` are unchanged, and `tests/inverter_write_permission_test.c` still
+proves **no shipped profile can command production equipment**.
+
+**Parking only ever adds a refusal.** It is checked first and it removes nothing:
+the readback requirement, the prerequisite rule, the flash-backed rate rule and
+the production-qualification rule all still run underneath it. Unparking a
+profile therefore restores exactly the verdict it had before rather than granting
+it anything — which is what makes the scope reversible without re-arguing any
+safety case. `tests/inverter_write_permission_test.c` asserts this in both
+directions.
+
+Enforced by `tests/phase_scope_source_contract.py`, which runs in CI.
+
+---
+
 ## 1. The decisive constraint
 
 **No manufacturer profile is write-qualified. The controller cannot command a
@@ -25,28 +62,35 @@ can ever obtain today.
 
 | Manufacturer | Profile | Qualification | Lab authority | Why not commandable |
 |---|---|---|---|---|
-| Custom | `custom.modbus-percent-v1` | Documented | forbidden | no registers configured |
+| Custom | `custom.modbus-percent-v1` | Documented | forbidden | no registers configured; also **parked** for this phase (§0) |
 | SolTrix Simulator | `soltrix.sim.huawei.v3` | Simulator verified | lab only | — (measured lab contract) |
 | SolTrix Simulator | `soltrix.sim.huawei.v1` | Simulator verified | lab only | — (older lab contract) |
-| SolTrix Simulator | `soltrix.sim.goodwe.v1` | Simulator verified | lab only | — |
-| SolTrix Simulator | `soltrix.sim.solis.v1` | Simulator verified | lab only | — |
+| SolTrix Simulator | `soltrix.sim.goodwe.v1` | Simulator verified | forbidden | **parked** for this phase (§0) |
+| SolTrix Simulator | `soltrix.sim.solis.v1` | Simulator verified | forbidden | **parked** for this phase (§0) |
 | **Huawei** | `huawei.sun2000.pending` | Documented | **lab only** | commandable in lab; see §1.2 |
 | **Huawei (plant, via SmartLogger)** | `huawei.smartlogger.plant` | Documented | **lab only** | plant command at `40428` confirmed on **measured** power at `40525`, never on the stored-command echo; nothing exercised against a physical logger (§1.3) |
-| GoodWe | `goodwe.commercial.pending` | Documented | forbidden | command/readback at 42407 transcribed, but the register is **flash-backed** with no documented write rate (see §1.2) |
-| Solis | `solis.commercial.pending` | Documented | lab only | prerequisite enable at PDU 3069 is now described and **verified by readback** before any command (§1.2) |
-| Growatt | `growatt.tl3x.documented` | Documented | forbidden | power-on write lock (§1.2) |
-| Growatt | `growatt.tlx.documented` | Documented | forbidden | power-on write lock (§1.2) |
-| Sungrow | `sungrow.string.documented` | Documented | lab only | prerequisite enable at PDU 5006 is now described and **verified by readback** before any command (§1.2) |
-| Chint / CPS | `chint.cps.sch100_125ktl.documented` | Documented | forbidden | needs prerequisite enable (§1.2) |
-| SolarEdge | `solaredge.terramax.documented` | Documented | lab only | best-evidenced manual of any brand (documents a settle time AND a command interval), but **inert at runtime**: no active-power register, so it never becomes eligible to command — and the manual contradicts itself on Float32 vs integer (see §1.6) |
-| FoxESS | `foxess.commercial.pending` | Documented | lab only | command/readback at 49007 from the FoxESS commercial manual; addressing convention **deduced, not proven** (see §1.5 below) |
-| AISWEI (Knox / Solplanet ASW) | `knox.aiswei.asw.documented` | Documented | forbidden | printed 44001 must enable active-power control before printed 45403 takes effect, and 45403 echoes either way |
+| GoodWe | `goodwe.commercial.pending` | Documented | forbidden | command/readback at 42407 transcribed, but the register is **flash-backed** with no documented write rate (see §1.2); also **parked** (§0) |
+| Solis | `solis.commercial.pending` | Documented | forbidden | **parked** for this phase (§0). Underneath the parking its prerequisite enable at PDU 3069 is described and verified by readback (§1.2), so unparking restores lab authority |
+| Growatt | `growatt.tl3x.documented` | Documented | forbidden | power-on write lock (§1.2); also **parked** (§0) |
+| Growatt | `growatt.tlx.documented` | Documented | forbidden | power-on write lock (§1.2); also **parked** (§0) |
+| Sungrow | `sungrow.string.documented` | Documented | forbidden | **parked** for this phase (§0). Underneath the parking its prerequisite enable at PDU 5006 is described and verified by readback (§1.2), so unparking restores lab authority |
+| Chint / CPS | `chint.cps.sch100_125ktl.documented` | Documented | forbidden | needs prerequisite enable (§1.2); also **parked** (§0) |
+| SolarEdge | `solaredge.terramax.documented` | Documented | forbidden | **parked** for this phase (§0). Also **inert at runtime** regardless: no active-power register, so it never becomes eligible to command — and the manual contradicts itself on Float32 vs integer (see §1.6) |
+| FoxESS | `foxess.commercial.pending` | Documented | forbidden | **parked** for this phase (§0). Underneath the parking, command/readback at 49007 with an addressing convention **deduced, not proven** (see §1.5 below) |
+| AISWEI (Knox / Solplanet ASW) | `knox.aiswei.asw.documented` | Documented | forbidden | printed 44001 must enable active-power control before printed 45403 takes effect, and 45403 echoes either way; also **parked** (§0) |
 
 Write-qualified or production-approved profiles: **0**.
 
-**Huawei is the only real-brand profile that can be exercised at all**, and only
-against a declared simulator. Everything else is refused before a command can be
-issued.
+**Huawei is the only brand that can be exercised at all**, and only against a
+declared simulator. Everything else is refused before a command can be issued —
+now for two independent reasons rather than one, since the phase scope in §0
+parks every non-Huawei profile on top of whatever already refused it.
+
+Note the two rows where parking is the *only* refusal today: `solis.commercial.pending`
+and `sungrow.string.documented` had reached lab authority on their own evidence.
+Parking is what holds them, and unparking them restores lab authority immediately —
+which is precisely why the parking is recorded as a product decision in §0 and not
+mixed in with the safety refusals in §1.2.
 
 ### 1.2 Why four transcribed brands are still refused
 
@@ -420,6 +464,39 @@ command equipment on evidence it judges insufficient, which is the intended beha
 The refusals are enforced structurally and covered by executable tests, so they cannot
 be lifted accidentally -- each one needs a specific, named piece of evidence.
 
+### 4b.1 Parked by the phase scope
+
+The table above is about **evidence**. This one is about **product scope**, and the
+two are independent: a profile can be refused by both, by either, or -- as with
+Solis and Sungrow -- by the scope alone.
+
+Every profile below carries `deferred_this_phase = true` in
+`components/inverter_manager/inverter_profiles.c`, which
+`inverter_profile_write_permission()` refuses first and in both modes. Nothing is
+deleted. Unparking is removing that one field.
+
+| Profile | Also refused on evidence? | What would unpark it |
+|---|---|---|
+| `custom.modbus-percent-v1` | Yes -- no registers configured at all | Phase scope widens. The evidence gate would still refuse it until it is given a register map. |
+| `soltrix.sim.goodwe.v1` | No | Phase scope widens to GoodWe. It is the GoodWe lab rig and has no purpose before then. |
+| `soltrix.sim.solis.v1` | No | Phase scope widens to Solis. Same. |
+| `goodwe.commercial.pending` | Yes -- flash-backed register, no stated write rate | Phase scope widens **and** GoodWe states a permitted rate (see the table above). Both, not either. |
+| `solis.commercial.pending` | **No -- parking is the only thing holding it** | Phase scope widens to Solis. It reaches lab authority on its own evidence the moment it is unparked. |
+| `growatt.tl3x.documented` | Yes -- power-on write lock | Phase scope widens **and** Growatt supplies the unlock procedure. |
+| `growatt.tlx.documented` | Yes -- power-on write lock | Phase scope widens **and** Growatt supplies the unlock procedure. |
+| `sungrow.string.documented` | **No -- parking is the only thing holding it** | Phase scope widens to Sungrow. It reaches lab authority immediately on unparking. |
+| `chint.cps.sch100_125ktl.documented` | Yes -- `0x2602` readability unestablished | Phase scope widens **and** a citation or site read proves `0x2602` is readable. |
+| `foxess.commercial.pending` | No (lab-capable, but addressing deduced) | Phase scope widens to FoxESS. The deduced addressing in the table above remains an open risk to close before any production use. |
+| `knox.aiswei.asw.documented` | Yes -- 44001 readback unestablished | Phase scope widens **and** 44001 readback is established. |
+| `solaredge.terramax.documented` | Yes -- inert at runtime, no active-power register | Phase scope widens **and** runtime scale-factor support exists. Even unparked it would never become eligible to command. |
+
+**Unparking is a product decision and is never a safety clearance.** Removing
+`deferred_this_phase` restores exactly the verdict a profile had before it was
+parked -- for six of the twelve above, that verdict is still `forbidden`. This is
+asserted by `test_phase_parking_only_ever_adds_a_refusal()` in
+`tests/inverter_write_permission_test.c`, which proves on a constructed profile
+that parking never removes a safety refusal and unparking never grants one.
+
 **Huawei is the exception and the shortest path to a control release.** Its map is
 transcribed from the manufacturer manual with per-value citations, its addressing
 convention is settled by the manual's own worked example, and it is commandable
@@ -427,6 +504,44 @@ against a declared simulator today. The open questions are narrow and enumerated
 `docs/HUAWEI_SUN2000_REGISTER_EVIDENCE.md`: which of `40125` or `40199` the machine
 honours, the settle time, and whether the readback reports the requested or the active
 value. `docs/SITE_COMMISSIONING_RUNBOOK.md` is written to close all three in one visit.
+
+## 4c. Deferred by the product owner: meter models
+
+Same principle as §4b, applied to meters. *"0x2100 is only for EM500 that is the
+copy of Lovato. this is not applies on all meters."*
+
+Meters were previously configured as anonymous Modbus endpoints — a host, a unit
+id, a register and a scale, with no statement of what instrument was on the other
+end. That is why the bitmask rule leaked: with no model to check, the only thing
+the code could key on was the commissioned grid value, which is a property of the
+site's *wiring*, not of the *meter*. The model is now a commissioned fact
+(`meter_config_t.model`, schema 6), stated by an engineer and never inferred from
+a register address or a scale factor.
+
+| Meter model | Status | What would unpark it |
+|---|---|---|
+| **EM500 (Lovato-derived)** — `METER_MODEL_EM500_LOVATO` | **In scope.** The only family whose register semantics this firmware claims to know. `0x2100` is its documented "OR of all digital inputs", verified on the installed meters on 2026-07-29 by energising the source-detection input and observing 0 → 1. | — |
+| **Generic Modbus** — `METER_MODEL_GENERIC_MODBUS` | **Parked.** Any instrument reached as a plain Modbus endpoint. Refused at commissioning with `meter_model_deferred`. | A named meter family with (a) a manufacturer citation for whichever register carries its source/tariff indication, and (b) a statement of whether that register is a bitmask or an enumeration. Then add an enumerated `meter_model_t` value for that family and list it in `meter_model_in_phase_scope()`. Generic Modbus as a category is not unparkable — the whole point is that "some meter" has no documented semantics to commission against. |
+| *(no model stated)* — `METER_MODEL_UNDECLARED` | **Refused, and not a deferral.** Reported separately as `meter_model_undeclared` because the remedy is different: state the model. | Nothing to unpark. An engineer states which instrument is wired. |
+
+**What this costs on upgrade.** A unit already commissioned on schema 5 migrates
+with every meter `UNDECLARED`, so its commissioning gate closes until an engineer
+states the model. That is deliberate. The alternative was to assume every already
+commissioned meter is an EM500 and keep applying EM500 bitmask semantics to
+whatever is physically wired, which is the exact failure this section exists to
+prevent. Wi-Fi credentials, meter endpoints, control tuning and generator limits
+are all preserved, so recovery is one form field rather than a re-commissioning,
+and NVS is never erased.
+
+**Why the model field is 32 bits for a three-valued enum.** Configuration
+migration in this firmware dispatches on the stored blob *size*. `role` and
+`generator_index` leave two bytes of tail padding in `meter_config_t`, so a
+`uint8_t` model is absorbed by that padding and `sizeof(app_config_t)` does not
+change — measured, not assumed: 124 bytes with and without. Schema 5 and schema 6
+would then be indistinguishable, and a commissioned schema-5 blob would load as
+schema 6 with every meter acquiring a model out of padding bytes. A 32-bit field
+makes schema 6 strictly larger. A `_Static_assert` in `config_manager.c` fails the
+build if this is ever narrowed.
 
 ## 5. Open decisions
 
