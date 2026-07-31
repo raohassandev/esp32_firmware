@@ -14,7 +14,7 @@ const catalog=[
 {id:'custom-meter',type:'meter',brand:'Other',model:'Custom Modbus meter',protocols:['tcp','rtu'],verified:false}
 ];
 function tuning(){return{priority:0,normal_ms:300,high_ms:100,low_ms:1000,timeout_ms:800,response_delay_ms:0,retries:2,retry_interval_ms:500,detect_attempts:3,failure_ceiling:3,reconnect_ceiling:0,intercall_ms:50,stale_ms:5000,address_base:'zero',function_code:3,register_address:0,block_length:2,data_type:'int32',byte_order:'ABCD',scale:0.001,offset:0,precision:2,batch_write:false,rtu_silent_ms:4,turnaround_ms:10};}
-function addDevice(profile){const id=`${profile.type}-${Date.now()}-${Math.random().toString(16).slice(2)}`;state.devices.push({id,type:profile.type,profile_id:profile.id,brand:profile.brand,model:profile.model,name:`${profile.brand} ${profile.model}`,verified:profile.verified,channel:profile.protocols[0],tcp:{host:'',port:502,unit_id:1},rtu:{uart:1,baud:9600,parity:'none',data_bits:8,stop_bits:1,unit_id:1},tuning:tuning(),status:'not_tested',samples:[],result:'',applied:false});state.active=id;save();render();}
+function addDevice(profile){const id=`${profile.type}-${Date.now()}-${Math.random().toString(16).slice(2)}`;state.devices.push({id,type:profile.type,profile_id:profile.id,brand:profile.brand,model:profile.model,name:`${profile.brand} ${profile.model}`,verified:profile.verified,channel:profile.protocols[0],tcp:{host:'',port:502,unit_id:1},rtu:{uart:1,baud:9600,parity:'none',data_bits:8,stop_bits:1,unit_id:1},tuning:tuning(),status:'not_tested',samples:[],result:'',applied:false});state.active=id;save();render();applyMeterProfile(state.devices[state.devices.length-1]).then(ok=>{if(ok)render();});}
 function save(){state.updated_at=new Date().toISOString();localStorage.setItem(KEY,JSON.stringify(state));}
 /* --------------------------------------------------- reading what is commissioned
  *
@@ -153,6 +153,39 @@ function registerInterpretation(d,t){
    +'nothing to set on this screen. Change the profile in the engineering workspace.</span></div></div>';
  }
  return `<div class="cr-section"><h4>Register interpretation</h4>${(d.unknown||[]).length?`<div class="cr-notice warn"><strong>${d.unknown.length} stored value(s) could not be interpreted: ${d.unknown.map(esc).join(', ')}.</strong><span>The control shows this build's default, which is NOT what the controller holds. Saving leaves these fields exactly as stored unless you change them deliberately.</span></div>`:''}<div class="cr-grid"><label><span>Function code</span><select id="crFunction"><option value="3" ${t.function_code===3?'selected':''}>03 Holding registers</option><option value="4" ${t.function_code===4?'selected':''}>04 Input registers</option></select></label><label><span>Address convention</span><select id="crAddressBase"><option value="zero" ${t.address_base==='zero'?'selected':''}>Base 0 / PDU</option><option value="one" ${t.address_base==='one'?'selected':''}>Base 1</option><option value="40001" ${t.address_base==='40001'?'selected':''}>40001 notation</option></select></label><label><span>Register address</span><input id="crRegister" type="number" value="${t.register_address}"></label><label><span>Block length</span><input id="crBlock" type="number" value="${t.block_length}"></label><label><span>Data type</span><select id="crType">${['uint16','int16','uint32','int32','float32','uint64','int64','float64'].map(v=>`<option ${t.data_type===v?'selected':''}>${v}</option>`).join('')}</select></label><label><span>Byte / word order</span><select id="crOrder">${['ABCD','BADC','CDAB','DCBA'].map(v=>`<option ${t.byte_order===v?'selected':''}>${v}</option>`).join('')}</select></label><label><span>Scale</span><input id="crScale" type="number" step="any" value="${t.scale}"></label><label><span>Offset</span><input id="crOffset" type="number" step="any" value="${t.offset}"></label><label><span>Display precision</span><input id="crPrecision" type="number" value="${t.precision}"></label></div></div>`;
+}
+/* THE REGISTER MAP COMES FROM THE PROFILE, NOT FROM MEMORY.
+ *
+ * GET /api/meter-profiles serves the transcribed maps. Applying one fills the
+ * tuning fields so an engineer picks an instrument instead of retyping four
+ * numbers on every site -- which is how a working meter came to be
+ * reconfigured with a wizard default and read 15x wrong.
+ *
+ * Applied only to a device that has NOT been commissioned from stored config.
+ * An imported device already carries the site's real values, and those outrank
+ * a catalogue entry: a clone may genuinely differ, and the engineer who
+ * measured it is the authority, not this table. */
+let meterProfiles=null;
+async function loadMeterProfiles(){
+ if(meterProfiles)return meterProfiles;
+ if(!access()?.mayRequest('/api/meter-profiles'))return null;
+ try{meterProfiles=(await api('/api/meter-profiles')).profiles||[];}catch{meterProfiles=null;}
+ return meterProfiles;
+}
+async function applyMeterProfile(d){
+ if(!d||d.type!=='meter'||d.imported)return false;
+ const list=await loadMeterProfiles();
+ const profile=(list||[]).find(p=>p.id===d.profile_id);
+ if(!profile||!profile.has_register_map)return false;
+ const t=d.tuning;
+ t.function_code=Number(profile.function)||t.function_code;
+ t.register_address=Number(profile.active_power_address);
+ t.data_type=TYPE_NAMES[Number(profile.data_type)]||t.data_type;
+ t.byte_order=ORDER_NAMES[Number(profile.word_order)]||t.byte_order;
+ t.scale=Number(profile.scale);
+ d.profile_applied=profile.manual_reference||'';
+ save();
+ return true;
 }
 function tuningStep(){const d=active();const t=d.tuning,e=timingEstimate(d);return`<section class="cr-stage"><div class="cr-head"><p class="eyebrow">Protocol behavior and decoding</p><h2>Modbus tuning</h2><p>Tune communication timing separately from register interpretation. Unsafe combinations block the next step.</p></div><div class="cr-layout">${tabs()}<article class="cr-editor"><div class="cr-editor-head"><div><p>${esc(d.name)}</p><h3>Transaction timing</h3></div><span class="${e.state}">${e.state}</span></div><div class="cr-section"><h4>Collection rates</h4><div class="cr-grid"><label><span>Priority</span><input id="crPriority" type="number" value="${t.priority}"></label><label><span>Normal frequency (ms)</span><input id="crNormal" type="number" value="${t.normal_ms}"></label><label><span>High-speed frequency (ms)</span><input id="crHigh" type="number" value="${t.high_ms}"></label><label><span>Low-speed frequency (ms)</span><input id="crLow" type="number" value="${t.low_ms}"></label><label><span>Inter-call interval (ms)</span><input id="crIntercall" type="number" value="${t.intercall_ms}"></label><label><span>Stale-data threshold (ms)</span><input id="crStale" type="number" value="${t.stale_ms}"></label></div></div><div class="cr-section"><h4>Response and recovery</h4><div class="cr-grid"><label><span>Response timeout (ms)</span><input id="crTimeout" type="number" value="${t.timeout_ms}"></label><label><span>Response delay (ms)</span><input id="crDelay" type="number" value="${t.response_delay_ms}"></label><label><span>Collection attempts</span><input id="crRetries" type="number" value="${t.retries}"></label><label><span>Attempt interval (ms)</span><input id="crRetryInterval" type="number" value="${t.retry_interval_ms}"></label><label><span>Communication detect times</span><input id="crDetect" type="number" value="${t.detect_attempts}"></label><label><span>Failures ceiling</span><input id="crFailure" type="number" value="${t.failure_ceiling}"></label><label><span>Reconnection ceiling (0=continuous)</span><input id="crReconnect" type="number" value="${t.reconnect_ceiling}"></label>${d.channel==='rtu'?`<label><span>RTU silent interval (ms)</span><input id="crSilent" type="number" value="${t.rtu_silent_ms}"></label><label><span>Turnaround delay (ms)</span><input id="crTurnaround" type="number" value="${t.turnaround_ms}"></label>`:''}</div></div>${registerInterpretation(d,t)}<div class="cr-estimate"><div><span>Worst transaction</span><strong>${e.transaction} ms</strong></div><div><span>Estimated full scan</span><strong>${e.scan} ms</strong></div><div><span>Stale margin</span><strong>${e.margin} ms</strong></div><div><span>Timing verdict</span><strong class="${e.state}">${e.state}</strong></div></div></article></div></section>${nav()}`;}
 function updateChannel(){const d=active();if(!d)return;d.name=$('crDeviceName')?.value.trim()||d.name;d.channel=$('crChannel')?.value||d.channel;if(d.channel==='tcp'){d.tcp.host=$('crHost')?.value.trim()||'';d.tcp.port=Number($('crPort')?.value);d.tcp.unit_id=Number($('crUnit')?.value);

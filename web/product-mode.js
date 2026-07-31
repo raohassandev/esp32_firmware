@@ -58,6 +58,10 @@
          * which stays unlisted and unauthenticated - startsWith() distinguishes
          * them because this path is strictly longer. */
         { path: '/api/meters/config', routes: ['meters', 'commissioning'] },
+        /* The transcribed register maps. Engineering-gated for the same
+         * reason as the stored configuration: the catalogue tells a reader
+         * exactly how to talk to the plant's instruments. */
+        { path: '/api/meter-profiles', routes: ['meters', 'commissioning'] },
         { path: '/api/meters/em500/', routes: ['meters', 'commissioning'] }
     ];
 

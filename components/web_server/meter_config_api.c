@@ -8,6 +8,7 @@
 #include "cJSON.h"
 #include "config_manager.h"
 #include "http_json.h"
+#include "meter_profiles.h"
 #include "modbus_types.h"
 
 #define METER_CONFIG_MAX_BODY 8192U
@@ -460,10 +461,88 @@ static esp_err_t meters_config_get(httpd_req_t *request)
     return err;
 }
 
+/*
+ * GET /api/meter-profiles -- the commissioned meter families and their maps.
+ *
+ * So that commissioning can be "pick the instrument" rather than "retype the
+ * register map from memory", which is how a working meter came to be
+ * reconfigured with a wizard default and read 15x wrong.
+ *
+ * Read-only and served from a static table, so it takes no lock and issues no
+ * Modbus transaction. Engineering-gated by default like everything else on this
+ * component: a register map is commissioning data, and publishing the whole
+ * catalogue to an unauthenticated caller tells anyone on the network exactly how
+ * to talk to the plant's instruments.
+ *
+ * has_register_map is reported for every family, and it is the field the
+ * interface must key on. A family without a map is not a family this firmware
+ * refuses -- it commissions as a manual endpoint -- but the engineer has to be
+ * told the registers will be theirs rather than a manufacturer's.
+ */
+static esp_err_t meter_profiles_get(httpd_req_t *request)
+{
+    uint8_t count = 0;
+    const meter_profile_t *profiles = meter_profiles_all(&count);
+    if (!profiles) return send_json_error(request, "500 Internal Server Error",
+                                          "Meter profile catalogue is unavailable");
+
+    cJSON *root = cJSON_CreateObject();
+    if (!root) return httpd_resp_send_500(request);
+    cJSON *array = cJSON_AddArrayToObject(root, "profiles");
+    if (!array) { cJSON_Delete(root); return httpd_resp_send_500(request); }
+
+    for (uint8_t index = 0; index < count; ++index) {
+        const meter_profile_t *profile = &profiles[index];
+        cJSON *item = cJSON_CreateObject();
+        if (!item) { cJSON_Delete(root); return httpd_resp_send_500(request); }
+        cJSON_AddStringToObject(item, "id", profile->id);
+        cJSON_AddNumberToObject(item, "model", (double)profile->model);
+        cJSON_AddStringToObject(item, "model_name", meter_model_name(profile->model));
+        cJSON_AddStringToObject(item, "manufacturer", profile->manufacturer);
+        cJSON_AddStringToObject(item, "model_family", profile->model_family);
+        cJSON_AddBoolToObject(item, "in_phase_scope", meter_model_in_phase_scope(profile->model));
+        cJSON_AddBoolToObject(item, "has_register_map", profile->has_register_map);
+        cJSON_AddStringToObject(item, "manual_reference", profile->manual_reference);
+        if (profile->has_register_map) {
+            /* Emitted under the SAME key names POST /api/meters/config accepts,
+             * so a client applies a profile by copying fields rather than by
+             * translating them. A translation step is where a field gets
+             * dropped and replaced by a default. */
+            cJSON_AddNumberToObject(item, "function", profile->function_code);
+            cJSON_AddNumberToObject(item, "active_power_address", profile->active_power_address);
+            cJSON_AddNumberToObject(item, "data_type", profile->active_power_type);
+            cJSON_AddNumberToObject(item, "word_order", profile->active_power_order);
+            cJSON_AddNumberToObject(item, "scale", (double)profile->active_power_scale);
+        }
+        cJSON_AddBoolToObject(item, "has_phase_power", profile->has_phase_power);
+        if (profile->has_phase_power) {
+            cJSON *phases = cJSON_AddArrayToObject(item, "phase_power_address");
+            for (int phase = 0; phases && phase < 3; ++phase) {
+                cJSON_AddItemToArray(phases,
+                                     cJSON_CreateNumber(profile->phase_power_address[phase]));
+            }
+        }
+        cJSON_AddBoolToObject(item, "has_source_input", profile->has_source_input);
+        if (profile->has_source_input) {
+            cJSON_AddNumberToObject(item, "source_input_address", profile->source_input_address);
+            cJSON_AddBoolToObject(item, "source_input_is_bitmask", profile->source_input_is_bitmask);
+        }
+        cJSON_AddItemToArray(array, item);
+    }
+
+    char *json = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (!json) return httpd_resp_send_500(request);
+    esp_err_t err = send_json_text(request, NULL, json);
+    free(json);
+    return err;
+}
+
 esp_err_t meter_config_api_register(httpd_handle_t server)
 {
     if (!server) return ESP_ERR_INVALID_ARG;
     const httpd_uri_t endpoints[] = {
+        {.uri = "/api/meter-profiles", .method = HTTP_GET, .handler = meter_profiles_get},
         {.uri = "/api/meters/config", .method = HTTP_GET, .handler = meters_config_get},
         {.uri = "/api/meters/config", .method = HTTP_POST, .handler = meters_config_post},
     };
