@@ -1,0 +1,32 @@
+name: Operator UI Chromium runtime
+
+on:
+  pull_request:
+    paths:
+      - 'web/**'
+      - 'tests/operator_ui_browser_runtime_test.mjs'
+      - '.github/workflows/operator-ui-browser-runtime.yml'
+  push:
+    branches:
+      - main
+      - dev
+      - 'phase1-**'
+      - 'feature/**'
+      - 'fix/**'
+    paths:
+      - 'web/**'
+      - 'tests/operator_ui_browser_runtime_test.mjs'
+      - '.github/workflows/operator-ui-browser-runtime.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run operator UI Chromium runtime contract
+        run: node tests/operator_ui_browser_runtime_test.mjs
