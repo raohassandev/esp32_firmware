@@ -83,6 +83,7 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-network.js" "${CMAK
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-proof.js" "${CMAKE_CURRENT_BINARY_DIR}/operator-proof.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/icons.js" "${CMAKE_CURRENT_BINARY_DIR}/icons.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/cards.css" "${CMAKE_CURRENT_BINARY_DIR}/cards.css" COPYONLY)
+configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/energy-flow.css" "${CMAKE_CURRENT_BINARY_DIR}/energy-flow.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-operations.js" "${CMAKE_CURRENT_BINARY_DIR}/operator-operations.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-product-suite.js" "${CMAKE_CURRENT_BINARY_DIR}/operator-product-suite.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/prelab-readiness.js" "${CMAKE_CURRENT_BINARY_DIR}/prelab-readiness.js" COPYONLY)
@@ -189,6 +190,7 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/operator-proof.js"
         "${CMAKE_CURRENT_BINARY_DIR}/icons.js"
         "${CMAKE_CURRENT_BINARY_DIR}/cards.css"
+        "${CMAKE_CURRENT_BINARY_DIR}/energy-flow.css"
         "${CMAKE_CURRENT_BINARY_DIR}/operator-operations.js"
         "${CMAKE_CURRENT_BINARY_DIR}/operator-product-suite.js"
         "${CMAKE_CURRENT_BINARY_DIR}/prelab-readiness.js"

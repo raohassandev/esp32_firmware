@@ -89,7 +89,8 @@ static esp_err_t css_handler(httpd_req_t *request)
          * per-module stylesheets above are being converted to; while
          * both exist it has to win. Its ceiling comes down as files
          * are converted -- see tests/design_scale_source_contract.py. */
-        web_assets_cards_css
+        web_assets_cards_css,
+        web_assets_energy_flow_css
     };
     return send_asset_parts(request, "text/css; charset=utf-8", assets, sizeof(assets) / sizeof(assets[0]));
 }
@@ -101,6 +102,8 @@ static esp_err_t js_handler(httpd_req_t *request)
         /* Before any renderer: modules call AutomatrixIcons the first
          * time they draw, which can be during DOMContentLoaded. */
         web_assets_icons_js,
+        /* The card builders, before every page renderer that uses them. */
+        web_assets_operator_proof_js,
         web_assets_product_mode_js,
         web_assets_js,
         web_assets_wifi_utils_js,
@@ -123,7 +126,6 @@ static esp_err_t js_handler(httpd_req_t *request)
         web_assets_solar_grid_js,
         web_assets_operator_view_js,
         web_assets_operator_network_js,
-        web_assets_operator_proof_js,
         web_assets_operator_operations_js,
         web_assets_operator_product_suite_js,
         web_assets_prelab_readiness_js,

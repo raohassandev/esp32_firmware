@@ -1,0 +1,174 @@
+/* energy-flow.css — the picture every solar platform has and this one did not.
+ *
+ * FusionSolar, SolarEdge, iSolarCloud, Fronius, SMA all open on the same image:
+ * where the power is coming from, where it is going, and how much. It is the one
+ * diagram a customer already knows how to read, and its absence is a large part
+ * of why this interface did not look like a solar product.
+ *
+ * TWO VISUAL LANGUAGES ON ONE PAGE, ON PURPOSE.
+ *
+ * The strip above this is a CONTROL surface and follows ISA-101: neutral while
+ * everything is normal, colour only for abnormal or actionable states, because
+ * an operator who sees colour on healthy equipment learns to ignore colour and
+ * then misses the fault. https://control.com/technical-articles/going-gray/
+ *
+ * This block is an ENERGY surface. Nothing here is a safety verdict -- it is
+ * quantity and direction -- so colour is used the way every monitoring product
+ * uses it: to tell one flow from another. Solar is warm, grid is cool, the
+ * generator is amber, load is neutral. That is a legend, not an alarm.
+ *
+ * Mixing the two is what made the old screens read as decorated rather than
+ * engineered: control state was painted like a monitoring app, and there was no
+ * energy view at all.
+ */
+
+.amx-flow {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    grid-template-rows: auto auto auto;
+    align-items: center;
+    justify-items: center;
+    gap: var(--sp-3) var(--sp-4);
+    padding: var(--sp-5) var(--sp-4);
+}
+
+/* Source and sink nodes. A node is a quantity with a name, and nothing else:
+ * the moment one carries a status as well, the diagram has to be read twice. */
+.amx-flow-node {
+    display: grid;
+    justify-items: center;
+    gap: var(--sp-1);
+    text-align: center;
+    /* Wide enough that a four-digit kW value does not wrap, and the grid
+     * column may still shrink below it on a phone. */
+    min-width: 120px;
+    padding: var(--sp-3);
+    border-radius: var(--r-2);
+    background: var(--panel-strong);
+    border: 1px solid var(--line-soft);
+}
+
+.amx-flow-node svg { width: 26px; height: 26px; fill: currentColor; }
+
+.amx-flow-name {
+    font-size: var(--fs-1);
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--muted);
+}
+
+.amx-flow-value {
+    font-size: var(--fs-4);
+    font-weight: 650;
+    /* Tabular figures, because these numbers change every five seconds and a
+     * value that shifts sideways as its digits change is unreadable at a
+     * glance -- which is the only way this diagram is ever read. */
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.amx-flow-unit { font-size: var(--fs-2); font-weight: 500; color: var(--muted); margin-left: 2px; }
+.amx-flow-note { font-size: var(--fs-1); color: var(--muted); }
+
+/* The four series. These are IDENTITIES, not states: solar is always this
+ * colour whether the plant is healthy or not, so the colour never has to be
+ * checked against a legend and never competes with an alarm. */
+.amx-flow-node.is-solar { color: var(--yellow); }
+.amx-flow-node.is-grid { color: var(--blue); }
+.amx-flow-node.is-generator { color: var(--orange); }
+.amx-flow-node.is-load { color: var(--text); }
+
+/* A node the plant does not have, or that is not running. Dimmed rather than
+ * hidden: a site with no generator should still see where a generator would be,
+ * so the diagram means the same thing on every installation. */
+.amx-flow-node.is-absent { opacity: 0.42; }
+
+/* --------------------------------------------------------------------- flows */
+
+.amx-flow-link {
+    position: relative;
+    width: 100%;
+    min-width: var(--sp-7);
+    height: 3px;
+    border-radius: var(--r-1);
+    background: var(--line);
+    overflow: hidden;
+}
+
+.amx-flow-link.vertical { width: 3px; height: var(--tap); }
+
+/* Movement is the signal. A static arrow says a path EXISTS; a moving one says
+ * power is flowing along it right now, which is the question the diagram is
+ * asked. The animation is the only motion on the page and it stops the moment
+ * a flow reaches zero -- a still line is then a real statement rather than a
+ * rendering that failed. */
+.amx-flow-link::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent 0%, currentColor 50%, transparent 100%);
+    opacity: 0;
+}
+
+.amx-flow-link.is-active::after { opacity: 0.9; animation: amx-flow-run 1.4s linear infinite; }
+.amx-flow-link.vertical::after {
+    background: linear-gradient(180deg, transparent 0%, currentColor 50%, transparent 100%);
+}
+.amx-flow-link.vertical.is-active::after { animation-name: amx-flow-run-vertical; }
+
+/* Reversed flow runs the other way. Direction is the whole point of the grid
+ * link: import and export are the same magnitude with opposite meaning, and a
+ * number alone does not say which. */
+.amx-flow-link.is-reversed.is-active::after { animation-direction: reverse; }
+
+@keyframes amx-flow-run {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(100%); }
+}
+@keyframes amx-flow-run-vertical {
+    from { transform: translateY(-100%); }
+    to { transform: translateY(100%); }
+}
+
+/* Anyone who has asked not to see motion does not see it. The line still shows
+ * its colour, so the information survives the animation being removed -- which
+ * is the test a decoration fails and a signal passes. */
+@media (prefers-reduced-motion: reduce) {
+    .amx-flow-link.is-active::after { animation: none; opacity: 0.65; }
+}
+
+.amx-flow-link.is-solar { color: var(--yellow); }
+.amx-flow-link.is-grid { color: var(--blue); }
+.amx-flow-link.is-generator { color: var(--orange); }
+
+/* ------------------------------------------------------------------- layout */
+
+.amx-flow-solar { grid-column: 2; grid-row: 1; }
+.amx-flow-solar-link { grid-column: 2; grid-row: 2; }
+.amx-flow-left { grid-column: 1; grid-row: 3; }
+.amx-flow-centre { grid-column: 2; grid-row: 3; }
+.amx-flow-right { grid-column: 3; grid-row: 3; }
+
+/* The two horizontal links sit in the same row as the nodes they join, which is
+ * why the middle row is a three-column grid of its own. */
+.amx-flow-row {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: var(--sp-3);
+    width: 100%;
+}
+
+@media (max-width: 640px) {
+    /* Stacked, with the vertical connectors kept: the shape still reads
+     * top-to-bottom, which is how the same diagram is drawn on every one of
+     * these products' phone apps. */
+    .amx-flow { grid-template-columns: 1fr; padding: var(--sp-4) var(--sp-2); }
+    .amx-flow-row { grid-template-columns: 1fr; justify-items: center; gap: var(--sp-2); }
+    .amx-flow-link { width: 3px; height: var(--sp-6); }
+    .amx-flow-link::after { background: linear-gradient(180deg, transparent 0%, currentColor 50%, transparent 100%); }
+    .amx-flow-link.is-active::after { animation-name: amx-flow-run-vertical; }
+    .amx-flow-node { width: 100%; max-width: 320px; }
+}

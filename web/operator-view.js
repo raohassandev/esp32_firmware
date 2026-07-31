@@ -605,40 +605,252 @@
      * production and control authority a second time, and the readiness list
      * repeated control authority a third. When the same number is in three
      * places, two of them are eventually wrong. */
+    /* ------------------------------------------------------------- energy flow
+     *
+     * The picture every solar platform opens on -- FusionSolar, SolarEdge,
+     * iSolarCloud, Fronius, SMA all draw the same thing -- and the one this
+     * product did not have. It is the diagram a customer already knows how to
+     * read, and its absence is a large part of why this interface did not look
+     * like a solar product.
+     *
+     * WHAT IT IS ALLOWED TO SAY. Quantity and direction, nothing else. No status,
+     * no verdict, no alarm. Those live in the control strip above, which is
+     * neutral until something is wrong. Keeping them apart is the whole point:
+     * this block uses colour to tell one flow from another, and it may only do
+     * that because nothing in it is a safety statement competing for the same
+     * attention.
+     *
+     * WHAT IS DERIVED AND WHAT IS MEASURED. Grid and solar are measured. The
+     * generator is measured when a generator-role meter exists. LOAD IS NOT
+     * MEASURED -- it is grid + generator + solar, the site's own definition --
+     * and it is labelled as derived on screen, because a number a reader assumes
+     * came from an instrument is a number they will trust further than it
+     * deserves.
+     */
+    function flowNode(kind, iconName, name, kw, note) {
+        const cards = window.AutomatrixCards;
+        const value = cards.measured(kw);
+        const absent = value === null;
+        const element = node('div', `amx-flow-node is-${kind}${absent ? ' is-absent' : ''}`);
+        element.append(cards.icon(iconName));
+        element.append(node('span', 'amx-flow-name', name));
+        const figure = node('span', 'amx-flow-value');
+        /* An em dash, never a zero. "0.0 kW" says the instrument measured
+         * nothing; "—" says nothing was measured, and on a power screen those
+         * are different plants. */
+        figure.append(document.createTextNode(absent ? '—' : Math.abs(value).toFixed(1)));
+        if (!absent) figure.append(node('span', 'amx-flow-unit', 'kW'));
+        element.append(figure);
+        if (note) element.append(node('span', 'amx-flow-note', note));
+        return element;
+    }
+
+    function flowLink(kind, active, reversed, vertical) {
+        const classes = ['amx-flow-link', `is-${kind}`];
+        if (vertical) classes.push('vertical');
+        if (active) classes.push('is-active');
+        if (reversed) classes.push('is-reversed');
+        return node('div', classes.join(' '));
+    }
+
+    function energyFlow(payload) {
+        const cards = window.AutomatrixCards;
+        const status = payload.status || {};
+        const telemetry = payload.inverterTelemetry || {};
+
+        const card = node('article', 'amx-card amx-wide');
+        card.append(node('span', 'amx-card-label', 'Power flow'));
+        const flow = node('div', 'amx-flow');
+
+        const gridFresh = Boolean(status.meter_online) && !Boolean(status.meter_stale);
+        const gridKw = gridFresh && finite(status.grid_power_kw) ? Number(status.grid_power_kw) : null;
+        const solarKw = cards.measured(telemetry?.summary?.measured_total_kw);
+        const generatorKw = cards.measured(status.generator_power_kw);
+
+        /* Import-positive: above zero the utility is supplying the site, below it
+         * the site is pushing power back. The arrow direction carries that, and
+         * the note says it in words as well -- a moving line is a convention and
+         * the reader may not share it. */
+        const importing = gridKw !== null && gridKw > 0.01;
+        const exporting = gridKw !== null && gridKw < -0.01;
+
+        /* Derived, and said so. */
+        const parts = [gridKw, generatorKw, solarKw].filter((v) => v !== null);
+        const loadKw = parts.length ? parts.reduce((sum, v) => sum + v, 0) : null;
+
+        flow.append(Object.assign(
+            flowNode('solar', 'solar', 'Solar', solarKw,
+                solarKw === null ? 'not measured' : 'generating'),
+            { className: 'amx-flow-node is-solar amx-flow-solar' + (solarKw === null ? ' is-absent' : '') }
+        ));
+        const solarLink = flowLink('solar', solarKw !== null && solarKw > 0.01, false, true);
+        solarLink.classList.add('amx-flow-solar-link');
+        flow.append(solarLink);
+
+        const row = node('div', 'amx-flow-row');
+        row.append(flowNode('grid', 'grid', 'Grid', gridKw,
+            gridKw === null ? 'no measurement' : importing ? 'importing' : exporting ? 'exporting' : 'balanced'));
+        row.append(flowLink('grid', importing || exporting, exporting, false));
+        row.append(flowNode('load', 'home', 'Site load', loadKw, 'derived, not metered'));
+        row.append(flowLink('generator', generatorKw !== null && generatorKw > 0.01, true, false));
+        row.append(flowNode('generator', 'generator', 'Generator', generatorKw,
+            generatorKw === null ? 'not running' : 'supplying'));
+        flow.append(row);
+
+        card.append(flow);
+        return card;
+    }
+
+    /*
+     * THE PLANT OVERVIEW.
+     *
+     * One owner, three sections, five card shapes. It replaces a layout that had
+     * grown a flow diagram, an availability list and a chart in three different
+     * visual idioms, with a second module appending its own section underneath --
+     * which is how a page ends up looking unfinished even though every part of it
+     * works.
+     *
+     * The order answers the questions in the order a person actually asks them:
+     *
+     *   1. Is this thing working?     the controller's own sentence, first and widest
+     *   2. What is the plant doing?   the two numbers the site is about
+     *   3. Is everything talking?     one row per device, and how long since it spoke
+     *   4. What has it been doing?    the trend
+     *
+     * A visitor who reads only the first card has the answer they came for. That
+     * is the test this page is built to pass, because the complaint it exists to
+     * fix is that a working controller and a crashed one looked identical.
+     */
     function renderDashboard(payload) {
         const view = byId('operatorDashboardView');
-        if (!view) return;
-        const { status, inverters } = payload;
-        const inverterSummary = inverters?.summary || {};
-        const gridOnline = Boolean(status?.meter_online) && !Boolean(status?.meter_stale);
-        const fleetState = Number(inverterSummary.online) > 0
-            ? stateWord('communication', 'online', 'Online')
-            : Number(inverterSummary.enabled) > 0
-                ? stateWord('communication', 'offline', 'Offline')
-                : stateWord('commissioning', 'notConfigured', 'Not configured');
+        const cards = window.AutomatrixCards;
+        if (!view || !cards) return;
+
+        const status = payload.status || {};
+        const telemetry = payload.inverterTelemetry || {};
+        const meters = payload.meters?.meters || [];
+        const summary = payload.inverters?.summary || {};
 
         view.replaceChildren();
-        /* operator-operations.js fills this: it holds the alarm and event data. */
+        /* Alarms stay at the very top and belong to operator-operations.js. An
+         * exception is the one thing that outranks "is it working". */
         view.append(attentionHost());
-        view.append(flowCard(payload));
 
-        const equipment = node('article', 'op-card op-health-card');
-        equipment.append(node('div', 'op-card-title', 'Equipment availability'));
-        const readiness = node('div', 'op-readiness');
-        readiness.append(
-            statusLine('wifi', 'Controller network',
-                status?.network_online ? stateWord('communication', 'online', 'Online') : stateWord('communication', 'offline', 'Offline'),
-                status?.network_online ? '' : 'Check site network and router power',
-                status?.network_online ? 'good' : 'bad'),
-            statusLine('meter', 'Grid measurement', measurementQuality(status),
-                gridOnline ? '' : 'Check the meter and its communication path',
-                gridOnline ? 'good' : 'bad'),
-            statusLine('solar', 'Solar fleet', fleetState,
-                `${Number(inverterSummary.online) || 0} of ${Number(inverterSummary.enabled) || 0} online`,
-                Number(inverterSummary.online) > 0 ? 'good' : 'warning')
-        );
-        equipment.append(readiness);
-        view.append(equipment, chartHost());
+        /* ---- 1. is it working -------------------------------------------- */
+        const authority = status.control_authority || {};
+        const mode = firmwareWord(authority.mode_label, '');
+        const inhibit = firmwareWord(authority.inhibit_reason, '');
+        const now = cards.section('Right now', 'What this controller is doing, and whether it can.');
+
+        if (!mode) {
+            now.grid.append(cards.status({
+                label: 'Controller', mode: 'State not reported', state: 'warn',
+                reason: 'The controller did not say what it is doing. That is not the same as a fault, but it is not proof that it is working either.'
+            }));
+        } else if (authority.command_authority === true) {
+            now.grid.append(cards.status({
+                label: 'Controller', mode, state: 'ok',
+                reason: 'The controller is adjusting the solar inverters as the plant needs.'
+            }));
+        } else {
+            now.grid.append(cards.status({
+                label: 'Controller', mode, state: 'warn',
+                reason: inhibit || 'The controller is watching the plant but is not adjusting the inverters.'
+            }));
+        }
+
+        /* ---- 2. what the plant is doing ----------------------------------- */
+        const gridKw = finite(status.grid_power_kw) ? Number(status.grid_power_kw) : null;
+        const gridFresh = Boolean(status.meter_online) && !Boolean(status.meter_stale);
+        now.grid.append(cards.metric({
+            label: 'Grid power',
+            value: gridFresh ? gridKw : null,
+            unit: 'kW',
+            /* Direction in words. The sign alone is a convention nobody told the
+             * reader about, and "-12.4" on a power screen is ambiguous to
+             * everyone who has not read the commissioning notes. */
+            foot: !gridFresh ? 'No current measurement'
+                : gridKw === null ? 'Not measured'
+                : gridKw > 0.01 ? 'Importing from the utility'
+                : gridKw < -0.01 ? 'Exporting to the utility'
+                : 'Near-zero exchange'
+        }));
+
+        const solarKw = cards.measured(telemetry?.summary?.measured_total_kw);
+        const commandable = cards.measured(summary.commandable_rated_kw);
+        now.grid.append(cards.metric({
+            label: 'Solar now',
+            value: solarKw,
+            unit: 'kW',
+            /* Measured against commandable. The gap between them is the one
+             * number that explains why a limit did not do what somebody
+             * expected, and it appears nowhere else in the product. */
+            foot: commandable === null
+                ? 'Measured at the inverters'
+                : 'This controller can adjust ' + commandable.toFixed(1) + ' kW of it'
+        }));
+        view.append(now);
+
+        /* ---- 2b. where the power is going ---------------------------------
+         * Between the control strip and the device list on purpose: it is the
+         * shape a customer recognises, and it explains the two numbers above
+         * it without repeating them. */
+        const power = cards.section('Power flow', 'Where the power is coming from and going, right now.');
+        power.grid.append(energyFlow(payload));
+        view.append(power);
+
+        /* ---- 3. is everything talking ------------------------------------- */
+        const devices = cards.section('Equipment', 'Every device, and how long since it last answered.');
+        for (const meter of meters) {
+            const runtime = meter.runtime || {};
+            const online = runtime.online === true;
+            const kw = cards.measured(runtime.active_power_kw);
+            devices.grid.append(cards.tile({
+                iconName: online ? 'meter' : 'offline',
+                name: meter.name || 'Meter',
+                detail: (online ? 'Answering' : 'Not answering') + ' · ' + cards.ageWords(runtime.data_age_ms),
+                value: kw === null ? '—' : kw.toFixed(1) + ' kW',
+                state: online ? 'ok' : 'bad'
+            }));
+        }
+        for (const inverter of (telemetry.inverters || [])) {
+            /* telemetry_valid, not a bare online flag: an inverter that answers
+             * and returns nothing usable is not working, and calling that
+             * "answering" sends an electrician to the wrong cable. */
+            const valid = inverter.telemetry_valid === true;
+            const kw = cards.measured(inverter.measured_power_kw);
+            devices.grid.append(cards.tile({
+                iconName: valid ? 'inverter' : 'offline',
+                name: 'Inverter ' + (Number(inverter.index) + 1),
+                detail: (valid ? 'Answering' : 'Not answering') + ' · ' + cards.ageWords(inverter.telemetry_age_ms),
+                value: kw === null ? '—' : kw.toFixed(1) + ' kW',
+                state: valid ? 'ok' : 'bad'
+            }));
+        }
+        devices.grid.append(cards.tile({
+            iconName: status.network_online ? 'wifi' : 'offline',
+            name: 'Controller network',
+            detail: status.network_online
+                ? 'Connected to ' + (status.ssid || 'Wi-Fi')
+                : 'Check the site network and router power',
+            value: status.network_online ? 'Online' : 'Offline',
+            state: status.network_online ? 'ok' : 'bad'
+        }));
+        if (!meters.length && !(telemetry.inverters || []).length) {
+            devices.grid.append(cards.tile({
+                iconName: 'clipboard', name: 'Nothing commissioned yet',
+                detail: 'Add the meter and inverters in Commissioning.',
+                value: '—', state: 'idle'
+            }));
+        }
+        view.append(devices);
+
+        /* ---- 4. what it has been doing ------------------------------------ */
+        const trend = cards.section('Recent history', 'Grid exchange and solar output over the recent window.');
+        const holder = cards.node('article', 'amx-card amx-wide amx-trend');
+        holder.append(chartHost());
+        trend.grid.append(holder);
+        view.append(trend);
     }
 
     /* --------------------------------------------------------------- grid power
