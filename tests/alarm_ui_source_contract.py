@@ -162,8 +162,19 @@ def body(name, code=None):
 
 
 row = body("alarmRow")
-require("details(" in row, "the alarm row no longer discloses anything")
-first_drawer = row.index("details(")
+# A drawer is created by details() or by its badge-free twin levelledDetails().
+DRAWER = re.compile(r"\b(?:details|levelledDetails)\(")
+_drawers = list(DRAWER.finditer(row))
+require(_drawers, "the alarm row no longer discloses anything")
+first_drawer = _drawers[0].start()
+
+# Exactly ONE drawer per row. Every row used to mount a full-width condition
+# history panel AND a full-width shelving panel, so one condition cost 238px and
+# four filled the screen twice over. A triage list is read by running down it;
+# it stops being a list when each entry is a stack of engineering panels.
+require(len(_drawers) == 1,
+        f"the alarm row mounts {len(_drawers)} drawers; a triage row gets one, "
+        "or the list becomes a stack of panels nobody scrolls")
 
 # 1. The state pill. On an unattended site "Returned to normal, never
 #    acknowledged" is the state that matters most, and it must be legible
@@ -174,25 +185,86 @@ require("alarm-state-pill" in row and row.index("alarm-state-pill") < first_draw
 
 # 2. The obligation carried by that state. Every other state reads correctly
 #    from the pill alone; this is the one where the condition is gone and the
-#    work is not, and its explanation used to live only inside the closed
-#    lifecycle drawer.
-require("alarm-state-obligation" in row and row.index("alarm-state-obligation") < first_drawer,
-        "a returned-to-normal condition must say on the row that it stays "
-        "outstanding until someone acknowledges it; that sentence was reachable "
-        "only by opening the lifecycle drawer")
-require("meta.meaning" in row[:first_drawer],
-        "the obligation on the row must be the same wording as the lifecycle "
-        "drawer, not a second explanation of the same state")
+#    work is not.
+#
+#    It used to be printed as a paragraph on every returned row. That is four
+#    identical paragraphs on the live controller - a site that restarts returns
+#    every condition at once, so the repetition is the normal case - and a
+#    sentence repeated four times is not read four times. It is now stated ONCE
+#    above the list and carried on every pill.
+#
+#    These assertions are stronger than the per-row paragraph they replace,
+#    because they constrain the console as well as the row: the sentence must be
+#    on the row's pill, it must be on the first screen of the console, and it
+#    must NOT be inside a disclosure control.
+require("pill.title = meta.meaning" in row and row.index("pill.title") < first_drawer,
+        "the state pill must carry its own meaning on the row; the obligation "
+        "behind 'Returned to normal · never acknowledged' cannot be reachable "
+        "only by opening a drawer")
+
+console = body("renderAlarmConsole")
+# Built AND appended, and appended before the list it explains. Naming the
+# function is not enough: a legend that is computed and dropped is a legend the
+# operator never sees.
+require("const legend = alarmStateLegend(visible);" in console,
+        "the screen must build the state legend from the visible conditions")
+require("if (legend) view.append(legend);" in console,
+        "the state legend must be appended to the screen, not merely computed")
+_legend_at = console.index("if (legend) view.append(legend);")
+require("view.append(list);" in console and _legend_at < console.index("view.append(list);"),
+        "the state legend must come before the list it explains")
+_console_drawers = list(DRAWER.finditer(console))
+require(_console_drawers and _legend_at < _console_drawers[0].start(),
+        "the state legend must be on the first screen, not behind a disclosure "
+        "control; the returned-to-normal obligation is why this screen exists")
+
+legend = body("alarmStateLegend")
+require("ALARM_STATES[key]" in legend and "entry.meaning" in legend,
+        "the legend must draw its wording from ALARM_STATES, so the legend, the "
+        "tooltip and the lifecycle reference cannot drift into three different "
+        "explanations of the same state")
+require("alarm-state-pill" in legend,
+        "the legend must show the pill it is explaining, not just its wording")
+# Only states actually on screen. A legend explaining four states when the list
+# shows one is the same defect at a different scale.
+require("visible" in legend and "seen[key]" in legend,
+        "the legend must explain only the states present in the visible list")
 
 # 3. The required action the controller wrote.
 require("recommended_action" in row and row.index("recommended_action") < first_drawer,
         "the controller's recommended action must stay on the first screen")
 
+# 4. Acknowledge stays a plain button on the row, needing no session. ISA-18.2
+#    assigns acknowledgement to the operator; burying it behind the Engineering
+#    level is what stopped anything from ever being acknowledged.
+require("acknowledgeControl(alarm)" in row,
+        "the acknowledge control must stay on the row")
+require(row.index("acknowledgeControl(alarm)") > first_drawer
+        or "alarm-actions" in row,
+        "acknowledge must be a row control, not a drawer item")
+ack = body("acknowledgeControl")
+require("engineeringAuthorized" not in ack,
+        "acknowledgement must not be gated on an engineering session in the "
+        "browser; it is the operator's action under ISA-18.2")
+
+# 5. The ENGINEERING badge is said once per section, not once per drawer. The
+#    level itself is never lost: the badge-free drawer keeps it in the class the
+#    stylesheet colours it with, in its accessible name and in its tooltip.
+quiet = body("levelledDetails")
+require("op-more-level" not in quiet,
+        "the per-row drawer must not repeat the level badge")
+require("level-${level}" in quiet and "aria-label" in quiet and ".title =" in quiet,
+        "a badge-free drawer must still carry its level in the class, the "
+        "accessible name and the tooltip")
+require("levelNote" in console,
+        "the screen must state the engineering level once for the list")
+
 # The suppression pill changes what the counts above mean, so it stays on the
 # row even though the reasoning behind it is disclosed.
 suppression = body("suppressionBlock")
-require("alarm-suppression-pill" in suppression
-        and suppression.index("alarm-suppression-pill") < suppression.index("details("),
+_suppression_drawer = DRAWER.search(suppression)
+require("alarm-suppression-pill" in suppression and _suppression_drawer is not None
+        and suppression.index("alarm-suppression-pill") < _suppression_drawer.start(),
         "the suppression pill must stay on the row; hiding it makes the triage "
         "counts above misleading")
 
@@ -330,9 +402,20 @@ require("Shelving and out-of-service are engineering actions" in UI,
 ack_fn = UI[UI.index("function acknowledgeControl("):UI.index("function suppressionBlock(")]
 require("engineeringAuthorized()" not in ack_fn,
         "the acknowledge control must not branch on engineering access at all")
-sup_fn = UI[UI.index("function suppressionControls("):]
+# suppressionControls() is gone: it existed only to wrap suppressionActions() in
+# a second per-row drawer, and the row now mounts one. The gate it carried did
+# not move -- it is in suppressionActions() itself, which is what the drawer
+# renders, so the branch is on the controls rather than on the wrapper.
+require("function suppressionControls(" not in CODE,
+        "the second per-row drawer wrapper is back")
+sup_fn = body("suppressionActions")
 require("engineeringAuthorized()" in sup_fn,
         "the suppression controls must still branch on engineering access")
+# And the asymmetry itself: shelving is Engineering-levelled, acknowledgement is
+# not. Stated on the structure rather than on the deleted wrapper's name.
+require("levelledDetails('engineering'" in row,
+        "the row's drawer, which holds the suppression controls, must carry the "
+        "engineering level")
 require("error.status === 401" in UI,
         "the acknowledge POST must handle 401 explicitly")
 require("requires an authenticated engineering session" in UI,

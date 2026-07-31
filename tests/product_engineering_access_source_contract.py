@@ -137,9 +137,18 @@ require("if (known) {" in OPERATOR,
 require("enabled > 0 ? (online / enabled) * 100 : NaN" in OPERATOR,
         "fleet availability must be unavailable, not zero, when no inverter is "
         "enabled; there is no denominator for the percentage")
-require("commandable_rated_kw" in OPERATOR,
-        "the fleet card must state the capacity automatic control can actually "
-        "command, which is the number the control loop runs on")
+# Bound to the fleet card itself, not to the file: commandable_rated_kw also
+# appears in the control screen's prerequisites, so a file-wide check would stay
+# green with the fleet card's capacity accounting deleted.
+_fleet = OPERATOR[OPERATOR.index("function fleetCard("):]
+_fleet = _fleet[:_fleet.index("\n    function ")]
+for _figure in ["configured_rated_kw", "enabled_rated_kw", "commandable_rated_kw"]:
+    require(_figure in _fleet,
+            f"the fleet card must account for {_figure}; commandable capacity in "
+            "particular is what automatic control can actually move, and it is the "
+            "number the control loop runs on")
+require("'Commandable'" in _fleet,
+        "the fleet card must label the commandable capacity for a reader")
 
 # SAFETY. Number(null) is 0, and /api/inverters returns measured_power_kw: null
 # for an inverter that is not enabled. Coercing that to a reading printed
