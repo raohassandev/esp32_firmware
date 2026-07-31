@@ -85,13 +85,29 @@
         return SOURCE_LABELS[normalizeState(state)] || UNKNOWN_LABEL;
     }
 
-    /* The control consequence, stated as a consequence and not as a hint.
+    /* The control consequence of the resolved source.
      *
-     * The generator sentence is conditional on detection_only because the
-     * firmware publishes detection_only and automatic_control_enabled_by_this_phase
-     * = false: while detection is reporting only, nothing is curtailed, and
-     * telling an operator the genset is being protected when it is not would be
-     * worse than saying nothing. */
+     * WHAT THIS MAY AND MAY NOT CLAIM. Source detection decides WHICH SUPPLY is
+     * carrying the plant. It does not by itself decide whether a curtailment
+     * command is issued: that additionally requires the commissioning gate to be
+     * satisfied and automatic control to be enabled, both of which are reported
+     * by /api/status and shown on the automatic-control panel, not here.
+     *
+     * So neither direction may be asserted from this endpoint alone. An earlier
+     * revision keyed the sentence off detection_only and told the operator "PV is
+     * NOT being curtailed to protect the generator" -- a flat statement about the
+     * control loop, made from a flag that gates nothing in the firmware
+     * (components/source_detection/source_detection.c sets detection_only
+     * unconditionally, and no component reads it; the control loop consumes
+     * detection.state at components/control_engine/control_engine.c:487). The
+     * opposite branch was the same overclaim in the dangerous direction: telling
+     * an operator the genset IS protected when the gate may be closed.
+     *
+     * What is said instead is the part this endpoint actually knows -- whether a
+     * generator is carrying the plant, and therefore whether curtailment is
+     * REQUIRED -- and it points at the panel that states whether it is happening.
+     * detection_only is still surfaced verbatim as a qualifier so the phase is
+     * visible without being turned into a claim about the inverters. */
     function consequenceFor(confident, state, detectionOnly) {
         if (!confident) {
             return {
@@ -101,19 +117,16 @@
         }
         if (state === 'grid') {
             return {
-                label: 'PV not curtailed for source reasons',
-                detail: 'The plant is on grid. Source detection is not restricting PV output.'
+                label: 'Source-based curtailment not required',
+                detail: 'The plant is on grid, so source detection is not calling for PV to be restricted.'
             };
         }
-        if (detectionOnly) {
-            return {
-                label: 'PV not curtailed · detection only',
-                detail: 'The plant is on generator, but source detection reports only in this phase and issues no inverter commands. PV is NOT being curtailed to protect the generator.'
-            };
-        }
+        const detail = 'The plant is on generator, so PV must be curtailed to keep load on the machine and stay clear of reverse power. Whether the command is being issued depends on the commissioning gate and the automatic-control enable, which are stated on the automatic-control panel.';
         return {
-            label: 'PV curtailed to protect generator',
-            detail: 'The plant is on generator, so PV output is being curtailed to protect the generator.'
+            label: 'Source-based curtailment required · generator',
+            detail: detectionOnly
+                ? detail + ' Source detection reports only in this phase and issues no inverter commands itself.'
+                : detail
         };
     }
 

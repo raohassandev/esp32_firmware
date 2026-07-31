@@ -128,48 +128,67 @@ for (const status of statuses()) {
         seen.unknown += 1;
     }
 
-    /* PROPERTY 4. "PV curtailed to protect generator" is claimed only when the
-     * plant is confidently on generator AND the firmware is not detection-only.
-     * It is the one sentence on the screen that asserts the controller is
-     * actively defending the genset. */
-    const claimsCurtailment = /^PV curtailed to protect generator$/.test(view.controlConsequence);
-    if (claimsCurtailment) {
+    /* PROPERTY 4. THIS ENDPOINT MAY NEVER CLAIM WHETHER PV IS ACTUALLY BEING
+     * CURTAILED, in either direction.
+     *
+     * /api/source-detection reports which supply is carrying the plant. Whether a
+     * command reaches the inverters additionally requires the commissioning gate
+     * and the automatic-control enable, which this payload does not carry. A flat
+     * "PV is being curtailed" would tell an operator the genset is defended while
+     * the gate is closed; a flat "PV is NOT being curtailed" would report an
+     * unprotected machine that is in fact protected. Both are false statements
+     * about the control loop made from evidence that cannot support either, so
+     * the module must assert neither. This is a property of every point in the
+     * generated status space, not of one example. */
+    const claim = view.controlConsequence + ' ' + view.controlConsequenceDetail;
+    assert.ok(!/\bis being curtailed\b/i.test(claim),
+        `source detection may not assert that curtailment IS happening: ${claim}`);
+    assert.ok(!/\bis NOT being curtailed\b/i.test(claim),
+        `source detection may not assert that curtailment is NOT happening: ${claim}`);
+    assert.ok(!/\bare being curtailed\b/i.test(claim));
+
+    /* PROPERTY 5. What it MUST state is the part it does know: on a confident
+     * generator, that curtailment is REQUIRED, and that the genset is the reason.
+     * Saying nothing is not an option -- silence is the ambiguity being removed. */
+    if (view.confident && status.state === 'generator') {
         seen.curtailing += 1;
-        assert.strictEqual(view.confident, true);
-        assert.strictEqual(view.state, 'generator');
         assert.strictEqual(view.sourceLabel, 'GENERATOR',
-            'the screen that says the generator is being protected must also say GENERATOR');
-        assert.strictEqual(status.detection_only, false);
-    }
-    if (view.confident && status.state === 'generator' && !status.detection_only) {
-        assert.ok(claimsCurtailment,
-            'a confident generator with control enabled must state that PV is curtailed');
+            'a plant on generator must read GENERATOR');
+        assert.match(view.controlConsequence, /curtailment required/i,
+            'a confident generator must state that source-based curtailment is required');
+        assert.match(view.controlConsequenceDetail, /reverse power/i,
+            'the reason curtailment is required must be stated, not implied');
+        /* And it must point at the panel that does know whether it is happening,
+         * rather than leaving the operator to guess. */
+        assert.match(view.controlConsequenceDetail, /commissioning gate|automatic[- ]control/i,
+            'the operator must be told where the actual control state is stated');
     }
 
-    /* PROPERTY 5. On a confident grid the screen must say plainly that PV is not
-     * being curtailed for source reasons - and must not say anything about
-     * protecting the generator. */
+    /* PROPERTY 6. On a confident grid the screen must say plainly that source
+     * detection is not calling for a restriction, and must not raise the
+     * generator at all. */
     if (view.confident && status.state === 'grid') {
         assert.strictEqual(view.sourceLabel, 'GRID', 'a plant on grid must read GRID');
-        assert.strictEqual(view.controlConsequence, 'PV not curtailed for source reasons');
-        assert.ok(!/protect/i.test(view.controlConsequence + view.controlConsequenceDetail)
-            || /NOT being curtailed/.test(view.controlConsequenceDetail));
+        assert.match(view.controlConsequence, /not required/i,
+            'a plant on grid must state that source-based curtailment is not required');
+        assert.ok(!/reverse power|protect the generator/i.test(claim),
+            'a plant on grid must not describe generator protection');
     }
 
-    /* PROPERTY 6. The control consequence is never empty. Silence about what the
+    /* PROPERTY 7. The control consequence is never empty. Silence about what the
      * controller is doing is the ambiguity being removed. */
     assert.ok(view.controlConsequence.length > 0, 'the control consequence is always stated');
     assert.ok(view.controlConsequenceDetail.length > 0, 'the control consequence is always explained');
     assert.ok(view.detail.length > 0, 'the source headline is always explained');
 
-    /* PROPERTY 7. A tone of "good" is only ever attached to a confident grid. */
+    /* PROPERTY 8. A tone of "good" is only ever attached to a confident grid. */
     if (view.sourceTone === 'good') {
         assert.strictEqual(view.confident, true);
         assert.strictEqual(view.state, 'grid');
     }
     if (!view.confident) assert.strictEqual(view.sourceTone, 'bad');
 
-    /* PROPERTY 8. While debouncing, the candidate is named as a candidate and
+    /* PROPERTY 9. While debouncing, the candidate is named as a candidate and
      * never as the active source. */
     if (status.transition_pending) {
         assert.match(view.candidateNote, /not the active source/i);
