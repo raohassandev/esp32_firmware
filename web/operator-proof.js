@@ -1,9 +1,9 @@
-/* operator-proof.js - the "is it actually working?" panel.
+/* operator-proof.js — the top of the plant overview: "is it actually working?"
  *
- * OWNS: one panel at the top of the plant overview. Nothing else.
- * DOES NOT OWN: any measurement. Every number here is read from an existing
- *   operator endpoint and every sentence about a safety decision is the
- *   firmware's own words, rendered verbatim.
+ * OWNS: one section at the top of the dashboard. Nothing else.
+ * DOES NOT OWN: any measurement. Every number is read from an existing operator
+ *   endpoint, and every sentence about a safety decision is the firmware's own
+ *   words rendered verbatim.
  *
  * WHY IT EXISTS. From the product owner: small factories do not read deeply, and
  * a controller that shows nothing while working looks exactly like one that has
@@ -11,40 +11,45 @@
  * broken and says so.
  *
  * A screen full of correct measurements does not answer that. "Grid 243 kW" is a
- * number, not a statement about whether this box is doing its job. So this panel
- * answers three questions in plain words, and it is deliberately the only place
- * that tries to:
+ * number, not a statement about whether this box is doing its job. So this
+ * section answers three questions in plain words, in this order, and it is
+ * deliberately the only place that tries to:
  *
- *   Is it alive?      every device, with how long since it last answered
- *   Is it working?    the controller's own mode, in its own sentence
- *   Did it act?       what was asked of the inverters and what came back
+ *   Is it working?  the controller's own mode, in its own sentence
+ *   Is it alive?    every device, with how long since it last answered
+ *   What is it doing?  solar now, and how much of it this controller can move
  *
  * IT NEVER INVENTS A VERDICT. When the firmware publishes a reason it is shown
- * as written; when it publishes nothing the panel says the state is unknown
- * rather than assuming the good case. An interface that reports "working" from
- * an absent field is worse than one that reports nothing, because it is
+ * as written; when it publishes nothing this says the state is unknown rather
+ * than assuming the good case. An interface that reports "working" from an
+ * absent field is worse than one that reports nothing, because it is
  * confidently wrong at exactly the moment somebody needs the truth.
  */
 (() => {
     'use strict';
 
     const byId = (id) => document.getElementById(id);
-    const node = (tag, className = '', text = null) => {
+    const route = () => location.hash.replace(/^#\/?/, '') || 'dashboard';
+    const icon = (name) => window.AutomatrixIcons
+        ? window.AutomatrixIcons.icon(name)
+        : document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+
+    function node(tag, className = '', text = null) {
         const item = document.createElement(tag);
         if (className) item.className = className;
         if (text != null) item.textContent = String(text);
         return item;
-    };
-    const route = () => location.hash.replace(/^#\/?/, '') || 'dashboard';
+    }
 
-    /* A measured quantity, or the absence of one. Number(null) is 0 and
-     * Number('') is 0, and this project has shipped that defect three separate
-     * times: an unmeasured value rendered as a confident zero. */
+    /* A measured quantity, or the absence of one. Number(null) is 0, and so is
+     * Number('') and Number(false). This project has shipped that defect three
+     * separate times: a value that was never measured rendered as a confident
+     * zero, which on a power screen reads as "the plant is idle". */
     const measured = (value) =>
         (typeof value === 'number' && Number.isFinite(value)) ? value : null;
 
     /* Age in words. A non-technical reader needs "answering now" or "silent for
-     * 4 minutes", not a millisecond count. */
+     * four minutes", never a millisecond count they have to convert. */
     function ageWords(ms) {
         const value = measured(ms);
         if (value === null) return 'never answered';
@@ -55,123 +60,161 @@
         return minutes === 1 ? 'about a minute ago' : `${minutes} minutes ago`;
     }
 
-    function ensurePanel() {
+    function ensureSection() {
         const page = document.querySelector('[data-page="dashboard"]');
         if (!page) return null;
-        let panel = byId('operatorProofPanel');
-        if (panel) return panel;
-        panel = node('article', 'panel op-proof');
-        panel.id = 'operatorProofPanel';
-        panel.innerHTML = `
-            <div class="panel-header">
-                <div><p class="eyebrow">Controller</p><h3 id="operatorProofHeading">Checking…</h3></div>
-                <span class="subtle-badge" id="operatorProofBadge">Checking</span>
+        let section = byId('opProofSection');
+        if (section) return section;
+
+        section = node('section', 'amx-section');
+        section.id = 'opProofSection';
+        section.innerHTML = `
+            <div class="amx-section-head">
+                <h2>Right now</h2>
+                <p class="amx-section-hint" id="opProofUpdated"></p>
             </div>
-            <p class="op-proof-reason" id="operatorProofReason" role="status"></p>
-            <div class="op-proof-grid" id="operatorProofDevices"></div>
-            <p class="op-proof-command" id="operatorProofCommand"></p>`;
-        /* Above everything else on the page: it is the question a visitor asks
-         * before any measurement means anything to them. */
-        page.prepend(panel);
-        return panel;
+            <div class="amx-grid">
+                <article class="amx-card amx-status amx-wide" id="opProofStatus">
+                    <span class="amx-card-label">Controller</span>
+                    <span class="amx-status-mode" id="opProofMode">Checking…</span>
+                    <p class="amx-status-reason" id="opProofReason"></p>
+                </article>
+            </div>
+            <div class="amx-grid" id="opProofDevices" style="margin-top:var(--sp-3)"></div>`;
+        /* Above every measurement on the page: it is the question a visitor asks
+         * before any number here means anything to them. */
+        page.prepend(section);
+        return section;
     }
 
-    function renderDevices(container, meters, inverters) {
+    function tile(iconName, name, detail, value, state) {
+        const row = node('article', `amx-tile is-${state}`);
+        const glyph = node('span', 'amx-tile-icon');
+        glyph.append(icon(iconName));
+        const body = node('div', 'amx-tile-body');
+        body.append(node('span', 'amx-tile-name', name));
+        body.append(node('span', 'amx-tile-detail', detail));
+        row.append(glyph, body, node('span', 'amx-tile-value', value));
+        return row;
+    }
+
+    function renderDevices(container, meters, telemetry) {
         container.replaceChildren();
-        const add = (name, alive, detail) => {
-            const card = node('div', `op-proof-device ${alive ? 'ok' : 'bad'}`);
-            card.append(node('span', 'op-proof-device-name', name));
-            card.append(node('strong', '', alive ? 'Answering' : 'Not answering'));
-            card.append(node('small', '', detail));
-            container.append(card);
-        };
 
         for (const meter of (meters?.meters || [])) {
             const runtime = meter.runtime || {};
-            add(meter.name || 'Meter', Boolean(runtime.online), ageWords(runtime.data_age_ms));
+            const online = Boolean(runtime.online);
+            const kw = measured(runtime.active_power_kw);
+            container.append(tile(
+                'meter',
+                meter.name || 'Meter',
+                /* The word carries the state as well as the colour: a reader who
+                 * cannot separate red from green, or is looking at a sunlit
+                 * cabinet screen, must still be able to tell these apart. */
+                `${online ? 'Answering' : 'Not answering'} · ${ageWords(runtime.data_age_ms)}`,
+                kw === null ? '--' : `${kw.toFixed(1)} kW`,
+                online ? 'ok' : 'bad'
+            ));
         }
-        for (const inverter of (inverters?.inverters || [])) {
-            /* telemetry_valid rather than a bare online flag: an inverter that
-             * answers but returns nothing usable is not working, and saying
-             * "answering" would send an electrician to the wrong cable. */
-            add(`Inverter ${Number(inverter.index) + 1}`,
-                Boolean(inverter.telemetry_valid),
-                ageWords(inverter.telemetry_age_ms));
+
+        for (const inverter of (telemetry?.inverters || [])) {
+            /* telemetry_valid, not a bare online flag. An inverter that answers
+             * and returns nothing usable is not working, and calling it
+             * "answering" sends an electrician to the wrong cable. */
+            const valid = Boolean(inverter.telemetry_valid);
+            const kw = measured(inverter.measured_power_kw);
+            container.append(tile(
+                valid ? 'inverter' : 'offline',
+                `Inverter ${Number(inverter.index) + 1}`,
+                `${valid ? 'Answering' : 'Not answering'} · ${ageWords(inverter.telemetry_age_ms)}`,
+                kw === null ? '--' : `${kw.toFixed(1)} kW`,
+                valid ? 'ok' : 'bad'
+            ));
         }
+
+        const total = measured(telemetry?.summary?.measured_total_kw);
+        const commandable = measured(telemetry?.summary?.commandable_rated_kw);
+        if (total !== null) {
+            /* Measured against commandable. The gap between them is exactly what
+             * an engineer needs: an inverter generating but not commandable
+             * counts in the first number and not the second, and nothing else on
+             * any screen shows that difference. */
+            container.append(tile(
+                'solar', 'Solar now',
+                commandable === null
+                    ? 'Total measured at the inverters'
+                    : `This controller can adjust ${commandable.toFixed(1)} kW of it`,
+                `${total.toFixed(1)} kW`,
+                'idle'
+            ));
+        }
+
         if (!container.childElementCount) {
-            container.append(node('div', 'op-proof-empty', 'No devices are commissioned yet.'));
+            const empty = node('article', 'amx-card amx-wide');
+            empty.append(node('span', 'amx-card-label', 'Devices'));
+            empty.append(node('span', 'amx-tile-detail', 'No devices are commissioned yet.'));
+            container.append(empty);
         }
     }
 
-    function renderCommand(target, telemetry) {
-        const total = measured(telemetry?.summary?.measured_total_kw);
-        const commandable = measured(telemetry?.summary?.commandable_rated_kw);
-        if (total === null) { target.textContent = ''; return; }
-        /* Commandable capacity is the honest way to say "how much of the solar
-         * this controller can actually move" -- an inverter that is generating
-         * but not commandable counts in the first number and not the second, and
-         * the gap between them is exactly what an engineer needs to see. */
-        target.textContent = commandable === null
-            ? `Solar now: ${total.toFixed(1)} kW.`
-            : `Solar now: ${total.toFixed(1)} kW. This controller can adjust ${commandable.toFixed(1)} kW of it.`;
+    async function read(path) {
+        try {
+            const response = await fetch(path, { cache: 'no-store', credentials: 'same-origin' });
+            return response.ok ? await response.json() : null;
+        } catch { return null; }
     }
 
     async function refresh() {
         if (route() !== 'dashboard') return;
-        if (!ensurePanel()) return;
-
-        const read = async (path) => {
-            try {
-                const response = await fetch(path, { cache: 'no-store', credentials: 'same-origin' });
-                return response.ok ? await response.json() : null;
-            } catch { return null; }
-        };
+        if (!ensureSection()) return;
 
         const [status, meters, telemetry] = await Promise.all([
             read('/api/status'), read('/api/meters'), read('/api/inverter-telemetry')
         ]);
 
-        const heading = byId('operatorProofHeading');
-        const badge = byId('operatorProofBadge');
-        const reason = byId('operatorProofReason');
-        if (!heading || !badge || !reason) return;
+        const card = byId('opProofStatus');
+        const mode = byId('opProofMode');
+        const reason = byId('opProofReason');
+        const updated = byId('opProofUpdated');
+        if (!card || !mode || !reason) return;
+
+        const setState = (name) => {
+            card.classList.remove('is-ok', 'is-warn', 'is-bad');
+            if (name) card.classList.add(name);
+        };
 
         if (!status) {
-            /* The controller did not answer at all. Said plainly, because this
-             * is the one case where the panel itself is the evidence. */
-            heading.textContent = 'Not reachable';
-            badge.textContent = 'No answer';
-            badge.className = 'subtle-badge bad';
+            /* The one case where this section is itself the evidence. */
+            mode.textContent = 'Not reachable';
             reason.textContent = 'The controller did not respond. Check that it has power and is on the network.';
+            setState('is-bad');
+            if (updated) updated.textContent = '';
             return;
         }
 
         const authority = status.control_authority || {};
-        /* The firmware's own sentence, verbatim. This interface has no basis to
-         * summarise a safety decision it did not make. */
         const label = String(authority.mode_label || '').trim();
         const inhibit = String(authority.inhibit_reason || '').trim();
 
-        heading.textContent = label || 'State not reported';
         if (!label) {
-            badge.textContent = 'Unknown';
-            badge.className = 'subtle-badge warning';
-            reason.textContent = 'The controller did not report what it is doing. This is not the same as a fault, but it is not proof that it is working either.';
+            mode.textContent = 'State not reported';
+            reason.textContent = 'The controller did not say what it is doing. That is not the same as a fault, but it is not proof that it is working either.';
+            setState('is-warn');
         } else if (authority.command_authority === true) {
-            badge.textContent = 'Working';
-            badge.className = 'subtle-badge good';
+            mode.textContent = label;
             reason.textContent = 'The controller is adjusting the solar inverters as the plant needs.';
+            setState('is-ok');
         } else {
-            badge.textContent = 'Not commanding';
-            badge.className = 'subtle-badge warning';
+            mode.textContent = label;
+            /* The firmware's own sentence. This interface has no basis to
+             * summarise a safety decision it did not make. */
             reason.textContent = inhibit ||
                 'The controller is watching the plant but is not adjusting the inverters.';
+            setState('is-warn');
         }
 
-        renderDevices(byId('operatorProofDevices'), meters, {
-            inverters: (telemetry?.inverters || [])
-        });
-        renderCommand(byId('operatorProofCommand'), telemetry);
+        if (updated) updated.textContent = `Updated ${new Date().toLocaleTimeString()}`;
+        renderDevices(byId('opProofDevices'), meters, telemetry);
     }
 
     function start() {

@@ -1,0 +1,202 @@
+/* cards.css — the five cards and three sections this product is built from.
+ *
+ * WHY A CARD LAYER AT ALL. Fifteen stylesheets carried 313 font sizes, 217
+ * paddings and 287 gaps because seventeen modules each invented their own panel.
+ * Nothing was individually wrong; there was simply no shared answer, so no two
+ * screens agreed on how large a heading is or how far one card sits from the
+ * next. Fixing that by adjusting numbers does not hold — every fix is one more
+ * private opinion. So there are five cards, and everything is built from them.
+ *
+ * The model is borrowed from Home Assistant's dashboards, deliberately and
+ * narrowly: named SECTIONS containing a grid of small cards, and a TILE as the
+ * workhorse row. What is not borrowed is the rest of it — forty card types,
+ * conditional rendering, per-card theming. That serves a house with a hundred
+ * devices and a curious owner. This serves a factory operator who asks three
+ * questions and needs each answered without reading a manual.
+ *
+ * THE RULE THAT MATTERS: one card answers one question. A card that reports two
+ * things is how a screen becomes a wall of numbers that nobody reads, which is
+ * the state this replaces.
+ *
+ * Every value here comes from the scale in app.css. tests/design_scale_source_contract.py
+ * ratchets the raw values elsewhere downward as files are converted.
+ */
+
+/* ------------------------------------------------------------------ sections */
+
+.amx-section { margin-bottom: var(--sp-6); }
+
+.amx-section-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--sp-3);
+    margin-bottom: var(--sp-3);
+    flex-wrap: wrap;
+}
+
+.amx-section-head h2 {
+    margin: 0;
+    font-size: var(--fs-4);
+    line-height: 1.25;
+}
+
+/* The one sentence that says what this section is FOR. An operator who has to
+ * infer the purpose of a group of cards is being asked to do the designer's
+ * work. */
+.amx-section-hint {
+    margin: 0;
+    font-size: var(--fs-2);
+    color: var(--muted);
+}
+
+/* auto-fit rather than a fixed column count: this runs on a phone held in a
+ * corridor and on a 24-inch panel in a control room, and neither should get a
+ * layout designed for the other. */
+.amx-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: var(--sp-3);
+}
+
+/* A card that must not be cut in half by the grid — a chart, a table. */
+.amx-grid > .amx-wide { grid-column: 1 / -1; }
+
+/* -------------------------------------------------------------------- shared */
+
+.amx-card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--r-2);
+    padding: var(--sp-4);
+    display: grid;
+    gap: var(--sp-2);
+    align-content: start;
+    min-width: 0;   /* long device names must wrap, never widen the column */
+}
+
+.amx-card-label {
+    font-size: var(--fs-1);
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+}
+
+/* ---------------------------------------------------------------- 1. metric */
+
+/* One number, and what it is. Nothing else goes in this card: the moment it
+ * carries a second figure the eye has to choose, and the point of a metric card
+ * is that it does not. */
+.amx-metric-value {
+    font-size: var(--fs-6);
+    font-weight: 650;
+    line-height: 1.05;
+    font-variant-numeric: tabular-nums;   /* a changing digit must not shift the row */
+    overflow-wrap: anywhere;
+}
+
+.amx-metric-unit {
+    font-size: var(--fs-3);
+    font-weight: 500;
+    color: var(--muted);
+    margin-left: var(--sp-1);
+}
+
+.amx-metric-foot { font-size: var(--fs-2); color: var(--muted); }
+
+/* ------------------------------------------------------------------ 2. tile */
+
+/* The workhorse: icon, name, state, and how long since it last answered. It is
+ * a row rather than a block because a reader scans a column of these looking for
+ * the one that is wrong, and a column of blocks cannot be scanned. */
+.amx-tile {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--sp-3);
+    padding: var(--sp-3) var(--sp-4);
+    min-height: var(--tap);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-left-width: 4px;
+    border-radius: var(--r-2);
+}
+
+.amx-tile-icon {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border-radius: var(--r-1);
+    background: var(--panel-strong);
+    color: var(--muted);
+    flex: 0 0 auto;
+}
+
+.amx-tile-icon svg { width: 20px; height: 20px; fill: currentColor; }
+
+.amx-tile-body { display: grid; gap: 2px; min-width: 0; }
+.amx-tile-name { font-size: var(--fs-3); font-weight: 600; overflow-wrap: anywhere; }
+.amx-tile-detail { font-size: var(--fs-2); color: var(--muted); overflow-wrap: anywhere; }
+.amx-tile-value {
+    font-size: var(--fs-3);
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    white-space: nowrap;
+}
+
+/* STATE IS NEVER COLOUR ALONE. The stripe and the icon tint follow the state,
+ * and so does a word in .amx-tile-detail — a reader who cannot separate red from
+ * green must still be able to tell a dead device from a live one, and on a
+ * sunlit cabinet screen so must everyone else. */
+.amx-tile.is-ok    { border-left-color: var(--green); }
+.amx-tile.is-warn  { border-left-color: var(--yellow); }
+.amx-tile.is-bad   { border-left-color: var(--red); }
+.amx-tile.is-idle  { border-left-color: var(--line); }
+.amx-tile.is-ok   .amx-tile-icon { color: var(--green); }
+.amx-tile.is-warn .amx-tile-icon { color: var(--yellow); }
+.amx-tile.is-bad  .amx-tile-icon { color: var(--red); }
+
+/* ---------------------------------------------------------------- 3. status */
+
+/* What the controller is doing, in the controller's own sentence. The heading is
+ * its mode_label and the paragraph is its inhibit_reason, both verbatim: this
+ * interface has no basis to summarise a safety decision it did not make. */
+.amx-status { border-left: 4px solid var(--line); }
+.amx-status.is-ok   { border-left-color: var(--green); }
+.amx-status.is-warn { border-left-color: var(--yellow); }
+.amx-status.is-bad  { border-left-color: var(--red); }
+
+.amx-status-mode { font-size: var(--fs-5); font-weight: 650; line-height: 1.2; }
+.amx-status-reason {
+    font-size: var(--fs-3);
+    color: var(--muted);
+    line-height: 1.55;
+    overflow-wrap: anywhere;
+}
+
+/* ----------------------------------------------------------------- 4. trend */
+
+.amx-trend { display: grid; gap: var(--sp-3); }
+.amx-trend-canvas { min-height: 200px; }
+
+/* ---------------------------------------------------------------- 5. action */
+
+.amx-action { display: grid; gap: var(--sp-3); }
+.amx-action-row { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.amx-action-row .button { min-height: var(--tap); }
+
+/* --------------------------------------------------------------- responsive */
+
+@media (max-width: 600px) {
+    /* One column, and the gaps close up. A phone is held one-handed in a
+     * corridor; the card that matters should be reachable without scrolling
+     * past three that do not. */
+    .amx-grid { grid-template-columns: 1fr; gap: var(--sp-2); }
+    .amx-section { margin-bottom: var(--sp-5); }
+    .amx-card { padding: var(--sp-3); }
+    .amx-metric-value { font-size: var(--fs-5); }
+    .amx-status-mode { font-size: var(--fs-4); }
+}

@@ -23,6 +23,8 @@ const char *web_assets_product_mode_js(size_t *length);
 const char *web_assets_operator_view_js(size_t *length);
 const char *web_assets_operator_network_js(size_t *length);
 const char *web_assets_operator_proof_js(size_t *length);
+const char *web_assets_cards_css(size_t *length);
+const char *web_assets_icons_js(size_t *length);
 const char *web_assets_operator_operations_js(size_t *length);
 const char *web_assets_operator_product_suite_js(size_t *length);
 const char *web_assets_prelab_readiness_js(size_t *length);

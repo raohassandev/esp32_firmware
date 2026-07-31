@@ -23,6 +23,53 @@
        surface measures 2.49:1, so light theme needs its own darker value;
        every accent-coloured glyph, caption, rule and chart stroke must use
        --accent-text, never --orange. */
+    /* ------------------------------------------------------------ THE SCALE
+     *
+     * WHY THIS EXISTS. An audit of this stylesheet set found 313 separate
+     * font-size declarations, 217 paddings and 287 gaps spread over fifteen
+     * files, and six :root blocks in three of them. Seventeen JavaScript modules
+     * write page DOM. Nothing was wrong with any single value; what was wrong is
+     * that there was no shared answer, so every module invented its own and no
+     * two screens agreed on how big a heading is or how far a panel sits from
+     * its neighbour. That is the whole of "the layout looks unfinished", and it
+     * cannot be fixed by adjusting individual numbers -- which is why previous
+     * attempts did not hold.
+     *
+     * Every new rule uses these. tests/design_scale_source_contract.py ratchets
+     * the count of raw values downward so the set cannot re-fragment.
+     *
+     * TYPE. Six steps, no more, on a 16px root. --fs-3 is 16px and is the floor
+     * for anything the operator types into: iOS zooms the whole page when a
+     * focused input is below 16px, which on a wall tablet looks like the
+     * interface breaking. */
+    --fs-1: 0.75rem;    /* 12px - micro labels, units, captions */
+    --fs-2: 0.875rem;   /* 14px - secondary text, table cells */
+    --fs-3: 1rem;       /* 16px - body, and the minimum for inputs */
+    --fs-4: 1.25rem;    /* 20px - panel headings */
+    --fs-5: 1.75rem;    /* 28px - page headings */
+    --fs-6: 2.5rem;     /* 40px - the one number a screen is about */
+
+    /* SPACE. A 4px base, because every control height and border radius in this
+     * interface is already a multiple of it. Seven steps is enough for a dense
+     * industrial screen and few enough to hold in your head. */
+    --sp-1: 4px;
+    --sp-2: 8px;
+    --sp-3: 12px;
+    --sp-4: 16px;
+    --sp-5: 24px;
+    --sp-6: 32px;
+    --sp-7: 48px;
+
+    /* RADII, three steps: control, panel, page-level surface. */
+    --r-1: 8px;
+    --r-2: 12px;
+    --r-3: 16px;
+
+    /* The minimum comfortable touch target. This is a control screen operated
+     * with gloves on a tablet mounted in a cabinet, so it is a floor for every
+     * button, tab and field -- not a suggestion. */
+    --tap: 44px;
+
     --orange: #f28a2b;
     --accent-text: #f28a2b;
     --orange-soft: rgba(242, 138, 43, 0.14);
