@@ -199,6 +199,53 @@ static void invalidate_identity(inverter_runtime_t *runtime)
     portEXIT_CRITICAL(&runtime->lock);
 }
 
+/*
+ * COMMUNICATIONS-FAILURE GRACE.
+ *
+ * A Modbus link in an industrial cabinet drops the occasional transaction --
+ * VFD noise, a contactor, a marginal cable. Treating the first failed read as
+ * "this inverter is gone" removes it from the commandable capacity instantly,
+ * and capacity is the denominator the setpoint percentage is computed against.
+ * So one dropped frame moves the command on EVERY OTHER inverter, and a
+ * marginal link makes the whole fleet hunt.
+ *
+ * An inverter therefore keeps its place in the capacity until nothing has been
+ * read from it for this long. Note which direction the grace errs in: during
+ * the window the controller believes it has MORE capacity than it does, so the
+ * percentage it commands under-delivers and the generator carries more load,
+ * not less. And by the time the window expires the inverter's own
+ * communications fail-safe -- a shorter timeout, one minute by default -- has
+ * already driven it to zero. The two are sized so the controller re-allocates
+ * only after the lost machine has stopped generating.
+ *
+ * HMI-EVIDENCE: seconds since the last successful read, per inverter, is the
+ * single most useful number for tracing a comms fault -- it distinguishes "the
+ * cable is out" from "this link answers one poll in three", which look the same
+ * through an online/offline boolean. It is computed here and reaches no screen.
+ *
+ * PHASE-2: the product owner asked for this window to be entered by the engineer
+ * at commissioning, defaulting to two minutes. It is a compile-time constant for
+ * now because making it configurable is an app_config_t schema change, and the
+ * safety behaviour is worth having before the form is. The value below IS the
+ * agreed default.
+ */
+#define INVERTER_COMMS_FAIL_GRACE_MS (2U * 60U * 1000U)
+
+/* True while this inverter has answered at least once AND that answer is inside
+ * the grace window.
+ *
+ * Both halves matter. Requiring a prior successful read is what stops a machine
+ * that has NEVER replied from being carried by the grace: it has not lost
+ * communications, it has never had any, and counting its rating would put
+ * capacity behind a device that is not there. Expressed positively for that
+ * reason -- the negative form reads as "not failed", which is true of a device
+ * that never started. */
+static bool link_within_grace_locked(const inverter_runtime_t *runtime, uint32_t timestamp)
+{
+    if (runtime->data.last_telemetry_ms == 0U) return false;
+    return (uint32_t)(timestamp - runtime->data.last_telemetry_ms) <= INVERTER_COMMS_FAIL_GRACE_MS;
+}
+
 static void recompute_commandable_capacity(void)
 {
     float total = 0.0f;
@@ -210,9 +257,18 @@ static void recompute_commandable_capacity(void)
          * inverter from the commandable capacity entirely. That is the
          * structural consequence of P0-9: a machine whose setpoint could not be
          * verified is not part of the fleet the control engine may command. */
+        /* Momentary loss is tolerated; a sustained one is not. online and
+         * telemetry_stale flip on a single dropped frame, so a healthy link OR
+         * a recent one keeps the inverter in the fleet. The terms BELOW are
+         * deliberately outside the grace: a confirmation fault, an unverified
+         * prerequisite and a stale identity are statements about correctness
+         * rather than about the link, and none of them gets better by waiting. */
+        const bool link_healthy = runtime->data.online && runtime->data.telemetry_valid &&
+                                  !runtime->data.telemetry_stale;
+        const bool link_recent = link_within_grace_locked(runtime, timestamp);
         bool eligible = runtime->config.enabled && runtime->write_allowed &&
-                        runtime->data.connection_initialized && runtime->data.online &&
-                        runtime->data.telemetry_valid && !runtime->data.telemetry_stale &&
+                        runtime->data.connection_initialized &&
+                        (link_healthy || link_recent) &&
                         !runtime->data.confirmation_fault &&
                         /* An unverified prerequisite enable register removes this
                          * inverter for exactly the same reason a confirmation
