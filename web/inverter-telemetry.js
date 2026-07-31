@@ -28,6 +28,24 @@
         return `${(ms / 1000).toFixed(1)} s`;
     }
 
+    /* One row per inverter, one column per question. Declared once so the header
+     * and the cells cannot drift apart. */
+    const COLUMNS = [
+        { label: 'Inverter', get: (item) => `Inverter ${Number(item.index) + 1}` },
+        { label: 'State', get: (item) => stateLabel(item) },
+        { label: 'Measured power', get: (item) => formatPower(item.measured_power_kw) },
+        { label: 'Sample age', get: (item) => (item.telemetry_valid ? formatAge(item.telemetry_age_ms) : 'No valid sample') },
+        { label: 'Identity', get: (item) => (item.identity_supported ? (item.identity_verified ? 'Verified' : 'Mismatch / unavailable') : 'Not supported') },
+        { label: 'Readback', get: (item) => (item.has_readback ? `${formatPercent(item.readback_percent)} · ${formatAge(item.readback_age_ms)}` : 'Unavailable') },
+        { label: 'Reads', get: (item) => `${item.read_successes ?? 0} ok · ${item.read_errors ?? 0} err · ${item.consecutive_read_failures ?? 0} consec` },
+        { label: 'Last error', get: (item) => item.last_error_name || item.last_error || 'None' }
+    ];
+
+    function stateLabel(item) {
+        if (item.online) return 'Online';
+        return item.telemetry_stale ? 'Stale' : 'Offline';
+    }
+
     function ensureScaffold() {
         const page = document.querySelector('[data-page="inverters"]');
         if (!page || byId('inverterLiveTelemetry')) return;
@@ -45,9 +63,26 @@
         message.id = 'inverterTelemetryLiveMessage';
         const summary = node('div', 'device-summary');
         summary.id = 'inverterTelemetryLiveSummary';
-        const list = node('div', 'device-list');
-        list.id = 'inverterTelemetryLiveList';
-        panel.append(header, message, summary, list);
+        /* A table, not a column of cards. Every inverter answers the same eight
+         * questions, so the answers belong in aligned columns where they can be
+         * compared down the page. As stacked cards each channel occupied most of
+         * a screen and two channels could not be seen at once. */
+        const wrap = node('div', 'table-scroll');
+        const table = node('table', 'device-table');
+        table.id = 'inverterTelemetryLiveTable';
+        const head = node('thead');
+        const headRow = node('tr');
+        COLUMNS.forEach((column) => {
+            const cell = node('th', '', column.label);
+            cell.scope = 'col';
+            headRow.append(cell);
+        });
+        head.append(headRow);
+        const body = node('tbody');
+        body.id = 'inverterTelemetryLiveRows';
+        table.append(head, body);
+        wrap.append(table);
+        panel.append(header, message, summary, wrap);
         const config = byId('inverterConfigurationEditor');
         if (config) config.after(panel);
         else page.append(panel);
@@ -60,18 +95,12 @@
         return card;
     }
 
-    function meta(label, value) {
-        const item = node('div', 'device-meta-item');
-        item.append(node('span', '', label), node('strong', '', value));
-        return item;
-    }
-
     function render(data) {
         ensureScaffold();
         const summary = byId('inverterTelemetryLiveSummary');
-        const list = byId('inverterTelemetryLiveList');
+        const rows = byId('inverterTelemetryLiveRows');
         const message = byId('inverterTelemetryLiveMessage');
-        if (!summary || !list || !message) return;
+        if (!summary || !rows || !message) return;
         const values = data?.summary || {};
         summary.replaceChildren(
             summaryCard('Online', values.online ?? 0, `${data?.count ?? 0} configured runtime channels`),
@@ -79,43 +108,20 @@
             summaryCard('Identity verified', values.identity_verified ?? 0, `${values.stale ?? 0} stale channels`),
             summaryCard('Commandable capacity', formatPower(values.commandable_rated_kw), `${values.command_mismatched ?? 0} readback mismatches`)
         );
-        list.replaceChildren();
+        rows.replaceChildren();
         const inverters = Array.isArray(data?.inverters) ? data.inverters : [];
         if (!inverters.length) {
-            list.append(node('div', 'device-empty', 'No inverter runtime channels are available.'));
+            const empty = node('tr');
+            const cell = node('td', 'device-empty', 'No inverter runtime channels are available.');
+            cell.colSpan = COLUMNS.length;
+            empty.append(cell);
+            rows.append(empty);
         }
         inverters.forEach((item) => {
-            const card = node('article', 'device-runtime-card');
-            const top = node('div', 'device-card-top');
-            const heading = node('div');
-            heading.append(node('div', 'device-card-index', `Inverter ${Number(item.index) + 1}`),
-                           node('h3', '', item.online ? 'Online telemetry' : 'Telemetry unavailable'),
-                           node('p', 'device-state-detail', item.telemetry_stale ? 'Stale data removed from capacity' : 'Read-only monitoring; no writes issued'));
-            const badge = node('span', `subtle-badge ${item.online ? 'good' : item.telemetry_stale ? 'warning' : 'bad'}`,
-                               item.online ? 'Online' : item.telemetry_stale ? 'Stale' : 'Offline');
-            top.append(heading, badge);
-
-            const reading = node('div', 'device-reading');
-            const value = node('div');
-            value.append(node('div', 'device-reading-label', 'Measured active power'),
-                         node('strong', 'device-reading-value', formatPower(item.measured_power_kw)));
-            reading.append(value, node('div', 'device-reading-note', item.telemetry_valid
-                ? `Fresh sample · age ${formatAge(item.telemetry_age_ms)}`
-                : 'No valid current sample'));
-
-            const grid = node('div', 'device-meta-grid');
-            grid.append(
-                meta('Identity', item.identity_supported ? (item.identity_verified ? 'Verified' : 'Mismatch / unavailable') : 'Not supported'),
-                meta('Readback', item.has_readback ? formatPercent(item.readback_percent) : 'Unavailable'),
-                meta('Readback age', item.has_readback ? formatAge(item.readback_age_ms) : '--'),
-                meta('Command mismatch', item.command_mismatch ? `YES · ${item.mismatch_count ?? 0} events` : 'No'),
-                meta('Successful reads', item.read_successes ?? 0),
-                meta('Read errors', `${item.read_errors ?? 0} total · ${item.consecutive_read_failures ?? 0} consecutive`),
-                meta('Last error', item.last_error_name || item.last_error || 'None'),
-                meta('Write status', 'Zero writes from telemetry endpoint')
-            );
-            card.append(top, reading, grid);
-            list.append(card);
+            const row = node('tr');
+            row.className = item.online ? 'row-online' : item.telemetry_stale ? 'row-stale' : 'row-offline';
+            COLUMNS.forEach((column) => row.append(node('td', '', column.get(item))));
+            rows.append(row);
         });
         message.textContent = `Updated ${new Date().toLocaleTimeString()}. Endpoint confirms writes_issued=false.`;
     }

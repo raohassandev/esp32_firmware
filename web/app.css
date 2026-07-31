@@ -711,6 +711,11 @@ input:disabled, select:disabled, textarea:disabled {
 .confirm-legend { display: grid; gap: 6px; margin-top: 13px; }
 .confirm-legend-item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 9px; align-items: baseline; font-size: 11px; line-height: 1.5; }
 .confirm-legend-item small { color: var(--muted); }
+/* The vocabulary stays visible as a dense row of pills; the paragraph defining
+ * each one lives in the drawer beneath it. A reader scanning rows needs to
+ * recognise the pills, not to re-read their definitions on every visit. */
+.legend-pill-row { display: flex; flex-wrap: wrap; gap: 7px; }
+.legend-definitions { display: grid; gap: 8px; padding-bottom: 4px; }
 .confirm-list { display: grid; gap: 10px; margin-top: 14px; }
 .confirm-row { padding: 13px; border: 1px solid var(--gate-boundary); border-radius: 12px; }
 .confirm-row-head { display: flex; flex-wrap: wrap; gap: 9px; justify-content: space-between; align-items: center; }
@@ -753,6 +758,12 @@ input:disabled, select:disabled, textarea:disabled {
 .confirm-value strong { color: var(--text); font-size: 16px; font-variant-numeric: tabular-nums; }
 .confirm-value small { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; line-height: 1.45; }
 .confirm-counters { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+/* The missing evidence, in the default view, at full contrast. This is the line
+ * an engineer came to the row for; it is not a footnote and is not dimmed. The
+ * satisfied case is stated too, quietly, so an absent line can never be mistaken
+ * for a row nobody checked. */
+.confirm-row-gap { margin: 11px 0 0; padding: 8px 11px; border-left: 3px solid var(--confirm-unverified); color: var(--text); font-size: 11px; font-weight: 650; line-height: 1.55; }
+.confirm-row-gap.gap-none { border-left-color: var(--confirm-confirmed); color: var(--muted); font-weight: 400; }
 
 /* ------------------------------------------- prerequisite enable register
  *
@@ -777,6 +788,12 @@ input:disabled, select:disabled, textarea:disabled {
 }
 .prereq-notice strong { color: var(--text); font-size: 12px; font-weight: 800; line-height: 1.45; }
 .prereq-notice span { color: var(--muted); font-size: 11px; line-height: 1.55; }
+/* A drawer inside a notice. The warning itself is the summary and stays on
+ * screen at full weight; only the explanation behind it folds away, so closing
+ * the drawer never removes the caveat, just the reasoning for it. */
+.notice-drawer > summary { cursor: pointer; padding: 3px 0; min-height: 44px; display: flex; align-items: center; gap: 7px; }
+.notice-drawer > summary::marker { color: var(--muted); }
+.notice-drawer > span { display: block; margin-top: 5px; }
 /* Counts. Required, unconfirmed and unverifiable are three separate figures and
  * are never summed into one "problem" number: the last of the three is the only
  * one that will not resolve on its own. */
@@ -857,6 +874,23 @@ input:disabled, select:disabled, textarea:disabled {
 .scope-refusal { margin: 12px 0 0; padding: 10px 12px; border-left: 3px solid var(--confirm-mismatched); color: var(--text); font-size: 11px; line-height: 1.6; }
 .scope-refusal[hidden] { display: none; }
 .scope-toggle { margin-top: 12px; min-height: 44px; }
+
+/* ------------------------------------------------------------- dense tables
+ *
+ * Every inverter answers the same questions, so the answers belong in aligned
+ * columns that can be compared down the page. As stacked cards a single channel
+ * filled most of a screen and two channels could not be seen at once. The table
+ * scrolls inside its own container so a narrow viewport never scrolls the page
+ * sideways. */
+.table-scroll { overflow-x: auto; margin-top: 12px; }
+.device-table { width: 100%; border-collapse: collapse; font-size: 11px; font-variant-numeric: tabular-nums; }
+.device-table th, .device-table td { padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--gate-boundary); white-space: nowrap; }
+.device-table th { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; }
+.device-table td { color: var(--text); }
+.device-table td.device-empty { white-space: normal; color: var(--muted); }
+.device-table tr.row-offline td:first-child { box-shadow: inset 3px 0 0 var(--confirm-mismatched); }
+.device-table tr.row-stale td:first-child { box-shadow: inset 3px 0 0 var(--confirm-unverified); }
+.device-table tr.row-online td:first-child { box-shadow: inset 3px 0 0 var(--confirm-confirmed); }
 
 /* Disclosure. The reasoning is one interaction away, never deleted. */
 .page-drawer { margin: 12px 0 0; border-top: 1px solid var(--gate-boundary); }

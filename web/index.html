@@ -181,35 +181,39 @@
                     <article class="panel confirm-panel" id="writeConfirmationPanel">
                         <div class="panel-header"><div><p class="eyebrow">Setpoint confirmation</p><h3>Requested against confirmed</h3></div><span class="subtle-badge" id="confirmFleetBadge">Unavailable</span></div>
                         <p class="confirm-lead" id="confirmFleetDetail" role="status">Reading setpoint confirmation…</p>
-                        <!-- Limit evidence. Shown here permanently, not only when
-                             something is wrong, because it is what makes the word
-                             "confirmed" above readable at all. A confirmed write
-                             rests on one of two kinds of evidence and they are not
-                             equally strong: measured output that fell from above
-                             the new limit to at or below it demonstrates the
-                             limit, while a matching setpoint readback on a
-                             plant-level logger is an echo of a stored command and
-                             shows only that the command was accepted. -->
+                        <!-- Limit evidence. The VERDICT and the evidence it rests
+                             on stay on screen permanently - confirmProvenance is
+                             what makes the word "confirmed" above readable at
+                             all, and it is a live statement about this fleet.
+                             The paragraph explaining WHY the two kinds of
+                             evidence are not equally strong is reasoning, not a
+                             finding, and moves one level down. It is not
+                             deleted: an engineer who needs to know what a
+                             stored-command echo is must be able to reach it, and
+                             the summary line carries the warning itself so the
+                             drawer is never the only place the caveat appears. -->
                         <div class="proof-notice" id="proofNotice">
-                            <strong>Confirmed does not mean the limit was demonstrated.</strong>
-                            <span>A write is confirmed either because measured output was above the new limit before the command and at or below it after, which demonstrates the limit, or because the setpoint register read back matching. On a plant-level logger that register stores the command and forwards it, so reading it back returns the stored command rather than the plant's achieved output, and the logger may scale the commanded percentage by an adjustment coefficient that has no register a Modbus client can read. The readback is therefore an echo of a stored command: it proves acceptance and nothing more. Every verdict below is shown with the evidence it rests on.</span>
                             <span id="confirmProvenance" role="status">Reading the limit evidence…</span>
                             <span id="confirmProvenanceDetail" hidden></span>
+                            <details class="notice-drawer">
+                                <summary><strong>Confirmed does not mean the limit was demonstrated.</strong></summary>
+                                <span>A write is confirmed either because measured output was above the new limit before the command and at or below it after, which demonstrates the limit, or because the setpoint register read back matching. On a plant-level logger that register stores the command and forwards it, so reading it back returns the stored command rather than the plant's achieved output, and the logger may scale the commanded percentage by an adjustment coefficient that has no register a Modbus client can read. The readback is therefore an echo of a stored command: it proves acceptance and nothing more. Every verdict below is shown with the evidence it rests on.</span>
+                            </details>
                         </div>
                         <div class="proof-counts" id="confirmProvenanceCounts"></div>
                         <div class="confirm-legend" id="proofLegend"></div>
-                        <!-- Prerequisite enable register. Shown here permanently,
-                             not only when it is faulted, because it is the reason
-                             a setpoint state on this panel is not by itself proof
-                             that a limit is in force. Three of the four documented
-                             brands ignore the setpoint until a separate register
-                             holds a value first, and the setpoint register still
-                             accepts and echoes the write regardless. -->
+                        <!-- Prerequisite enable register. The live fleet state
+                             stays permanently visible; the explanation of why an
+                             enable-register fault is a different fault from a
+                             setpoint that read back wrong moves one level down.
+                             The summary line still carries the warning. -->
                         <div class="prereq-notice" id="prereqNotice">
-                            <strong>A setpoint can read back perfectly and still be ignored.</strong>
-                            <span>Solis, Sungrow and Chint ignore an active-power setpoint until a separate enable register holds the value their manual specifies. The setpoint register still accepts the write and still echoes it back, so the readback above matches while the inverter keeps generating at full output. An enable register that is not confirmed by a read is therefore a different fault from a setpoint that read back wrong, and it has a different remedy.</span>
                             <span id="prereqFleetState" role="status">Reading the enable-register state…</span>
                             <span id="prereqNoticeDetail" hidden></span>
+                            <details class="notice-drawer">
+                                <summary><strong>A setpoint can read back perfectly and still be ignored.</strong></summary>
+                                <span>Solis, Sungrow and Chint ignore an active-power setpoint until a separate enable register holds the value their manual specifies. The setpoint register still accepts the write and still echoes it back, so the readback above matches while the inverter keeps generating at full output. An enable register that is not confirmed by a read is therefore a different fault from a setpoint that read back wrong, and it has a different remedy.</span>
+                            </details>
                         </div>
                         <div class="prereq-counts" id="prereqCounts"></div>
                         <div class="confirm-legend" id="prereqLegend"></div>
