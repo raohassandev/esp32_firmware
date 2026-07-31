@@ -196,6 +196,69 @@ require(
     "there is no refusal path for an unknown rated power",
 )
 
+# --- 5. Every step is reachable directly ----------------------------------
+
+# The step indicator was an inert <ol>. On a commissioned unit the only routes
+# to "Modbus tuning" were Continue through five steps, or "Start new
+# commissioning" -- and the second clears the draft, which is what pushed
+# engineers into re-running commissioning from scratch and losing what was
+# stored.
+require(
+    re.search(r"<button type=\"button\" data-step=\"\$\{i\}\"", wizard) is not None,
+    "the step indicator does not render buttons; it cannot be used to jump to a step",
+)
+require(
+    re.search(r"querySelectorAll\('\[data-step\]'\)[^;]*goto\(", wizard) is not None,
+    "nothing binds the step controls to goto(); they would render and do nothing, "
+    "which is how the Finish button came to be dead",
+)
+require(
+    "Edit Modbus tuning" in wizard,
+    "there is no named shortcut back into the Modbus tuning step",
+)
+
+# Leaving a step by ANY route must keep the edits on screen. Back used to
+# discard them, because only next() wrote the form into state.
+require(
+    re.search(r"function commit\(\)\{", wizard) is not None,
+    "there is no single commit() for the on-screen edits",
+)
+for route in (r"function goto\(target\)\{commit\(\)", r"function next\(\)\{commit\(\)"):
+    require(
+        re.search(route, wizard) is not None,
+        f"a navigation route does not commit the on-screen edits first ({route}); "
+        f"the engineer's changes would be silently dropped",
+    )
+require(
+    re.search(r'data-action="back"\]\'\)\?\.addEventListener\(\'click\',\(\)=>goto\(', wizard)
+    is not None,
+    "Back does not go through goto(), so it would still discard the current edits",
+)
+
+# A jump forward must not skip a gate. The engineer lands on the first
+# unsatisfied step with the reason, rather than being silently refused.
+require(
+    re.search(r"if\(step>state\.step\)\{for\(let i=state\.step;i<step;i\+=1\)", wizard)
+    is not None,
+    "a forward jump does not test the steps it would skip; commissioning gates "
+    "could be bypassed by clicking the last step",
+)
+require(
+    re.search(r"function stepBlocker\(step\)\{", wizard) is not None,
+    "the per-step gate is not expressed as a function of the step, so it cannot "
+    "be asked about a step that is not on screen",
+)
+# stepBlocker reads state, never the DOM: a DOM read would return the CURRENT
+# step's form for a question about a different step.
+blocker_fn = re.search(r"function stepBlocker\(step\)\{(.*?)\n\s*return'';\}", wizard, re.DOTALL)
+require(blocker_fn is not None, "stepBlocker() could not be located")
+if blocker_fn is not None:
+    require(
+        "$(" not in blocker_fn.group(1) and "getElementById" not in blocker_fn.group(1),
+        "stepBlocker() reads the DOM; asked about a step that is not on screen it "
+        "would answer from whichever form happens to be rendered",
+    )
+
 if failures:
     print("Commissioning re-entry contract FAILED:")
     for failure in failures:
@@ -203,4 +266,5 @@ if failures:
     sys.exit(1)
 
 print("Commissioning re-entry contract passed (reads before writing, imports every "
-      "written field, refuses to guess, preserves untouched slots)")
+      "written field, refuses to guess, preserves untouched slots, every step "
+      "directly reachable without losing edits)")
