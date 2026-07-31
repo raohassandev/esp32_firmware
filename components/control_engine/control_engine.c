@@ -889,6 +889,26 @@ esp_err_t control_engine_init(void)
     s_commissioning_inputs.grid_meter_count = roles.grid_count;
     s_commissioning_inputs.duplicate_generator_slot = roles.duplicate_generator;
 
+    /* THE ONLY PLACE THE PHASE-SCOPE PREDICATE IS EVALUATED. Counted over
+     * ENABLED meters only: a disabled meter is not wired into anything the
+     * controller acts on, so demanding a model for it would block commissioning
+     * on a row an engineer left behind. Bounded by both meter_count and
+     * APP_MAX_METERS because a stored count is data, not a promise. */
+    s_commissioning_inputs.meter_models_known = true;
+    s_commissioning_inputs.enabled_meter_count = 0U;
+    s_commissioning_inputs.in_scope_meter_count = 0U;
+    s_commissioning_inputs.undeclared_meter_count = 0U;
+    for (uint8_t index = 0; index < config->meter_count && index < APP_MAX_METERS; ++index) {
+        const meter_config_t *meter = &config->meters[index];
+        if (!meter->enabled) continue;
+        s_commissioning_inputs.enabled_meter_count++;
+        if (meter->model == METER_MODEL_UNDECLARED) {
+            s_commissioning_inputs.undeclared_meter_count++;
+        } else if (meter_model_in_phase_scope(meter->model)) {
+            s_commissioning_inputs.in_scope_meter_count++;
+        }
+    }
+
     s_commissioning_inputs.ramp_policy_known = true;
     s_commissioning_inputs.generator_ramp_enabled = s_config.generator_ramp.enabled;
     s_commissioning_inputs.generator_ramp_up_percent_per_second =

@@ -300,6 +300,42 @@ static commissioning_prereq_result_t evaluate_generator_limits(const commissioni
     return met();
 }
 
+/*
+ * EVERY ENABLED METER MUST BE AN INSTRUMENT THIS PHASE SUPPORTS.
+ *
+ * The product owner scoped this release phase to the EM500. Other meter models
+ * are parked rather than deleted, and parked means REFUSED AT COMMISSIONING with
+ * a reason that names them as deferred -- the same treatment unqualified
+ * inverter profiles already get, and for the same reason. A meter family whose
+ * register semantics nobody has established is not a meter this controller can
+ * regulate a plant against, and half-supporting one is worse than refusing it,
+ * because the failure is silent.
+ *
+ * NOTE THE ORDER. Undeclared is reported ahead of deferred: a site that has
+ * stated nothing needs to be told to state something, and it would be actively
+ * misleading to tell them their meter is deferred when they have not yet said
+ * what it is. A plant with both problems sees the more fundamental one first.
+ *
+ * ZERO ENABLED METERS IS REFUSED. It is caught by the meter-roles prerequisite
+ * as a missing grid meter as well, but this one must not report "satisfied" on a
+ * plant with no instruments -- a vacuous truth is exactly the shape of answer
+ * this gate exists to avoid.
+ */
+static commissioning_prereq_result_t evaluate_meter_models(const commissioning_inputs_t *in)
+{
+    if (!in->meter_models_known) return unmet(COMMISSIONING_REASON_STATE_UNREADABLE);
+    if (in->enabled_meter_count == 0U) {
+        return unmet(COMMISSIONING_REASON_GRID_METER_MISSING);
+    }
+    if (in->undeclared_meter_count > 0U) {
+        return unmet(COMMISSIONING_REASON_METER_MODEL_UNDECLARED);
+    }
+    if (in->in_scope_meter_count != in->enabled_meter_count) {
+        return unmet(COMMISSIONING_REASON_METER_MODEL_DEFERRED);
+    }
+    return met();
+}
+
 static commissioning_prereq_result_t evaluate_tuning(const commissioning_inputs_t *in)
 {
     if (!in->control_tuning_known) return unmet(COMMISSIONING_REASON_STATE_UNREADABLE);
@@ -354,6 +390,7 @@ commissioning_status_t commissioning_gate_evaluate(const commissioning_inputs_t 
     status.results[COMMISSIONING_PREREQ_GRID_POLICY] = evaluate_grid_policy(inputs);
     status.results[COMMISSIONING_PREREQ_GENERATOR_LIMITS] = evaluate_generator_limits(inputs);
     status.results[COMMISSIONING_PREREQ_CONTROL_TUNING] = evaluate_tuning(inputs);
+    status.results[COMMISSIONING_PREREQ_METER_MODEL_IN_SCOPE] = evaluate_meter_models(inputs);
 
     status.satisfied_count = 0U;
     status.unmet_count = 0U;
@@ -403,6 +440,7 @@ static const char *const PREREQ_IDS[COMMISSIONING_PREREQ_COUNT] = {
     "grid_policy",
     "generator_limits",
     "control_tuning",
+    "meter_model_in_scope",
 };
 
 static const char *const PREREQ_TITLES[COMMISSIONING_PREREQ_COUNT] = {
@@ -415,6 +453,7 @@ static const char *const PREREQ_TITLES[COMMISSIONING_PREREQ_COUNT] = {
     "Grid policy valid",
     "Generator limits commissioned",
     "Control tuning valid",
+    "Meter model supported in this phase",
 };
 
 static const char *const REASON_IDS[COMMISSIONING_REASON_COUNT] = {
@@ -440,6 +479,8 @@ static const char *const REASON_IDS[COMMISSIONING_REASON_COUNT] = {
     "generator_base_load_below_minimum",
     "generator_no_swing_engine",
     "generator_base_load_tolerance_unset",
+    "meter_model_undeclared",
+    "meter_model_deferred",
 };
 
 static const char *const REASON_MESSAGES[COMMISSIONING_REASON_COUNT] = {
@@ -465,6 +506,8 @@ static const char *const REASON_MESSAGES[COMMISSIONING_REASON_COUNT] = {
     "A base-loaded engine's fixed kW setpoint is below that engine's own minimum loading, so the plant is configured to under-load it and no PV limit can correct that.",
     "Base-load sharing is commissioned but no in-service engine is a swing engine, so nothing on the bus would absorb the load the controller shapes.",
     "A base-loaded engine is commissioned but no tolerance says how far its measured power may sit from its fixed kW setpoint. The minimum-loading floor credits that engine with the load its setpoint promises, so if its governor leaves kW control the controller would permit more PV than the plant can carry. Commission the tolerance in kW, as a percentage of that engine's rating, or both.",
+    "An enabled meter has no declared model. Which instrument is wired decides how its registers are read, and it is not inferred from the register mapping, so it must be stated before the meter can be commissioned.",
+    "An enabled meter's declared model is deferred for this release phase. Only the EM500 (Lovato-derived) meter is supported; other models are parked rather than removed, and each one's unpark criterion is recorded in docs/RELEASE_READINESS.md section 4c.",
 };
 
 const char *commissioning_prereq_id(uint8_t prereq)

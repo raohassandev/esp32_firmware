@@ -25,6 +25,12 @@ static commissioning_inputs_t good_inputs(void)
     in.grid_meter_count = 1;
     in.duplicate_generator_slot = false;
 
+    /* One enabled meter, and it is an in-scope model for this release phase. */
+    in.meter_models_known = true;
+    in.enabled_meter_count = 1;
+    in.in_scope_meter_count = 1;
+    in.undeclared_meter_count = 0;
+
     in.inverter_fleet_known = true;
     in.enabled_inverter_count = 3;
     in.write_qualified_inverter_count = 3;
@@ -119,6 +125,7 @@ static void test_each_unknown_group_closes_the_gate(void)
         {offsetof(commissioning_inputs_t, grid_policy_known), COMMISSIONING_PREREQ_GRID_POLICY},
         {offsetof(commissioning_inputs_t, generator_limits_known), COMMISSIONING_PREREQ_GENERATOR_LIMITS},
         {offsetof(commissioning_inputs_t, control_tuning_known), COMMISSIONING_PREREQ_CONTROL_TUNING},
+        {offsetof(commissioning_inputs_t, meter_models_known), COMMISSIONING_PREREQ_METER_MODEL_IN_SCOPE},
     };
 
     for (size_t i = 0; i < sizeof(groups) / sizeof(groups[0]); ++i) {
@@ -762,6 +769,88 @@ static void test_control_tuning(void)
 
 /* first_unmet must be the lowest-numbered failure so the interface always
  * points the engineer at one actionable item rather than a list. */
+/*
+ * ONLY THE EM500 IS IN SCOPE FOR THIS PHASE, AND THE GATE IS WHERE THAT BITES.
+ *
+ * Parked meters are refused at commissioning with a reason naming them as
+ * deferred, exactly as unqualified inverter profiles are. This test drives every
+ * shape the refusal has to handle and asserts the reason code as well as the
+ * verdict, because "not commissioned" without the right explanation sends an
+ * engineer looking in the wrong place.
+ */
+static void test_meter_model_phase_scope(void)
+{
+    /* The in-scope plant commissions. Establishes that the new prerequisite is
+     * satisfiable at all, so the assertions below are not vacuously true. */
+    commissioning_inputs_t in = good_inputs();
+    commissioning_status_t status = commissioning_gate_evaluate(&in);
+    assert(status.commissioned);
+    assert(prereq_satisfied(&status, COMMISSIONING_PREREQ_METER_MODEL_IN_SCOPE));
+
+    /* A meter with no declared model. The controller has not been told which
+     * instrument is wired, so it does not know how to read it. */
+    in = good_inputs();
+    in.in_scope_meter_count = 0;
+    in.undeclared_meter_count = 1;
+    status = commissioning_gate_evaluate(&in);
+    assert(!status.commissioned);
+    assert(!prereq_satisfied(&status, COMMISSIONING_PREREQ_METER_MODEL_IN_SCOPE));
+    assert(prereq_reason(&status, COMMISSIONING_PREREQ_METER_MODEL_IN_SCOPE) ==
+           COMMISSIONING_REASON_METER_MODEL_UNDECLARED);
+
+    /* A meter whose model is declared, real, and parked for this phase. */
+    in = good_inputs();
+    in.in_scope_meter_count = 0;
+    in.undeclared_meter_count = 0;
+    status = commissioning_gate_evaluate(&in);
+    assert(!status.commissioned);
+    assert(prereq_reason(&status, COMMISSIONING_PREREQ_METER_MODEL_IN_SCOPE) ==
+           COMMISSIONING_REASON_METER_MODEL_DEFERRED);
+
+    /* A PARTIALLY supported meter set is refused outright. Three meters, two of
+     * them EM500: the controller would otherwise read two instruments with
+     * semantics it knows and one with semantics it has guessed. */
+    in = good_inputs();
+    in.enabled_meter_count = 3;
+    in.in_scope_meter_count = 2;
+    in.undeclared_meter_count = 0;
+    status = commissioning_gate_evaluate(&in);
+    assert(!status.commissioned);
+    assert(prereq_reason(&status, COMMISSIONING_PREREQ_METER_MODEL_IN_SCOPE) ==
+           COMMISSIONING_REASON_METER_MODEL_DEFERRED);
+
+    /* Undeclared is reported ahead of deferred when a plant has both, because
+     * telling an engineer their meter is deferred before they have said what it
+     * is would send them to the wrong document. */
+    in = good_inputs();
+    in.enabled_meter_count = 3;
+    in.in_scope_meter_count = 1;
+    in.undeclared_meter_count = 1;
+    status = commissioning_gate_evaluate(&in);
+    assert(prereq_reason(&status, COMMISSIONING_PREREQ_METER_MODEL_IN_SCOPE) ==
+           COMMISSIONING_REASON_METER_MODEL_UNDECLARED);
+
+    /* No enabled meter at all must not report a vacuous "satisfied". */
+    in = good_inputs();
+    in.enabled_meter_count = 0;
+    in.in_scope_meter_count = 0;
+    in.undeclared_meter_count = 0;
+    status = commissioning_gate_evaluate(&in);
+    assert(!status.commissioned);
+    assert(!prereq_satisfied(&status, COMMISSIONING_PREREQ_METER_MODEL_IN_SCOPE));
+
+    /* Counts that exceed the enabled count -- corruption, or a collector bug --
+     * must not manufacture a satisfied verdict. in_scope must EQUAL enabled, and
+     * an inequality in either direction is refused. */
+    in = good_inputs();
+    in.enabled_meter_count = 1;
+    in.in_scope_meter_count = 5;
+    status = commissioning_gate_evaluate(&in);
+    assert(!status.commissioned);
+    assert(prereq_reason(&status, COMMISSIONING_PREREQ_METER_MODEL_IN_SCOPE) ==
+           COMMISSIONING_REASON_METER_MODEL_DEFERRED);
+}
+
 static void test_first_unmet_is_lowest_index(void)
 {
     commissioning_inputs_t in = good_inputs();
@@ -889,6 +978,7 @@ int main(void)
     test_base_load_requires_a_setpoint_agreement_tolerance();
     test_no_generator_slot_in_service_is_never_commissioned();
     test_control_tuning();
+    test_meter_model_phase_scope();
     test_first_unmet_is_lowest_index();
     test_labels_are_complete_and_bounded();
     printf("commissioning gate unit tests passed\n");

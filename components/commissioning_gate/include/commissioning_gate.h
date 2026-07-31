@@ -49,6 +49,9 @@ typedef enum {
     COMMISSIONING_PREREQ_GRID_POLICY,
     COMMISSIONING_PREREQ_GENERATOR_LIMITS,
     COMMISSIONING_PREREQ_CONTROL_TUNING,
+    /* Every enabled meter is an instrument this release phase actually supports.
+     * Appended, so the existing eight keep their API identifiers. */
+    COMMISSIONING_PREREQ_METER_MODEL_IN_SCOPE,
     COMMISSIONING_PREREQ_COUNT
 } commissioning_prereq_t;
 
@@ -109,6 +112,13 @@ typedef enum {
      * is supplied. The second is recoverable in an afternoon; the first is
      * over-generating into a genset, which is not. The gate closes. */
     COMMISSIONING_REASON_GENERATOR_BASE_LOAD_TOLERANCE_UNSET,
+    /* An enabled meter carries no declared model. Distinct from DEFERRED: nothing
+     * has been said about the instrument at all, so the controller does not know
+     * how to read its registers rather than knowing and refusing. */
+    COMMISSIONING_REASON_METER_MODEL_UNDECLARED,
+    /* An enabled meter's declared model is a real model this firmware carries but
+     * which the product owner has parked for this release phase. */
+    COMMISSIONING_REASON_METER_MODEL_DEFERRED,
     COMMISSIONING_REASON_COUNT
 } commissioning_reason_t;
 
@@ -178,6 +188,27 @@ typedef struct {
     bool meter_roles_valid;
     uint8_t grid_meter_count;
     bool duplicate_generator_slot;
+
+    /*
+     * WHICH INSTRUMENTS ARE WIRED, AND WHETHER THIS PHASE SUPPORTS THEM.
+     *
+     * Counted rather than enumerated, for the same reason the inverter fleet is:
+     * the gate needs to know whether EVERY enabled meter is in scope, not which
+     * one is not. A partially supported meter set is refused outright -- the
+     * controller would otherwise read some instruments with semantics it knows
+     * and others with semantics it has guessed, which is not a commissioned plant.
+     *
+     * The three counts are supplied by the collector, which is the only place the
+     * meter_model_in_phase_scope() predicate is evaluated. UNDECLARED is counted
+     * separately from DEFERRED so the operator is told which of the two problems
+     * they have: nothing stated, or something stated that is parked.
+     */
+    bool meter_models_known;
+    uint8_t enabled_meter_count;
+    /* Enabled meters whose declared model is supported in this release phase. */
+    uint8_t in_scope_meter_count;
+    /* Enabled meters carrying no declared model at all. */
+    uint8_t undeclared_meter_count;
 
     bool inverter_fleet_known;
     uint8_t enabled_inverter_count;

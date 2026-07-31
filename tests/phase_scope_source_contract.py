@@ -238,13 +238,74 @@ require("single.register ?? 8448" in SOURCE_JS_CODE,
         "the commissioning form fallback must be 8448 (0x2100)")
 
 # ---------------------------------------------------------------------------
-# 4. Registered in CI, and stated in the release document.
+# 4. Every meter except the EM500 is parked -- refused, not removed.
+# ---------------------------------------------------------------------------
+
+GATE = squeeze(code("components/commissioning_gate/commissioning_gate.c"))
+GATE_H = squeeze(code("components/commissioning_gate/include/commissioning_gate.h"))
+CONTROL = squeeze(code("components/control_engine/control_engine.c"))
+
+require("COMMISSIONING_PREREQ_METER_MODEL_IN_SCOPE" in GATE_H,
+        "the phase meter scope must be an enumerated commissioning prerequisite, "
+        "so it is reported and explained like every other one")
+require("COMMISSIONING_REASON_METER_MODEL_DEFERRED" in GATE_H,
+        "a parked meter must be refused with a reason that names it as deferred")
+require("COMMISSIONING_REASON_METER_MODEL_UNDECLARED" in GATE_H,
+        "a meter with no declared model must be refused with its own distinct "
+        "reason; telling an engineer their meter is deferred before they have "
+        "said what it is sends them to the wrong document")
+
+# The refusal must be positive ("all of them are in scope"), not a blacklist.
+require(re.search(
+    r"if \(in->in_scope_meter_count != in->enabled_meter_count\) \{ "
+    r"return unmet\(COMMISSIONING_REASON_METER_MODEL_DEFERRED\);", GATE),
+    "EVERY enabled meter must be in scope. A partially supported meter set has to "
+    "be refused outright, or the controller reads some instruments with semantics "
+    "it knows and others with semantics it has guessed")
+require(re.search(
+    r"if \(!in->meter_models_known\) return unmet\(COMMISSIONING_REASON_STATE_UNREADABLE\);",
+    GATE),
+    "the meter-model prerequisite must fail closed when the state was unreadable")
+require(re.search(
+    r"if \(in->undeclared_meter_count > 0U\) \{ "
+    r"return unmet\(COMMISSIONING_REASON_METER_MODEL_UNDECLARED\);", GATE),
+    "an undeclared model must be refused, and refused BEFORE the deferred check")
+require("status.results[COMMISSIONING_PREREQ_METER_MODEL_IN_SCOPE] = "
+        "evaluate_meter_models(inputs);" in GATE,
+        "the meter-model prerequisite must actually be evaluated; an unwired "
+        "evaluator asserts nothing")
+require('"meter_model_in_scope"' in GATE and '"meter_model_deferred"' in GATE and
+        '"meter_model_undeclared"' in GATE,
+        "the prerequisite and both reasons need stable API slugs")
+
+# The scope predicate is evaluated in exactly one place, over enabled meters.
+require("meter_model_in_phase_scope(meter->model)" in CONTROL,
+        "the collector must decide scope with the shared predicate")
+require(CONTROL.count("meter_model_in_phase_scope") == 1,
+        "the phase-scope predicate must be evaluated in exactly one place, so the "
+        "scope cannot be answered differently in two of them")
+require("s_commissioning_inputs.meter_models_known = true;" in CONTROL,
+        "the collector must mark the meter models known only once it has read them")
+
+# Parked, not deleted. The other models must still exist as enumerated values.
+require("METER_MODEL_GENERIC_MODBUS = 2" in CONFIG_TYPES,
+        "deferred meter models are PARKED, not removed: they stay enumerated so "
+        "the refusal can name them and so unparking is a one-line change")
+require("meter_model_in_phase_scope" in CONFIG_TYPES and
+        "return meter_model_is_em500(model);" in CONFIG_TYPES,
+        "the in-scope predicate must name what IS permitted rather than what is "
+        "not, so a model appended tomorrow is refused until somebody adds it here")
+
+# ---------------------------------------------------------------------------
+# 5. Registered in CI, and stated in the release document.
 # ---------------------------------------------------------------------------
 
 require("tests/phase_scope_source_contract.py" in WORKFLOW,
         "this contract must run in CI, or it asserts nothing about what ships")
 require("tests/source_detection_engine_test.c" in WORKFLOW,
         "the executable proof of the confinement must run in CI")
+require("tests/commissioning_gate_test.c" in WORKFLOW,
+        "the executable proof of the meter refusal must run in CI")
 require("EM500" in DOC and "SUN2000" in DOC,
         "docs/RELEASE_READINESS.md must state the phase scope")
 
