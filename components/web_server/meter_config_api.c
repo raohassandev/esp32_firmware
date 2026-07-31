@@ -363,13 +363,113 @@ static esp_err_t meters_config_post(httpd_req_t *request)
     return send_json_text(request, "202 Accepted", response);
 }
 
+/* GET /api/meters/config -- the commissioned meter configuration, in exactly the
+ * shape meters_config_post() accepts.
+ *
+ * WHY THIS EXISTS. GET /api/meters is an operator projection: name, enabled and
+ * runtime state, with the Modbus topology removed. Nothing could read back the
+ * register address, data type, word order or scale, so the commissioning wizard
+ * opened on blank defaults and its save replaced a working meter with them. A
+ * meter reading 372 kW was reduced to 25 kW that way -- a 15x error produced not
+ * by a bad value but by an editor that could not see what it was editing.
+ *
+ * Key names and units match the POST parser exactly ("function", "poll_ms",
+ * "data_type", "word_order", numeric enums) so a client can read this, change
+ * one field and post it straight back. meters_config_post() treats every field
+ * as optional and preserves the stored value when a key is absent, so a
+ * round-trip through this endpoint cannot default a field it did not intend to
+ * change -- provided the client omits what it does not understand rather than
+ * substituting a guess.
+ *
+ * generator_index is reported only for a meter whose role is GENERATOR; for any
+ * other role the stored byte is the METER_GENERATOR_INDEX_NONE sentinel and
+ * emitting it as a number would read as "generator 255".
+ *
+ * Engineering-gated by default (no public_uri() entry) because it discloses
+ * host, port and unit id. It must never be added to that allowlist. Reads
+ * persisted configuration only -- no Modbus transaction, no device lock. */
+static esp_err_t meters_config_get(httpd_req_t *request)
+{
+    app_config_t *config = malloc(sizeof(*config));
+    if (!config) return httpd_resp_send_500(request);
+    if (config_manager_get_snapshot(config) != ESP_OK) {
+        free(config);
+        return send_json_error(request, "500 Internal Server Error",
+                               "Meter configuration could not be read");
+    }
+
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        free(config);
+        return httpd_resp_send_500(request);
+    }
+    cJSON *array = cJSON_AddArrayToObject(root, "meters");
+    if (!array) {
+        cJSON_Delete(root);
+        free(config);
+        return httpd_resp_send_500(request);
+    }
+
+    uint8_t count = config->meter_count;
+    if (count > APP_MAX_METERS) count = APP_MAX_METERS;
+
+    for (uint8_t index = 0; index < count; ++index) {
+        const meter_config_t *meter = &config->meters[index];
+        cJSON *item = cJSON_CreateObject();
+        if (!item) {
+            cJSON_Delete(root);
+            free(config);
+            return httpd_resp_send_500(request);
+        }
+        cJSON_AddNumberToObject(item, "index", index);
+        cJSON_AddBoolToObject(item, "enabled", meter->enabled);
+        cJSON_AddStringToObject(item, "name", meter->name);
+        cJSON_AddStringToObject(item, "host", meter->endpoint.host);
+        cJSON_AddNumberToObject(item, "port", meter->endpoint.port);
+        cJSON_AddNumberToObject(item, "unit_id", meter->endpoint.unit_id);
+        cJSON_AddNumberToObject(item, "timeout_ms", (double)meter->endpoint.timeout_ms);
+        cJSON_AddNumberToObject(item, "model", (double)meter->model);
+        cJSON_AddNumberToObject(item, "role", meter->role);
+        if (meter->role == METER_ROLE_GENERATOR &&
+            meter->generator_index < APP_MAX_GENERATORS) {
+            cJSON_AddNumberToObject(item, "generator_index", meter->generator_index);
+        }
+        cJSON_AddNumberToObject(item, "function", meter->function_code);
+        cJSON_AddNumberToObject(item, "active_power_address", meter->active_power_address);
+        cJSON_AddNumberToObject(item, "data_type", (double)meter->active_power_type);
+        cJSON_AddNumberToObject(item, "word_order", (double)meter->active_power_order);
+        cJSON_AddNumberToObject(item, "scale", (double)meter->active_power_scale);
+        cJSON_AddNumberToObject(item, "poll_ms", (double)meter->poll_interval_ms);
+        /* Decoded alongside the numeric enums, never instead of them: the
+         * numbers are what POST accepts, these are for a human reading the
+         * response or a log of it. */
+        cJSON_AddStringToObject(item, "model_name", meter_model_name(meter->model));
+        cJSON_AddStringToObject(item, "role_name", meter_role_name(meter->role));
+        cJSON_AddItemToArray(array, item);
+    }
+
+    cJSON_AddNumberToObject(root, "meter_count", count);
+    cJSON_AddNumberToObject(root, "max_meters", APP_MAX_METERS);
+
+    char *json = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    free(config);
+    if (!json) return httpd_resp_send_500(request);
+    esp_err_t err = send_json_text(request, NULL, json);
+    free(json);
+    return err;
+}
+
 esp_err_t meter_config_api_register(httpd_handle_t server)
 {
     if (!server) return ESP_ERR_INVALID_ARG;
-    const httpd_uri_t endpoint = {
-        .uri = "/api/meters/config",
-        .method = HTTP_POST,
-        .handler = meters_config_post,
+    const httpd_uri_t endpoints[] = {
+        {.uri = "/api/meters/config", .method = HTTP_GET, .handler = meters_config_get},
+        {.uri = "/api/meters/config", .method = HTTP_POST, .handler = meters_config_post},
     };
-    return httpd_register_uri_handler(server, &endpoint);
+    for (size_t index = 0; index < sizeof(endpoints) / sizeof(endpoints[0]); ++index) {
+        const esp_err_t err = httpd_register_uri_handler(server, &endpoints[index]);
+        if (err != ESP_OK) return err;
+    }
+    return ESP_OK;
 }

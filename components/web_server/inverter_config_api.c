@@ -259,12 +259,98 @@ static esp_err_t inverters_config_post(httpd_req_t *request)
     return send_json_text(request, NULL, response);
 }
 
+/* GET /api/inverters/config -- the exact payload POST accepts.
+ *
+ * WHY THIS EXISTS. The commissioning wizard had no way to read what was already
+ * commissioned, so re-opening it started from blank defaults and its save
+ * overwrote a working endpoint with them. That is not hypothetical: it is how a
+ * commissioned meter was lost on a live unit. A wizard that edits stored
+ * configuration must be able to read that configuration first.
+ *
+ * The field names and units here are deliberately identical to the ones
+ * parse_inverter() accepts -- "rated_kw" not "rated_power_kw", timeout in
+ * milliseconds -- so the response can be edited and posted straight back. A
+ * response shaped differently from the request would put a translation step
+ * between read and write, and a translation step is where a field gets dropped
+ * and silently replaced by a default.
+ *
+ * This route carries no allowlist entry, so engineering_register_uri_handler
+ * gives it GATEWAY_MODE_PROTECTED: it requires an engineering session. That is
+ * required, not incidental. Unlike GET /api/inverters, which is an operator
+ * projection, this returns host, port and unit id -- the plant's Modbus
+ * topology. It must never be added to public_uri().
+ *
+ * Reports every configured slot, and separately how many slots exist, so a
+ * caller can tell "no inverters configured" from "the array was truncated".
+ * Issues no Modbus transaction and takes no device lock: it reads persisted
+ * configuration only. */
+static esp_err_t inverters_config_get(httpd_req_t *request)
+{
+    /* app_config_t is far too large for the HTTP task stack; the POST path
+     * heap-allocates it for the same reason. */
+    app_config_t *config = malloc(sizeof(*config));
+    if (!config) return httpd_resp_send_500(request);
+    if (config_manager_get_snapshot(config) != ESP_OK) {
+        free(config);
+        return send_json_error(request, "500 Internal Server Error",
+                               "Inverter configuration could not be read");
+    }
+
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        free(config);
+        return httpd_resp_send_500(request);
+    }
+    cJSON *array = cJSON_AddArrayToObject(root, "inverters");
+    if (!array) {
+        cJSON_Delete(root);
+        free(config);
+        return httpd_resp_send_500(request);
+    }
+
+    uint8_t count = config->inverter_count;
+    if (count > APP_MAX_INVERTERS) count = APP_MAX_INVERTERS;
+
+    for (uint8_t index = 0; index < count; ++index) {
+        const inverter_config_t *inverter = &config->inverters[index];
+        cJSON *item = cJSON_CreateObject();
+        if (!item) {
+            cJSON_Delete(root);
+            free(config);
+            return httpd_resp_send_500(request);
+        }
+        cJSON_AddNumberToObject(item, "index", index);
+        cJSON_AddBoolToObject(item, "enabled", inverter->enabled);
+        cJSON_AddStringToObject(item, "name", inverter->name);
+        cJSON_AddStringToObject(item, "host", inverter->endpoint.host);
+        cJSON_AddNumberToObject(item, "port", inverter->endpoint.port);
+        cJSON_AddNumberToObject(item, "unit_id", inverter->endpoint.unit_id);
+        cJSON_AddNumberToObject(item, "timeout_ms", (double)inverter->endpoint.timeout_ms);
+        cJSON_AddNumberToObject(item, "rated_kw", (double)inverter->rated_power_kw);
+        cJSON_AddItemToArray(array, item);
+    }
+
+    cJSON_AddNumberToObject(root, "inverter_count", count);
+    cJSON_AddNumberToObject(root, "max_inverters", APP_MAX_INVERTERS);
+
+    char *json = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    free(config);
+    if (!json) return httpd_resp_send_500(request);
+    esp_err_t err = send_json_text(request, NULL, json);
+    free(json);
+    return err;
+}
+
 esp_err_t inverter_config_api_register(httpd_handle_t server)
 {
-    const httpd_uri_t handler = {
-        .uri = "/api/inverters/config",
-        .method = HTTP_POST,
-        .handler = inverters_config_post
+    const httpd_uri_t handlers[] = {
+        {.uri = "/api/inverters/config", .method = HTTP_GET, .handler = inverters_config_get},
+        {.uri = "/api/inverters/config", .method = HTTP_POST, .handler = inverters_config_post}
     };
-    return httpd_register_uri_handler(server, &handler);
+    for (size_t index = 0; index < sizeof(handlers) / sizeof(handlers[0]); ++index) {
+        const esp_err_t err = httpd_register_uri_handler(server, &handlers[index]);
+        if (err != ESP_OK) return err;
+    }
+    return ESP_OK;
 }
