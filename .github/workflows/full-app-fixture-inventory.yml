@@ -1,0 +1,28 @@
+name: Full app fixture inventory
+
+on:
+  pull_request:
+    branches:
+      - phase1-fix
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inventory frontend API routes and bundle assets
+        run: |
+          set -euo pipefail
+          echo '=== API route literals ==='
+          grep -RhoE "['\"](/api/[^'\"[:space:]?]*)" web/*.js \
+            | sed -E "s/^[\"']//" \
+            | sort -u || true
+          echo '=== Template route fragments ==='
+          grep -RhoE '/api/[A-Za-z0-9_./${}-]+' web/*.js | sort -u || true
+          echo '=== Fetch call sites ==='
+          grep -RnE 'fetch\(|api\(' web/*.js | head -n 240 || true
