@@ -133,7 +133,7 @@ static void acquire_instantaneous(uint8_t index, cache_slot_t *slot,
 
     started = now_ms();
     esp_err_t source_error = read_block(index, function_code, address_base,
-                                        0x2160, 1, &source);
+                                        EM500_SOURCE_INPUT_TABLE_ADDRESS, 1, &source);
     uint32_t source_elapsed = now_ms() - started;
 
     portENTER_CRITICAL(&slot->lock);
@@ -405,7 +405,7 @@ esp_err_t em500_cache_read_registers(uint8_t meter_index,
     } else if (table_address == 0x0050U) {
         result = copy_cached(slot, &slot->instantaneous,
                              &slot->instantaneous_registers[78], 22U, count, registers);
-    } else if (table_address == 0x2160U) {
+    } else if (table_address == EM500_SOURCE_INPUT_TABLE_ADDRESS) {
         result = copy_cached(slot, &slot->source_input,
                              &slot->source_register, 1U, count, registers);
     } else if (table_address == 0x1B20U) {

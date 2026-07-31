@@ -167,6 +167,13 @@ static esp_err_t meters_get(httpd_req_t *request)
         cJSON_AddNumberToObject(item, "index", index);
         cJSON_AddStringToObject(item, "name", meter->name);
         cJSON_AddBoolToObject(item, "enabled", meter->enabled);
+        /* The commissioned model, reported as both the stored value and its slug
+         * so an operator can see what the controller believes is wired -- and
+         * see "undeclared" when nothing has been stated. */
+        cJSON_AddNumberToObject(item, "model", meter->model);
+        cJSON_AddStringToObject(item, "model_name", meter_model_name(meter->model));
+        cJSON_AddBoolToObject(item, "model_in_phase_scope",
+                              meter_model_in_phase_scope(meter->model));
         add_endpoint(item, &meter->endpoint);
 
         cJSON *acquisition = cJSON_AddObjectToObject(item, "acquisition");

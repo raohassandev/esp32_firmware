@@ -53,8 +53,19 @@ typedef struct {
 
 void source_detection_config_defaults(source_detection_config_t *config);
 bool source_detection_config_valid(const source_detection_config_t *config);
+/*
+ * Builds the engine policy from the persisted configuration.
+ *
+ * single_meter_is_em500 must be the COMMISSIONED model of the meter named by
+ * config->single.meter_index -- meter_model_is_em500(meters[i].model) -- and
+ * nothing else. It is passed in rather than looked up because this module does
+ * not depend on config_manager, and it is a required argument rather than an
+ * optional one so that adding a caller forces whoever adds it to answer the
+ * question. Passing false is always safe: it selects strict equality.
+ */
 source_detection_policy_t source_detection_config_policy(
-    const source_detection_config_t *config);
+    const source_detection_config_t *config,
+    bool single_meter_is_em500);
 esp_err_t source_detection_config_init(void);
 esp_err_t source_detection_config_get_snapshot(source_detection_config_t *out_config);
 esp_err_t source_detection_config_save(const source_detection_config_t *config);

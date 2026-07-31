@@ -433,7 +433,13 @@
             meterSelect('sourceSingleMeter', 'EM500 meter', meters, single.meter_index),
             field('Read function · verify on site', functionSelect),
             field('Address convention · verify on site', baseSelect),
-            numericInput('sourceSingleRegister', 'Source register', single.register ?? 8544, 0, 65535),
+            // 8448 = 0x2100, the Lovato "OR of all digital inputs" register and
+            // the firmware's own SOURCE_DETECTION_SINGLE_REGISTER_DEFAULT. This
+            // fallback used to read 8544 (0x2160), which is a register the
+            // installed meters answer with exception 0x02 -- so the one value an
+            // operator was offered when the API had nothing to say was the one
+            // value known not to work.
+            numericInput('sourceSingleRegister', 'Source register', single.register ?? 8448, 0, 65535),
             numericInput('sourceGridValue', 'Grid value', single.grid_value ?? 0, 0, 65535),
             numericInput('sourceGeneratorValue', 'Generator value', single.generator_value ?? 1, 0, 65535)
         );

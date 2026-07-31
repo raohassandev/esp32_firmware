@@ -132,12 +132,71 @@ typedef struct {
     uint32_t wifi_provision_id;
 } legacy_app_config_v4_t;
 
+/* Frozen schema 5 layouts, taken before meter_config_t gained `model`. Same rule
+ * again: nothing here may reference a live struct. control_config_t had already
+ * grown its two ramp profiles by schema 5, so that growth is frozen here too
+ * rather than reusing legacy_control_config_v4_t. Never edit these structs. */
+typedef struct {
+    bool enabled;
+    float up_percent_per_second;
+    float down_percent_per_second;
+} legacy_ramp_profile_v5_t;
+
+typedef struct {
+    bool enabled;
+    float grid_import_target_kw;
+    float deadband_kw;
+    float kp;
+    float ki;
+    float ramp_up_percent_per_second;
+    float ramp_down_percent_per_second;
+    uint32_t interval_ms;
+    uint32_t meter_stale_timeout_ms;
+    legacy_ramp_profile_v5_t grid_ramp;
+    legacy_ramp_profile_v5_t generator_ramp;
+} legacy_control_config_v5_t;
+
+typedef struct {
+    bool enabled;
+    char name[24];
+    modbus_endpoint_t endpoint;
+    uint8_t function_code;
+    uint16_t active_power_address;
+    modbus_data_type_t active_power_type;
+    modbus_word_order_t active_power_order;
+    float active_power_scale;
+    uint32_t poll_interval_ms;
+    uint8_t role;
+    uint8_t generator_index;
+} legacy_meter_config_v5_t;
+
+typedef struct {
+    uint32_t magic;
+    uint16_t version;
+    char device_name[32];
+    app_wifi_config_t wifi;
+    uint8_t meter_count;
+    legacy_meter_config_v5_t meters[APP_MAX_METERS];
+    uint8_t inverter_count;
+    inverter_config_t inverters[APP_MAX_INVERTERS];
+    legacy_control_config_v5_t control;
+    uint32_t wifi_provision_id;
+} legacy_app_config_v5_t;
+
 _Static_assert(sizeof(legacy_app_config_v3_t) == sizeof(legacy_app_config_v2_t) + sizeof(uint32_t),
                "schema 2 must remain a byte-exact prefix of schema 3");
 _Static_assert(sizeof(legacy_app_config_v4_t) > sizeof(legacy_app_config_v3_t),
                "schema 4 must stay distinguishable from schema 3 by blob size");
-_Static_assert(sizeof(app_config_t) > sizeof(legacy_app_config_v4_t),
+_Static_assert(sizeof(legacy_app_config_v5_t) > sizeof(legacy_app_config_v4_t),
                "schema 5 must stay distinguishable from schema 4 by blob size");
+/* THE ONE THAT CATCHES A NARROWED meter_config_t.model. role and generator_index
+ * leave tail padding in meter_config_t, so an 8- or 16-bit model field is
+ * absorbed by it and leaves sizeof(app_config_t) unchanged -- at which point a
+ * commissioned schema-5 blob would load as schema 6 and every meter would silently
+ * acquire whatever model value the padding bytes happened to hold. This assert
+ * fails the build before that can ship. */
+_Static_assert(sizeof(app_config_t) > sizeof(legacy_app_config_v5_t),
+               "schema 6 must stay distinguishable from schema 5 by blob size");
 
 static void defaults(app_config_t *c)
 {
@@ -200,6 +259,14 @@ static void defaults(app_config_t *c)
     m->enabled = true;
     m->role = METER_ROLE_GRID;
     m->generator_index = METER_GENERATOR_INDEX_NONE;
+    /* Deliberately left UNDECLARED even though the register mapping seeded below
+     * is the EM500 one. The template is a starting point for commissioning, not
+     * an observation of what is physically wired, and the whole point of this
+     * field is that the model is stated by an engineer rather than inferred from
+     * a register address. An out-of-box unit therefore reports "no meter model
+     * declared" and the commissioning gate stays closed, which is where a unit
+     * that has never been commissioned belongs. */
+    m->model = METER_MODEL_UNDECLARED;
     strlcpy(m->name, "Grid Meter", sizeof(m->name));
     strlcpy(m->endpoint.host, CONFIG_PVDG_DEFAULT_ZLAN_HOST, sizeof(m->endpoint.host));
     m->endpoint.port = CONFIG_PVDG_DEFAULT_ZLAN_PORT;
@@ -343,6 +410,13 @@ static bool endpoint_valid(const modbus_endpoint_t *e)
 static bool meter_valid(const meter_config_t *m)
 {
     if (m->role > METER_ROLE_PV) return false;
+    /* Range check only. Whether the declared model is IN SCOPE for this release
+     * phase is a commissioning-gate question, not a validity question: an
+     * out-of-scope model is a perfectly well-formed configuration that the gate
+     * refuses to commission, and rejecting it here would discard the blob and
+     * take the commissioned Wi-Fi credentials with it. Only a value no build ever
+     * wrote -- corruption -- fails this. */
+    if (m->model >= (uint32_t)METER_MODEL_COUNT) return false;
     if (m->role == METER_ROLE_GENERATOR) {
         if (m->generator_index >= APP_MAX_GENERATORS) return false;
     } else if (m->generator_index != METER_GENERATOR_INDEX_NONE) {
@@ -364,6 +438,16 @@ static bool meter_valid(const meter_config_t *m)
  * still a configuration worth keeping. Discarding it would fall back to defaults
  * and lose commissioned Wi-Fi credentials. Instead the assignment is reported so
  * control can stay fail-closed until an engineer resolves it. */
+const char *meter_model_name(uint32_t model)
+{
+    switch (model) {
+    case METER_MODEL_EM500_LOVATO: return "em500_lovato";
+    case METER_MODEL_GENERIC_MODBUS: return "generic_modbus";
+    case METER_MODEL_UNDECLARED:
+    default: return "undeclared";
+    }
+}
+
 const char *meter_role_name(uint8_t role)
 {
     switch (role) {
@@ -477,6 +561,11 @@ static void upgrade_meters_from_v3(meter_config_t *next, uint8_t count,
         next[n].poll_interval_ms = old[n].poll_interval_ms;
         next[n].role = (n == 0U && count > 0U) ? METER_ROLE_GRID : METER_ROLE_UNASSIGNED;
         next[n].generator_index = METER_GENERATOR_INDEX_NONE;
+        /* An upgrade never invents a meter model. The old blob carried no such
+         * fact, so the migrated one carries none either and an engineer must
+         * state it. Guessing EM500 here because the scale looks familiar is
+         * exactly the inference this field exists to abolish. */
+        next[n].model = METER_MODEL_UNDECLARED;
     }
 }
 
@@ -690,6 +779,68 @@ esp_err_t config_manager_init(void)
             have_valid_config = err == ESP_OK && valid(loaded);
             stored_matches = have_valid_config;
             if (!have_valid_config) ESP_LOGW(TAG, "Stored configuration rejected by validation");
+        } else if (err == ESP_OK && stored_size == sizeof(legacy_app_config_v5_t)) {
+            /* Schema 5 to 6: the only new fact is meter_config_t.model, and it is
+             * not derivable from anything schema 5 stored. Every meter therefore
+             * migrates as UNDECLARED, which leaves an upgraded unit reporting "no
+             * meter model declared" until an engineer states it. That closes the
+             * commissioning gate on a plant that was previously commissioned, and
+             * it is the intended cost: the alternative is assuming every already
+             * commissioned meter is an EM500 and silently applying EM500 bitmask
+             * semantics to whatever is actually wired. Commissioned Wi-Fi
+             * credentials, meter endpoints and control tuning are all preserved,
+             * so recovering is one form field and not a re-commissioning. */
+            legacy_app_config_v5_t *legacy = malloc(sizeof(*legacy));
+            if (legacy) {
+                size_t size = sizeof(*legacy);
+                if (nvs_get_blob(h, KEY, legacy, &size) == ESP_OK &&
+                    legacy->magic == APP_CONFIG_MAGIC && legacy->version == 5) {
+                    loaded->magic = legacy->magic;
+                    loaded->version = APP_CONFIG_VERSION;
+                    strlcpy(loaded->device_name, legacy->device_name, sizeof(loaded->device_name));
+                    loaded->wifi = legacy->wifi;
+                    loaded->meter_count = legacy->meter_count <= APP_MAX_METERS
+                                              ? legacy->meter_count : APP_MAX_METERS;
+                    for (uint8_t n = 0; n < APP_MAX_METERS; ++n) {
+                        memcpy(&loaded->meters[n], &legacy->meters[n],
+                               sizeof(legacy->meters[n]));
+                        loaded->meters[n].model = METER_MODEL_UNDECLARED;
+                    }
+                    loaded->inverter_count = legacy->inverter_count <= APP_MAX_INVERTERS
+                                                 ? legacy->inverter_count : APP_MAX_INVERTERS;
+                    memcpy(loaded->inverters, legacy->inverters, sizeof(loaded->inverters));
+                    /* control_config_t is unchanged between schema 5 and 6, but it
+                     * is copied field by field from the FROZEN legacy layout rather
+                     * than memcpy'd, so a later growth of the live struct cannot
+                     * turn this into an out-of-bounds read. */
+                    loaded->control.enabled = false; /* an upgrade never arms control */
+                    loaded->control.grid_import_target_kw = legacy->control.grid_import_target_kw;
+                    loaded->control.deadband_kw = legacy->control.deadband_kw;
+                    loaded->control.kp = legacy->control.kp;
+                    loaded->control.ki = legacy->control.ki;
+                    loaded->control.ramp_up_percent_per_second =
+                        legacy->control.ramp_up_percent_per_second;
+                    loaded->control.ramp_down_percent_per_second =
+                        legacy->control.ramp_down_percent_per_second;
+                    loaded->control.interval_ms = legacy->control.interval_ms;
+                    loaded->control.meter_stale_timeout_ms = legacy->control.meter_stale_timeout_ms;
+                    loaded->control.grid_ramp.enabled = legacy->control.grid_ramp.enabled;
+                    loaded->control.grid_ramp.up_percent_per_second =
+                        legacy->control.grid_ramp.up_percent_per_second;
+                    loaded->control.grid_ramp.down_percent_per_second =
+                        legacy->control.grid_ramp.down_percent_per_second;
+                    loaded->control.generator_ramp.enabled = legacy->control.generator_ramp.enabled;
+                    loaded->control.generator_ramp.up_percent_per_second =
+                        legacy->control.generator_ramp.up_percent_per_second;
+                    loaded->control.generator_ramp.down_percent_per_second =
+                        legacy->control.generator_ramp.down_percent_per_second;
+                    loaded->wifi_provision_id = legacy->wifi_provision_id;
+                    have_valid_config = valid(loaded);
+                    if (have_valid_config) ESP_LOGI(TAG, "Migrated configuration schema 5 to schema %u", APP_CONFIG_VERSION);
+                    else ESP_LOGW(TAG, "Schema 5 migration produced an invalid configuration; discarding it");
+                }
+                free(legacy);
+            }
         } else if (err == ESP_OK && stored_size == sizeof(legacy_app_config_v4_t)) {
             legacy_app_config_v4_t *legacy = malloc(sizeof(*legacy));
             if (legacy) {
@@ -702,10 +853,14 @@ esp_err_t config_manager_init(void)
                     loaded->wifi = legacy->wifi;
                     loaded->meter_count = legacy->meter_count <= APP_MAX_METERS
                                               ? legacy->meter_count : APP_MAX_METERS;
-                    /* Schema 4 already carries roles, so meters copy straight across. */
+                    /* Schema 4 already carries roles, so meters copy straight across.
+                     * The copy is sized by the LEGACY struct, so the schema 6
+                     * model field is not touched by it and is set explicitly to
+                     * UNDECLARED below rather than inheriting stale bytes. */
                     for (uint8_t n = 0; n < APP_MAX_METERS; ++n) {
                         memcpy(&loaded->meters[n], &legacy->meters[n],
                                sizeof(legacy->meters[n]));
+                        loaded->meters[n].model = METER_MODEL_UNDECLARED;
                     }
                     loaded->inverter_count = legacy->inverter_count <= APP_MAX_INVERTERS
                                                  ? legacy->inverter_count : APP_MAX_INVERTERS;

@@ -160,6 +160,18 @@ static bool parse_meter(cJSON *object, const meter_config_t *current,
                            error, error_size)) return false;
     next->endpoint.unit_id = (uint8_t)value;
 
+    /* WHICH INSTRUMENT IS ON THE OTHER END. Commissioning data, not a label:
+     * it decides how register 0x2100 is READ, and it decides whether the meter
+     * is in scope for this release phase at all. Omitting the key preserves
+     * whatever was already commissioned; a meter that has never had one stays
+     * UNDECLARED and the commissioning gate stays closed. Nothing here infers a
+     * model from the register mapping supplied alongside it. */
+    value = next->model;
+    if (!read_optional_u32(object, "model", METER_MODEL_UNDECLARED,
+                           (uint32_t)METER_MODEL_COUNT - 1U, &value,
+                           index, error, error_size)) return false;
+    next->model = value;
+
     /* What the meter measures. The control engine selects by role, so this is
      * commissioning data, not a label. */
     value = next->role;

@@ -206,7 +206,7 @@
         const source = data.instantaneous.source_input || {};
         const summary = node('div', 'em500-summary');
         summary.append(
-            summaryCard('Source indication', source.requested_source || 'Unavailable', source.available ? `Register 0x2160 raw ${source.raw}` : source.error || 'Source register unavailable', source.requested_source === 'generator' ? 'warning' : source.requested_source === 'grid' ? 'good' : 'bad'),
+            summaryCard('Source indication', source.requested_source || 'Unavailable', source.available ? `Register ${source.table_address !== undefined ? `0x${Number(source.table_address).toString(16).toUpperCase().padStart(4, '0')}` : '(unreported)'} raw ${source.raw}` : source.error || 'Source register unavailable', source.requested_source === 'generator' ? 'warning' : source.requested_source === 'grid' ? 'good' : 'bad'),
             summaryCard('Total active power', utils.formatValue(values.active_power_total), 'Signed source-meter power'),
             summaryCard('Frequency', utils.formatValue(values.frequency), 'Latest successful scan'),
             summaryCard('Total power factor', utils.formatValue(values.power_factor_total), 'Signed ratio')

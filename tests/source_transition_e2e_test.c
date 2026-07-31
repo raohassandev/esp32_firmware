@@ -57,6 +57,10 @@ static source_detection_policy_t site_policy(void)
         .stale_timeout_ms = 5000U,
         .single_grid_value = 0U,
         .single_generator_value = 1U,
+        /* The site commissioned an EM500, which is what licenses reading 0x2100
+         * as a bitmask. Without this the bitmask words below are refused and the
+         * plant stays fail-closed. */
+        .single_bitmask_semantics = true,
         .grid_threshold_kw = 1.0f,
         .generator_threshold_kw = 1.0f,
     };

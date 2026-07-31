@@ -18,6 +18,11 @@ meter_role_assignment_t config_manager_role_assignment(const app_config_t *confi
 /* Stable lowercase identifier for a meter role, for APIs and logs. */
 const char *meter_role_name(uint8_t role);
 
+/* Stable lowercase slug for a commissioned meter model, for the API and logs.
+ * An unrecognised value reports "undeclared" rather than inventing a name, which
+ * is also the safe answer: an undeclared model commissions nothing. */
+const char *meter_model_name(uint32_t model);
+
 /* True when the recovery access point is still using the passphrase compiled
  * into this build - a value that is identical on every unit and published in a
  * public repository. Reports the fact, never the value. */

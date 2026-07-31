@@ -7,6 +7,7 @@
 
 #include "cJSON.h"
 #include "config_manager.h"
+#include "em500_cache.h"
 #include "meter_manager.h"
 #include "modbus_decoder.h"
 #include "modbus_types.h"
@@ -312,13 +313,14 @@ static void add_instantaneous(cJSON *root, const em500_request_t *options)
     }
 
     cJSON *source = cJSON_AddObjectToObject(group, "source_input");
-    cJSON_AddNumberToObject(source, "table_address", 0x2160);
+    cJSON_AddNumberToObject(source, "table_address", EM500_SOURCE_INPUT_TABLE_ADDRESS);
     cJSON_AddNumberToObject(source, "pdu_address",
-                            pdu_address(0x2160, options->address_base));
+                            pdu_address(EM500_SOURCE_INPUT_TABLE_ADDRESS, options->address_base));
     cJSON_AddStringToObject(source, "classification", "clone_specific");
     cJSON_AddStringToObject(source, "site_mapping", "0=grid,1=generator");
     uint16_t source_register = 0;
-    esp_err_t source_error = read_block(options, 0x2160, 1, &source_register);
+    esp_err_t source_error =
+        read_block(options, EM500_SOURCE_INPUT_TABLE_ADDRESS, 1, &source_register);
     if (source_error == ESP_OK) {
         cJSON_AddBoolToObject(source, "available", true);
         cJSON_AddNumberToObject(source, "raw", source_register);

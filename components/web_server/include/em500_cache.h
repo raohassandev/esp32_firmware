@@ -4,10 +4,28 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "source_detection_config.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/*
+ * The EM500 source-indication register, for the diagnostic snapshot path.
+ *
+ * ONE DEFINITION, SHARED WITH SOURCE DETECTION. This deliberately aliases
+ * SOURCE_DETECTION_SINGLE_REGISTER_DEFAULT rather than restating a number,
+ * because the two paths read the same physical register and had drifted apart:
+ * source detection was corrected to 0x2100 while the cache poller, the cache
+ * dispatch, the snapshot API and the web summary card were all left on 0x2160.
+ *
+ * 0x2160 WAS WRONG AND IS RETAINED NOWHERE AS A LIVE VALUE. It is recorded here
+ * as a historical error only: on the installed meters it answers Modbus
+ * exception 0x02, illegal data address, so the block it belonged to failed every
+ * poll and the snapshot's source card reported "unavailable" forever. The
+ * correction came from the owner's own mbpoll captures on site, 2026-07-29.
+ */
+#define EM500_SOURCE_INPUT_TABLE_ADDRESS ((uint16_t)SOURCE_DETECTION_SINGLE_REGISTER_DEFAULT)
 
 typedef enum {
     EM500_CACHE_SCOPE_INSTANTANEOUS = 1U << 0,

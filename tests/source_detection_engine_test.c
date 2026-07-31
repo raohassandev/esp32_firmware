@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <math.h>
+#include <stddef.h>
 #include <stdio.h>
 
 #include "source_detection_engine.h"
@@ -12,6 +13,10 @@ static source_detection_policy_t single_policy(void)
         .stale_timeout_ms = 500U,
         .single_grid_value = 0U,
         .single_generator_value = 1U,
+        /* A commissioned EM500/Lovato site. This is what licenses the bitmask
+         * reading of 0x2100 in the tests below; the confinement itself is
+         * proved by test_bitmask_rule_is_confined_to_em500(). */
+        .single_bitmask_semantics = true,
         .grid_threshold_kw = 1.0f,
         .generator_threshold_kw = 1.0f,
     };
@@ -118,6 +123,95 @@ static void test_single_non_zero_grid_value_keeps_strict_equality(void)
     result = source_detection_step(&memory, &policy, &evidence, 302U);
     assert(result.state == SOURCE_STATE_UNKNOWN);
     assert(result.reason == SOURCE_REASON_UNKNOWN_INPUT_VALUE);
+}
+
+/*
+ * THE BITMASK RULE IS A PROPERTY OF THE EM500, NOT OF THE FIRMWARE.
+ *
+ * "Register 0x2100 is the OR of all digital inputs" is documented for the
+ * Lovato-derived EM500 family and for nothing else. On any other instrument the
+ * same word may be an enumeration, a status code or a counter, so reading a 7
+ * there as "generator" would be manufacturing a source state -- and therefore a
+ * tariff, and therefore a control decision -- out of a number nobody has
+ * interpreted.
+ *
+ * This test drives the SAME policy and the SAME evidence as
+ * test_single_grid_generator_unknown() above, changing exactly one field, so the
+ * two together are the mutation test in both directions: with the flag the
+ * bitmask words resolve to GENERATOR, without it they are refused. If the
+ * confinement were removed, this test fails; if the bitmask rule were removed,
+ * the earlier test fails.
+ */
+static void test_bitmask_rule_is_confined_to_em500(void)
+{
+    source_detection_policy_t policy = single_policy();
+    policy.single_bitmask_semantics = false;
+    source_detection_memory_t memory = {0};
+    source_detection_evidence_t evidence = {
+        .single_has_sample = true,
+        .single_raw_value = 0U,
+        .single_age_ms = 0U,
+    };
+
+    /* The two words the site actually commissioned still resolve, by strict
+     * equality. Confinement must not break an ordinary two-valued input. */
+    source_detection_result_t result = settle(&memory, &policy, &evidence, 0U);
+    assert(result.state == SOURCE_STATE_GRID);
+    assert(result.tariff == SOURCE_TARIFF_1);
+
+    evidence.single_raw_value = 1U;
+    (void)source_detection_step(&memory, &policy, &evidence, 200U);
+    result = source_detection_step(&memory, &policy, &evidence, 300U);
+    assert(result.state == SOURCE_STATE_GENERATOR);
+    assert(result.tariff == SOURCE_TARIFF_2);
+
+    /* Every word the EM500 rule would have called GENERATOR is refused here,
+     * and refusing means fail-closed, not "assume grid". */
+    const uint16_t bitmask_words[] = {2U, 3U, 7U, 0x8000U, 0xFFFFU};
+    for (size_t i = 0; i < sizeof(bitmask_words) / sizeof(bitmask_words[0]); ++i) {
+        evidence.single_raw_value = bitmask_words[i];
+        result = source_detection_step(&memory, &policy, &evidence,
+                                       (uint32_t)(400U + i));
+        assert(result.state == SOURCE_STATE_UNKNOWN);
+        assert(result.candidate_state == SOURCE_STATE_UNKNOWN);
+        assert(result.reason == SOURCE_REASON_UNKNOWN_INPUT_VALUE);
+        assert(result.tariff == SOURCE_TARIFF_NONE);
+        assert(!result.control_allowed);
+        assert(result.fail_closed);
+
+        /* And the identical word on a declared EM500 resolves. Asserted inside
+         * the loop so the two readings are compared on the very same input. */
+        source_detection_policy_t em500 = single_policy();
+        source_detection_evidence_t same = evidence;
+        assert(source_detection_observe(&em500, &same).candidate_state ==
+               SOURCE_STATE_GENERATOR);
+    }
+}
+
+/* A zeroed policy is what a caller that has never heard of meter models
+ * produces. It must NOT get the bitmask reading: the default has to be the
+ * conservative one, or every future call site inherits EM500 semantics by
+ * omission. */
+static void test_zeroed_policy_does_not_get_bitmask_semantics(void)
+{
+    source_detection_policy_t policy = {0};
+    assert(!policy.single_bitmask_semantics);
+
+    policy.mode = SOURCE_DETECTION_MODE_SINGLE_INPUT;
+    policy.debounce_ms = 100U;
+    policy.stale_timeout_ms = 500U;
+    policy.single_grid_value = 0U;
+    policy.single_generator_value = 1U;
+
+    source_detection_evidence_t evidence = {
+        .single_has_sample = true,
+        .single_raw_value = 7U,
+        .single_age_ms = 0U,
+    };
+    const source_detection_observation_t observation =
+        source_detection_observe(&policy, &evidence);
+    assert(observation.candidate_state == SOURCE_STATE_UNKNOWN);
+    assert(observation.reason == SOURCE_REASON_UNKNOWN_INPUT_VALUE);
 }
 
 static void test_dual_meter_states(void)
@@ -248,6 +342,8 @@ int main(void)
 {
     test_single_grid_generator_unknown();
     test_single_non_zero_grid_value_keeps_strict_equality();
+    test_bitmask_rule_is_confined_to_em500();
+    test_zeroed_policy_does_not_get_bitmask_semantics();
     test_dual_meter_states();
     test_stale_and_non_finite();
     test_evidence_unavailable();

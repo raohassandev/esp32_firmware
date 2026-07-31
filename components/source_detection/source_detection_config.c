@@ -69,15 +69,20 @@ bool source_detection_config_valid(const source_detection_config_t *config)
 }
 
 source_detection_policy_t source_detection_config_policy(
-    const source_detection_config_t *config)
+    const source_detection_config_t *config,
+    bool single_meter_is_em500)
 {
     source_detection_policy_t policy = {0};
+    /* A NULL configuration returns the zeroed policy, which carries
+     * single_bitmask_semantics = false. The bitmask reading is never reachable
+     * without a configuration to license it. */
     if (!config) return policy;
     policy.mode = (source_detection_mode_t)config->mode;
     policy.debounce_ms = config->debounce_ms;
     policy.stale_timeout_ms = config->stale_timeout_ms;
     policy.single_grid_value = config->single.grid_value;
     policy.single_generator_value = config->single.generator_value;
+    policy.single_bitmask_semantics = single_meter_is_em500;
     policy.grid_threshold_kw = config->dual.grid_threshold_kw;
     policy.generator_threshold_kw = config->dual.generator_threshold_kw;
     return policy;

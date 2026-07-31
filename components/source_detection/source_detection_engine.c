@@ -62,10 +62,28 @@ source_detection_observation_t source_detection_observe(
          * case from "silently uncurtailed" to "curtailed", which is the safe
          * direction and is what the register's own documented meaning says.
          *
-         * A site that commissions the mapping the other way round -- a non-zero
-         * grid value -- is NOT a bitmask site and keeps strict equality, so an
-         * inverted or bespoke wiring is never reinterpreted by this rule. */
-        if (policy->single_grid_value == 0U) {
+         * TWO CONDITIONS, AND BOTH ARE REQUIRED.
+         *
+         * single_bitmask_semantics is the meter FAMILY. "OR of all digital
+         * inputs" is a documented property of the Lovato-derived EM500, not of
+         * Modbus and not of every energy meter. On an instrument from any other
+         * family the same word may be an enumeration, a status code or a count,
+         * and reading a 2 there as "generator" would be inventing a source state
+         * out of a number nobody has interpreted -- which then becomes a tariff,
+         * and then a control decision. So the rule is confined to the family it
+         * was derived from, and that family is a commissioned fact supplied by
+         * the caller, never inferred here.
+         *
+         * single_grid_value == 0 is the site WIRING. A site that commissions the
+         * mapping the other way round -- a non-zero grid value -- is not a
+         * bitmask site even on an EM500, so an inverted or bespoke wiring is
+         * never reinterpreted by this rule.
+         *
+         * When either condition is absent, control falls through to strict
+         * equality below. That is the conservative direction: an uninterpreted
+         * word yields UNKNOWN_INPUT_VALUE and the controller stays fail-closed
+         * rather than acting on a guess. */
+        if (policy->single_bitmask_semantics && policy->single_grid_value == 0U) {
             result.candidate_state = evidence->single_raw_value == 0U
                                          ? SOURCE_STATE_GRID
                                          : SOURCE_STATE_GENERATOR;

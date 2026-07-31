@@ -44,6 +44,28 @@ typedef struct {
     uint32_t stale_timeout_ms;
     uint16_t single_grid_value;
     uint16_t single_generator_value;
+    /* THE METER FAMILY'S REGISTER SEMANTICS, CARRIED AS A POLICY INPUT.
+     *
+     * True only when the meter supplying single_raw_value has been COMMISSIONED
+     * as an EM500/Lovato-derived instrument, on which register 0x2100 is the
+     * documented "OR of all digital inputs" and is therefore a bitmask. It
+     * licenses the "any non-zero word means generator" reading in
+     * source_detection_observe(), and it licenses nothing else.
+     *
+     * FALSE IS THE DEFAULT AND MUST STAY THAT WAY. A zeroed policy -- which is
+     * what a caller that has not been taught about meter models produces -- gets
+     * strict equality against the commissioned values, which is the conservative
+     * reading for a register nobody has interpreted. The alternative default
+     * would apply one meter family's bitmask semantics to every instrument on
+     * the market, turning any unexplained non-zero word into "generator" and,
+     * through the tariff, into a control decision.
+     *
+     * It is a plain bool rather than a model enum on purpose: this module
+     * depends on nothing and is compiled by the host toolchain for its unit
+     * test, so it must not learn about config_types.h. The mapping from
+     * commissioned model to this flag lives at the one call site that already
+     * knows both. */
+    bool single_bitmask_semantics;
     float grid_threshold_kw;
     float generator_threshold_kw;
 } source_detection_policy_t;

@@ -255,7 +255,18 @@ static uint32_t evaluate_once(uint32_t *seen_generation)
     source_detection_result_t result = {0};
     if (config_reason == SOURCE_REASON_NONE) {
         evidence = collect_evidence(&s_config, &s_app_config, timestamp);
-        const source_detection_policy_t policy = source_detection_config_policy(&s_config);
+        /* The one place a commissioned meter model becomes an engine policy
+         * input. config_reason == NONE already established that the single-input
+         * meter index names an enabled meter, so the lookup is in range; the
+         * bound is repeated anyway because a policy input that decides how a
+         * register is READ must not depend on a caller's memory of an earlier
+         * check. Anything other than a commissioned EM500 -- including a meter
+         * whose model was never declared -- yields false and strict equality. */
+        const bool single_meter_is_em500 =
+            s_config.single.meter_index < APP_MAX_METERS &&
+            meter_model_is_em500(s_app_config.meters[s_config.single.meter_index].model);
+        const source_detection_policy_t policy =
+            source_detection_config_policy(&s_config, single_meter_is_em500);
         result = source_detection_step(&s_memory, &policy, &evidence, timestamp);
     } else {
         source_detection_reset(&s_memory);

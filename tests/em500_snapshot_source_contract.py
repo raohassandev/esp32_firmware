@@ -25,8 +25,12 @@ require("modbus_tcp_write_single" not in API and "modbus_tcp_write_multiple" not
         "EM500 snapshot must not contain Modbus writes")
 require("EM500_MAX_READ_REGISTERS 80" in API,
         "DMG6-compatible register reads must be bounded to 80 registers")
-require("0x2160" in API and '"clone_specific"' in API,
-        "clone source input 0x2160 must remain explicitly classified")
+require("EM500_SOURCE_INPUT_TABLE_ADDRESS" in API and '"clone_specific"' in API,
+        "the clone source input must remain explicitly classified and must read the "
+        "shared register definition rather than a literal")
+require("0x2160" not in API and "0x2160" not in CACHE and "0x2160" not in ADAPTER,
+        "0x2160 answers Modbus exception 0x02 on the installed meters; it must not "
+        "survive as a live address on the snapshot, cache or adapter path")
 require('"0=grid,1=generator"' in API,
         "site source-input mapping is missing")
 require("modbus_decode_u64_be_scaled" in API,
