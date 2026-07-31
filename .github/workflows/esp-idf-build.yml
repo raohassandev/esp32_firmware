@@ -65,10 +65,12 @@ jobs:
           node --check web/pvdg-chart.js
           node --check tools/soltrix_modbus_simulator.js
           node --check tools/soltrix_modbus_simulator_test.js
+          node tools/soltrix_modbus_simulator_test.js
           node web/tests/wifi-utils.test.js
           node web/tests/devices-utils.test.js
           node web/tests/em500-utils.test.js
           node web/tests/chart-utils.test.js
+          node web/tests/source-detection-utils.test.js
       - name: Run source mode safety unit tests
         run: |
           set -euo pipefail
@@ -86,6 +88,34 @@ jobs:
             components/source_detection/source_detection_engine.c \
             -lm -o /tmp/source_detection_engine_test
           /tmp/source_detection_engine_test
+      - name: Run inverter power-limit scale factor unit tests
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -Wall -Wextra -Werror \
+            -Itests/support -Icomponents/inverter_manager/include \
+            tests/inverter_power_scale_test.c \
+            components/inverter_manager/inverter_profiles.c \
+            components/inverter_manager/inverter_status.c \
+            components/inverter_manager/inverter_profile_decode.c \
+            -lm -o /tmp/inverter_power_scale_test
+          /tmp/inverter_power_scale_test
+      - name: Run EM500 tariff to generator curtailment end-to-end tests
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -Wall -Wextra -Werror \
+            -Itests/support \
+            -Icomponents/source_detection/include \
+            -Icomponents/control_engine/include \
+            -Icomponents/inverter_manager/include \
+            tests/source_transition_e2e_test.c \
+            components/source_detection/source_detection_engine.c \
+            components/control_engine/source_mode.c \
+            components/control_engine/power_control_policy.c \
+            components/inverter_manager/inverter_profiles.c \
+            components/inverter_manager/inverter_status.c \
+            components/inverter_manager/inverter_profile_decode.c \
+            -lm -o /tmp/source_transition_e2e_test
+          /tmp/source_transition_e2e_test
       - name: Run commissioning gate unit tests
         run: |
           set -euo pipefail
@@ -154,6 +184,8 @@ jobs:
         run: python3 tests/multi_meter_config_source_contract.py
       - name: Check EM500 source detection contract
         run: python3 tests/em500_source_detection_source_contract.py
+      - name: Check source semantics and power-limit scale contract
+        run: python3 tests/source_semantics_and_power_scale_source_contract.py
       - name: Check meter role and schema 4 upgrade contract
         run: python3 tests/meter_role_source_contract.py
       - name: Check generator power policy contract

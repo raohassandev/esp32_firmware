@@ -61,12 +61,63 @@ static void test_single_grid_generator_unknown(void)
     assert(result.state == SOURCE_STATE_GENERATOR);
     assert(result.tariff == SOURCE_TARIFF_2);
 
+    /* 0x2100 is a bitmask of all digital inputs, so a second wired input makes
+     * the generator read 3 or 7 rather than 1. With a zero grid value every
+     * non-zero word is generator, and because the plant is ALREADY generator
+     * here the state must hold without re-debouncing -- the machine must not
+     * lose its protection because another input changed. */
+    evidence.single_raw_value = 7U;
+    result = source_detection_step(&memory, &policy, &evidence, 301U);
+    assert(result.state == SOURCE_STATE_GENERATOR);
+    assert(result.candidate_state == SOURCE_STATE_GENERATOR);
+    assert(result.tariff == SOURCE_TARIFF_2);
+    assert(result.control_allowed);
+    assert(!result.fail_closed);
+
+    evidence.single_raw_value = 0x8000U;
+    result = source_detection_step(&memory, &policy, &evidence, 302U);
+    assert(result.state == SOURCE_STATE_GENERATOR);
+
+    evidence.single_raw_value = 0xFFFFU;
+    result = source_detection_step(&memory, &policy, &evidence, 303U);
+    assert(result.state == SOURCE_STATE_GENERATOR);
+}
+
+/* A site that commissions a NON-ZERO grid value is not describing a bitmask, so
+ * the bitmask rule must not touch it: strict equality still applies and an
+ * unmodelled word is still refused rather than guessed as generator. */
+static void test_single_non_zero_grid_value_keeps_strict_equality(void)
+{
+    source_detection_policy_t policy = single_policy();
+    policy.single_grid_value = 1U;
+    policy.single_generator_value = 2U;
+    source_detection_memory_t memory = {0};
+    source_detection_evidence_t evidence = {
+        .single_has_sample = true,
+        .single_raw_value = 1U,
+        .single_age_ms = 0U,
+    };
+
+    source_detection_result_t result = settle(&memory, &policy, &evidence, 0U);
+    assert(result.state == SOURCE_STATE_GRID);
+
+    evidence.single_raw_value = 2U;
+    result = source_detection_step(&memory, &policy, &evidence, 100U);
+    result = source_detection_step(&memory, &policy, &evidence, 300U);
+    assert(result.state == SOURCE_STATE_GENERATOR);
+
     evidence.single_raw_value = 7U;
     result = source_detection_step(&memory, &policy, &evidence, 301U);
     assert(result.state == SOURCE_STATE_UNKNOWN);
     assert(result.reason == SOURCE_REASON_UNKNOWN_INPUT_VALUE);
     assert(result.tariff == SOURCE_TARIFF_NONE);
     assert(result.fail_closed);
+
+    /* Zero is not the commissioned grid value on such a site either. */
+    evidence.single_raw_value = 0U;
+    result = source_detection_step(&memory, &policy, &evidence, 302U);
+    assert(result.state == SOURCE_STATE_UNKNOWN);
+    assert(result.reason == SOURCE_REASON_UNKNOWN_INPUT_VALUE);
 }
 
 static void test_dual_meter_states(void)
@@ -196,6 +247,7 @@ static void test_flapping_input_never_settles(void)
 int main(void)
 {
     test_single_grid_generator_unknown();
+    test_single_non_zero_grid_value_keeps_strict_equality();
     test_dual_meter_states();
     test_stale_and_non_finite();
     test_evidence_unavailable();

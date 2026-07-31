@@ -116,6 +116,29 @@
                         <article class="metric-card"><div class="metric-head"><span>Requested PV</span><span class="dot neutral"></span></div><div class="metric-value" id="requestedPvValue">Unavailable</div><div class="metric-foot">Control request, not measured PV production</div></article>
                         <article class="metric-card"><div class="metric-head"><span>Applied PV</span><span class="dot neutral"></span></div><div class="metric-value" id="appliedPvValue">Unavailable</div><div class="metric-foot">Applied controller output, not inverter telemetry</div></article>
                     </div>
+                    <!-- Active power source. Which supply is carrying the plant
+                         changes what the controller is allowed to do, so it is
+                         stated once, in one word, and never guessed: whenever the
+                         firmware reports fail_closed, transition_pending, an
+                         unresolved state, or has not answered at all, the headline
+                         reads UNKNOWN and the rows say why. The mapping lives in
+                         PvdgSourceDetectionUtils (web/source-detection.js) and is
+                         property-tested in web/tests/source-detection-utils.test.js;
+                         web/app.js only writes the strings it returns. -->
+                    <article class="panel source-panel" id="sourceBanner">
+                        <div class="panel-header"><div><p class="eyebrow">Active power source</p><h3>Which supply is carrying the plant</h3></div><span class="subtle-badge" id="sourceBannerBadge">Unavailable</span></div>
+                        <div class="metric-value" id="sourceBannerLabel" role="status">UNKNOWN</div>
+                        <div class="metric-foot" id="sourceBannerDetail">Waiting for the controller to report which supply is carrying the plant.</div>
+                        <div class="health-list">
+                            <div class="health-row"><span>Evidence</span><strong id="sourceBannerQuality">Unavailable</strong></div>
+                            <div class="health-row"><span>PV curtailment</span><strong id="sourceBannerConsequence">Unavailable</strong></div>
+                            <div class="health-row"><span>Energy classification</span><strong id="sourceBannerTariff">None</strong></div>
+                        </div>
+                        <div class="notice warning" id="sourceBannerConsequenceDetail">The controller has not resolved which supply is carrying the plant, so it is not acting on one.</div>
+                        <!-- The controller's own sentence, rendered exactly as received. -->
+                        <div class="notice" id="sourceBannerReason" hidden></div>
+                        <div class="notice warning" id="sourceBannerLimitation" hidden></div>
+                    </article>
                     <div class="dashboard-grid">
                         <article class="panel power-flow-panel">
                             <div class="panel-header"><div><p class="eyebrow">Power flow</p><h3>Site energy balance</h3></div><span class="subtle-badge" id="flowState">Waiting for meter</span></div>

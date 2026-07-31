@@ -10,7 +10,26 @@ const PORT = Number(portArg ? portArg.split('=')[1] : 1502);
 const SCENARIO = String(scenarioArg ? scenarioArg.split('=')[1] : 'normal').toLowerCase();
 const SELF_TEST = args.has('--self-test');
 
-const EM500_SOURCE_ADDRESS = 0x2160;
+/*
+ * The tariff / source-detection digital input, and the register the firmware
+ * actually polls: SOURCE_DETECTION_SINGLE_REGISTER_DEFAULT in
+ * components/source_detection/include/source_detection_config.h. Zero is grid,
+ * any energised input is generator.
+ *
+ * This was 0x2160 and that was wrong in the way that matters. The firmware's
+ * default was corrected to 0x2100 on 2026-07-29 after the installed meters
+ * returned exception 0x02, illegal data address, for a single-register read at
+ * 0x2160 (docs/METER_COMMISSIONING_2026-07-29.md). A lab rig serving the tariff
+ * somewhere the firmware never looks reads a permanent zero, reports GRID for
+ * ever, and never once exercises the curtailment path the product exists for --
+ * a green lab run proving nothing. soltrix_modbus_simulator_test.js now pins
+ * this constant against the firmware header so the two cannot drift again.
+ */
+const EM500_SOURCE_ADDRESS = 0x2100;
+/* Superseded. Deliberately left unmapped so a read here returns zero rather
+ * than the tariff, which is the closest this simulator gets to the real meters'
+ * refusal and stops the old address from silently appearing to work. */
+const EM500_SUPERSEDED_SOURCE_ADDRESS = 0x2160;
 const EM500_POWER_ADDRESS = 57;
 const EM500_TARIFF1_IMPORT_ADDRESS = 0x1B48;
 const EM500_TARIFF2_IMPORT_ADDRESS = 0x1B5C;
@@ -319,6 +338,7 @@ module.exports = {
     DEVICES,
     EM500_DEVICES,
     EM500_SOURCE_ADDRESS,
+    EM500_SUPERSEDED_SOURCE_ADDRESS,
     EM500_POWER_ADDRESS,
     createServer,
     request,

@@ -339,6 +339,11 @@ button, a { -webkit-tap-highlight-color: transparent; }
 
 .dashboard-grid, .form-layout { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(300px, 0.85fr); gap: 16px; margin-top: 16px; }
 .panel { padding: 16px; }
+/* Active power source. Colour is carried by the shared tone variables so the
+ * headline reads the same in light and dark; the word itself is the signal, the
+ * colour only reinforces it. */
+.source-panel { margin-top: 16px; }
+.source-panel .metric-value { margin-top: 0; font-size: 34px; letter-spacing: 0.02em; }
 .panel-header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 16px; }
 .panel-header h3 { margin: 4px 0 0; font-size: 16px; }
 /* P0-7 site energy model: utility grid / PCC, generator, solar fleet,

@@ -46,6 +46,32 @@ source_detection_observation_t source_detection_observe(
             .evidence_fresh = true,
             .conflict = false,
         };
+        /* EM500/DMG610 register 0x2100 is the documented "OR of all digital
+         * inputs" -- a BITMASK, not an enumeration. The site rule is therefore
+         * "zero means grid, any energised input means generator", and that is
+         * how it is evaluated whenever the commissioned grid value is zero: any
+         * non-zero word is generator, whichever bit carries it.
+         *
+         * Exact equality alone was wrong here in the dangerous direction. With
+         * generator_value commissioned as 1, a second input wired on the same
+         * meter makes the register read 2 or 3 while the genset carries the
+         * plant. That matched neither configured value, so detection reported
+         * UNKNOWN_INPUT_VALUE, control stayed fail-closed, no curtailment
+         * command was issued, and PV kept exporting into a generator that was
+         * never protected. Treating every non-zero word as generator moves that
+         * case from "silently uncurtailed" to "curtailed", which is the safe
+         * direction and is what the register's own documented meaning says.
+         *
+         * A site that commissions the mapping the other way round -- a non-zero
+         * grid value -- is NOT a bitmask site and keeps strict equality, so an
+         * inverted or bespoke wiring is never reinterpreted by this rule. */
+        if (policy->single_grid_value == 0U) {
+            result.candidate_state = evidence->single_raw_value == 0U
+                                         ? SOURCE_STATE_GRID
+                                         : SOURCE_STATE_GENERATOR;
+            return result;
+        }
+
         if (evidence->single_raw_value == policy->single_grid_value) {
             result.candidate_state = SOURCE_STATE_GRID;
         } else if (evidence->single_raw_value == policy->single_generator_value) {

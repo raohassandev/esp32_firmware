@@ -1,8 +1,253 @@
+/* source-detection.js - EM500 source detection: presentation + engineering page.
+ *
+ * Two blocks live in this file.
+ *
+ *   1. PvdgSourceDetectionUtils - pure functions with no DOM and no fetch, so
+ *      they can be required from Node and property-tested
+ *      (web/tests/source-detection-utils.test.js). They turn the firmware's
+ *      /api/source-detection status object into the four things an operator
+ *      has to be able to read without interpreting anything: which supply is
+ *      carrying the plant, how good that answer is, what the controller is
+ *      doing about it, and the controller's own sentence explaining why.
+ *
+ *   2. The engineering page itself, registered as an EM500 tab.
+ *
+ * Rules this file is built on:
+ *
+ *   VERBATIM. status.reason and status.mode_a_limitation are the firmware's own
+ *   sentences about a safety decision and are rendered exactly as received.
+ *
+ *   AMBIGUITY IS A FAULT. A confident source identity - GRID or GENERATOR - is
+ *   rendered only when the controller has actually resolved one: configured,
+ *   fresh evidence, no conflict, not debouncing and not fail-closed. In every
+ *   other case the screen says UNKNOWN and says why. Showing a plausible source
+ *   while the controller is fail-closed is the bug this file exists to prevent.
+ *
+ *   ONE STATE VOCABULARY. Quality/control wording comes from
+ *   AutomatrixUi.STATES in web/app.js, resolved the same way operator-view.js
+ *   resolves it. GRID and GENERATOR are source identities, not state words.
+ */
+((root, factory) => {
+    const api = factory();
+    if (typeof module === 'object' && module.exports) module.exports = api;
+    if (root) root.PvdgSourceDetectionUtils = api;
+})(typeof window !== 'undefined' ? window : globalThis, () => {
+    'use strict';
+
+    /* The three strings source_detection_state_name() can publish. Anything
+     * else is treated as unknown rather than shown to an operator. */
+    const FIRMWARE_STATES = Object.freeze(['grid', 'generator', 'unknown']);
+
+    /* Exactly one operator label per firmware state. */
+    const SOURCE_LABELS = Object.freeze({
+        grid: 'GRID',
+        generator: 'GENERATOR',
+        unknown: 'UNKNOWN'
+    });
+
+    const UNKNOWN_LABEL = SOURCE_LABELS.unknown;
+
+    /* Same resolution order as operator-view.js: the shared vocabulary when the
+     * bundle is loaded, the identical literal when this module is required on
+     * its own. The literals are not a second vocabulary; the test asserts every
+     * one of them is a value in AutomatrixUi.STATES. */
+    function stateWord(family, key, fallback) {
+        const states = (typeof window !== 'undefined' && window.AutomatrixUi &&
+            window.AutomatrixUi.STATES) || null;
+        return (states && states[family] && states[family][key]) || fallback;
+    }
+
+    function text(value) {
+        return typeof value === 'string' ? value.trim() : '';
+    }
+
+    function statusOf(payload) {
+        if (!payload || typeof payload !== 'object') return null;
+        if (payload.status && typeof payload.status === 'object') return payload.status;
+        /* Also accept the status object on its own so callers that already
+         * unwrapped the response are not forced to re-wrap it. */
+        if (typeof payload.state === 'string' || typeof payload.fail_closed === 'boolean') {
+            return payload;
+        }
+        return null;
+    }
+
+    /* Deliberately exact. source_detection_state_name() emits "grid",
+     * "generator" or "unknown" and nothing else, so a string that merely looks
+     * like one of them - different case, padded, translated - is evidence that
+     * something other than this firmware produced it. Such a string is treated
+     * as unknown rather than accepted as a source identity. */
+    function normalizeState(value) {
+        return FIRMWARE_STATES.indexOf(value) >= 0 ? value : 'unknown';
+    }
+
+    function sourceLabelFor(state) {
+        return SOURCE_LABELS[normalizeState(state)] || UNKNOWN_LABEL;
+    }
+
+    /* The control consequence, stated as a consequence and not as a hint.
+     *
+     * The generator sentence is conditional on detection_only because the
+     * firmware publishes detection_only and automatic_control_enabled_by_this_phase
+     * = false: while detection is reporting only, nothing is curtailed, and
+     * telling an operator the genset is being protected when it is not would be
+     * worse than saying nothing. */
+    function consequenceFor(confident, state, detectionOnly) {
+        if (!confident) {
+            return {
+                label: 'No source-based curtailment decision',
+                detail: 'The controller has not resolved which supply is carrying the plant, so it is not acting on one. Source-based behaviour stays fail-closed until the evidence resolves.'
+            };
+        }
+        if (state === 'grid') {
+            return {
+                label: 'PV not curtailed for source reasons',
+                detail: 'The plant is on grid. Source detection is not restricting PV output.'
+            };
+        }
+        if (detectionOnly) {
+            return {
+                label: 'PV not curtailed · detection only',
+                detail: 'The plant is on generator, but source detection reports only in this phase and issues no inverter commands. PV is NOT being curtailed to protect the generator.'
+            };
+        }
+        return {
+            label: 'PV curtailed to protect generator',
+            detail: 'The plant is on generator, so PV output is being curtailed to protect the generator.'
+        };
+    }
+
+    function absentView() {
+        const consequence = consequenceFor(false, 'unknown', false);
+        return Object.freeze({
+            present: false,
+            confident: false,
+            state: 'unknown',
+            sourceLabel: UNKNOWN_LABEL,
+            sourceTone: 'bad',
+            qualityKey: 'dataQuality.unavailable',
+            qualityLabel: stateWord('dataQuality', 'unavailable', 'Unavailable'),
+            detail: 'The controller has not reported a source decision. This screen is not showing grid or generator.',
+            controlConsequence: consequence.label,
+            controlConsequenceDetail: consequence.detail,
+            reasonText: '',
+            limitationText: '',
+            candidateLabel: '',
+            candidateNote: '',
+            failClosed: false,
+            transitionPending: false,
+            conflict: false,
+            evidenceFresh: false,
+            configured: false,
+            detectionOnly: false,
+            tariffLabel: 'None',
+            readCounts: 'Unavailable'
+        });
+    }
+
+    function tariffLabel(tariff) {
+        const value = Number(tariff);
+        if (value === 1) return 'Tariff 1';
+        if (value === 2) return 'Tariff 2';
+        return 'None';
+    }
+
+    function readCounts(status) {
+        const good = Number(status.successful_reads);
+        const bad = Number(status.failed_reads);
+        if (!Number.isFinite(good) && !Number.isFinite(bad)) return 'Unavailable';
+        return `${Number.isFinite(good) ? good : 0} successful · ${Number.isFinite(bad) ? bad : 0} failed`;
+    }
+
+    /* One object, everything the screens render. Every boolean is compared
+     * against true: an absent flag is never read as a reassuring value. */
+    function describeSourceDetection(payload) {
+        const status = statusOf(payload);
+        if (!status) return absentView();
+
+        const state = normalizeState(status.state);
+        const configured = status.configured === true;
+        const failClosed = status.fail_closed === true;
+        const transitionPending = status.transition_pending === true;
+        const conflict = status.conflict === true;
+        const evidenceFresh = status.evidence_fresh === true;
+        const detectionOnly = status.detection_only === true;
+
+        const confident = configured && evidenceFresh && !failClosed &&
+            !transitionPending && !conflict && state !== 'unknown';
+
+        const quality = !configured ? ['commissioning', 'notConfigured', 'Not configured']
+            : failClosed ? ['control', 'inhibited', 'Inhibited']
+            : conflict ? ['dataQuality', 'invalid', 'Invalid']
+            : !evidenceFresh ? ['dataQuality', 'stale', 'Stale']
+            : transitionPending ? ['workflow', 'inProgress', 'In progress']
+            : confident ? ['dataQuality', 'good', 'Good']
+            : ['dataQuality', 'unavailable', 'Unavailable'];
+
+        const detail = !configured
+            ? 'Source detection is not commissioned on this controller, so no source is being reported.'
+            : failClosed
+                ? 'The controller is fail-closed on source and will not state which supply is carrying the plant.'
+                : conflict
+                    ? 'The evidence disagrees with itself, so the controller is not resolving a source.'
+                    : !evidenceFresh
+                        ? 'The source evidence is not currently usable, so no source is being reported.'
+                        : transitionPending
+                            ? 'A source change is debouncing. The controller has not committed to the new source.'
+                            : confident
+                                ? `The controller reports the plant is being carried by ${SOURCE_LABELS[state]}.`
+                                : 'The controller has not resolved a source.';
+
+        const candidateLabel = sourceLabelFor(status.candidate_state);
+        const consequence = consequenceFor(confident, state, detectionOnly);
+
+        return Object.freeze({
+            present: true,
+            confident,
+            state,
+            /* Never a confident identity unless `confident` is true. */
+            sourceLabel: confident ? SOURCE_LABELS[state] : UNKNOWN_LABEL,
+            sourceTone: confident ? (state === 'grid' ? 'good' : 'warning') : 'bad',
+            qualityKey: `${quality[0]}.${quality[1]}`,
+            qualityLabel: stateWord(quality[0], quality[1], quality[2]),
+            detail,
+            controlConsequence: consequence.label,
+            controlConsequenceDetail: consequence.detail,
+            /* The firmware's sentences, untouched. */
+            reasonText: text(status.reason),
+            limitationText: text(status.mode_a_limitation),
+            candidateLabel,
+            candidateNote: transitionPending
+                ? `Debouncing towards ${candidateLabel}. This is not the active source yet.`
+                : '',
+            failClosed,
+            transitionPending,
+            conflict,
+            evidenceFresh,
+            configured,
+            detectionOnly,
+            tariffLabel: tariffLabel(status.tariff),
+            readCounts: readCounts(status)
+        });
+    }
+
+    return Object.freeze({
+        FIRMWARE_STATES,
+        SOURCE_LABELS,
+        UNKNOWN_LABEL,
+        describeSourceDetection,
+        sourceLabelFor,
+        tariffLabel
+    });
+});
+
 (() => {
     'use strict';
 
-    const app = window.PvdgEm500App;
+    const app = typeof window !== 'undefined' ? window.PvdgEm500App : null;
     if (!app) return;
+
+    const sourceUtils = window.PvdgSourceDetectionUtils;
 
     const { api, byId, node, button, option, field, panel,
         summaryCard, setMessage, setBusy, setContent, registerTab } = app;
@@ -45,25 +290,57 @@
         return 'Disabled';
     }
 
-    function tariffLabel(tariff) {
-        if (Number(tariff) === 1) return 'Tariff 1';
-        if (Number(tariff) === 2) return 'Tariff 2';
-        return 'None';
+    function toneTextClass(tone) {
+        return tone === 'good' ? 'good-text' : tone === 'warning' ? 'warning-text' : 'bad-text';
+    }
+
+    /* The headline. One word, the size of a metric value, that an operator can
+     * read from across a switch room - and it says UNKNOWN whenever the
+     * controller has not resolved a source, rather than showing the last source
+     * it happened to see. */
+    function sourceHeadline(view) {
+        const section = panel('Active power source', 'Which supply is carrying the plant', false);
+
+        const headline = node('div', `metric-value ${toneTextClass(view.sourceTone)}`, view.sourceLabel);
+        headline.setAttribute('role', 'status');
+        section.append(headline, node('div', 'metric-foot', view.detail));
+
+        if (view.candidateNote) {
+            section.append(node('div', 'notice warning', view.candidateNote));
+        }
+
+        const rows = node('div', 'health-list');
+        [
+            ['Evidence', view.qualityLabel],
+            ['PV curtailment', view.controlConsequence],
+            ['Energy classification', view.tariffLabel],
+            ['Source reads', view.readCounts]
+        ].forEach(([label, value]) => {
+            const row = node('div', 'health-row');
+            row.append(node('span', '', label), node('strong', '', value));
+            rows.append(row);
+        });
+        section.append(rows);
+        section.append(node('div', view.confident && view.state === 'grid' ? 'notice safe' : 'notice warning',
+            view.controlConsequenceDetail));
+        return section;
     }
 
     function statusPanels(data) {
         const status = data.status || {};
         const config = data.config || {};
+        const view = sourceUtils.describeSourceDetection(data);
+
         const summary = node('div', 'em500-summary');
-        const stateTone = status.state === 'grid' ? 'good'
-            : status.state === 'generator' ? 'warning' : 'bad';
         summary.append(
-            summaryCard('Resolved source', status.state || 'unknown',
-                status.transition_pending ? `Candidate: ${status.candidate_state || 'unknown'}` : modeLabel(config.mode), stateTone),
-            summaryCard('Energy classification', tariffLabel(status.tariff),
+            summaryCard('Resolved source', view.sourceLabel,
+                view.transitionPending ? `Candidate: ${view.candidateLabel}` : modeLabel(config.mode),
+                view.sourceTone),
+            summaryCard('Energy classification', view.tariffLabel,
                 'Grid uses Tariff 1 · generator uses Tariff 2'),
-            summaryCard('Evidence', status.evidence_fresh ? 'Fresh' : 'Not usable',
-                status.fail_closed ? 'Fail-closed' : 'Resolved for reporting', status.evidence_fresh ? 'good' : 'bad'),
+            summaryCard('Evidence', view.qualityLabel,
+                view.failClosed ? 'Fail-closed' : 'Resolved for reporting',
+                view.evidenceFresh && !view.failClosed ? 'good' : 'bad'),
             summaryCard('Phase scope', 'Detection only',
                 'Automatic control is not enabled by this phase', 'warning')
         );
@@ -98,7 +375,7 @@
             evidenceSummary.append(summaryCard('Evidence', 'Disabled', 'Commission a topology before detection starts'));
         }
         evidence.append(evidenceSummary);
-        return [summary, reason, evidence];
+        return [sourceHeadline(view), summary, reason, evidence];
     }
 
     function buildConfiguration(data) {

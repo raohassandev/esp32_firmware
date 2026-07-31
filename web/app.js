@@ -177,6 +177,10 @@
         telemetry: null,
         inverterTelemetry: null,
         sourceDetection: null,
+        /* Why the source is not known, when it is not: an engineering session is
+         * required for /api/source-detection, and "we may not ask" is a
+         * different statement from "the controller says unknown". */
+        sourceDetectionAbsence: '',
         refreshing: false,
         saving: false,
         lastUpdatedAt: null,
@@ -585,14 +589,65 @@
         const access = window.AutomatrixEngineeringAccess;
         if (!access || !access.mayUseEngineering('dashboard')) {
             state.sourceDetection = null;
+            state.sourceDetectionAbsence = 'An engineering session is required before the controller will report the active source.';
+            renderSourceBanner();
             return;
         }
         try {
             state.sourceDetection = await api('/api/source-detection');
+            state.sourceDetectionAbsence = '';
         } catch (error) {
             state.sourceDetection = null;
+            state.sourceDetectionAbsence = 'The source-detection read failed, so the active source is not known to this screen.';
         }
+        renderSourceBanner();
         renderPowerFlow();
+    }
+
+    /* ------------------------------------------------------- active power source
+     *
+     * GRID or GENERATOR changes what the controller is allowed to do, so the
+     * dashboard states it in one word rather than leaving it to be inferred from
+     * a generator node in the flow diagram. Every string below comes from
+     * PvdgSourceDetectionUtils (web/source-detection.js), which is pure and
+     * property-tested: it renders a confident identity only when the firmware
+     * has actually resolved one, and UNKNOWN whenever it is fail-closed,
+     * debouncing, unconfigured, stale, in conflict, or silent. This function
+     * does not decide any of that; it only writes what it is handed. */
+    function renderSourceBanner() {
+        if (!byId('sourceBanner')) return;
+        const utils = window.PvdgSourceDetectionUtils;
+        if (!utils) return;
+        const view = utils.describeSourceDetection(state.sourceDetection);
+
+        setText('sourceBannerLabel', view.sourceLabel);
+        setTone('sourceBannerLabel', view.sourceTone);
+        setBadge('sourceBannerBadge', view.qualityLabel,
+            view.confident ? (view.sourceTone === 'good' ? 'good' : 'warning') : 'bad');
+        setText('sourceBannerDetail',
+            view.present ? view.detail : (state.sourceDetectionAbsence || view.detail));
+        setText('sourceBannerQuality', view.qualityLabel);
+        setText('sourceBannerConsequence', view.controlConsequence);
+        setTone('sourceBannerConsequence', view.confident && view.state === 'grid' ? 'good' : view.confident ? 'warning' : 'bad');
+        setText('sourceBannerTariff', view.tariffLabel);
+
+        const consequenceDetail = byId('sourceBannerConsequenceDetail');
+        if (consequenceDetail) {
+            writeText(consequenceDetail, view.controlConsequenceDetail);
+            writeClass(consequenceDetail, view.confident && view.state === 'grid' ? 'notice safe' : 'notice warning');
+        }
+        /* The firmware's own sentences, or nothing at all. They are never
+         * paraphrased and never replaced with a friendlier summary. */
+        const reason = byId('sourceBannerReason');
+        if (reason) {
+            writeText(reason, view.reasonText);
+            if (reason.hidden !== !view.reasonText) reason.hidden = !view.reasonText;
+        }
+        const limitation = byId('sourceBannerLimitation');
+        if (limitation) {
+            writeText(limitation, view.limitationText);
+            if (limitation.hidden !== !view.limitationText) limitation.hidden = !view.limitationText;
+        }
     }
 
     function renderControllerUnavailable() {
