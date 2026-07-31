@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createServer } from 'node:net';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const EXPERIENCE_JS = readFileSync(join(ROOT, 'web/product-experience-v2.js'), 'utf8');
@@ -18,24 +19,31 @@ for (const candidate of browserCandidates) {
 if (!browser) throw new Error(`No Chromium-family browser found (${browserCandidates.join(', ')})`);
 
 const profile = mkdtempSync(join(tmpdir(), 'pvdg-ui-browser-'));
+const port = await new Promise((resolvePromise, reject) => {
+  const server = createServer();
+  server.once('error', reject);
+  server.listen(0, '127.0.0.1', () => {
+    const address = server.address();
+    server.close((error) => error ? reject(error) : resolvePromise(address.port));
+  });
+});
 const chrome = spawn(browser, [
   '--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
-  '--no-first-run', '--remote-allow-origins=*', '--remote-debugging-port=0',
-  `--user-data-dir=${profile}`, 'about:blank'
+  '--no-first-run', '--remote-allow-origins=*', '--remote-debugging-address=127.0.0.1',
+  `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, 'about:blank'
 ], { stdio: 'ignore' });
 
 const sleep = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
 async function waitForPort() {
-  const file = join(profile, 'DevToolsActivePort');
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  for (let attempt = 0; attempt < 160; attempt += 1) {
     try {
-      const [port] = readFileSync(file, 'utf8').trim().split(/\s+/);
-      if (port) return Number(port);
+      const response = await fetch(`http://127.0.0.1:${port}/json/version`);
+      if (response.ok) return;
     } catch { /* browser is starting */ }
     if (chrome.exitCode != null) throw new Error(`Browser exited before DevTools started (${chrome.exitCode})`);
     await sleep(50);
   }
-  throw new Error('Timed out waiting for the browser DevTools port');
+  throw new Error(`Timed out waiting for browser DevTools on port ${port}`);
 }
 
 class Cdp {
@@ -92,7 +100,7 @@ const html = `<!doctype html><html data-access="operator"><head><meta charset="u
 let cdp;
 let target;
 try {
-  const port = await waitForPort();
+  await waitForPort();
   const response = await fetch(`http://127.0.0.1:${port}/json/new?${encodeURIComponent('about:blank')}`, { method: 'PUT' });
   assert(response.ok, `Could not create browser target (${response.status})`);
   target = await response.json();
@@ -147,7 +155,6 @@ try {
   try { cdp?.close(); } catch { /* best effort */ }
   if (target?.id) {
     try {
-      const [port] = readFileSync(join(profile, 'DevToolsActivePort'), 'utf8').trim().split(/\s+/);
       await fetch(`http://127.0.0.1:${port}/json/close/${target.id}`);
     } catch { /* best effort */ }
   }
