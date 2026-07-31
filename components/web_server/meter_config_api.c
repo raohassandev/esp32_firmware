@@ -180,6 +180,15 @@ static bool parse_meter(cJSON *object, const meter_config_t *current,
                            index, error, error_size)) return false;
     next->role = (uint8_t)value;
 
+    /* Which measurement the grid policy is enforced on. Commissioning data: it
+     * decides whether an export limit holds on the worst conductor or only on
+     * the sum, and on an unbalanced site those are different guarantees. */
+    value = next->phase_control_basis;
+    if (!read_optional_u32(object, "phase_basis", METER_PHASE_BASIS_LOWEST_PHASE,
+                           (uint32_t)METER_PHASE_BASIS_COUNT - 1U, &value,
+                           index, error, error_size)) return false;
+    next->phase_control_basis = value;
+
     if (next->role == METER_ROLE_GENERATOR) {
         value = next->generator_index < APP_MAX_GENERATORS ? next->generator_index : 0U;
         if (!read_optional_u32(object, "generator_index", 0, APP_MAX_GENERATORS - 1U, &value,
@@ -431,6 +440,10 @@ static esp_err_t meters_config_get(httpd_req_t *request)
         cJSON_AddNumberToObject(item, "timeout_ms", (double)meter->endpoint.timeout_ms);
         cJSON_AddNumberToObject(item, "model", (double)meter->model);
         cJSON_AddNumberToObject(item, "role", meter->role);
+        cJSON_AddNumberToObject(item, "phase_basis", (double)meter->phase_control_basis);
+        cJSON_AddStringToObject(item, "phase_basis_name",
+                                meter->phase_control_basis == METER_PHASE_BASIS_TOTAL
+                                    ? "total" : "lowest_phase");
         if (meter->role == METER_ROLE_GENERATOR &&
             meter->generator_index < APP_MAX_GENERATORS) {
             cJSON_AddNumberToObject(item, "generator_index", meter->generator_index);

@@ -5,7 +5,7 @@
 #include "modbus_types.h"
 
 #define APP_CONFIG_MAGIC 0x50564447u
-#define APP_CONFIG_VERSION 6u
+#define APP_CONFIG_VERSION 7u
 /* Core reserved for deterministic work: the control loop and the meter
  * acquisition tasks are pinned here, leaving the other core for the Wi-Fi stack,
  * lwIP and the HTTP server.
@@ -149,6 +149,23 @@ typedef struct {
     bool valid;
 } meter_role_assignment_t;
 
+/* Which measurement the grid policy is enforced on.
+ *
+ * LOWEST_PHASE is the default because it is the stricter guarantee: a limit that
+ * holds on the worst conductor holds on all three, and the reverse is not true.
+ * A site that genuinely wants the total -- balanced load, or a utility that
+ * meters only the sum -- says so explicitly. Defaulting the other way would mean
+ * a site silently getting the weaker guarantee it did not ask for.
+ *
+ * Falling back to the total when per-phase evidence is incomplete is a RUNTIME
+ * decision made in phase_selection_evaluate(), and it is reported rather than
+ * silently substituted. It is not this field changing. */
+typedef enum {
+    METER_PHASE_BASIS_LOWEST_PHASE = 0,
+    METER_PHASE_BASIS_TOTAL = 1,
+    METER_PHASE_BASIS_COUNT
+} meter_phase_basis_t;
+
 typedef struct {
     bool enabled;
     char name[24];
@@ -176,6 +193,25 @@ typedef struct {
      * config_manager.c is what actually enforces that and will fail the build if
      * this is ever narrowed. */
     uint32_t model;           /* meter_model_t */
+    /* Appended in schema 7.
+     *
+     * WHICH MEASUREMENT THE GRID POLICY IS ENFORCED ON. A three-phase site is
+     * rarely balanced, and a limit enforced on the TOTAL can be satisfied while
+     * one phase exports -- the total reads zero, the utility's per-phase meter
+     * does not. The engineer states which basis this site needs.
+     *
+     * 32 bits for the same reason model is: migration dispatches on the stored
+     * blob SIZE, and a narrower field would be absorbed by tail padding, leaving
+     * schema 6 and 7 the same size and a commissioned schema-6 blob loading as
+     * schema 7 with a basis made of padding bytes. The _Static_assert in
+     * config_manager.c fails the build if this is ever narrowed.
+     *
+     * The per-phase register addresses are NOT stored here. They come from the
+     * meter profile for this model, so there is one statement of a family's
+     * register map rather than a copy per commissioned meter that can drift from
+     * it. A model with no transcribed map therefore cannot do per-phase control,
+     * which is the honest outcome: nothing knows where its phases are. */
+    uint32_t phase_control_basis; /* meter_phase_basis_t */
 } meter_config_t;
 
 typedef struct {

@@ -131,15 +131,47 @@ require("uint32_t model;" in CONFIG_TYPES,
         "so that schema 6 is a different blob size from schema 5; a narrower field "
         "is absorbed by the existing tail padding and the two schemas become "
         "indistinguishable on load")
-require("#define APP_CONFIG_VERSION 6u" in CONFIG_TYPES,
-        "adding a persisted field must bump the configuration schema version")
+# The version is checked as a FLOOR, not as a literal. Pinning the exact number
+# made this contract fail every time a later schema was added for an unrelated
+# reason -- which is noise, not a finding, and noise in a safety contract trains
+# people to edit the contract rather than read it. What actually matters is that
+# the model field arrived no earlier than schema 6 and that the chain of
+# size-discrimination asserts is unbroken; both are checked below.
+version = re.search(r"#define APP_CONFIG_VERSION (\d+)u", CONFIG_TYPES)
+require(version is not None, "APP_CONFIG_VERSION is not defined")
+if version is not None:
+    require(int(version.group(1)) >= 6,
+            "adding a persisted field must bump the configuration schema version")
 
-# The size-discrimination invariant, which is what makes the migration safe.
-require(re.search(r"_Static_assert\( ?sizeof\(app_config_t\) > "
-                  r"sizeof\(legacy_app_config_v5_t\)", CONFIG_MANAGER),
-        "schema 6 must be asserted strictly larger than the frozen schema 5 layout, "
-        "or a commissioned schema-5 blob would load as schema 6 and every meter "
-        "would acquire a model value out of padding bytes")
+# The size-discrimination invariant, which is what makes every migration safe.
+#
+# Checked as a CHAIN rather than for one pair: each frozen legacy layout must be
+# asserted strictly larger than the one before it, and the live struct strictly
+# larger than the newest frozen one. A single missing link is the whole defect --
+# two schemas the same size means a commissioned blob of the older one loads as
+# the newer, with the appended field made of padding bytes. For the model field
+# that is a meter acquiring a family it is not; for phase_control_basis it is a
+# site's export limit silently moving between the worst phase and the total.
+frozen = sorted(set(re.findall(r"legacy_app_config_v(\d+)_t", CONFIG_MANAGER)), key=int)
+require(len(frozen) >= 2, "fewer than two frozen legacy layouts were found")
+for older, newer in zip(frozen, frozen[1:]):
+    require(
+        re.search(r"_Static_assert\(\s*sizeof\(legacy_app_config_v" + newer +
+                  r"_t\)\s*>\s*sizeof\(legacy_app_config_v" + older + r"_t\)",
+                  CONFIG_MANAGER) is not None
+        or re.search(r"_Static_assert\(sizeof\(legacy_app_config_v" + newer +
+                     r"_t\) == sizeof\(legacy_app_config_v" + older +
+                     r"_t\) \+ sizeof", CONFIG_MANAGER) is not None,
+        f"schema {newer} is not asserted distinguishable from schema {older} by blob size",
+    )
+require(
+    re.search(r"_Static_assert\(\s*sizeof\(app_config_t\)\s*>\s*"
+              r"sizeof\(legacy_app_config_v" + frozen[-1] + r"_t\)",
+              CONFIG_MANAGER) is not None,
+    f"the live app_config_t is not asserted strictly larger than the newest frozen "
+    f"layout (schema {frozen[-1]}), so a commissioned blob of that schema could "
+    f"load as the current one with the appended field made of padding bytes",
+)
 require("legacy_meter_config_v5_t" in CONFIG_MANAGER and
         "legacy_app_config_v5_t" in CONFIG_MANAGER,
         "the schema 5 layout must be frozen locally, never derived from the live structs")

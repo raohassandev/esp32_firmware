@@ -183,6 +183,45 @@ typedef struct {
     uint32_t wifi_provision_id;
 } legacy_app_config_v5_t;
 
+
+/* SCHEMA 6, FROZEN. Identical to the live meter_config_t except that it stops
+ * before phase_control_basis. Frozen so a later growth of the live struct cannot
+ * change how a stored schema-6 blob is read. */
+typedef struct {
+    bool enabled;
+    char name[24];
+    modbus_endpoint_t endpoint;
+    uint8_t function_code;
+    uint16_t active_power_address;
+    modbus_data_type_t active_power_type;
+    modbus_word_order_t active_power_order;
+    float active_power_scale;
+    uint32_t poll_interval_ms;
+    uint8_t role;
+    uint8_t generator_index;
+    uint32_t model;
+} legacy_meter_config_v6_t;
+
+typedef struct {
+    uint32_t magic;
+    uint16_t version;
+    char device_name[32];
+    app_wifi_config_t wifi;
+    uint8_t meter_count;
+    legacy_meter_config_v6_t meters[APP_MAX_METERS];
+    uint8_t inverter_count;
+    inverter_config_t inverters[APP_MAX_INVERTERS];
+    control_config_t control;
+    uint32_t wifi_provision_id;
+} legacy_app_config_v6_t;
+
+/* The missing link in the chain, found by tests/phase_scope_source_contract.py
+ * once it started checking every adjacent pair rather than only the newest.
+ * Every other pair was asserted; schemas 1 and 2 never were. If they were the
+ * same size a commissioned schema-1 blob would load as schema 2 with the
+ * appended fields made of whatever followed in NVS. */
+_Static_assert(sizeof(legacy_app_config_v2_t) > sizeof(legacy_app_config_v1_t),
+               "schema 2 must stay distinguishable from schema 1 by blob size");
 _Static_assert(sizeof(legacy_app_config_v3_t) == sizeof(legacy_app_config_v2_t) + sizeof(uint32_t),
                "schema 2 must remain a byte-exact prefix of schema 3");
 _Static_assert(sizeof(legacy_app_config_v4_t) > sizeof(legacy_app_config_v3_t),
@@ -195,8 +234,16 @@ _Static_assert(sizeof(legacy_app_config_v5_t) > sizeof(legacy_app_config_v4_t),
  * commissioned schema-5 blob would load as schema 6 and every meter would silently
  * acquire whatever model value the padding bytes happened to hold. This assert
  * fails the build before that can ship. */
-_Static_assert(sizeof(app_config_t) > sizeof(legacy_app_config_v5_t),
+_Static_assert(sizeof(legacy_app_config_v6_t) > sizeof(legacy_app_config_v5_t),
                "schema 6 must stay distinguishable from schema 5 by blob size");
+/* THE ONE THAT CATCHES A NARROWED meter_config_t.phase_control_basis, for exactly
+ * the reason the model field needed one: a narrower field is absorbed by tail
+ * padding, sizeof(app_config_t) does not change, and a commissioned schema-6 blob
+ * then loads as schema 7 with every meter acquiring a control basis made of
+ * padding bytes -- which decides whether a site's export limit is enforced on the
+ * worst phase or on the total. */
+_Static_assert(sizeof(app_config_t) > sizeof(legacy_app_config_v6_t),
+               "schema 7 must stay distinguishable from schema 6 by blob size");
 
 static void defaults(app_config_t *c)
 {
@@ -779,6 +826,67 @@ esp_err_t config_manager_init(void)
             have_valid_config = err == ESP_OK && valid(loaded);
             stored_matches = have_valid_config;
             if (!have_valid_config) ESP_LOGW(TAG, "Stored configuration rejected by validation");
+        } else if (err == ESP_OK && stored_size == sizeof(legacy_app_config_v6_t)) {
+            /* Schema 6 to 7: the only new fact is meter_config_t.phase_control_basis,
+             * and unlike the model it CAN be defaulted safely, because both values
+             * are legitimate configurations rather than one being "unknown".
+             *
+             * It migrates to LOWEST_PHASE, the stricter of the two: a limit that
+             * holds on the worst conductor holds on all three. An upgraded unit
+             * therefore gets a tighter guarantee than it had, never a looser one,
+             * and where the per-phase registers are not known the runtime selection
+             * falls back to the total and says so. Defaulting to TOTAL would have
+             * silently given every upgraded site the weaker guarantee.
+             *
+             * Nothing else changes, so the commissioning gate does not close and no
+             * site has to be re-commissioned for this upgrade. */
+            legacy_app_config_v6_t *legacy = malloc(sizeof(*legacy));
+            if (!legacy) {
+                nvs_close(h);
+                free(loaded);
+                return ESP_ERR_NO_MEM;
+            }
+            size_t size = sizeof(*legacy);
+            if (nvs_get_blob(h, KEY, legacy, &size) == ESP_OK &&
+                legacy->magic == APP_CONFIG_MAGIC && legacy->version == 6) {
+                loaded->magic = legacy->magic;
+                loaded->version = APP_CONFIG_VERSION;
+                strlcpy(loaded->device_name, legacy->device_name, sizeof(loaded->device_name));
+                loaded->wifi = legacy->wifi;
+                loaded->meter_count = legacy->meter_count <= APP_MAX_METERS
+                                          ? legacy->meter_count : APP_MAX_METERS;
+                for (uint8_t n = 0; n < APP_MAX_METERS; ++n) {
+                    /* Field by field from the FROZEN layout, never memcpy'd: the
+                     * live struct is longer, and a bulk copy sized by it would read
+                     * past the end of the stored blob. */
+                    loaded->meters[n].enabled = legacy->meters[n].enabled;
+                    strlcpy(loaded->meters[n].name, legacy->meters[n].name,
+                            sizeof(loaded->meters[n].name));
+                    loaded->meters[n].endpoint = legacy->meters[n].endpoint;
+                    loaded->meters[n].function_code = legacy->meters[n].function_code;
+                    loaded->meters[n].active_power_address = legacy->meters[n].active_power_address;
+                    loaded->meters[n].active_power_type = legacy->meters[n].active_power_type;
+                    loaded->meters[n].active_power_order = legacy->meters[n].active_power_order;
+                    loaded->meters[n].active_power_scale = legacy->meters[n].active_power_scale;
+                    loaded->meters[n].poll_interval_ms = legacy->meters[n].poll_interval_ms;
+                    loaded->meters[n].role = legacy->meters[n].role;
+                    loaded->meters[n].generator_index = legacy->meters[n].generator_index;
+                    loaded->meters[n].model = legacy->meters[n].model;
+                    loaded->meters[n].phase_control_basis = METER_PHASE_BASIS_LOWEST_PHASE;
+                }
+                loaded->inverter_count = legacy->inverter_count <= APP_MAX_INVERTERS
+                                             ? legacy->inverter_count : APP_MAX_INVERTERS;
+                memcpy(loaded->inverters, legacy->inverters, sizeof(loaded->inverters));
+                loaded->control = legacy->control;
+                loaded->control.enabled = false; /* an upgrade never arms control */
+                loaded->wifi_provision_id = legacy->wifi_provision_id;
+                have_valid_config = valid(loaded);
+                if (have_valid_config) {
+                    ESP_LOGW(TAG, "Migrated configuration schema 6 -> 7; every meter "
+                                  "defaults to lowest-phase control basis");
+                }
+            }
+            free(legacy);
         } else if (err == ESP_OK && stored_size == sizeof(legacy_app_config_v5_t)) {
             /* Schema 5 to 6: the only new fact is meter_config_t.model, and it is
              * not derivable from anything schema 5 stored. Every meter therefore
