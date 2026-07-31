@@ -127,7 +127,28 @@
         item.innerHTML = FLOW_ARROWS[direction] || FLOW_ARROWS.unknown;
         return item;
     }
-    function finite(value) { return Number.isFinite(Number(value)); }
+    /* SAFETY-RELEVANT. "Is this a measurement?" - not "does JavaScript have a
+     * number for it".
+     *
+     * This used to be Number.isFinite(Number(value)), and Number(null) is 0.
+     * So was Number(''), Number(false) and Number([]). Every one of those is the
+     * controller saying "this quantity was not measured", and every one of them
+     * was accepted as a reading and then printed as 0.00. It was visible on the
+     * live device: /api/inverters returns measured_power_kw: null for an
+     * inverter that is not enabled, and the fleet table printed "0.00 kW" and
+     * "0%" for it - an inverter nobody was measuring, presented as an inverter
+     * measured to be producing nothing.
+     *
+     * On a controller whose purpose is preventing reverse power, an unmeasured
+     * quantity drawn as zero is the failure mode the whole product exists to
+     * avoid, so the test is the same one web/pvdg-chart.js measured() applies to
+     * every sample it plots: null, undefined, empty string and booleans are not
+     * measurements, whatever they coerce to. */
+    function finite(value) {
+        if (value === null || value === undefined || value === '') return false;
+        if (typeof value === 'boolean') return false;
+        return Number.isFinite(Number(value));
+    }
     function clamp(value, min, max) { return Math.min(max, Math.max(min, Number(value) || 0)); }
     function formatPower(value) {
         if (!finite(value)) return '—';
@@ -136,6 +157,14 @@
         return `${n.toFixed(digits)} kW`;
     }
     function formatPercent(value) { return finite(value) ? `${clamp(value, 0, 100).toFixed(0)}%` : '—'; }
+    /* A bare number at the product's usual precision. Unmeasured is "—", never
+     * 0 and never a blank that could be mistaken for a zero that failed to
+     * render. */
+    function formatValue(value) {
+        if (!finite(value)) return '—';
+        const n = Number(value);
+        return n.toFixed(Math.abs(n) >= 100 ? 1 : 2);
+    }
     function formatAge(value) {
         const n = Number(value);
         if (!Number.isFinite(n) || n < 0) return 'No sample';
@@ -200,23 +229,186 @@
         return state.attentionHost;
     }
 
-    /* An unmeasured quantity draws NO value arc and reads "—". It used to fall
-     * back to Number(value) || 0, which drew the needle hard against the bottom
-     * of the scale - visually identical to a genuine zero. On a controller whose
-     * purpose is preventing reverse power, "nothing is measuring this" and "this
-     * is zero" are the two readings that must never look alike. */
-    function gauge(value, max, title, unit, tone = 'good') {
-        const known = finite(value);
-        const safeMax = Math.max(1, Number(max) || 1);
-        const ratio = known ? clamp((Math.abs(Number(value)) / safeMax) * 100, 0, 100) : 0;
-        const circumference = 251.2;
-        const offset = circumference - (circumference * ratio / 100);
-        const wrap = node('div', `op-gauge ${tone}${known ? '' : ' op-gauge-unmeasured'}`);
-        const value_arc = known
-            ? `<path class="op-gauge-value" style="stroke-dashoffset:${offset}" d="M18 62a42 42 0 0 1 84 0"/>`
-            : '';
-        wrap.innerHTML = `<svg viewBox="0 0 120 72" role="img" aria-label="${title}"><path class="op-gauge-track" d="M18 62a42 42 0 0 1 84 0"/>${value_arc}</svg><div class="op-gauge-copy"><span>${title}</span><strong>${known ? Math.abs(Number(value)).toFixed(Math.abs(Number(value)) >= 100 ? 1 : 2) : '—'}</strong><small>${known ? unit : 'Not measured'}</small></div>`;
+    /* ------------------------------------------------------- measurement bar
+     *
+     * This replaces the semicircular gauge, and the reason is specific to this
+     * product rather than a matter of taste.
+     *
+     * The gauge spent a 220x140 box printing ONE number and one caption. On the
+     * grid-power page the same screen already carried current, minimum, average
+     * and peak under the trend chart, so the most valuable area on the page held
+     * the least information on it. Worse, it drew the ABSOLUTE value against an
+     * invented "1.2 x whatever is showing now" maximum. Two consequences follow
+     * from that, and both matter on a reverse-power controller:
+     *
+     *   - the scale moved as the reading moved, so the needle position meant
+     *     nothing between one refresh and the next; and
+     *   - zero export - the single boundary this whole controller exists to
+     *     defend - was not on the instrument at all, because taking |value|
+     *     folds import and export onto the same side.
+     *
+     * A horizontal scale fixes both, in 96px rather than 140px, and has room to
+     * carry what an operator actually needs: where the value is now, which way
+     * the power is going, where it has been over a named window, and where the
+     * limit is. Everything drawn is either a measurement or a stated limit;
+     * nothing is inferred.
+     *
+     * The unmeasured rule is unchanged and non-negotiable. When the quantity is
+     * not measured NO marker is drawn anywhere on the track, the track itself
+     * goes dashed, and the reading is "—" with the word "Not measured". The
+     * marker must never rest at the zero position, because a bar sitting at zero
+     * and a bar sitting at "nobody is watching" are the two readings that must
+     * never look alike. The same rule applies to the range statistics: a window
+     * with no measured sample in it draws no span and no average.
+     */
+
+    /* Position of a value on the drawn track, 0..100. Callers only ever pass
+     * finite values here; the unmeasured case is handled before this point. */
+    function trackPercent(value, scale) {
+        const span = scale.max - scale.min;
+        if (!(span > 0)) return 0;
+        return clamp(((Number(value) - scale.min) / span) * 100, 0, 100);
+    }
+
+    /* The bar and the chart under it must not disagree about the domain, so the
+     * axis comes from the chart's own niceScale when it is available. */
+    function measureScale(values, includeZero) {
+        const chart = window.PvdgChart;
+        const list = values.filter(finite).map(Number);
+        const low = list.length ? Math.min(...list) : 0;
+        const high = list.length ? Math.max(...list) : 1;
+        if (chart && typeof chart.niceScale === 'function') {
+            return chart.niceScale(low, high, { ticks: 4, includeZero: includeZero !== false });
+        }
+        const lo = includeZero === false ? low : Math.min(0, low);
+        const hi = includeZero === false ? high : Math.max(0, high);
+        return { min: lo, max: hi === lo ? lo + 1 : hi, ticks: [lo, hi] };
+    }
+
+    /* A marker label is centred on its tick, except near either end of the
+     * track, where centring would push half of it outside the card and clip it.
+     * "Zero export" sits at the extreme left whenever the site is importing
+     * hard, which is most of the time, so this is the normal case rather than an
+     * edge case. */
+    function measureMark(kind, at, label, title) {
+        const anchor = at < 12 ? ' anchor-start' : at > 88 ? ' anchor-end' : '';
+        const mark = node('span', `op-measure-mark kind-${kind}${anchor}`);
+        mark.style.left = `${at}%`;
+        if (label) mark.append(node('small', '', label));
+        if (title) mark.title = title;
+        return mark;
+    }
+
+    function measureStat(label, value) {
+        const cell = node('div', 'op-measure-stat');
+        cell.append(node('span', '', label), node('strong', '', value));
+        return cell;
+    }
+
+    /* spec:
+     *   label      what is being measured
+     *   value      the live reading, or a non-finite value for "not measured"
+     *   unit       printed beside the reading when it is measured
+     *   tone       good | warning | bad, applied to the current-value marker
+     *   scale      { min, max } domain of the track
+     *   signed     true when the track is bipolar and the negative half is
+     *              export - drawn hatched, exactly as the trend chart draws it
+     *   zeroLabel  what the zero reference is called on this page
+     *   limits     [{ at, label, title }] stated operating limits
+     *   range      { available, rangeLabel, stats } from the shared history
+     *   direction  { flow, text } the arrow and its wording
+     *   note       one line under the bar, only when there is something to say
+     */
+    function measureBar(spec) {
+        const known = finite(spec.value);
+        const scale = spec.scale;
+        const range = spec.range && spec.range.available ? spec.range.stats : null;
+        const wrap = node('div', `op-measure ${spec.tone || ''}${known ? '' : ' op-measure-unmeasured'}`);
+
+        const head = node('div', 'op-measure-head');
+        head.append(node('span', 'op-measure-label', spec.label));
+        if (spec.direction) {
+            const dir = node('span', 'op-measure-direction');
+            dir.append(arrow(spec.direction.flow), node('span', '', spec.direction.text));
+            wrap.append(head);
+            head.append(dir);
+        } else {
+            wrap.append(head);
+        }
+
+        const reading = node('div', 'op-measure-reading');
+        reading.append(node('strong', '', known ? formatValue(spec.value) : '—'));
+        reading.append(node('span', 'op-measure-unit', known
+            ? String(spec.unit || '')
+            : stateWord('dataQuality', 'unavailable', 'Unavailable')));
+        wrap.append(reading);
+
+        const track = node('div', 'op-measure-track');
+        /* The export half of a signed scale, hatched. Same meaning and same
+         * visual language as the shaded export region on the trend chart, so
+         * "below zero" reads identically on both instruments. */
+        if (spec.signed && scale.min < 0) {
+            const negative = node('span', 'op-measure-negative');
+            negative.style.width = `${trackPercent(0, scale)}%`;
+            track.append(negative);
+        }
+        /* Where the quantity has been over the window the chart below covers.
+         * Drawn only when that window actually contains measured samples. */
+        if (range) {
+            const band = node('span', 'op-measure-span');
+            const from = trackPercent(range.min, scale);
+            const to = trackPercent(range.max, scale);
+            band.style.left = `${from}%`;
+            band.style.width = `${Math.max(0.6, to - from)}%`;
+            band.title = `Measured range over the last ${spec.range.rangeLabel}`;
+            track.append(band);
+        }
+        if (spec.signed) {
+            track.append(measureMark('zero', trackPercent(0, scale), spec.zeroLabel || 'Zero',
+                'The boundary the controller exists to defend'));
+        }
+        (spec.limits || []).forEach((limit) => {
+            if (!finite(limit.at)) return;
+            track.append(measureMark('limit', trackPercent(limit.at, scale), limit.label, limit.title));
+        });
+        if (range && finite(range.average)) {
+            track.append(measureMark('average', trackPercent(range.average, scale), '',
+                `Average over the last ${spec.range.rangeLabel}`));
+        }
+        /* No value marker at all when the quantity is not measured. */
+        if (known) {
+            const now = node('span', 'op-measure-now');
+            now.style.left = `${trackPercent(spec.value, scale)}%`;
+            track.append(now);
+        }
+        wrap.append(track);
+
+        const axis = node('div', 'op-measure-axis');
+        axis.append(node('span', '', formatValue(scale.min)), node('span', '', formatValue(scale.max)));
+        wrap.append(axis);
+
+        /* Current / minimum / average / peak over a NAMED window. An absent
+         * figure prints "—", never 0. */
+        const stats = node('div', 'op-measure-stats');
+        stats.append(measureStat('Now', known ? `${formatValue(spec.value)} ${spec.unit || ''}`.trim() : '—'));
+        stats.append(measureStat('Minimum', range ? `${formatValue(range.min)} ${spec.unit || ''}`.trim() : '—'));
+        stats.append(measureStat('Average', range ? `${formatValue(range.average)} ${spec.unit || ''}`.trim() : '—'));
+        stats.append(measureStat('Peak', range ? `${formatValue(range.max)} ${spec.unit || ''}`.trim() : '—'));
+        wrap.append(stats);
+
+        const window_ = spec.range && spec.range.rangeLabel;
+        wrap.append(node('small', 'op-measure-window', range
+            ? `Minimum, average and peak over the last ${window_}, from measured samples only.`
+            : `No measured sample in the last ${window_ || 'selected window'}. Nothing is plotted on the scale — this is not zero.`));
+        if (spec.note) wrap.append(node('small', 'op-measure-note', spec.note));
         return wrap;
+    }
+
+    function rangeFor(key) {
+        const ops = window.AutomatrixOperations;
+        return ops && typeof ops.rangeStats === 'function'
+            ? ops.rangeStats(key)
+            : { available: false, rangeLabel: null, stats: null };
     }
 
     /* Label, value, and at most one status line - and the status line is omitted
@@ -243,23 +435,34 @@
         return row;
     }
 
-    /* One line of page identity at most. The shell already prints the page name,
-     * the breadcrumb and the document title from the route table, so a heading
-     * that repeats it is the third copy of the same word. Where this screen has
-     * nothing to add, it passes an empty title and gets only the refresh action. */
-    function sectionHeader(title, subtitle, actionLabel = '') {
+    /* One line of page identity at most, and NOTHING when there is nothing to
+     * say. The shell already prints the page name, the breadcrumb and the
+     * document title from the route table, so a heading that repeats it is the
+     * third copy of the same word.
+     *
+     * This used to be called with an empty title purely to carry a Refresh
+     * button, which produced a full-width 48px flex row holding one control and
+     * an empty div on every operator route. Measured at 1440x900 that was a
+     * 94px band of nothing between the top bar and the first card with a lone
+     * button floating in it - the largest single piece of dead space in the
+     * product. The manual refresh has not been removed: it is bound to the
+     * shell's existing top-bar refresh control instead, where a global action
+     * belongs, and the screen still re-reads the controller every five seconds
+     * on its own. A header with no title now returns null and is not appended. */
+    function sectionHeader(title, subtitle) {
+        if (!title && !subtitle) return null;
         const head = node('div', 'op-section-head');
         const copy = node('div');
         if (title) copy.append(node('h3', '', title));
         if (subtitle) copy.append(node('p', '', subtitle));
         head.append(copy);
-        if (actionLabel) {
-            const button = node('button', 'button secondary op-refresh', actionLabel);
-            button.type = 'button';
-            button.addEventListener('click', refreshAll);
-            head.append(button);
-        }
         return head;
+    }
+
+    /* append() ignores null, so a page can pass an optional header straight
+     * through without every caller testing for it. */
+    function appendAll(view, ...children) {
+        children.filter(Boolean).forEach((child) => view.append(child));
     }
 
     function ensureView(pageName, id, afterSelector = '.page-intro') {
@@ -408,7 +611,6 @@
                 : stateWord('commissioning', 'notConfigured', 'Not configured');
 
         view.replaceChildren();
-        view.append(sectionHeader('', '', 'Refresh'));
         /* operator-operations.js fills this: it holds the alarm and event data. */
         view.append(attentionHost());
         view.append(flowCard(payload));
@@ -434,9 +636,14 @@
 
     /* --------------------------------------------------------------- grid power
      *
-     * Current power and direction at the top; the range statistics (average and
-     * peak demand) come from the one shared chart below, which is where they are
-     * measured over a stated window rather than guessed from the live sample. */
+     * Current power, direction, and where the exchange has been over the window
+     * the chart below is drawing - on one signed scale that has zero export on
+     * it, because zero export is the boundary this controller exists to defend.
+     *
+     * The gauge that used to occupy this position showed |value| against a
+     * maximum recomputed from the live reading on every refresh. It could not
+     * show which side of zero the plant was on and its needle position was not
+     * comparable between two refreshes. See measureBar() for the full note. */
     function renderMeter(payload) {
         const view = byId('operatorMeterView');
         if (!view) return;
@@ -446,20 +653,32 @@
         const runtime = primary?.runtime || {};
         const power = finite(status.grid_power_kw) ? Number(status.grid_power_kw) : runtime.active_power_kw;
         const online = runtime.online === true || (status.meter_online && !status.meter_stale);
-        const trendMax = Math.max(100, Math.abs(Number(power) || 0)) * 1.2;
         const direction = finite(power)
             ? (power > 0.01 ? 'Importing from the utility' : power < -0.01 ? 'Exporting to the utility' : 'Near-zero exchange')
             : stateWord('dataQuality', 'unavailable', 'Unavailable');
         const flow = finite(power) ? (power > 0.01 ? 'in' : power < -0.01 ? 'out' : 'balanced') : 'unknown';
+        const range = rangeFor('grid_kw');
+        const figures = range.available ? range.stats : null;
+        /* The domain covers the live reading and everything the window has held,
+         * and always contains zero so import and export stay on opposite,
+         * labelled sides. Nothing about it moves with the reading alone. */
+        const scale = measureScale([power, figures?.min, figures?.max], true);
 
         view.replaceChildren();
-        view.append(sectionHeader('Electrical supply status', '', 'Refresh'));
         const overview = node('div', 'op-meter-overview');
-        const gaugeCard = node('article', 'op-card op-gauge-card');
-        const heading = node('div', 'op-direction');
-        heading.append(arrow(flow), node('span', '', direction));
-        gaugeCard.append(gauge(power, trendMax, 'Grid power', 'kW', online ? 'good' : 'bad'), heading);
-        if (!online) gaugeCard.append(node('small', '', 'No current measurement. Automatic control cannot use this value.'));
+        const measureCard = node('article', 'op-card op-measure-card');
+        measureCard.append(measureBar({
+            label: 'Grid power at the point of common coupling',
+            value: power,
+            unit: 'kW',
+            tone: online ? 'good' : 'bad',
+            scale,
+            signed: true,
+            zeroLabel: 'Zero export',
+            range,
+            direction: { flow, text: direction },
+            note: online ? '' : 'No current measurement. Automatic control cannot use this value.'
+        }));
         const stateCard = node('article', 'op-card op-readiness-card');
         /* Merge note: the vocabulary helpers (stateWord, measurementQuality) come from
          * the terminology work; the structural change -- no local trend card, mount the
@@ -471,10 +690,13 @@
             statusLine('clock', 'Data quality', measurementQuality(status),
                 `Last sample ${formatAge(runtime.data_age_ms ?? status.meter_age_ms)}`,
                 online ? 'good' : 'bad'));
-        overview.append(gaugeCard, stateCard);
-        view.append(overview, chartHost());
-
-        view.append(meterTable(meters));
+        overview.append(measureCard, stateCard);
+        /* The table before the chart. The trend chart is 500px tall, so with the
+         * table under it the dense, scannable answer to "which meter stopped"
+         * was two screens down while a chart the operator had not asked for held
+         * the fold. The chart is unchanged and still on the page; it is simply
+         * no longer between the reader and the list. */
+        view.append(overview, meterTable(meters), chartHost());
     }
 
     /* Compact availability table: what is metering this site, is it talking, what
@@ -531,21 +753,128 @@
         const telemetryMap = new Map((telemetry.inverters || []).map((item) => [Number(item.index), item]));
         const production = Number(telemetry.summary?.telemetry_valid) > 0 ? Number(telemetry.summary.measured_total_kw) : NaN;
         const installed = Number(summary.configured_rated_kw) || 0;
-        const availability = Number(summary.enabled) > 0 ? (Number(summary.online) / Number(summary.enabled)) * 100 : 0;
         const utilization = installed > 0 && finite(production) ? (production / installed) * 100 : NaN;
+        const productionRange = rangeFor('solar_kw');
 
         view.replaceChildren();
-        view.append(sectionHeader('Inverter fleet status', '', 'Refresh'));
         const top = node('div', 'op-inverter-overview');
-        const productionCard = node('article', 'op-card op-gauge-card');
-        productionCard.append(gauge(production, installed || 1, 'Solar production', 'kW', finite(production) ? 'good' : 'warning'),
-            node('strong', 'op-direction', finite(production) ? `${formatPercent(utilization)} of installed capacity` : stateWord('dataQuality', 'unavailable', 'Unavailable')));
-        const availabilityCard = node('article', 'op-card op-gauge-card');
-        availabilityCard.append(gauge(availability, 100, 'Fleet availability', '%', availability >= 99 ? 'good' : availability > 0 ? 'warning' : 'bad'),
-            node('strong', 'op-direction', `${Number(summary.online) || 0} of ${Number(summary.enabled) || 0} online`));
-        top.append(productionCard, availabilityCard);
-        view.append(top, chartHost());
-        view.append(inverterTable(inverters, telemetryMap));
+
+        /* Production: a one-sided scale from zero to the installed capacity,
+         * with the rated limit drawn as a stated limit rather than as the end of
+         * an invented range. Unmeasured stays unmeasured - no marker anywhere on
+         * the track and no percentage of capacity claimed. */
+        const productionCard = node('article', 'op-card op-measure-card');
+        productionCard.append(measureBar({
+            label: 'Solar production, measured at the inverters',
+            value: production,
+            unit: 'kW',
+            tone: finite(production) ? 'good' : 'warning',
+            scale: measureScale([0, installed || 1, production, productionRange?.stats?.max], false),
+            signed: false,
+            range: productionRange,
+            limits: installed > 0
+                ? [{ at: installed, label: `${formatValue(installed)} installed`, title: 'Total rated capacity of every configured inverter' }]
+                : [],
+            note: finite(production) && installed > 0
+                ? `${formatPercent(utilization)} of installed capacity.`
+                : ''
+        }));
+        top.append(productionCard, fleetCard(summary, inverters));
+        /* Same ordering as Grid power, for the same reason: "is anything down"
+         * is answered by the table, and it was below a 500px chart. */
+        view.append(top, inverterTable(inverters, telemetryMap), chartHost());
+    }
+
+    /* ------------------------------------------------------ fleet composition
+     *
+     * This replaces a semicircular "Fleet availability" gauge that read
+     * "0.00 % / 0 of 0 online" on a site with one inverter configured and none
+     * enabled. It was the largest object on the page and it was wrong twice.
+     *
+     * It was wrong as INFORMATION: two hundred pixels to say nothing is running.
+     * It was wrong as a MEASUREMENT, which is the part that matters here. With
+     * no inverter enabled there is no availability figure to state - the
+     * denominator is zero - and "0.00 %" is a fabricated number that reads as
+     * "the fleet is entirely unavailable" when the truth is "no fleet has been
+     * commissioned yet". On a controller that curtails PV to protect a
+     * generator, a manufactured zero in the place where a measurement belongs
+     * is the same class of defect as an unmeasured power drawn as 0 kW, and it
+     * is refused for the same reason.
+     *
+     * What is drawn instead is the thing the operator and the commissioning
+     * engineer both actually need: how the configured inverters are accounted
+     * for right now, and how much capacity the controller can actually command.
+     * Commandable capacity is the number the control loop runs on - an inverter
+     * that is online but does not accept external control is not a lever - and
+     * it was nowhere on this screen before.
+     *
+     * A percentage is printed ONLY when there is a denominator for it. */
+    function fleetCard(summary, inverters) {
+        const configured = Array.isArray(inverters) ? inverters.length : 0;
+        const enabled = Number(summary.enabled) || 0;
+        const online = Number(summary.online) || 0;
+        const offline = Math.max(0, enabled - online);
+        const dormant = Math.max(0, configured - enabled);
+        const availability = enabled > 0 ? (online / enabled) * 100 : NaN;
+
+        const card = node('article', 'op-card op-fleet-card');
+        const head = node('div', 'op-measure-head');
+        head.append(node('span', 'op-measure-label', 'Inverter fleet'));
+        head.append(node('span', `op-state-pill ${online > 0 ? 'good' : enabled > 0 ? 'bad' : ''}`,
+            online > 0 ? stateWord('communication', 'online', 'Online')
+                : enabled > 0 ? stateWord('communication', 'offline', 'Offline')
+                : stateWord('commissioning', 'notConfigured', 'Not configured')));
+        card.append(head);
+
+        const reading = node('div', 'op-measure-reading');
+        /* The headline is a COUNT, which is always known, rather than a
+         * percentage, which is not. */
+        reading.append(node('strong', '', `${online} of ${enabled}`));
+        reading.append(node('span', 'op-measure-unit', 'answering'));
+        card.append(reading);
+
+        /* One stacked bar over the configured population. Every configured
+         * inverter is in exactly one segment, so the bar is always full and its
+         * proportions are counts rather than a derived ratio. */
+        const bar = node('div', 'op-fleet-bar');
+        [['online', online, stateWord('communication', 'online', 'Online')],
+         ['offline', offline, stateWord('communication', 'offline', 'Offline')],
+         ['dormant', dormant, stateWord('commissioning', 'notConfigured', 'Not configured')]
+        ].forEach(([kind, count, word]) => {
+            if (count <= 0) return;
+            const part = node('span', `op-fleet-part kind-${kind}`);
+            part.style.width = `${(count / Math.max(1, configured)) * 100}%`;
+            part.title = `${count} ${word}`;
+            bar.append(part);
+        });
+        if (!configured) bar.classList.add('op-fleet-empty');
+        card.append(bar);
+
+        const legend = node('div', 'op-fleet-legend');
+        [['online', online, stateWord('communication', 'online', 'Online')],
+         ['offline', offline, stateWord('communication', 'offline', 'Offline')],
+         ['dormant', dormant, stateWord('commissioning', 'notConfigured', 'Not configured')]
+        ].forEach(([kind, count, word]) => {
+            const item = node('div', `op-fleet-key kind-${kind}`);
+            item.append(node('strong', '', String(count)), node('span', '', word));
+            legend.append(item);
+        });
+        card.append(legend);
+
+        /* Capacity accounting. Rated capacity is a commissioned constant and is
+         * always known; it is never confused with measured production. */
+        const stats = node('div', 'op-measure-stats');
+        stats.append(measureStat('Configured', `${formatValue(Number(summary.configured_rated_kw) || 0)} kW`));
+        stats.append(measureStat('Enabled', `${formatValue(Number(summary.enabled_rated_kw) || 0)} kW`));
+        stats.append(measureStat('Commandable', `${formatValue(Number(summary.commandable_rated_kw) || 0)} kW`));
+        /* The one figure that genuinely has no value when nothing is enabled. */
+        stats.append(measureStat('Answering', finite(availability) ? `${availability.toFixed(0)}%` : '—'));
+        card.append(stats);
+
+        card.append(node('small', 'op-measure-window', enabled > 0
+            ? 'Answering is the share of ENABLED inverters replying now. Commandable capacity is what automatic control can actually move.'
+            : 'No inverter is enabled, so there is no availability figure to state. Commandable capacity is what automatic control can actually move.'));
+        return card;
     }
 
     function inverterTable(inverters, telemetryMap) {
@@ -645,7 +974,6 @@
         const ready = authority.commanding && !actions.length;
 
         view.replaceChildren();
-        view.append(sectionHeader('', '', 'Refresh'));
 
         /* The heading is the controller's own mode_label and the sentence under
          * it is its own inhibit_reason. Rewriting either would be this screen
@@ -697,7 +1025,6 @@
         const status = payload.status || {};
         const alarms = Array.isArray(status.alarm_names) ? status.alarm_names : [];
         view.replaceChildren();
-        view.append(sectionHeader('', '', 'Refresh'));
         const card = node('article', 'op-card');
         card.append(node('div', 'op-card-headline', 'Controller'),
             statusLine('shield', 'Product', 'Automatrix PV-DG Controller', '', 'good'),
@@ -738,10 +1065,23 @@
         if (wifiLink) wifiLink.dataset.engineeringNav = 'true';
     }
 
+    /* The shell's top-bar refresh control is the one manual refresh in the
+     * product. It already existed and already refreshed the common controller
+     * status; this makes it refresh the operator screens too, so removing the
+     * per-page Refresh button removed a duplicate rather than a capability. The
+     * screen also re-reads the controller every five seconds by itself. */
+    function bindShellRefresh() {
+        const button = byId('refreshButton');
+        if (!button || button.dataset.operatorBound === 'true') return;
+        button.dataset.operatorBound = 'true';
+        button.addEventListener('click', () => { refreshAll(); });
+    }
+
     async function refreshAll() {
         if (!isOperator() || state.busy) return;
         state.busy = true;
-        document.querySelectorAll('.op-refresh').forEach((button) => { button.disabled = true; button.textContent = 'Refreshing…'; });
+        const shellRefresh = byId('refreshButton');
+        if (shellRefresh) shellRefresh.disabled = true;
         try {
             const [status, meters, inverters, inverterTelemetry] = await Promise.all([
                 api('/api/status'), api('/api/meters'), api('/api/inverters'), api('/api/inverter-telemetry')
@@ -760,7 +1100,7 @@
             }
         } finally {
             state.busy = false;
-            document.querySelectorAll('.op-refresh').forEach((button) => { button.disabled = false; button.textContent = 'Refresh'; });
+            if (shellRefresh) shellRefresh.disabled = false;
         }
     }
 
@@ -800,8 +1140,15 @@
         ensureViews();
         updateLanguage();
         hideLegacyOperatorContent();
+        bindShellRefresh();
         onRoute();
         window.addEventListener('hashchange', onRoute);
+        /* The measurement bars quote the same window the trend chart draws, and
+         * that window is owned by operator-operations.js. Redraw when it lands
+         * so the bar and the chart under it never disagree. The event is fired
+         * only when history arrives from the controller, never by a render, so
+         * this cannot re-enter. */
+        window.addEventListener('amx-operator-history', () => { renderCurrent(); });
         window.addEventListener('amx-site-telemetry', (event) => {
             state.siteTelemetry = event.detail || null;
             if (state.lastPayload) {

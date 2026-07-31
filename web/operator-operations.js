@@ -1164,6 +1164,17 @@
         return state.chart;
     }
 
+    /* The measurement bars above the chart quote the same window the chart is
+     * drawing, so they have to be told when that window changes - a range
+     * button, a poll, or a history error that invalidates the figures. This
+     * fires only on history arriving, never on a render, so it cannot loop with
+     * the operator view's own rebuild. */
+    function announceHistory() {
+        window.dispatchEvent(new CustomEvent('amx-operator-history', {
+            detail: { range: state.range, ok: !state.historyError }
+        }));
+    }
+
     function applyHistory() {
         const instance = state.chart;
         if (!instance) return;
@@ -1243,6 +1254,7 @@
             state.historyError = error?.message || 'Controller history is unavailable.';
         }
         applyHistory();
+        announceHistory();
     }
 
     async function refreshAll() {
@@ -1262,9 +1274,11 @@
              * counts a fault that cleared itself unacknowledged. */
             renderAlarmPage();
             scheduleEnhance();
+            announceHistory();
         } catch (error) {
             state.historyError = error?.message || 'Controller history is unavailable.';
             applyHistory();
+            announceHistory();
             console.warn('Operator history/events unavailable:', error);
         } finally {
             state.busy = false;
@@ -1305,6 +1319,39 @@
             refreshAlarms();
         }, 10000);
     }
+
+    /* ------------------------------------------------- shared range statistics
+     *
+     * This module already holds the controller's history, and web/pvdg-chart.js
+     * already knows how to turn it into honest statistics - measured samples
+     * only, an unmeasured sample counted as missing rather than as zero. The
+     * measurement bars on the grid-power and inverter pages need exactly those
+     * numbers over exactly the window the chart below them is drawing, so they
+     * read them from here instead of computing a second, quietly different set.
+     *
+     * Nothing is recomputed and no chart internals are reimplemented: this is a
+     * read-only view over state.history using PvdgChart's own pure functions.
+     * If the history has not arrived, or the range contains no measured sample,
+     * `available` is false and the caller must draw nothing rather than zero. */
+    function rangeStats(key) {
+        const chart = window.PvdgChart;
+        const info = chart && typeof chart.rangeInfo === 'function' ? chart.rangeInfo(state.range) : null;
+        const label = info ? info.label : String(state.range);
+        if (!chart || typeof chart.stats !== 'function' || !state.history) {
+            return { available: false, rangeLabel: label, stats: null };
+        }
+        const points = chart.toPoints(state.history.samples, key, { now: state.historyAt || Date.now() });
+        const figures = chart.stats(points);
+        return {
+            /* count is the number of MEASURED samples. Zero of them means this
+             * window has nothing to say, which is not the same as a flat zero. */
+            available: figures.count > 0,
+            rangeLabel: label,
+            stats: figures
+        };
+    }
+
+    window.AutomatrixOperations = Object.freeze({ rangeStats });
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
     else start();

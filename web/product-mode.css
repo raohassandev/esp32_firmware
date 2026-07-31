@@ -132,22 +132,83 @@ html[data-access="engineering"] #engineeringConsole { display: grid; }
 
 .op-two-column { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .op-three-column { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
-.op-meter-overview { display: grid; grid-template-columns: minmax(250px, .75fr) minmax(340px, 1.15fr) minmax(300px, .9fr); gap: 16px; }
-.op-inverter-overview { display: grid; grid-template-columns: repeat(2, minmax(240px, .7fr)) minmax(360px, 1.2fr); gap: 16px; }
-.op-gauge-card { display: grid; justify-items: center; align-content: center; text-align: center; }
-.op-gauge { position: relative; width: 220px; height: 140px; }
-.op-gauge svg { width: 100%; height: 100%; overflow: visible; }
-.op-gauge-track, .op-gauge-value { fill: none; stroke-width: 10; stroke-linecap: round; }
-.op-gauge-track { stroke: rgba(130,150,170,.16); }
-.op-gauge-value { stroke: var(--good); stroke-dasharray: 251.2; transition: stroke-dashoffset .45s ease; }
-.op-gauge.warning .op-gauge-value { stroke: var(--warning); }
-.op-gauge.bad .op-gauge-value { stroke: var(--bad); }
-.op-gauge-copy { position: absolute; inset: 42px 0 0; display: grid; justify-items: center; align-content: start; }
-.op-gauge-copy span { color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
-.op-gauge-copy strong { margin-top: 7px; font-size: 34px; line-height: 1; letter-spacing: -.04em; }
-.op-gauge-copy small { margin-top: 4px; color: var(--muted); }
-.op-direction { margin-top: -10px; font-size: 16px; }
-.op-gauge-card > small { margin-top: 7px; color: var(--muted); }
+/* Two columns, both filled. These grids used to declare THREE columns and only
+   ever receive two children, so the third track - 300px on Grid power, 360px on
+   Solar inverters - was reserved and left blank on every load. That is why a
+   wider viewport produced more whitespace rather than more information: the
+   extra width went into a column nothing was ever placed in. */
+.op-meter-overview { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(300px, .85fr); gap: 16px; align-items: start; }
+.op-inverter-overview { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+
+/* ------------------------------------------------------------ measurement bar
+ * Replaces the semicircular gauge. See the note above measureBar() in
+ * web/operator-view.js for why a signed horizontal scale is the correct
+ * instrument on a reverse-power controller and a semicircle is not. */
+.op-measure-card, .op-fleet-card { display: grid; align-content: start; }
+.op-measure { display: grid; gap: 9px; }
+.op-measure-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.op-measure-label { color: var(--muted); font-size: 11px; font-weight: 850; text-transform: uppercase; letter-spacing: .07em; }
+.op-measure-direction { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; }
+.op-measure-direction .op-flow-glyph { width: 26px; }
+.op-measure-reading { display: flex; align-items: baseline; gap: 8px; }
+.op-measure-reading strong { font-size: clamp(30px, 3.2vw, 42px); line-height: 1; letter-spacing: -.035em; font-variant-numeric: tabular-nums; }
+.op-measure-unit { color: var(--muted); font-size: 14px; font-weight: 800; }
+
+/* The track. 14px of bar carries the live value, the window the value has
+   occupied, the average, the zero-export reference and any stated limit. */
+.op-measure-track { position: relative; height: 14px; margin: 12px 0 0; border-radius: 999px; background: rgba(130,150,170,.16); }
+.op-measure-negative { position: absolute; inset: 0 auto 0 0; border-radius: 999px 0 0 999px;
+    background-image: repeating-linear-gradient(135deg, rgba(130,150,170,.42) 0 2px, transparent 2px 6px); }
+.op-measure-span { position: absolute; top: 3px; bottom: 3px; border-radius: 999px; background: var(--muted-2); opacity: .5; }
+.op-measure-now { position: absolute; top: -5px; bottom: -5px; width: 4px; margin-left: -2px; border-radius: 2px; background: var(--good); }
+.op-measure.warning .op-measure-now { background: var(--warning); }
+.op-measure.bad .op-measure-now { background: var(--bad); }
+.op-measure-mark { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: var(--line-strong); }
+.op-measure-mark.kind-zero { background: var(--text); }
+.op-measure-mark.kind-average { top: 1px; bottom: 1px; background: var(--panel); }
+.op-measure-mark.kind-limit { background: var(--warning); }
+.op-measure-mark small { position: absolute; top: -15px; left: 0; transform: translateX(-50%); white-space: nowrap;
+    color: var(--muted); font-size: 9px; font-weight: 850; letter-spacing: .05em; text-transform: uppercase; }
+/* Near either end the label would hang outside the card and be clipped. */
+.op-measure-mark.anchor-start small { transform: none; }
+.op-measure-mark.anchor-end small { left: auto; right: 0; transform: none; }
+.op-measure-axis { display: flex; justify-content: space-between; color: var(--muted-2); font-size: 10px; font-variant-numeric: tabular-nums; }
+
+.op-measure-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; padding-top: 10px; border-top: 1px solid var(--line-soft); }
+.op-measure-stat { display: grid; gap: 3px; min-width: 0; }
+.op-measure-stat span { color: var(--muted); font-size: 10px; font-weight: 850; text-transform: uppercase; letter-spacing: .06em; }
+.op-measure-stat strong { font-size: 14px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.op-measure-window, .op-measure-note { color: var(--muted); line-height: 1.45; }
+
+/* SAFETY-RELEVANT. An unmeasured quantity has NO marker anywhere on the track -
+   not at zero, not at the left end, nowhere - and the track itself goes dashed
+   so the absence is deliberate rather than a value that failed to paint. A bar
+   resting at zero and a bar with nothing to say must never look alike. */
+.op-measure-unmeasured .op-measure-track { background: transparent; border: 1px dashed var(--line-strong); }
+/* The em dash is set at reading size for a measured value; at 42px it reads as
+   a drawn rule rather than as an absent number, so an unmeasured reading drops
+   to label size and lets the word carry the meaning. */
+.op-measure-unmeasured .op-measure-reading strong { color: var(--muted-2); font-size: 22px; }
+.op-measure-unmeasured .op-measure-unit { color: var(--muted); font-weight: 850; letter-spacing: .06em; text-transform: uppercase; }
+
+/* ------------------------------------------------------- fleet composition
+ * Replaces the "Fleet availability" gauge. Every configured inverter falls in
+ * exactly one segment, so the bar is proportions of a COUNT and never a
+ * fabricated percentage - see fleetCard() in web/operator-view.js. */
+.op-fleet-card { gap: 9px; }
+.op-fleet-bar { display: flex; height: 14px; margin-top: 12px; border-radius: 999px; overflow: hidden; background: rgba(130,150,170,.16); }
+.op-fleet-part { display: block; height: 100%; }
+.op-fleet-part.kind-online { background: var(--good); }
+.op-fleet-part.kind-offline { background: var(--bad); }
+.op-fleet-part.kind-dormant { background-image: repeating-linear-gradient(135deg, rgba(130,150,170,.5) 0 2px, transparent 2px 6px); }
+.op-fleet-empty { border: 1px dashed var(--line-strong); background: transparent; }
+.op-fleet-legend { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.op-fleet-key { display: flex; align-items: baseline; gap: 6px; color: var(--muted); font-size: 11px; }
+.op-fleet-key strong { font-size: 15px; font-variant-numeric: tabular-nums; color: var(--text); }
+.op-fleet-key::before { content: ''; align-self: center; width: 10px; height: 10px; border-radius: 3px; background: var(--muted-2); }
+.op-fleet-key.kind-online::before { background: var(--good); }
+.op-fleet-key.kind-offline::before { background: var(--bad); }
+.op-fleet-key.kind-dormant::before { background-image: repeating-linear-gradient(135deg, rgba(130,150,170,.6) 0 2px, transparent 2px 5px); }
 
 .op-trend-card { display: grid; align-content: start; }
 .op-sparkline { min-height: 88px; display: grid; align-items: center; }
@@ -215,7 +276,7 @@ html[data-theme="light"] .op-flow-controller { background: var(--surface-raised)
 @media (max-width: 600px) {
     .op-kpi-grid { grid-template-columns: 1fr; }
     .op-card, .op-kpi { padding: 16px; border-radius: 15px; }
-    .op-gauge { width: 190px; }
+    .op-measure-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .op-status-row { grid-template-columns: 1fr 10px; }
     .op-status-copy { grid-column: 1 / -1; padding-left: 40px; }
     .op-inverter-row { grid-template-columns: 1fr; }

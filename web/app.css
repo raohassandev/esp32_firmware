@@ -979,7 +979,7 @@ input:disabled, select:disabled, textarea:disabled {
 .asset-card dd,
 .op-kpi-value,
 .op-kpi-detail,
-.op-gauge-copy strong,
+.op-measure-reading strong,
 .op-flow-source strong,
 .op-flow-center strong,
 .op-status-copy strong,

@@ -335,18 +335,23 @@ html[data-theme="light"] .alarm-meta-item { background: var(--panel); }
    accent means "this is a measured flow going this way". */
 .op-flow-glyph.dir-unknown { color: var(--muted-2); }
 
-/* ---------------------------------------------------------- unmeasured gauge
- * SAFETY-RELEVANT. A gauge with no measurement draws no needle at all, and the
- * track it draws must not read as a scale with the needle resting at zero. On a
- * controller whose whole purpose is preventing reverse power, "nothing is
- * measuring this" and "this is zero" are the two readings that must never look
- * alike. The track therefore becomes dashed - an incomplete instrument, not a
- * complete one reading nothing - the tone colour is dropped so a .good gauge
- * does not paint itself green with no data behind it, and the value slot shows
- * the em dash and the words "Not measured" that the markup already carries. */
-.op-gauge-unmeasured .op-gauge-track { stroke: var(--line-strong); stroke-dasharray: 6 7; }
-.op-gauge-unmeasured .op-gauge-copy strong { color: var(--muted-2); }
-.op-gauge-unmeasured .op-gauge-copy small { color: var(--muted); font-weight: 850; letter-spacing: .06em; text-transform: uppercase; }
+/* ------------------------------------------------ unmeasured, on any instrument
+ * SAFETY-RELEVANT, and unchanged in substance from the rule that used to be
+ * written here for the semicircular gauge. An instrument with no measurement
+ * draws no marker at all, and the track it draws must not read as a complete
+ * scale whose indicator happens to be resting at zero. On a controller whose
+ * whole purpose is preventing reverse power, "nothing is measuring this" and
+ * "this is zero" are the two readings that must never look alike.
+ *
+ * The gauge is gone; the rule moved to the component that replaced it, where
+ * the track goes dashed and the tone colour is dropped so a .good instrument
+ * cannot paint itself green with no data behind it. The declarations live in
+ * web/product-mode.css beside the rest of .op-measure. This block asserts the
+ * remaining half of the rule that is not about the track: a tone class must
+ * never colour the reading of an instrument that has no reading. */
+.op-measure-unmeasured.good .op-measure-reading strong,
+.op-measure-unmeasured.warning .op-measure-reading strong,
+.op-measure-unmeasured.bad .op-measure-reading strong { color: var(--muted-2); }
 
 @media (max-width: 760px) {
     /* The table keeps its columns and scrolls rather than reflowing into cards:

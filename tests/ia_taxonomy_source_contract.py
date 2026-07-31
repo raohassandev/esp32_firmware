@@ -44,6 +44,7 @@ MODE = (ROOT / "web/product-mode.js").read_text(encoding="utf-8")
 OPERATOR = (ROOT / "web/operator-view.js").read_text(encoding="utf-8")
 OPERATIONS = (ROOT / "web/operator-operations.js").read_text(encoding="utf-8")
 OPERATIONS_CSS = (ROOT / "web/operator-operations.css").read_text(encoding="utf-8")
+MODE_CSS = (ROOT / "web/product-mode.css").read_text(encoding="utf-8")
 CHART = (ROOT / "web/pvdg-chart.js").read_text(encoding="utf-8")
 DENSITY_CSS = (ROOT / "web/product-experience-v2.css").read_text(encoding="utf-8")
 AUTH = (ROOT / "components/web_server/engineering_auth.c").read_text(encoding="utf-8")
@@ -397,8 +398,23 @@ require(".app-shell .workspace .content { max-width: var(--page-max-operational)
 # different zoom level.
 require("body { font-size: 15px; line-height: 1.5; }" in DENSITY_CSS,
         "body text is not set within the 14-16px band")
-require(".metric-value, .op-kpi-value, .op-gauge-copy strong { font-size: 28px;" in DENSITY_CSS,
+require(".metric-value, .op-kpi-value, .op-measure-reading strong { font-size: 28px;" in DENSITY_CSS,
         "primary numeric values are not sized in the 24-32px band")
+# .op-gauge-copy strong used to be the third selector above. The semicircular
+# gauge it belonged to is gone; the measurement bar that replaced it carries the
+# page's largest number and is therefore governed by the same band. Asserted
+# explicitly so the replacement cannot quietly escape the rule the gauge obeyed.
+require(".op-measure-reading strong" in DENSITY_CSS,
+        "the measurement bar's reading escapes the primary-value type band")
+# Comment-stripped: this stylesheet's header explains WHY the gauge card was
+# removed, and a prohibition that its own rationale trips is a prohibition that
+# will be deleted rather than obeyed. The rule is about declarations.
+for _sheet_name, _sheet in (("product-experience-v2.css", DENSITY_CSS),
+                            ("product-mode.css", MODE_CSS),
+                            ("operator-operations.css", OPERATIONS_CSS)):
+    _rules = re.sub(r"/\*.*?\*/", "", _sheet, flags=re.S)
+    require("op-gauge" not in _rules,
+            f"the semicircular gauge is gone but {_sheet_name} still styles it")
 # Font sizes must not be viewport-relative anywhere in the two stylesheets that
 # set them. min(360px, calc(100vw - 40px)) on a fixed toast is a width, not type,
 # and is left alone; a font-size in vw is the defect.
