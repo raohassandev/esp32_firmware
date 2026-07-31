@@ -97,6 +97,7 @@
     style.id = 'narrowShellControlStyles';
     style.textContent = `
 .shell-overflow-button{width:auto;min-width:58px;padding:0 12px;font-size:12px;font-weight:800}
+body.product-shell-v2 #refreshButton{width:auto;min-width:64px;padding-inline:10px}
 @media(max-width:1180px){
   body.product-shell-v2 #refreshButton,
   body.product-shell-v2 #themeToggleButton{display:none!important}
