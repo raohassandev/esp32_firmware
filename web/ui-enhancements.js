@@ -115,6 +115,16 @@ body.product-shell-v2 #refreshButton{width:auto;min-width:64px;padding-inline:10
 `;
     document.head.append(style);
 
+    function labelControllerMenu() {
+        const button = document.getElementById('shellOverflowButton');
+        if (!button) return;
+        if (button.textContent !== 'More') button.textContent = 'More';
+        button.setAttribute('aria-label', 'Open controller actions');
+    }
+
+    document.addEventListener('DOMContentLoaded', () => window.setTimeout(labelControllerMenu, 0), { once: true });
+    window.AutomatrixEngineeringAccess?.onContentChange(labelControllerMenu);
+
     /* product-shell-v2 predates theme.js's current button id. Bridge the menu's
      * Theme item to the installed control without changing either owner. */
     document.addEventListener('click', (event) => {
