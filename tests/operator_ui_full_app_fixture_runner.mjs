@@ -21,14 +21,26 @@ const oldEngineering = `  const access = await evaluate(\`document.documentEleme
   assert(access === 'engineering', \`Engineering login did not unlock the application (\${access})\`);
   await visit('control');
 `;
-const newEngineering = `  const access = await evaluate(\`document.documentElement.dataset.access\`);
+const previousEngineering = `  const access = await evaluate(\`document.documentElement.dataset.access\`);
   assert(access === 'engineering', \`Engineering login did not unlock the application (\${access})\`);
   await visit('dashboard', 1440, 900, false);
   const engineeringVerdict = await evaluate(\`document.getElementById('plantVerdictValue')?.textContent || ''\`);
   assert(engineeringVerdict === 'PLANT NORMAL', \`Engineering dashboard verdict is \${engineeringVerdict || '<missing>'}\`);
   await visit('control');
 `;
-if (source.includes(oldEngineering)) source = source.replace(oldEngineering, newEngineering);
+const newEngineering = `  const access = await evaluate(\`document.documentElement.dataset.access\`);
+  assert(access === 'engineering', \`Engineering login did not unlock the application (\${access})\`);
+  await visit('dashboard', 1440, 900, false);
+  const engineeringDashboard = await evaluate(\`(() => ({
+    verdictRailPresent: Boolean(document.getElementById('plantVerdictRail')),
+    source: document.getElementById('sourceBannerLabel')?.textContent || ''
+  }))()\`);
+  assert(!engineeringDashboard.verdictRailPresent, 'Operator verdict rail remained in Engineering mode');
+  assert(engineeringDashboard.source === 'GRID', \`Engineering source panel reports \${engineeringDashboard.source || '<missing>'}\`);
+  await visit('control');
+`;
+if (source.includes(previousEngineering)) source = source.replace(previousEngineering, newEngineering);
+else if (source.includes(oldEngineering)) source = source.replace(oldEngineering, newEngineering);
 if (!source.includes(newEngineering)) throw new Error('Could not apply Engineering source visibility expectation');
 
 writeFileSync(runtimePath, source, 'utf8');
