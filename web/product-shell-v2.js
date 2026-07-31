@@ -46,7 +46,6 @@
         if (context) context.textContent = ROUTE_CONTEXT[route()] || 'Automatrix PV-DG controller';
     }
 
-    /* Health is data published by app.js, not text read back out of the page. */
     let health = { tone: 'warning', label: 'Checking', rows: [] };
 
     function healthRows(detail) {
@@ -155,14 +154,6 @@
         actions.append(button);
     }
 
-    /* app.js owns the normal four-group hierarchy: Operate, Commission,
-     * Maintain and Access. The static document declares data-shell-grouped once
-     * that hierarchy is present. Respect that contract instead of flattening the
-     * same navigation back into two competing groups.
-     *
-     * The two arrays remain as a fallback for an older shell that does not carry
-     * the grouped marker. Even there, protected control/service pages belong in
-     * Engineering, never in the operator group. */
     const OPERATOR_ROUTES = ['dashboard', 'meters', 'inverters', 'alarms'];
     const ENGINEERING_ROUTES = ['engineering', 'commissioning', 'readiness', 'wifi', 'control', 'system'];
 
@@ -173,10 +164,16 @@
     function applyPresentationAccess() {
         const authenticated = document.documentElement.dataset.access === 'engineering';
         const readiness = document.querySelector('.nav-list [data-route="readiness"]');
-        if (!readiness) return;
-        readiness.dataset.engineeringNav = 'true';
-        readiness.hidden = !authenticated;
-        readiness.setAttribute('aria-hidden', authenticated ? 'false' : 'true');
+        if (readiness) {
+            readiness.dataset.engineeringNav = 'true';
+            readiness.hidden = !authenticated;
+            readiness.setAttribute('aria-hidden', authenticated ? 'false' : 'true');
+        }
+        const lock = byId('engineeringLockIcon');
+        if (lock) {
+            lock.textContent = authenticated ? 'Unlocked' : 'Locked';
+            lock.classList.add('engineering-lock-text');
+        }
     }
 
     function groupNavigation() {
