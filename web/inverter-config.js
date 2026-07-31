@@ -214,7 +214,11 @@
 
     function ensureScaffold() {
         if (state.initialized || byId('inverterConfigWorkspace')) return;
-        const page = document.querySelector('[data-page="inverters"]');
+        /* Moved off [data-page="inverters"] with the profile picker it sits
+         * beside; see the note on workspacePage() in web/inverter-profiles.js.
+         * Endpoints and ratings are commissioning data, set once, and the
+         * monitoring page is not where they belong. */
+        const page = document.querySelector('[data-page="engineering"]');
         if (!page) return;
 
         const root = node('section', 'inverter-config-workspace');
@@ -247,7 +251,7 @@
 
         const profilePicker = byId('inverterProfilePicker');
         if (profilePicker) profilePicker.after(root);
-        else page.append(root);
+        else (page.querySelector('#engineeringConsole') || page).append(root);
         state.initialized = true;
     }
 

@@ -84,8 +84,25 @@
         return Number.isInteger(channel) && channel >= 0 && channel < 12 ? channel : null;
     }
 
+    /* WHERE THIS PANEL LIVES, AND WHY IT MOVED.
+     *
+     * It used to mount on [data-page="inverters"]. That page answers an
+     * operator's question -- how much solar is available and what needs
+     * attention -- and an engineering session turned it into a setup workbench
+     * stacked under that question: seven panels, of which the operator sees
+     * one. Which family of inverter is installed is commissioning data. It is
+     * decided once, during commissioning, and never during monitoring.
+     *
+     * So it mounts in the engineering workspace alongside the endpoint editor
+     * it depends on. The two must stay together: this panel's transport readout
+     * is derived from the endpoint editor's channel and says so, and splitting
+     * them across pages would leave that sentence pointing at nothing. */
+    function workspacePage() {
+        return document.querySelector('[data-page="engineering"]');
+    }
+
     function ensureScaffold() {
-        const page = document.querySelector('[data-page="inverters"]');
+        const page = workspacePage();
         if (!page || byId('inverterProfilePicker')) return;
 
         const panel = document.createElement('article');
@@ -126,9 +143,11 @@
                 <button class="button primary" id="inverterProfileApply" type="button">Apply profile</button>
             </div>`;
 
-        const notice = page.querySelector('.notice');
-        if (notice) notice.after(panel);
-        else page.prepend(panel);
+        /* Appended after the console rather than prepended: the sign-in panel
+         * and the workflow tiles are what an engineer arriving here needs
+         * first, and a setup form above them would push the sign-in prompt off
+         * screen for the one visitor who cannot use the form at all. */
+        (page.querySelector('#engineeringConsole') || page).append(panel);
 
         const channel = byId('inverterProfileChannel');
         for (let index = 0; index < 12; index += 1) {

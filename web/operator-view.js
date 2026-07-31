@@ -1084,8 +1084,30 @@
         button.addEventListener('click', () => { refreshAll(); });
     }
 
+    /* THE PRODUCT VIEW IS NOT AN OPERATOR PRIVILEGE.
+     *
+     * refreshAll() and renderCurrent() used to return early during an
+     * engineering session, so signing in REMOVED the live status: the Solar
+     * inverters page asks "how much solar is available", and an engineer
+     * reading it saw setup forms and no production figure anywhere on the
+     * screen. The one number the page is named after was visible only to the
+     * reader who could not act on it.
+     *
+     * Every endpoint here is read-only and operator-scoped, so there is nothing
+     * to withhold. What stays gated is hideLegacyOperatorContent(), which
+     * SUPPRESSES the engineering panels -- that is a real access distinction
+     * and is untouched. An engineer now sees the product view and the
+     * engineering panels; an operator sees the product view alone. */
+    /* The routes this module actually draws. The five-second timer used to be
+     * cancelled in practice by the isOperator() guard above; removing that
+     * guard would otherwise have added four requests every five seconds on
+     * commissioning, network setup and the engineering workspace - pages this
+     * module renders nothing on, competing for the four client sockets the
+     * controller has. It polls where it draws, and nowhere else. */
+    const PRODUCT_ROUTES = new Set(['dashboard', 'meters', 'inverters', 'control', 'system']);
+
     async function refreshAll() {
-        if (!isOperator() || state.busy) return;
+        if (state.busy || !PRODUCT_ROUTES.has(route())) return;
         state.busy = true;
         const shellRefresh = byId('refreshButton');
         if (shellRefresh) shellRefresh.disabled = true;
@@ -1112,7 +1134,7 @@
     }
 
     function renderCurrent() {
-        if (!state.lastPayload || !isOperator()) return;
+        if (!state.lastPayload) return;
         const current = route();
         if (current === 'dashboard') renderDashboard(state.lastPayload);
         else if (current === 'meters') renderMeter(state.lastPayload);
@@ -1140,7 +1162,7 @@
         updateRouteTitles();
         hideLegacyOperatorContent();
         renderCurrent();
-        if (isOperator() && !state.lastPayload) refreshAll();
+        if (!state.lastPayload) refreshAll();
     }
 
     function start() {
