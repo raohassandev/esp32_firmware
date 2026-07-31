@@ -1,12 +1,10 @@
 /* product-shell-v2.js - the application shell: top bar and navigation list.
  *
- * OWNS: the navigation list as a whole - item order and section labels. The
- *   only module that may reorder or insert into it; product-experience-v2.js
- *   used to add the labels while this module reordered the items beneath them.
- *   Also the top-bar controls it creates: health button, overflow menu, page
- *   context line.
+ * OWNS: shell controls and applies the route hierarchy published by app.js.
+ * app.js remains the single source for route names, four navigation groups and
+ * ordering. This module does not flatten or rename that hierarchy.
  * DOES NOT OWN: routing, titles, breadcrumbs (app.js); backend authorization
- *   (product-mode.js); page content (product-experience-v2.js).
+ * (product-mode.js); page content (product-experience-v2.js).
  * Issues no request. Health arrives as the amx-controller-health event.
  */
 (() => {
