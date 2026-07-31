@@ -23,6 +23,13 @@ typedef struct {
     bool loss_tracking;
     uint32_t recovery_since_ms;
     uint32_t loss_since_ms;
+    /* The source the gate last released against. Grid and generator are both
+     * releasable, so without remembering which one, a changeover would carry
+     * the stabilisation timer straight through and PV would be commanded
+     * against a bus that had just changed. mode_known distinguishes "no source
+     * yet" from "the source is whatever enum zero happens to be". */
+    bool mode_known;
+    source_mode_t last_mode;
 } grid_gate_memory_t;
 
 typedef struct {

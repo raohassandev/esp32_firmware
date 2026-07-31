@@ -495,7 +495,19 @@ static void control_task(void *argument)
             evidence_fresh = measured_fresh;
         }
         grid_gate_input_t gate_input = {
-            .configured = evidence.configured,
+            /* EITHER source of evidence configures this gate.
+             *
+             * This read evidence.configured alone, which is the breaker map. So
+             * on a plant commissioned the other way -- one meter, a digital
+             * input, and no breaker contacts -- the fallback source identity
+             * computed immediately above was handed to the gate and thrown away
+             * on its first line, and control was inhibited forever with a
+             * message naming grid evidence the engineer was never asked to
+             * configure. The fallback was written, documented and unreachable.
+             *
+             * Breaker evidence still WINS when configured; this only stops the
+             * gate from treating "no breaker map" as "no evidence at all". */
+            .configured = evidence.configured || detection_configured,
             .evidence_fresh = evidence_fresh,
             .source_mode = source.mode,
             .source_control_allowed = source.control_allowed,
@@ -569,7 +581,13 @@ static void control_task(void *argument)
          * transaction is issued, so the 20 ms loop gains no blocking I/O. */
         float generator_safe_limit_kw = 0.0f;
         generator_fleet_limit_t fleet_limit = {0};
-        if (source.mode == SOURCE_MODE_GENERATOR_ONLY) {
+        /* ISLAND is a generator carrying the plant with no grid behind it, so it
+         * needs the same floor as GENERATOR_ONLY -- arguably more, since there
+         * is nothing to fall back on. Computing it for only one of the two left
+         * the other with a floor of zero while the gate released control, which
+         * is an unprotected machine. */
+        if (source.mode == SOURCE_MODE_GENERATOR_ONLY ||
+            source.mode == SOURCE_MODE_ISLAND) {
             generator_fleet_input_t fleet_input = {
                 .evidence_fresh = measurement_fresh,
                 .facility_load_kw = fabsf(measured_grid_kw),

@@ -79,6 +79,11 @@ jobs:
             tests/source_mode_unit_test.c components/control_engine/source_mode.c \
             -lm -o /tmp/source_mode_unit_test
           /tmp/source_mode_unit_test
+      - name: Run grid control gate unit tests
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -Wall -Wextra -Werror             -Icomponents/control_engine/include             tests/grid_control_gate_test.c             components/control_engine/grid_control_gate.c             components/control_engine/source_mode.c             -lm -o /tmp/grid_control_gate_test
+          /tmp/grid_control_gate_test
       - name: Run EM500 source detection unit tests
         run: |
           set -euo pipefail

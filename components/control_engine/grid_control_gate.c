@@ -26,8 +26,32 @@ grid_gate_output_t grid_control_gate_step(grid_gate_memory_t *memory,
         return output;
     }
 
-    const bool healthy = input->evidence_fresh &&
-                         input->source_mode == SOURCE_MODE_GRID_ONLY &&
+    /*
+     * WHICH SOURCES THIS GATE WILL RELEASE CONTROL AGAINST.
+     *
+     * It used to release for SOURCE_MODE_GRID_ONLY alone, which meant automatic
+     * control was impossible whenever a generator carried the plant: PV was
+     * driven to zero rather than limited. On a PV-DG controller that is the
+     * opposite of the product -- the generator case is the one the minimum
+     * loading, reverse-power margin and generator ramp profile all exist for,
+     * and every one of them was computed each cycle and then discarded.
+     *
+     * GENERATOR_ONLY and ISLAND are both "a generator is carrying the plant
+     * alone", and the control engine derives a generator-safe PV limit for
+     * both, so both are released.
+     *
+     * GRID_GENERATOR_SYNC is deliberately NOT released. Running the two in
+     * parallel needs one PV setpoint to satisfy two objectives at once -- hold
+     * the generator above its floor AND respect the grid export policy -- and
+     * that strategy is not implemented. Releasing it here would command from
+     * the grid policy alone with a generator floor of zero, which is an
+     * unprotected machine. TRANSFER, NO_SOURCE and UNKNOWN stay closed for the
+     * reasons they always did.
+     */
+    const bool source_carrying = input->source_mode == SOURCE_MODE_GRID_ONLY ||
+                                 input->source_mode == SOURCE_MODE_GENERATOR_ONLY ||
+                                 input->source_mode == SOURCE_MODE_ISLAND;
+    const bool healthy = input->evidence_fresh && source_carrying &&
                          input->source_control_allowed;
     const bool conflict = input->evidence_fresh &&
                           input->source_mode == SOURCE_MODE_CONFLICT;
@@ -35,7 +59,18 @@ grid_gate_output_t grid_control_gate_step(grid_gate_memory_t *memory,
     if (healthy) {
         memory->loss_tracking = false;
         memory->loss_since_ms = 0U;
-        if (!memory->recovery_tracking) {
+        /* A CHANGEOVER RESTARTS THE STABILISATION TIMER.
+         *
+         * Grid to generator and back are both healthy states, so without this
+         * the timer would keep running straight through a transfer and PV would
+         * be commanded against a bus that had just changed underneath it. The
+         * timer already exists to hold PV until a source has proven steady;
+         * that requirement is no weaker when the new source is a generator. */
+        const bool source_changed = !memory->mode_known ||
+                                    memory->last_mode != input->source_mode;
+        memory->last_mode = input->source_mode;
+        memory->mode_known = true;
+        if (!memory->recovery_tracking || source_changed) {
             memory->recovery_tracking = true;
             memory->recovery_since_ms = input->timestamp_ms;
         }
