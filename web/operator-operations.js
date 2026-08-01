@@ -988,6 +988,9 @@
         return wrap;
     }
 
+    /* Below this many conditions, reading the list beats filtering it. */
+    const FILTER_THRESHOLD = 6;
+
     function renderAlarmConsole() {
         const view = byId('alarmConsole');
         if (!view || route() !== 'alarms') return;
@@ -1011,6 +1014,21 @@
          * controller every ten seconds. */
         view.append(alarmSummaryTiles(alarms, summary, payload.rate));
 
+        /*
+         * FILTERS EARN THEIR PLACE WHEN THERE IS SOMETHING TO FILTER.
+         *
+         * Four selects carrying seventeen options sat above four conditions --
+         * more controls than rows, and every one of them a decision the reader
+         * has to decline before reaching the list they came for. Filtering four
+         * items is slower than reading them.
+         *
+         * Shown from FILTER_THRESHOLD conditions upward, and always while a
+         * filter is set: a reader who has narrowed the list must be able to see
+         * that they did and undo it, or an empty list reads as a plant with no
+         * alarms.
+         */
+        const filtered = state.filterState !== 'all' || state.filterSeverity !== 'all'
+            || state.filterSuppression !== 'all' || state.sort !== 'severity';
         const controls = node('div', 'alarm-controls');
         controls.append(
             selectControl('alarmFilterState', 'Show', state.filterState, [
@@ -1039,7 +1057,7 @@
                 ['duration', 'Longest duration']
             ], (value) => { state.sort = value; renderAlarmConsole(); })
         );
-        view.append(controls);
+        if (alarms.length >= FILTER_THRESHOLD || filtered) view.append(controls);
 
         if (state.alarmMessage) view.append(node('div', 'alarm-message', state.alarmMessage));
         if (state.alarmError) view.append(node('div', 'notice danger alarm-message', state.alarmError));
@@ -1057,14 +1075,20 @@
             list.append(node('div', 'op-empty-state',
                 `${alarms.length} condition(s) are recorded but none match the current filter.`));
         }
-        /* The ENGINEERING badge, once for the whole list instead of twice on
-         * every row. It says what the level means here, which the eight
-         * identical pills it replaces never did. */
+        /* The level, stated once for the list.
+         *
+         * The rows carry no level badge -- that was eight identical pills --
+         * so this is the only place on screen that says which of these actions
+         * need an engineering session. It used to open by announcing that each
+         * condition has a drawer, which is what every drawer says on its own
+         * face ("Condition history, shelving and out-of-service"); telling a
+         * reader that the thing in front of them exists is furniture. What is
+         * left is the part that is nowhere else: who may do what.
+         */
         if (visible.length) {
             view.append(levelNote('engineering',
-                'Each condition carries a drawer with its history and the suppression controls. '
-                + 'Shelving and taking a condition out of service need an engineering session; '
-                + 'acknowledging does not, and its button is on the row.'));
+                'Shelving and taking a condition out of service need an engineering '
+                + 'session. Acknowledging does not.'));
         }
         visible.forEach((alarm) => list.append(alarmRow(alarm)));
         view.append(list);
@@ -1281,10 +1305,24 @@
         const severityWord = event.severity === 'critical' ? (states?.critical || 'Critical')
             : event.severity === 'warning' ? (states?.warning || 'Warning')
             : (states?.normal || 'Normal');
+        /*
+         * AN EVENT IS A MOMENT, NOT A STATE.
+         *
+         * `active` on an entry in this ring means the entry RECORDS A RAISE. It
+         * was rendered as "Present now", so a condition that raised four minutes
+         * ago and cleared three minutes ago was still described as present --
+         * while the console at the top of the same page correctly reported zero
+         * active conditions. Two blocks on one screen, disagreeing about whether
+         * anything is wrong right now, and the wrong one is the one written in
+         * the present tense.
+         *
+         * Whether a condition is present NOW is the condition table's answer.
+         * This list says what happened and when.
+         */
         meta.append(
             node('span', `op-state-pill ${event.active ? event.severity === 'critical' ? 'bad' : event.severity === 'warning' ? 'warning' : 'good' : ''}`,
                 event.active ? severityWord : (states?.normal || 'Normal')),
-            node('small', '', event.active ? 'Present now' : 'Returned to normal'),
+            node('small', '', event.active ? 'Raised' : 'Returned to normal'),
             node('small', '', formatAge(event.age_ms)));
         row.append(marker, copy, meta);
         return row;
