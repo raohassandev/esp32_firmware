@@ -29,7 +29,7 @@ done, so what you check is what is running.
 | 10 | Audit log page — who changed what | **done** | 01-08 | `web/service-page.js`, on the System route. Uptime times, not invented dates; overwritten entries admitted; actor is a class, never a person. | | |
 | 11 | Service page: heap, PSRAM, firmware, reset reason | **done** | 01-08 | Same module. Free heap next to the LARGEST FREE BLOCK and fragmentation, with the controller's own thresholds beside them — free heap alone does not say whether a page can still be served. | | |
 | 12 | Alarm detail: delays, counts, shelf expiry, out-of-service end | **done** | 01-08 | On/off delays shown only when non-zero — an alarm that takes 30 s to appear looked like a slow controller. Plus raises_total, shelf_count, out_of_service_count, shelved_age, shelf_expires_in, out_of_service_expires, design_suppressed_age. | | |
-| 13 | Urgent ramp 25% / 2x | **disclosed, not yet configurable** | 01-08 | The ramp editor now states, from the firmware's own constants, that 5 %/s becomes 10 %/s below 25% loading. Making it commissioned waits on B2. | | |
+| 13 | Urgent ramp 25% / 2x | **done** | 01-08 | Schema 9. Threshold and multiplier commissioned and editable in the Solar-Grid ramp editor, which states what the configured rate becomes as you type. Direction confirmed by the owner: DOWN rate. Migration does not arm. | | |
 | 14 | Verify every page in a real browser on the board | **done** | 01-08 | `tools/browser_check.js` — Playwright/Chromium against the live board. Walks every route read FROM the shell, screenshots each, fails on any console error, and asserts the source attribution on the rendered screen. All 10 routes clean. | | |
 
 ## Blocked on you
@@ -37,7 +37,7 @@ done, so what you check is what is running.
 | # | Task | What I need |
 |---|---|---|
 | B1 | Minimum loading default | Should commissioning propose 30%, or keep requiring an explicit value? Today it is 0 = fail-closed |
-| B2 | Urgent ramp 25% / 2x | Commissioned values, or fixed constants? (drives task 13) |
+| ~~B2~~ | ~~Urgent ramp 25% / 2x~~ | **ANSWERED**: commissioned, with a UI control, applied to the DOWN rate. Task 13 done. |
 | B3 | Offline debounce 2 min | Confirm, and confirm controller must always exceed the inverter's own fail-safe (drives task 6) |
 | B4 | Periodic refresh interval | Confirm ~30 min (drives task 7) |
 | B5 | Modbus efficiency | Serve the control read from the 72-register block instead of 4 separate reads per cycle. Cuts 4–5 transactions to 1. Touches the control input, so I will not do it without your go-ahead |

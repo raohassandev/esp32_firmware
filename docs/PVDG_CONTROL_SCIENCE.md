@@ -130,13 +130,21 @@ generator load < 25% of online rating  ->  PV ramp-DOWN runs at 2x
 **Ramp-DOWN only.** The urgency is to raise generator loading, and th is done
 by reducing PV faster. Ramping PV *up* faster would do the opposite.at
 
-- Implemented: `components/control_engine/generator_fleet_limit.c:461`
-- Constants: `GENERATOR_URGENT_LOADING_FRACTION 0.25f`,
-  `GENERATOR_URGENT_RAMP_MULTIPLIER 2.0f`
-  (`include/generator_fleet_limit.h:365`)
+**DIRECTION CONFIRMED BY THE OWNER, 2026-08-01.** An earlier example doubled the
+UP rate ("uprate 2 becomes 4"); asked directly, the owner confirmed the intent is
+the DOWN rate. The reasoning holds: a generator below 25% loading is
+under-loaded, and loading it means taking PV OFF faster. Raising PV faster would
+unload it further.
+
+- Implemented: `components/control_engine/generator_fleet_limit.c`
 - Test: `tests/generator_urgent_ramp_test.c`,
-  `tests/generator_ramp_direction_source_contract.py`
-- **Not configurable — hardcoded.** Recorded as an open item.
+  `tests/generator_ramp_direction_source_contract.py` (which pins down-only)
+- **Commissioned since schema 9.** Threshold and multiplier are stored,
+  validated and editable in the Solar-Grid ramp editor, which states what the
+  configured rate becomes. The firmware constants remain as the defaults every
+  earlier schema migrates to, so no commissioned plant changed behaviour.
+- Zero in either field disables the boost. A multiplier below 1 is refused: it
+  would shed PV more slowly on an under-loaded engine.
 
 ### 2.6 Parallel generators
 
@@ -309,8 +317,8 @@ separate pages an engineer has to know to find.
 
 1. **Minimum loading default 30%** — should commissioning *propose* 30, or keep
    requiring an explicit value? Today it defaults to 0, which is fail-closed.
-2. **Urgent ramp 25% / 2x** — should these become commissioned values, or stay
-   fixed constants?
+2. ~~**Urgent ramp 25% / 2x**~~ — ANSWERED 2026-08-01: commissioned, with a
+   control in the interface, applied to the DOWN rate. Done in schema 9.
 3. **Offline debounce 2 min** — confirm, and confirm that the controller must
    always be longer than the inverter's own fail-safe.
 4. **Periodic setpoint refresh ~30 min** — confirm the interval.
