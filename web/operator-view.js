@@ -1079,6 +1079,59 @@
                 : `Computed, not being sent: ${command.reason}`));
             now.grid.append(card);
         }
+        /*
+         * WHAT THE OLD OVERVIEW SHOWED AN ENGINEER.
+         *
+         * Unlocking Engineering used to reveal a second dashboard below this
+         * one. It is gone -- one page for everybody -- and the facts that lived
+         * only on it are here, folded away so an operator is not made to read
+         * them. An engineer needs MORE detail than an operator, not a different
+         * page.
+         */
+        const overviewDetail = node('div', 'op-more-body');
+
+        /*
+         * THE CONTROLLER'S OWN TWO NUMBERS.
+         *
+         * What it asked for, and what it actually applied after ramping and
+         * clamping. They differ during a ramp and whenever a limit bit, and the
+         * gap is the first thing to look at when solar did not move the way
+         * somebody expected. Neither is measured production -- that is "Solar
+         * now" above, and conflating the three is the mistake this page exists
+         * to prevent.
+         */
+        overviewDetail.append(
+            detailLine('Requested PV', finite(status.requested_pv_kw)
+                ? formatPower(Number(status.requested_pv_kw)) : 'Not available'),
+            detailLine('Applied PV', finite(status.applied_pv_kw)
+                ? formatPower(Number(status.applied_pv_kw)) : 'Not available')
+        );
+
+        /*
+         * THE SOURCE EVIDENCE, from the cache app.js already holds.
+         *
+         * Read rather than fetched: this endpoint is engineering-gated and
+         * Modbus-backed, and asking for it twice per refresh would cost a client
+         * socket and a transaction for a value already on the machine.
+         *
+         * The tariff number is here because it is the EVIDENCE, not the verdict.
+         * The owner found a plant reading tariff 2 while every screen said grid,
+         * and with only the verdict on screen there was nothing to compare it
+         * against.
+         */
+        const utils = window.PvdgSourceDetectionUtils;
+        const detection = window.AutomatrixSourceDetectionCache;
+        if (utils && detection) {
+            const seen = utils.describeSourceDetection(detection);
+            overviewDetail.append(
+                detailLine('Source evidence', seen.qualityLabel),
+                detailLine('Meter tariff', seen.tariffLabel),
+                detailLine('PV curtailment', seen.controlConsequence)
+            );
+        }
+
+        view.append(details('engineering', 'Controller detail', overviewDetail));
+
         view.append(now);
 
         /* ---- 2b. where the power is going ---------------------------------
@@ -1557,6 +1610,7 @@
                 : authority.enabled ? stateWord('control', 'inhibited', 'Inhibited')
                 : stateWord('control', 'standby', 'Standby'))
         );
+
         view.append(details('engineering', 'Control prerequisites', evidence));
     }
 
@@ -1590,8 +1644,36 @@
     }
 
     function hideLegacyOperatorContent() {
+        /*
+         * THE PLANT OVERVIEW IS ONE PAGE FOR EVERYBODY.
+         *
+         * Unlocking Engineering used to reveal a second, older dashboard below
+         * this one -- its own grid power card, its own source banner, its own
+         * health list -- so the screen a site is run from changed shape at the
+         * moment an engineer signed in, and the two halves stated the same
+         * quantities in different words. An engineer needs MORE detail than an
+         * operator, not a different page.
+         *
+         * The three facts that lived only on the old dashboard (requested PV,
+         * applied PV, and the source evidence with its tariff) are now in the
+         * engineering block above, which is where the rest of the engineering
+         * detail already was.
+         *
+         * The other four pages keep the old behaviour for now; they have not
+         * been given an engineering block to move their detail into, and hiding
+         * them first would delete it.
+         */
+        const dashboard = document.querySelector('[data-page="dashboard"]');
+        if (dashboard) {
+            Array.from(dashboard.children).forEach((child) => {
+                if (!child.classList.contains('operator-product-view')
+                    && !child.classList.contains('page-intro')) {
+                    child.classList.add('operator-legacy-hidden');
+                }
+            });
+        }
         if (!isOperator()) return;
-        ['dashboard', 'meters', 'inverters', 'control', 'system'].forEach((name) => {
+        ['meters', 'inverters', 'control', 'system'].forEach((name) => {
             const page = document.querySelector(`[data-page="${name}"]`);
             if (!page) return;
             Array.from(page.children).forEach((child) => {

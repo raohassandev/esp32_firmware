@@ -607,6 +607,20 @@
             state.sourceDetection = null;
             state.sourceDetectionAbsence = 'The source-detection read failed, so the active source is not known to this screen.';
         }
+        /*
+         * Published for the product view, which shows the same evidence on the
+         * plant overview and must not fetch it again: this board has few client
+         * sockets and the endpoint is one Modbus-backed read.
+         *
+         * Published HERE, where it is fetched, rather than where it is drawn --
+         * the banner that used to draw it is hidden on the plant overview now,
+         * and a cache that only fills while something is on screen is a cache
+         * that is empty exactly when the other view asks.
+         *
+         * A CACHE, not an API: whoever reads it gets what this poll last saw,
+         * and null when the read failed.
+         */
+        window.AutomatrixSourceDetectionCache = state.sourceDetection;
         renderSourceBanner();
         renderPowerFlow();
     }

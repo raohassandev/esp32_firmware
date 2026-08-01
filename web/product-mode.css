@@ -32,6 +32,31 @@ html[data-access="operator"] .operator-legacy-hidden {
 
 html[data-access="engineering"] .operator-product-view,
 html[data-access="engineering"] #engineeringLoginPanel { display: none !important; }
+
+/*
+ * THE PLANT OVERVIEW IS ONE PAGE AT EVERY ACCESS LEVEL.
+ *
+ * Every other page swaps: an operator gets the product view, an engineer gets
+ * the older detailed page. On the overview that swap meant the screen a site
+ * is run from changed shape the moment somebody signed in, and the two versions
+ * stated the same quantities in different words -- "Grid power" beside
+ * "Generator power" on a plant running on its generator.
+ *
+ * An engineer needs MORE DETAIL than an operator, not a different page, so the
+ * overview keeps the product view and reveals its engineering block. The three
+ * facts that lived only on the old overview -- requested PV, applied PV and the
+ * meter tariff behind the source verdict -- moved into that block; see
+ * tests/single_dashboard_source_contract.py, which fails if they stop being
+ * rendered.
+ *
+ * !important, because the swap above is itself !important -- specificity alone
+ * loses to it, and the page then had the legacy content hidden and nothing to
+ * replace it. Checked on the board, not reasoned about.
+ */
+html[data-access="engineering"] [data-page="dashboard"] .operator-product-view {
+    display: grid !important;
+}
+[data-page="dashboard"] .operator-legacy-hidden { display: none !important; }
 html[data-access="operator"] #engineeringLoginPanel { display: grid; }
 html[data-access="engineering"] #engineeringConsole { display: grid; }
 
