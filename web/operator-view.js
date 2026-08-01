@@ -1211,12 +1211,44 @@
      * maximum recomputed from the live reading on every refresh. It could not
      * show which side of zero the plant was on and its needle position was not
      * comparable between two refreshes. See measureBar() for the full note. */
-    function renderMeter(payload) {
-        const view = byId('operatorMeterView');
+    /*
+     * ONE SUPPLY PER PAGE.
+     *
+     * Grid power draws the meter measuring the grid; Generator power draws the
+     * meter measuring the generator. On a single-meter tariff plant the same
+     * instrument moves between the two pages as the tariff register changes,
+     * because a generator's 280 kW under a "Grid power" heading is not a layout
+     * mistake -- it is the screen stating the plant is importing from the
+     * utility while it burns diesel.
+     *
+     * See web/meter-source-routing.js for the attribution rule.
+     */
+    function renderMeter(payload, page) {
+        const which = page || 'grid';
+        const view = byId(which === 'generator' ? 'operatorGeneratorView' : 'operatorMeterView');
         if (!view) return;
         const status = payload.status || {};
         const meters = payload.meters?.meters || [];
-        const primary = meters.find((item) => item.enabled) || meters[0];
+        const routing = window.AutomatrixMeterRouting;
+        const attributed = routing ? routing.metersFor(which, meters, status) : [];
+
+        /* Nothing to draw is a STATEMENT, not an empty page. On a tariff plant
+         * "the meter is on the other page right now" is the normal state for
+         * half of every day, and it is completely different from "no meter is
+         * commissioned" -- so the page says which. */
+        if (routing && !attributed.length) {
+            view.replaceChildren();
+            const empty = node('article', 'op-card op-empty-state');
+            empty.append(node('strong', '', which === 'generator'
+                ? 'No generator measurement on this page'
+                : 'No grid measurement on this page'));
+            empty.append(node('p', '', routing.absence(which, meters, status)));
+            view.append(empty);
+            return;
+        }
+
+        const primary = attributed.length ? attributed[0].meter
+            : (meters.find((item) => item.enabled) || meters[0]);
         const runtime = primary?.runtime || {};
         const power = finite(status.grid_power_kw) ? Number(status.grid_power_kw) : runtime.active_power_kw;
         const online = runtime.online === true || (status.meter_online && !status.meter_stale);
@@ -1241,9 +1273,11 @@
         const overview = node('div', 'op-meter-overview');
         const measureCard = node('article', 'op-card op-measure-card');
         measureCard.append(measureBar({
-            label: supply.node === 'generator' ? 'Generator power carrying the plant'
-                : supply.known ? 'Grid power at the point of common coupling'
-                : 'Live source power — source not established',
+            /* Named by the page, which is now only reached by a meter the
+             * controller attributed to that supply. The heading and the number
+             * can no longer disagree. */
+            label: which === 'generator' ? 'Generator power carrying the plant'
+                : 'Grid power at the point of common coupling',
             value: power,
             unit: 'kW',
             tone: online ? 'good' : 'bad',
@@ -1725,7 +1759,7 @@
      * commissioning, network setup and the engineering workspace - pages this
      * module renders nothing on, competing for the four client sockets the
      * controller has. It polls where it draws, and nowhere else. */
-    const PRODUCT_ROUTES = new Set(['dashboard', 'meters', 'inverters', 'control', 'system']);
+    const PRODUCT_ROUTES = new Set(['dashboard', 'meters', 'generator', 'inverters', 'control', 'system']);
 
     async function refreshAll() {
         if (state.busy || !PRODUCT_ROUTES.has(route())) return;
@@ -1758,7 +1792,8 @@
         if (!state.lastPayload) return;
         const current = route();
         if (current === 'dashboard') renderDashboard(state.lastPayload);
-        else if (current === 'meters') renderMeter(state.lastPayload);
+        else if (current === 'meters') renderMeter(state.lastPayload, 'grid');
+        else if (current === 'generator') renderMeter(state.lastPayload, 'generator');
         else if (current === 'inverters') renderInverters(state.lastPayload);
         else if (current === 'control') renderControl(state.lastPayload);
         else if (current === 'system') renderSystem(state.lastPayload);

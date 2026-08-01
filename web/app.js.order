@@ -20,6 +20,7 @@ icons.js
 operator-proof.js
 product-mode.js
 source-attribution.js
+meter-source-routing.js
 app.js
 wifi-utils.js
 wifi-guard.js

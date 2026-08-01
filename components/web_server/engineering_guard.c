@@ -130,6 +130,22 @@ static esp_err_t safe_meters(httpd_req_t *request)
         cJSON_AddNumberToObject(item, "index", i);
         cJSON_AddStringToObject(item, "name", config->meters[i].name);
         cJSON_AddBoolToObject(item, "enabled", config->meters[i].enabled);
+        /*
+         * WHAT THIS METER MEASURES, in the operator view too.
+         *
+         * The same principle as the measurements below: the gate withholds how
+         * the firmware TALKS to the instrument -- hosts, unit ids, register
+         * addresses -- not what the instrument is. The declared role is what
+         * decides which page a reading is drawn on, and without it every meter
+         * landed on one page, so a generator's output appeared under a heading
+         * reading "Grid power" -- the screen asserting the plant was importing
+         * from the utility while it burned diesel.
+         *
+         * Withholding it protects nothing and mislabels a measurement, which is
+         * the one thing this product must never do.
+         */
+        cJSON_AddNumberToObject(item, "role", config->meters[i].role);
+        cJSON_AddStringToObject(item, "role_name", meter_role_name(config->meters[i].role));
         cJSON *runtime = cJSON_AddObjectToObject(item, "runtime");
         cJSON_AddBoolToObject(runtime, "available", have);
         cJSON_AddBoolToObject(runtime, "online", fresh);

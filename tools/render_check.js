@@ -801,6 +801,103 @@ check('the plant overview states the command and whether it is in force', () => 
     assert.strictEqual(commandWords(null), '');
 });
 
+/*
+ * WHICH PAGE A METER'S READINGS BELONG ON.
+ *
+ * The owner's rule: grid meter on the Grid page, generator meter on the
+ * Generator page, and on a single-meter tariff plant the one instrument follows
+ * the tariff -- 1 to the grid page, 2 to the generator page.
+ *
+ * This is the rule that decides whether a generator's output is drawn under a
+ * heading that says "Grid power", which is the screen asserting the plant is
+ * importing from the utility while it burns diesel.
+ */
+check('a meter is attributed to the page whose heading is true', () => {
+    const sandbox = makeSandbox();
+    load(sandbox, 'meter-source-routing.js');
+    const routing = sandbox.window.AutomatrixMeterRouting;
+
+    const resolved = (to) => ({ source: { configured: true, evidence_fresh: true,
+        conflict: false, attributed_to: to } });
+
+    const gridMeter = { name: 'Grid meter', role: routing.ROLE_GRID };
+    const genMeter = { name: 'Generator meter', role: routing.ROLE_GENERATOR };
+    const pair = [gridMeter, genMeter];
+
+    /* 1. TWO SUPPLY METERS: the commissioned role decides and no runtime signal
+     *    overrides it. A declared grid meter stays on the grid page even while
+     *    the controller reports the plant is on its generator, because that
+     *    instrument is wired to the utility either way. */
+    assert.strictEqual(routing.attribute(gridMeter, resolved('generator'), pair).page, 'grid');
+    assert.strictEqual(routing.attribute(genMeter, resolved('grid'), pair).page, 'generator');
+
+    /* 2. ONE SUPPLY METER -- the tariff plant the owner described. The
+     *    controller's resolved source decides, and it OVERRIDES the
+     *    commissioned role: this board ships with the EM500 commissioned as the
+     *    grid meter, and while it reads tariff 2 it is measuring the generator.
+     *    Drawing that under "Grid power" is the defect this module exists to
+     *    stop, and an earlier version of it did exactly that. */
+    const tariffMeter = { name: 'Automatrix EM500', role: routing.ROLE_UNASSIGNED };
+    const alone = [tariffMeter];
+    assert.strictEqual(routing.attribute(tariffMeter, resolved('grid'), alone).page, 'grid',
+        'tariff 1 does not put the meter on the grid page');
+    assert.strictEqual(routing.attribute(tariffMeter, resolved('generator'), alone).page, 'generator',
+        'tariff 2 does not move the meter to the generator page');
+
+    const labelledGrid = [{ name: 'Automatrix EM500', role: routing.ROLE_GRID }];
+    assert.strictEqual(routing.attribute(labelledGrid[0], resolved('generator'), labelledGrid).page,
+        'generator',
+        'a lone meter commissioned "grid" kept its readings on the grid page '
+        + 'while it was measuring the generator');
+
+    /* 3. FAIL CLOSED. Unresolved, stale, conflicting or unconfigured detection
+     *    attributes the meter to NO page. Filing it under grid because grid is
+     *    the common case is how a generator reading ends up under a grid
+     *    heading in the first place. */
+    [{}, { source: { configured: false, evidence_fresh: true, conflict: false, attributed_to: 'grid' } },
+     { source: { configured: true, evidence_fresh: false, conflict: false, attributed_to: 'grid' } },
+     { source: { configured: true, evidence_fresh: true, conflict: true, attributed_to: 'grid' } },
+     { source: { configured: true, evidence_fresh: true, conflict: false, attributed_to: 'unknown' } }
+    ].forEach((status, index) => {
+        assert.strictEqual(routing.attribute(tariffMeter, status, alone).page, null,
+            `an unresolved source (case ${index}) still put the meter on a page`);
+    });
+
+    /* 4. A LOAD or PV meter is a declared thing that is not a supply, and
+     *    belongs to neither supply page rather than defaulting onto one. */
+    assert.strictEqual(routing.attribute({ role: 3, role_name: 'load' }, resolved('grid'),
+        [{ role: 3 }, gridMeter, genMeter]).page, null);
+
+    /* 5. metersFor() selects, and the pages are disjoint: one meter is never
+     *    drawn on both, which would be the same quantity claimed of two
+     *    different supplies at once. */
+    const fleet = [gridMeter, genMeter, tariffMeter];
+    const onGrid = routing.metersFor('grid', fleet, resolved('generator'));
+    const onGen = routing.metersFor('generator', fleet, resolved('generator'));
+    assert.deepStrictEqual(onGrid.map((e) => e.meter.name), ['Grid meter']);
+    /* The unassigned third meter is on NEITHER page. The controller resolves one
+     * live source for the site; attributing it to a second instrument as well
+     * would file the generator's reading against a meter that may be measuring
+     * something else entirely. */
+    assert.deepStrictEqual(onGen.map((e) => e.meter.name), ['Generator meter']);
+
+    /* 6. AN EMPTY PAGE MUST SAY WHY, and "it is on the other page right now" is
+     *    a different fact from "nothing is commissioned". On a tariff plant the
+     *    first one is normal for half of every day. */
+    const away = routing.absence('grid', [tariffMeter], resolved('generator'));
+    assert.ok(/generator/i.test(away) && /Generator power/.test(away),
+        'the grid page does not say where the reading went');
+    /* And it must be a SENTENCE. Every reason composes after "<name> is", so a
+     * reason written as a full sentence produced "Automatrix EM500 is this is
+     * the only supply meter..." on the live board. */
+    assert.ok(!/is this is/.test(away) && !/is the controller/.test(away),
+        `the absence line does not read as English: ${away}`);
+    assert.ok(/commissioned/i.test(routing.absence('grid', [], resolved('grid'))),
+        'a controller with no meters does not say so');
+    assert.ok(/not resolved/i.test(routing.absence('grid', [tariffMeter], {})),
+        'an unresolved source is not explained');
+});
+
 /* --------------------------------------------------------------------- run */
 
 let failed = 0;

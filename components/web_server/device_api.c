@@ -174,6 +174,21 @@ static esp_err_t meters_get(httpd_req_t *request)
          * see "undeclared" when nothing has been stated. */
         cJSON_AddNumberToObject(item, "model", meter->model);
         cJSON_AddStringToObject(item, "model_name", meter_model_name(meter->model));
+        /*
+         * WHAT THIS METER MEASURES.
+         *
+         * Published here, on the unauthenticated runtime endpoint, because the
+         * screens decide which page a reading belongs on: a grid meter's power
+         * must not be drawn under a generator heading and the reverse is worse.
+         * It was reachable only through the engineering meter-configuration
+         * endpoint, so an operator screen had no way to tell the two apart and
+         * put every meter on one page.
+         *
+         * Configuration metadata, not a measurement and not a secret: it says
+         * what the installer declared this instrument to be.
+         */
+        cJSON_AddNumberToObject(item, "role", meter->role);
+        cJSON_AddStringToObject(item, "role_name", meter_role_name(meter->role));
         cJSON_AddBoolToObject(item, "model_in_phase_scope",
                               meter_model_in_phase_scope(meter->model));
         add_endpoint(item, &meter->endpoint);

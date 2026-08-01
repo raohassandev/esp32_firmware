@@ -64,6 +64,14 @@
          * writers are gone. The wording lives here, once, as `name`. */
         dashboard: { name: 'Plant overview', short: 'Overview', group: 'operate', icon: '⌂' },
         meters: { name: 'Grid power', short: 'Grid', group: 'operate', icon: '▤' },
+        /* The generator's own page.
+         *
+         * Grid and generator readings used to share one page, so on a
+         * single-meter tariff plant the generator's output was drawn under a
+         * "Grid power" heading -- the screen stating the plant was importing
+         * from the utility while it burned diesel. One supply per page; see
+         * web/meter-source-routing.js. */
+        generator: { name: 'Generator power', short: 'Generator', group: 'operate', icon: '◉' },
         inverters: { name: 'Solar inverters', short: 'Solar', group: 'operate', icon: '◇' },
         alarms: { name: 'Alarms and events', short: 'Alarms', group: 'operate', icon: '△' },
         /* The site owner's own Wi-Fi page, in Operate rather than Commission.
@@ -87,7 +95,8 @@
      * monitor and its field on the other. See the density block in
      * web/product-experience-v2.css. */
     const PAGE_TYPES = {
-        dashboard: 'operational', meters: 'operational', inverters: 'operational',
+        dashboard: 'operational', meters: 'operational', generator: 'operational',
+        inverters: 'operational',
         alarms: 'operational',
         network: 'form', wifi: 'form', control: 'form', system: 'form',
         commissioning: 'guided', readiness: 'guided', engineering: 'guided'
