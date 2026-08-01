@@ -743,6 +743,64 @@ check('a silent inverter still shows what the controller decided', () => {
     assert.ok(!text.includes('AC side'), 'a measurement section is drawn with no measurements');
 });
 
+/*
+ * THE COMMAND ON THE PLANT OVERVIEW.
+ *
+ * These two are pure functions of the payload, so they are extracted and run
+ * against the real source text rather than restated here.
+ */
+function loadCommandHelpers() {
+    const source = fs.readFileSync(path.join(WEB, 'operator-view.js'), 'utf8')
+        .replace(/\r\n/g, '\n');
+    const start = source.indexOf('    function fleetCommand(list) {');
+    const end = source.indexOf('    /* ---- 2. what the plant is doing');
+    assert.ok(start > 0 && end > start, 'the command helpers could not be located');
+    const sandbox = makeSandbox();
+    vm.runInContext(
+        'function finite(v) { return typeof v === "number" && Number.isFinite(v); }\n'
+        + source.slice(start, end)
+        + '\nwindow.__cmd = { fleetCommand, commandWords };',
+        sandbox, { filename: 'operator-view.js#command' });
+    return sandbox.window.__cmd;
+}
+
+check('the plant overview states the command and whether it is in force', () => {
+    const { fleetCommand, commandWords } = loadCommandHelpers();
+    const preview = (percent, would_write, blocked_by) =>
+        ({ command_preview: { available: true, percent, would_write, blocked_by } });
+
+    /* Agreeing fleet, actually being written. */
+    const held = fleetCommand([preview(30, true), preview(30, true)]);
+    assert.strictEqual(held.text, '30');
+    assert.strictEqual(held.inForce, true, 'a written command is not reported as in force');
+
+    /* Computed but refused: the number is still shown, and the card must be
+     * able to say it is not in force. A decision presented as an action is the
+     * same defect as a setpoint drawn as a measurement. */
+    const refused = fleetCommand([preview(45, false, 'the inverter is not answering')]);
+    assert.strictEqual(refused.text, '45');
+    assert.strictEqual(refused.inForce, false, 'a blocked command is reported as in force');
+    assert.ok(/not answering/.test(refused.reason), 'the refusing gate is not carried');
+
+    /* Disagreeing machines: one percentage would be true of neither. */
+    const mixed = fleetCommand([preview(20, true), preview(60, true)]);
+    assert.strictEqual(mixed.text, '20\u201360', 'a mixed fleet is collapsed to one number');
+
+    /* One partly-blocked fleet is not a commanded fleet. */
+    assert.strictEqual(fleetCommand([preview(30, true), preview(30, false, 'x')]).inForce, false);
+
+    /* Nothing to say rather than a zero nobody decided. */
+    assert.strictEqual(fleetCommand([]), null);
+    assert.strictEqual(fleetCommand([{ command_preview: { available: false } }]), null);
+
+    /* And the tile wording separates instruction from action. */
+    assert.ok(/would command 45%/.test(
+        commandWords({ available: true, percent: 45, would_write: false })));
+    assert.ok(/\bcommanded 45%/.test(
+        commandWords({ available: true, percent: 45, would_write: true })));
+    assert.strictEqual(commandWords(null), '');
+});
+
 /* --------------------------------------------------------------------- run */
 
 let failed = 0;

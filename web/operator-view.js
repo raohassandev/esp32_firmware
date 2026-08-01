@@ -974,7 +974,53 @@
             }));
         }
 
-        /* ---- 2. what the plant is doing ----------------------------------- */
+        /*
+     * WHAT THE CONTROLLER IS TELLING THE INVERTERS.
+     *
+     * A different fact from "Solar now": one is the instruction, the other is
+     * what the machines are producing. Reading the plant without it means an
+     * operator can see production fall and have no way to know whether the
+     * controller asked for that or something broke.
+     *
+     * Summarised across the fleet ONLY when the machines agree. When they carry
+     * different limits a single percentage would be a number that is true of no
+     * inverter, so the range is shown instead and the fleet table has the rest.
+     */
+    function fleetCommand(list) {
+        const previews = (Array.isArray(list) ? list : [])
+            .map((inverter) => inverter.command_preview)
+            .filter((preview) => preview && preview.available === true
+                && finite(Number(preview.percent)));
+        if (!previews.length) return null;
+        const values = previews.map((preview) => Number(preview.percent));
+        const low = Math.min(...values);
+        const high = Math.max(...values);
+        /* In force only if EVERY one of them would actually be written. A fleet
+         * where half the commands are blocked is not a commanded fleet. */
+        const inForce = previews.every((preview) => preview.would_write === true);
+        const blocked = previews.find((preview) => preview.would_write !== true);
+        return {
+            /* Rounded to whole percent: the register is written in whole
+             * percent on every profile the product carries. */
+            text: Math.round(low) === Math.round(high)
+                ? `${Math.round(low)}` : `${Math.round(low)}–${Math.round(high)}`,
+            inForce,
+            reason: blocked ? (blocked.blocked_by || 'the write gate refuses it') : ''
+        };
+    }
+
+    /* One inverter's command, for a tile that has room for a few words. Says
+     * "would be" when it is not going to be written, because an operator
+     * reading "commanded 30%" on a machine nobody is commanding would be
+     * reading a decision as an action. */
+    function commandWords(preview) {
+        if (!preview || preview.available !== true || !finite(Number(preview.percent))) return '';
+        const percent = Math.round(Number(preview.percent));
+        return preview.would_write === true
+            ? ` · commanded ${percent}%` : ` · would command ${percent}%`;
+    }
+
+    /* ---- 2. what the plant is doing ----------------------------------- */
         const gridKw = finite(status.grid_power_kw) ? Number(status.grid_power_kw) : null;
         const gridFresh = Boolean(status.meter_online) && !Boolean(status.meter_stale);
         /* Named by the controller, not assumed. See web/source-attribution.js. */
@@ -1007,6 +1053,32 @@
                 ? 'Measured at the inverters'
                 : 'This controller can adjust ' + commandable.toFixed(1) + ' kW of it'
         }));
+        /*
+         * Beside "Solar now" on purpose: instruction and measurement read
+         * together, never merged. When the command is computed but not being
+         * sent the card says so in the foot rather than presenting a decision
+         * that is not in force as though it were.
+         */
+        const command = fleetCommand(payload.inverters?.inverters || []);
+        if (command) {
+            /* Built here rather than through cards.metric, which formats to one
+             * decimal and takes a single number. Every profile the product
+             * carries writes this register in WHOLE percent, and a disagreeing
+             * fleet has a range and not a number -- "30.0" would invent a
+             * precision the register does not have, and a range could not be
+             * shown at all. Same classes, so it reads as one of the row. */
+            const card = node('article', 'amx-card');
+            card.append(node('span', 'amx-card-label', 'Commanded to the inverters'));
+            const line = node('div', 'amx-metric-value');
+            line.append(document.createTextNode(command.text));
+            line.append(node('span', 'amx-metric-unit', '%'));
+            if (!command.inForce) line.classList.add('is-not-in-force');
+            card.append(line);
+            card.append(node('span', 'amx-metric-foot', command.inForce
+                ? 'The limit the controller is holding the inverters to'
+                : `Computed, not being sent: ${command.reason}`));
+            now.grid.append(card);
+        }
         view.append(now);
 
         /* ---- 2b. where the power is going ---------------------------------
@@ -1031,6 +1103,10 @@
                 state: online ? 'ok' : 'bad'
             }));
         }
+        /* The command belongs to the CONFIGURED inverter, the measurement to the
+         * telemetry record; joined by index so a tile can carry both. */
+        const previewByIndex = new Map((payload.inverters?.inverters || [])
+            .map((item, position) => [Number(item.index ?? position), item.command_preview]));
         for (const inverter of (telemetry.inverters || [])) {
             /* telemetry_valid, not a bare online flag: an inverter that answers
              * and returns nothing usable is not working, and calling that
@@ -1040,7 +1116,8 @@
             devices.grid.append(cards.tile({
                 iconName: valid ? 'inverter' : 'offline',
                 name: 'Inverter ' + (Number(inverter.index) + 1),
-                detail: (valid ? 'Answering' : 'Not answering') + ' · ' + cards.ageWords(inverter.telemetry_age_ms),
+                detail: (valid ? 'Answering' : 'Not answering') + ' · '
+                    + cards.ageWords(inverter.telemetry_age_ms) + commandWords(previewByIndex.get(Number(inverter.index))),
                 value: kw === null ? '—' : kw.toFixed(1) + ' kW',
                 state: valid ? 'ok' : 'bad'
             }));

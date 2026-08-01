@@ -43,6 +43,7 @@ done, so what you check is what is running.
 | B5 | Modbus efficiency | Serve the control read from the 72-register block instead of 4 separate reads per cycle. Cuts 4–5 transactions to 1. Touches the control input, so I will not do it without your go-ahead |
 | B6 | Huawei bench qualification | The only path from LAB_ONLY to PRODUCTION for inverter writes |
 | B7 | The computed command is visible to an operator | Done, flashed 01-08 | `web/operator-view.js` Solar inverters table has a **Commanded** column: the percentage the controller decided, shown whether or not it will be sent, muted and italic with the refusing gate on hover. Verified in Chromium on 192.168.100.14: `0 %` / "Not written: the inverter is not answering". Pinned by render check 20. | | |
+| B8 | The computed command is on the Plant overview | Done, flashed 01-08 | Metric card **Commanded to the inverters** beside *Solar now*, plus per-inverter wording on the Equipment tiles ("commanded 30%" vs "would command 30%"). Whole percent, because that is what the register carries; a range when machines disagree. Verified in Chromium: `0 %` / "Computed, not being sent: the inverter is not answering". Render check 21, mutation-tested both directions. | | |
 
 I proceed on tasks 1–14 without waiting. Where a blocked answer changes a
 default, I implement the mechanism and leave the value fail-closed.

@@ -226,3 +226,10 @@
  * same as a commanded value that IS being applied -- the hover says which gate
  * is stopping it. */
 .op-num-pending { opacity: 0.6; font-style: italic; }
+
+/* A commanded value the controller computed and is NOT sending.
+ *
+ * It is a real decision that is not in force, and it must not read as the
+ * limit the plant is actually being held to -- the foot of the card says which
+ * gate is stopping it. */
+.amx-metric-value.is-not-in-force { opacity: 0.6; font-style: italic; }
