@@ -215,8 +215,6 @@ jobs:
         run: python3 tests/phase_scope_source_contract.py
       - name: Check phase scope is visible in the inverter profile picker
         run: python3 tests/inverter_phase_scope_ui_source_contract.py
-      - name: Check the inverters page states findings and keeps its reasoning
-        run: python3 tests/inverter_page_density_source_contract.py
       - name: Check meter role and schema 4 upgrade contract
         run: python3 tests/meter_role_source_contract.py
       - name: Check generator power policy contract

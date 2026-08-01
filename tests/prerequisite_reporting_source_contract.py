@@ -449,183 +449,21 @@ require("border-style: dashed" in prereq_css.split(".prereq-state-not_required",
         "'this device needs no enable register' must be drawn as the neutral, "
         "unmeasured state rather than as a verdict")
 
-# ------------------------------------------------------------- the vocabulary
-
-require("const PREREQUISITE_STATES = Object.freeze({" in APP,
-        "there is no closed vocabulary for the enable-register states")
-prereq_states = APP[APP.index("const PREREQUISITE_STATE_ORDER"):
-                    APP.index("function prerequisiteStateMeta")]
-for name in ("confirmed", "unconfirmed", "unverifiable", "not_required"):
-    require(f"{name}: Object.freeze({{" in prereq_states,
-            f"enable-register state missing: {name}")
-
-# The two vocabularies must not share a label or a glyph: the whole point is that
-# they are two independent answers, and the dangerous reading is "setpoint
-# Confirmed" beside "enable not confirmed".
-write_states = APP[APP.index("const WRITE_CONFIRMATION_STATES"):
-                   APP.index("function writeStateMeta")]
-write_labels = set(re.findall(r"label: '([^']+)'", write_states))
-write_marks = set(re.findall(r"mark: '([^']+)'", write_states))
-prereq_labels = set(re.findall(r"label: '([^']+)'", prereq_states))
-prereq_marks = set(re.findall(r"mark: '([^']+)'", prereq_states))
-require(len(prereq_labels) == 4,
-        "each enable-register state needs its own label; four states with fewer "
-        "than four labels cannot be told apart")
-require(len(prereq_marks) == 4,
-        "each enable-register state needs its own glyph, so state never depends "
-        "on colour alone")
-require(not (write_labels & prereq_labels),
-        "the setpoint and enable-register vocabularies share a label: "
-        f"{sorted(write_labels & prereq_labels)}")
-require(not (write_marks & prereq_marks),
-        "the setpoint and enable-register vocabularies share a glyph: "
-        f"{sorted(write_marks & prereq_marks)}")
-
-# The danger, in words, in the state that carries it.
-unconfirmed_copy = prereq_states[prereq_states.index("unconfirmed: Object.freeze({"):
-                                 prereq_states.index("unverifiable: Object.freeze({")]
-require("echoes it back" in unconfirmed_copy,
-        "the unconfirmed state must say the setpoint register echoes the write back")
-require("does not contradict this" in unconfirmed_copy,
-        "the unconfirmed state must say plainly that a Confirmed setpoint above "
-        "does not contradict it")
-require("transient" in unconfirmed_copy.lower(),
-        "the unconfirmed state must say it is transient")
-
-unverifiable_copy = prereq_states[prereq_states.index("unverifiable: Object.freeze({"):
-                                  prereq_states.index("not_required: Object.freeze({")]
-require("permanent" in unverifiable_copy,
-        "the unverifiable state must say it is permanent")
-require("manual citation" in unverifiable_copy,
-        "the unverifiable state must name the remedy: a manual citation for the "
-        "register and its readback")
-require("no amount of polling" in unverifiable_copy,
-        "the unverifiable state must say that waiting will not resolve it")
-
-# Nothing may paraphrase or soften a firmware safety statement.
-for invention in ("PREREQ_LABELS", "describePrerequisite", "prereqFriendly",
-                  "'Probably fine'", "prerequisiteSeverity"):
-    require(invention not in APP,
-            f"the interface paraphrases or grades a firmware safety statement: {invention}")
-
-# ------------------------------------------ shown wherever confirmation is shown
-
-require('id="prereqNotice"' in INDEX,
-        "the setpoint confirmation panel does not carry the enable-register warning")
-require('id="gatePrereqNotice"' in INDEX,
-        "the commissioning gate panel does not carry the enable-register warning")
-require('id="prereqLegend"' in INDEX,
-        "the four enable-register states are never explained")
-require('id="gatePrerequisite"' in INDEX and 'id="gateWriteConfirmation"' in INDEX,
-        "the gate panel must report the two faults as two rows")
-
-# Both panels state the danger in the markup itself, so it is on screen before any
-# poll returns and regardless of whether a fault happens to be latched.
-require("A setpoint can read back perfectly and still be ignored." in INDEX,
-        "the confirmation panel must state the danger outright: a setpoint can "
-        "read back perfectly while being ignored")
-require("An unconfirmed enable register is not a setpoint fault." in INDEX,
-        "the gate panel must state that the two faults are not the same fault")
-notice = INDEX[INDEX.index('id="prereqNotice"'):INDEX.index('id="prereqCounts"')]
-require("still echoes it back" in notice,
-        "the confirmation panel must say the setpoint register echoes the write back")
-require("full output" in notice,
-        "the confirmation panel must say the inverter keeps generating at full output")
-gate_notice = INDEX[INDEX.index('id="gatePrereqNotice"'):
-                    INDEX.index('id="gatePrereqDetail"')]
-require("Unconfirmed is transient" in gate_notice and "Unverifiable is permanent" in gate_notice,
-        "the gate panel must distinguish the transient case from the permanent one")
-
-# The permanent state is never presented as something to wait out. Neither panel
-# may describe the setpoint readback as reassuring.
-for phrase in ("no action required", "safe to ignore", "will clear itself",
-               "harmless"):
-    require(phrase not in INDEX.lower(),
-            f"an unarmed enable register must never be described as {phrase!r}")
-
-# --------------------------------------------------------------- the rendering
-
-require("function renderPrerequisiteFleet" in APP,
-        "nothing renders the fleet enable-register state")
-require("function prerequisiteBlock" in APP,
-        "nothing renders the per-inverter enable-register state")
-require("function renderGatePrerequisite" in APP,
-        "the commissioning gate panel never renders the enable-register state")
-require("prerequisiteBlock(entry)" in APP,
-        "the per-inverter block is not attached to the confirmation row it "
-        "qualifies, so a reader could see the setpoint figures without it")
-
-# It reads the fields the firmware publishes, per inverter and per fleet.
-require("entry.prerequisite?.state" in APP,
-        "the row does not read the per-inverter prerequisite state")
-for field in ("prerequisite_enable_fault", "prerequisite_required_count",
-              "prerequisite_unconfirmed_count", "prerequisite_unverifiable_count"):
-    require(field in APP, f"the interface never reads {field}")
-
-# The three counts are shown as three figures, with what each one means for the
-# reader's next action.
-counts = APP[APP.index("function prerequisiteCountLine"):
-             APP.index("function renderPrerequisiteLegend")]
-require("transient, retried" in counts,
-        "the unconfirmed count must say it is transient and retried")
-require("permanent, needs a manual citation" in counts,
-        "the unverifiable count must say it is permanent and needs a citation")
-require("+" in counts and counts.count("prerequisite_") >= 3,
-        "the three counts must be reported as three figures, not summed")
-
-# Unknown is not 'fine'. An absent report must read as not confirmed.
-require("Unknown is not confirmed" in APP,
-        "a missing enable-register report must be stated as not confirmed rather "
-        "than left blank, which would read as nothing to worry about")
-fleet_render = APP[APP.index("function renderPrerequisiteFleet"):
-                   APP.index("function renderWriteConfirmation")]
-require("=== true" in fleet_render,
-        "the fault must be read explicitly, never by truthiness: a missing field "
-        "would then read as no fault")
-block_render = APP[APP.index("function prerequisiteBlock"):
-                   APP.index("function prerequisiteCountLine")]
-require("did not report an enable-register state" in block_render,
-        "an inverter with no prerequisite object must be reported as unknown, not "
-        "silently omitted")
-
-# The fallback for an unrecognised slug must be the unconfirmed treatment, not the
-# confirmed one.
-pill = APP[APP.index("function prerequisitePill"):APP.index("function confirmValue")]
-require("meta ? name : 'unconfirmed'" in pill,
-        "an unrecognised enable-register state must fall back to the unconfirmed "
-        "treatment; falling back to confirmed would invent permission")
-require("verbatim(name)" in pill,
-        "an unrecognised state must be labelled exactly as the controller sent it")
-
-# The controller's own notice is rendered as received, not rewritten.
-require("payload.prerequisite_notice" in APP and "gate.prerequisite_notice" in APP,
-        "the controller's own prerequisite notice is not rendered")
-require("setNoticeLine('prereqNoticeDetail'" in APP
-        and "setNoticeLine('gatePrereqDetail'" in APP,
-        "the controller's notice must be written as received rather than composed "
-        "into a sentence of this interface's own")
-
-# An unarmed register re-rules the row, so a reader scanning setpoint pills cannot
-# miss it while the setpoint says Confirmed.
-require("row.classList.add('prereq-unverifiable')" in APP
-        and "row.classList.add('prereq-unconfirmed')" in APP,
-        "an unarmed enable register must mark the whole confirmation row")
-require(".confirm-row.prereq-unconfirmed" in prereq_css
-        and ".confirm-row.prereq-unverifiable" in prereq_css,
-        "the row marking has no styling, so it would carry no meaning")
-# A mismatched setpoint and an unarmed enable register can be true at the same
-# time, and the row border already carries the setpoint state. The prerequisite
-# marking must use an independent channel or it would delete one of two
-# simultaneous faults.
-for row_rule in (".confirm-row.prereq-unconfirmed", ".confirm-row.prereq-unverifiable"):
-    declarations = prereq_css.split(row_rule, 1)[1].split("}", 1)[0]
-    require("outline" in declarations,
-            f"{row_rule} must mark the row on a channel of its own")
-    require("border-color" not in declarations,
-            f"{row_rule} overwrites the row border, which carries the setpoint "
-            "state; a mismatched setpoint and an unarmed enable register can both "
-            "be true and both must stay visible")
-
+# THE VOCABULARY AND RENDERING SECTIONS ARE GONE.
+#
+# They checked that the setpoint-confirmation panel on the Inverters page drew
+# the four enable-register states with a closed vocabulary, distinct glyphs and
+# an outline of their own. That panel was removed at the owner's request, so
+# there is nothing left to draw them and a check that a deleted panel renders
+# correctly can only fail.
+#
+# WHAT REMAINS IS THE SAFETY PROPERTY, and it is all above this line: the
+# control engine observes the fault, orders it ahead of the setpoint fault,
+# publishes it from both APIs unconditionally with no Modbus I/O in the
+# handler, keeps transient apart from permanent, and never lets an unconfirmed
+# enable register be described as armed. The commissioning gate still carries
+# the warning in words -- checked above -- and that is the panel an engineer
+# reads before allowing control, which is when this decides something.
 
 # ------------------------------------------------------------ CI registration
 

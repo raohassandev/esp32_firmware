@@ -232,107 +232,23 @@ require(".lab-simulator-banner[hidden] { display: none; }" in lab_css,
         "the banner is not hidden when the controller is not in lab mode")
 
 
-# ================================================ 2. write confirmation display
-
-require('id="writeConfirmationPanel"' in INDEX, "there is no setpoint confirmation panel")
-require("'/api/inverters/write-confirmation'" in APP,
-        "nothing reads the write-confirmation endpoint")
-require("const WRITE_CONFIRMATION_STATES = Object.freeze({" in APP,
-        "there is no closed vocabulary for the confirmation states")
-
-states = APP[APP.index("const WRITE_CONFIRMATION_STATES"):APP.index("function writeStateMeta")]
-for name, label in (("confirmed", "'Confirmed'"), ("pending", "'Pending'"),
-                    ("unverified", "'Unverified'"), ("mismatched", "'Mismatched'")):
-    require(f"{name}: Object.freeze({{" in states, f"confirmation state missing: {name}")
-    require(label in states, f"confirmation state {name} is unlabelled")
-
-# Each state says what it actually means, in terms of what the firmware does.
+# SECTIONS 2 AND 4 ARE GONE, and this is deliberate.
 #
-# CHANGED DELIBERATELY. This assertion used to demand the sentence "a readback
-# taken after the write matched the requested setpoint", i.e. that confirmed means
-# exactly one thing. Since plant-level logger control landed it means one of two
-# things -- a limit demonstrated by measured power, or a setpoint readback that on
-# a stored-command interface is an echo proving acceptance only -- and the old
-# copy stated the WEAKER of the two as if it were the whole answer. Keeping the
-# old assertion would have pinned a false statement in place, so it is replaced
-# rather than added to: confirmed must now say that it is not one thing, and it
-# must name both kinds of evidence.
-require("confirmed is not one thing" in states,
-        "confirmed must say plainly that it covers more than one kind of evidence")
-require("above the new limit before the command and at or below it after" in states,
-        "confirmed does not state the measured evidence that demonstrates a limit")
-require("echo of a stored command" in states,
-        "confirmed does not state that a setpoint readback can be an echo")
-require("proves only that the command was accepted" in states,
-        "confirmed must say that the echo case proves acceptance and nothing more")
-require("matched the requested setpoint" not in states,
-        "the old copy stating a setpoint match as the whole meaning of confirmed "
-        "must not come back: it is the weaker of two kinds of evidence and "
-        "presenting it as the definition is the false-confirmation defect")
-require("This is not success" in states,
-        "pending must state plainly that it is not success")
-require("longer than a second" in states,
-        "pending does not explain that a real inverter defers a setpoint")
-require("treats this as a fault" in states,
-        "mismatched must read as the fault it is")
-require("safe fallback" in states,
-        "mismatched does not state the consequence the firmware applies")
-require("neither success nor failure" in states,
-        "unverified must be neither success nor failure")
-require("no manual-verified readback register" in states,
-        "unverified does not explain that confirmation can be impossible")
-
-# The firmware semantics those sentences describe.
-require("return verdict(INVERTER_WRITE_CONFIRMED, false, true);" in CONFIRM_CORE,
-        "a matching readback no longer produces CONFIRMED; the copy would be wrong")
-require("return verdict(INVERTER_WRITE_MISMATCHED, true, true);" in CONFIRM_CORE,
-        "a mismatch no longer demands a safe zero; the copy would be wrong")
-require('case INVERTER_WRITE_PENDING: return "pending";' in CONFIRM_CORE,
-        "the confirmation state slugs this panel keys on have changed")
-require("An empty or absent fleet is unverified" in CONFIRM_CORE,
-        "the empty-fleet rule the panel states has changed")
-
-# Requested, confirmed and the raw readback are three separate figures.
-require("'Requested'" in APP and "'Confirmed'" in APP and "'Last readback'" in APP,
-        "requested, confirmed and readback are not shown as separate values")
-require("entry.requested_percent" in APP and "entry.confirmed_percent" in APP
-        and "entry.readback_percent" in APP,
-        "the panel does not read the three separate percent fields")
-require("What the controller wrote." in APP,
-        "the requested figure does not say what it is")
-require("Only set when a readback matched." in APP,
-        "the confirmed figure does not say what it is")
-# Merging them, or substituting one for the other, is the defect.
-for invention in ("requested_percent ||", "confirmed_percent ||",
-                  "requested_percent ?? entry.confirmed_percent",
-                  "confirmed_percent ?? entry.requested_percent"):
-    require(invention not in APP,
-            f"requested and confirmed percent must never fall back to one another: {invention}")
-require("function formatPercent" in APP, "percent values are not formatted in one place")
-percent = APP[APP.index("function formatPercent"):APP.index("function setTextIfChanged")]
-require("value == null || !Number.isFinite(number) ? absent" in percent,
-        "a missing percent must stay missing, not be coerced to a number")
-
-# The firmware publishes requested and confirmed separately, deliberately.
-require('add_finite(item, "requested_percent", data.requested_percent)' in GATE_API,
-        "the firmware no longer reports requested_percent separately")
-require('add_finite(item, "confirmed_percent", data.commanded_percent)' in GATE_API,
-        "the firmware no longer reports confirmed_percent separately")
-
-# Presentation: pending is not the success treatment, mismatched is a fault,
-# unverified is dashed, and colour is never the only channel.
-require(".confirm-state-pending { color: var(--confirm-pending); border-color: var(--confirm-pending); }" in lab_css,
-        "pending has no distinct treatment of its own")
-require(".confirm-state-mismatched" in lab_css and "border-width: 2px" in lab_css,
-        "a mismatched setpoint is not drawn as the fault it is")
-require("border-style: dashed" in lab_css,
-        "unverified must be visibly 'not measurable', as unmeasured nodes are elsewhere")
-require("opacity" not in lab_css,
-        "no confirmation state may be faded out; an unconfirmed setpoint is not resolved")
-require("mark: '⋯'" in states and "mark: '!'" in states and "mark: '?'" in states
-        and "mark: '✓'" in states,
-        "state must be carried by a glyph and a word as well as a colour")
-
+# The setpoint-confirmation panel and the lab-target control were removed from
+# the Inverters page at the owner's request. Checking that a page renders a
+# panel that no longer exists is a contract that can only ever fail, and
+# keeping it as a skip teaches people to ignore this file.
+#
+# WHAT WAS REMOVED WAS THE DISPLAY, NOT THE GATE. The firmware clauses below
+# and in the sections that remain are untouched: the controller still refuses
+# to command through an unqualified profile, still reports lab_simulator_only
+# rather than production while any commanded inverter is a declared simulator,
+# still publishes the confirmation provenance, and still carries the shell
+# banner that says so on every page. Those are the safety properties; the
+# panels were one way of reading them.
+#
+# tests/confirmation_provenance_source_contract.py keeps the firmware side of
+# the confirmation semantics.
 
 # ================================================== 3. commissioning gate panel
 
@@ -367,7 +283,12 @@ require('cJSON_AddStringToObject(item, "reason"' in GATE_API,
         "the firmware no longer publishes a per-prerequisite reason code")
 
 # control_authority.mode_label and inhibit_reason, verbatim.
-gate_render = APP[APP.index("function renderCommissioningGate"):APP.index("function confirmStatePill")]
+# Ends at the next function, which is part of the gate rendering itself.
+# The old anchor was confirmStatePill, which belonged to the removed
+# confirmation panel -- an end anchor in unrelated code is an end anchor
+# that disappears when that code does.
+gate_render = APP[APP.index("function renderCommissioningGate"):
+                  APP.index("function renderGateLimitEvidence")]
 require("verbatim(authority?.mode_label)" in gate_render,
         "the controller's own control-authority label must be shown verbatim")
 require("verbatim(authority?.inhibit_reason" in gate_render,
@@ -398,87 +319,6 @@ require("STATES.commissioning.qualified" not in lab_branch.split("} else {", 1)[
         "a lab-only gate must not be presented as Qualified")
 
 
-# ================================================= 4. lab target control (write)
-
-require('id="labTargetPanel"' in INDEX, "there is no lab target control")
-require("'/api/inverter-profile-assignment'" in APP,
-        "the lab target control does not use the profile assignment endpoint")
-require("function applyLabTarget" in APP, "nothing sends a lab target declaration")
-apply_lab = APP[APP.index("function applyLabTarget"):APP.index("function engineeringAuthorized")]
-require("lab_target: declare" in apply_lab,
-        "the request must carry an explicit lab_target boolean")
-require("inverter_index: index" in apply_lab and "profile_id: profileId" in apply_lab,
-        "the request must name the inverter and the profile")
-
-# The consequence is explicit BEFORE the engineer confirms, in the panel and
-# again at the moment of the decision.
-require("window.confirm(consequences)" in apply_lab,
-        "the declaration is sent without an explicit confirmation step")
-require("has not been qualified on physical equipment" in apply_lab,
-        "the confirmation does not say the profile is unqualified")
-require("disables automatic control" in apply_lab,
-        "the confirmation does not say that automatic control is disabled")
-require("the firmware does this deliberately" in apply_lab,
-        "the confirmation does not say the firmware disables control on purpose")
-require("lab_simulator_only, never production" in apply_lab,
-        "the confirmation does not state the resulting commissioning scope")
-require("Declaring a lab target changes what the controller may command." in INDEX,
-        "the panel does not state the consequence before the control is used")
-require("It grants command authority through a profile that has not been qualified on physical equipment." in INDEX,
-        "the panel does not state the unqualified-profile consequence")
-require("It disables automatic control." in INDEX,
-        "the panel does not state the automatic-control consequence")
-require('id="labTargetAcknowledge"' in INDEX,
-        "there is no explicit acknowledgement before an unqualified profile is armed")
-
-# The response is reported as received, not interpreted.
-require("payload.write_permission_after_restart" in APP,
-        "the returned write permission is not shown")
-require("payload.lab_target_notice" in APP,
-        "the returned lab_target_notice is not shown")
-require("verbatim(payload.write_permission_after_restart)" in APP,
-        "the returned write permission must be shown verbatim")
-require("payload?.lab_target === true" in APP,
-        "the message must report the STORED declaration, not the requested one")
-require('cJSON_AddStringToObject(response, "write_permission_after_restart"' in PROFILE_API,
-        "the firmware no longer returns write_permission_after_restart")
-require('cJSON_AddStringToObject(response, "lab_target_notice"' in PROFILE_API,
-        "the firmware no longer returns lab_target_notice")
-require('cJSON_AddBoolToObject(response, "lab_target", lab_target)' in PROFILE_API,
-        "the firmware no longer returns the stored lab_target declaration")
-require("Report the stored declaration, not the requested one" in PROFILE_API,
-        "the firmware's stored-declaration guarantee this panel relies on has changed")
-
-# The declaration currently held IS now published, on the profiles GET, so the
-# panel must show the controller's state rather than echoing its own last request.
-# This replaces an earlier caveat asserting the opposite; the tripwire that
-# guarded it fired correctly when the read path was added.
-require("inverter_profile_store_lab_target_get" in PROFILE_API.split("profile_assignment_post", 1)[0],
-        "the profiles GET must publish the lab-target declaration currently held")
-require('cJSON_AddArrayToObject(root, "inverter_assignments")' in PROFILE_API,
-        "the profiles GET must expose per-inverter assignments")
-require("unreadable means" in PROFILE_API or 'lab_target = false' in PROFILE_API,
-        "an unreadable declaration must fail closed to 'not a lab target'")
-require("inverter_assignments" in APP,
-        "the panel must read the declarations the controller holds")
-require("renderLabAssignments" in APP,
-        "the panel must render the currently held declarations")
-# Whitespace-normalised: the phrase is prose in a wrapped comment, and asserting
-# the raw text would break on a harmless re-wrap.
-require("not what this browser last sent" in " ".join(APP.split()),
-        "the panel must distinguish controller state from its own last request")
-require("does not publish the lab-target declaration it currently holds" not in INDEX,
-        "the panel must no longer claim the present declaration cannot be read back")
-require("read from the controller itself" in INDEX,
-        "the panel must state that declarations come from the controller")
-
-# 44px hit targets on a control that arms an unqualified write path.
-require(".lab-target-panel .button { min-height: 44px; min-width: 44px; }" in lab_css,
-        "the lab target action does not meet the 44px minimum tap target")
-require(".lab-target-ack { margin-top: 14px; min-height: 44px; }" in lab_css,
-        "the acknowledgement control does not meet the 44px minimum tap target")
-
-
 # ================================================ authentication is handled well
 
 # Every one of these endpoints is engineering-guarded by the force-included
@@ -498,27 +338,29 @@ require("access.isAuthenticated()" in APP,
         "the reads must ask the shared access layer, not track auth themselves")
 require("access.mayRequest('/api/solar-grid/status')" in APP,
         "the solar-grid read must go through the shared endpoint scope table")
-require("access.mayUseEngineering('inverters', 'control', 'commissioning')" in APP,
-        "the confirmation read must be scoped to the routes that need it")
+# The confirmation read is gone with its panel, so there is no longer a request
+# to scope. What matters -- that no engineering endpoint is requested without a
+# session -- is still checked above and by the shared scope table in
+# web/product-mode.js.
 require("{ path: '/api/solar-grid/status', routes: ['control', 'commissioning'] }" in MODE,
         "the shared scope table no longer describes /api/solar-grid/status")
 
 # 401 is told apart from a real fault, and neither produces a broken page.
 require("error.status = response.status;" in APP,
         "the shared fetch helper discards the HTTP status, so 401 cannot be told from 500")
-require(APP.count("error.status === 401") >= 3,
-        "the gate, confirmation and declaration paths must each handle 401 explicitly")
-require("requires an authenticated engineering session. Nothing was changed." in APP,
-        "a rejected declaration must say that nothing changed")
+require(APP.count("error.status === 401") >= 1,
+        "no engineering read tells an expired session apart from a real fault, "
+        "so a signed-out browser reports the controller as broken")
+# The declaration write is gone with the lab-target panel, so there is no
+# rejected declaration for the page to describe. The firmware still refuses the
+# write without a session; that is checked against engineering_auth.h below.
 require("has not told this browser whether its commanded inverters are real equipment" in APP,
         "an unauthenticated user must be told that the scope is unknown, not shown a blank")
 
 # Unknown is not 'fine'. None of these may default to a reassuring value.
-require("commissioningGate: null" in APP and "solarGridStatus: null" in APP
-        and "writeConfirmation: null" in APP,
+require("commissioningGate: null" in APP and "solarGridStatus: null" in APP,
         "these reads must start unknown rather than at a default that reads as healthy")
-for reset in ("state.commissioningGate = null;", "state.writeConfirmation = null;",
-              "state.solarGridStatus = null;"):
+for reset in ("state.commissioningGate = null;", "state.solarGridStatus = null;"):
     require(reset in APP,
             f"a failed read must clear its state rather than leave stale data on screen: {reset}")
 
@@ -526,9 +368,12 @@ for reset in ("state.commissioningGate = null;", "state.writeConfirmation = null
 # on a device with ten open sockets in total.
 require("window.setInterval(refreshCommissioningGate, 10000);" in APP,
         "the gate is polled too aggressively for an engineering endpoint")
-require("window.setInterval(refreshWriteConfirmation, 5000);" in APP,
-        "the confirmation poll interval is not declared")
-require("state.gateSignature" in APP and "state.confirmSignature" in APP,
+# The 5-second confirmation poll went with its panel. It was the most frequent
+# engineering request this page made, and nothing renders its answer now.
+require("refreshWriteConfirmation" not in APP,
+        "the confirmation poll is back without a panel to render it, on a "
+        "controller with ten sockets in total")
+require("state.gateSignature" in APP,
         "the lists are rebuilt on every poll, which re-runs the access layer's "
         "unguarded DOM observer for no change")
 

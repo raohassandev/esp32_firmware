@@ -185,82 +185,14 @@
                          unverified (confirmation is impossible - neither success
                          nor failure). Requested and confirmed percent are separate
                          values and are never merged into one number. -->
-                    <article class="panel confirm-panel" id="writeConfirmationPanel">
-                        <div class="panel-header"><div><p class="eyebrow">Setpoint confirmation</p><h3>Requested against confirmed</h3></div><span class="subtle-badge" id="confirmFleetBadge">Unavailable</span></div>
-                        <p class="confirm-lead" id="confirmFleetDetail" role="status">Reading setpoint confirmation…</p>
-                        <!-- Limit evidence. The VERDICT and the evidence it rests
-                             on stay on screen permanently - confirmProvenance is
-                             what makes the word "confirmed" above readable at
-                             all, and it is a live statement about this fleet.
-                             The paragraph explaining WHY the two kinds of
-                             evidence are not equally strong is reasoning, not a
-                             finding, and moves one level down. It is not
-                             deleted: an engineer who needs to know what a
-                             stored-command echo is must be able to reach it, and
-                             the summary line carries the warning itself so the
-                             drawer is never the only place the caveat appears. -->
-                        <div class="proof-notice" id="proofNotice">
-                            <span id="confirmProvenance" role="status">Reading the limit evidence…</span>
-                            <span id="confirmProvenanceDetail" hidden></span>
-                            <details class="notice-drawer">
-                                <summary><strong>Confirmed does not mean the limit was demonstrated.</strong></summary>
-                                <span>A write is confirmed either because measured output was above the new limit before the command and at or below it after, which demonstrates the limit, or because the setpoint register read back matching. On a plant-level logger that register stores the command and forwards it, so reading it back returns the stored command rather than the plant's achieved output, and the logger may scale the commanded percentage by an adjustment coefficient that has no register a Modbus client can read. The readback is therefore an echo of a stored command: it proves acceptance and nothing more. Every verdict below is shown with the evidence it rests on.</span>
-                            </details>
-                        </div>
-                        <div class="proof-counts" id="confirmProvenanceCounts"></div>
-                        <div class="confirm-legend" id="proofLegend"></div>
-                        <!-- Prerequisite enable register. The live fleet state
-                             stays permanently visible; the explanation of why an
-                             enable-register fault is a different fault from a
-                             setpoint that read back wrong moves one level down.
-                             The summary line still carries the warning. -->
-                        <div class="prereq-notice" id="prereqNotice">
-                            <span id="prereqFleetState" role="status">Reading the enable-register state…</span>
-                            <span id="prereqNoticeDetail" hidden></span>
-                            <details class="notice-drawer">
-                                <summary><strong>A setpoint can read back perfectly and still be ignored.</strong></summary>
-                                <span>Solis, Sungrow and Chint ignore an active-power setpoint until a separate enable register holds the value their manual specifies. The setpoint register still accepts the write and still echoes it back, so the readback above matches while the inverter keeps generating at full output. An enable register that is not confirmed by a read is therefore a different fault from a setpoint that read back wrong, and it has a different remedy.</span>
-                            </details>
-                        </div>
-                        <div class="prereq-counts" id="prereqCounts"></div>
-                        <div class="confirm-legend" id="prereqLegend"></div>
-                        <div class="confirm-legend" id="confirmLegend"></div>
-                        <div class="confirm-list" id="confirmList"></div>
-                        <p class="confirm-message" id="confirmMessage" role="status"></p>
-                    </article>
+                    
                     <!-- Lab simulator target declaration (POST /api/inverter-profile-assignment
                          with lab_target). The consequences are stated before the
                          engineer confirms, because declaring a lab target grants
                          command authority through a profile that has not been
                          qualified on hardware AND disables automatic control - the
                          firmware does the second thing deliberately. -->
-                    <article class="panel form-panel lab-target-panel" id="labTargetPanel">
-                        <div class="panel-header"><div><p class="eyebrow">Lab validation</p><h3>Declare or revoke a lab simulator target</h3></div><span class="subtle-badge" id="labTargetBadge">Locked</span></div>
-                        <div class="notice danger lab-consequence">
-                            <strong>Declaring a lab target changes what the controller may command.</strong>
-                            <span>
-                                <span class="lab-consequence-item">It grants command authority through a profile that has not been qualified on physical equipment.</span>
-                                <span class="lab-consequence-item">It disables automatic control. The firmware does this deliberately whenever a profile assignment changes.</span>
-                                <span class="lab-consequence-item">The controller must be restarted before the returned write permission takes effect.</span>
-                                <span class="lab-consequence-item">While any commanded inverter is a declared simulator, commissioning can only ever report lab_simulator_only, never production.</span>
-                            </span>
-                        </div>
-                        <div class="field-grid">
-                            <label class="field"><span>Inverter</span><select id="labTargetInverter"></select></label>
-                            <!-- Not a second profile picker. The profile assigned
-                                 to a channel is chosen once, in the profile
-                                 catalogue above, and this panel declares what the
-                                 endpoint IS; it does not re-decide which register
-                                 map is in use. Read back from the controller. -->
-                            <div class="field"><span>Profile currently assigned</span><output id="labTargetProfileAssigned" class="derived-value">Reading the controller…</output></div>
-                            <label class="field"><span>Lab target declaration</span><select id="labTargetDeclaration"><option value="true">Declare this endpoint a Modbus simulator</option><option value="false">Revoke the simulator declaration</option></select></label>
-                        </div>
-                        <label class="switch field-switch lab-target-ack"><input id="labTargetAcknowledge" type="checkbox"><span></span><b>I understand this is lab validation and not production control</b></label>
-                        <p class="lab-target-caveat">Declarations currently held by the controller are listed below, read from the controller itself rather than from what this browser last sent. A slot whose declaration cannot be read is reported as not a lab target.</p>
-                        <dl class="lab-target-current" id="labTargetCurrent"><dt>Current declarations</dt><dd id="labTargetCurrentValue">Not read yet.</dd></dl>
-                        <div class="panel-actions"><button class="button danger-button" id="labTargetApply" type="button" disabled>Send declaration</button><span class="action-message" id="labTargetMessage" role="status"></span></div>
-                        <dl class="lab-target-result" id="labTargetResult" hidden></dl>
-                    </article>
+                    
                     </section>
 
                 <section class="page" data-page="control" aria-labelledby="controlTitle"><div class="page-intro"><div><p class="eyebrow">Safe commissioning</p><h2 id="controlTitle">PV-DG control</h2><p>Review control targets and timing without enabling automatic inverter commands.</p></div></div><div class="notice danger"><strong id="controlSafetyTitle">Automatic control disabled</strong><span id="controlSafetyDetail">No inverter commands are issued while control is disabled.</span></div>

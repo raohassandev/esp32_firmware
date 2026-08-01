@@ -200,19 +200,15 @@
         refreshing: false,
         saving: false,
         lastUpdatedAt: null,
-        /* Lab-simulator / commissioning-gate / write-confirmation reads. Each is
-         * null until the corresponding endpoint has actually answered, so
-         * "unknown" is never rendered as "fine". */
+        /* Lab-simulator and commissioning-gate reads. Each is null until the
+         * corresponding endpoint has actually answered, so "unknown" is never
+         * rendered as "fine". */
         commissioningGate: null,
         solarGridStatus: null,
-        writeConfirmation: null,
-        labProfiles: [],
-        labTargetSending: false,
-        /* Rebuild guards. web/product-mode.js keeps an unguarded MutationObserver
-         * on #mainContent, so replacing these lists on every poll would re-run
-         * its DOM enforcement pass several times a minute for no change at all. */
-        gateSignature: '',
-        confirmSignature: ''
+        /* Rebuild guard. web/product-mode.js keeps an unguarded MutationObserver
+         * on #mainContent, so replacing this list on every poll would re-run its
+         * DOM enforcement pass several times a minute for no change at all. */
+        gateSignature: ''
     };
 
     const byId = (id) => document.getElementById(id);
@@ -1220,7 +1216,6 @@
     /* The four write-confirmation states, worst last, matching the firmware's own
      * severity order in inverter_write_confirmation.c. Every sentence below
      * describes what the firmware actually does; none of it is inferred. */
-    const WRITE_CONFIRMATION_ORDER = ['confirmed', 'pending', 'unverified', 'mismatched'];
 
     const WRITE_CONFIRMATION_STATES = Object.freeze({
         confirmed: Object.freeze({
@@ -1251,9 +1246,6 @@
         })
     });
 
-    function writeStateMeta(name) {
-        return WRITE_CONFIRMATION_STATES[String(name || '').trim()] || null;
-    }
 
     /* LIMIT EVIDENCE, as a THIRD and separate vocabulary.
      *
@@ -1283,7 +1275,6 @@
      * vocabularies, because it is a third independent answer. Every sentence
      * states what the firmware does; none of it is inferred, and none of it
      * upgrades the echo case into something stronger than it is. */
-    const WRITE_PROOF_ORDER = ['measured_power', 'setpoint_readback', 'ambiguous_headroom', 'none'];
 
     const WRITE_PROOF_STATES = Object.freeze({
         measured_power: Object.freeze({
@@ -1330,7 +1321,6 @@
      * Every sentence below states what the firmware actually does. Unconfirmed
      * and unverifiable are kept apart because they demand different actions: the
      * first resolves itself, the second needs a human with a manual. */
-    const PREREQUISITE_STATE_ORDER = ['confirmed', 'unconfirmed', 'unverifiable', 'not_required'];
 
     const PREREQUISITE_STATES = Object.freeze({
         confirmed: Object.freeze({
@@ -1359,9 +1349,6 @@
         })
     });
 
-    function prerequisiteStateMeta(name) {
-        return PREREQUISITE_STATES[String(name || '').trim()] || null;
-    }
 
     /* Percent values arrive as null whenever the controller has nothing to
      * report. Null must stay null: rendering 0% for "no write has been issued"
@@ -1376,10 +1363,6 @@
      * did not report must never be rendered as zero output: zero output would
      * itself look like a limit being obeyed. Null stays absent, exactly as in
      * formatPercent. */
-    function formatEvidenceKw(value, absent = 'Not reported') {
-        const number = Number(value);
-        return value == null || !Number.isFinite(number) ? absent : `${number.toFixed(2)} kW`;
-    }
 
     /* Writes only when the value actually changed. The lab banner is role="alert",
      * so rewriting identical text on every poll would re-announce it to a screen
@@ -1390,12 +1373,6 @@
      * is a different thing: a lone "--" there reads as one of the counts, so the
      * strip is emptied rather than filled with a marker.
      */
-    function setCountStrip(id, line) {
-        const node = byId(id);
-        if (!node) return;
-        const text = line || '';
-        if (node.textContent !== text) node.textContent = text;
-    }
 
     function setTextIfChanged(id, value) {
         const node = byId(id);
@@ -1656,20 +1633,6 @@
 
     /* ------------------------------------------------ setpoint write confirmation */
 
-    function confirmStatePill(name) {
-        const meta = writeStateMeta(name);
-        const pill = document.createElement('span');
-        pill.className = `confirm-state-pill confirm-state-${meta ? name : 'unverified'}`;
-        const mark = document.createElement('span');
-        mark.setAttribute('aria-hidden', 'true');
-        mark.textContent = meta ? meta.mark : '?';
-        const label = document.createElement('span');
-        /* An unrecognised state is shown as the controller spelled it rather than
-         * silently mapped onto one of the four this build knows about. */
-        label.textContent = meta ? meta.label : verbatim(name);
-        pill.append(mark, label);
-        return pill;
-    }
 
     /* The limit-evidence pill. Built like the state pill so the two read as
      * peers, and rendered IMMEDIATELY BESIDE it wherever a verdict appears, so
@@ -1678,52 +1641,13 @@
      * An unrecognised slug falls back to the 'none' TREATMENT, which claims
      * nothing. Falling back to the measured treatment would invent a demonstrated
      * limit out of a value this build cannot interpret. */
-    function proofPill(name) {
-        const meta = writeProofMeta(name);
-        const pill = document.createElement('span');
-        pill.className = `proof-state-pill proof-state-${meta ? name : 'none'}`;
-        const mark = document.createElement('span');
-        mark.setAttribute('aria-hidden', 'true');
-        mark.textContent = meta ? meta.mark : '·';
-        const label = document.createElement('span');
-        label.textContent = meta ? meta.label : verbatim(name);
-        pill.append(mark, label);
-        return pill;
-    }
 
     /* Built the same way as the setpoint pill so the two read as peers, with its
      * own word and its own glyph so they can never be mistaken for one another.
      * An unrecognised slug falls back to the unconfirmed TREATMENT and is labelled
      * with whatever the controller sent, which is the fail-closed choice: an
      * enable register this build cannot interpret has not been confirmed. */
-    function prerequisitePill(name) {
-        const meta = prerequisiteStateMeta(name);
-        const pill = document.createElement('span');
-        pill.className = `prereq-state-pill prereq-state-${meta ? name : 'unconfirmed'}`;
-        const mark = document.createElement('span');
-        mark.setAttribute('aria-hidden', 'true');
-        mark.textContent = meta ? meta.mark : '▢';
-        const label = document.createElement('span');
-        label.textContent = meta ? meta.label : verbatim(name);
-        pill.append(mark, label);
-        return pill;
-    }
 
-    function confirmValue(label, value, note) {
-        const cell = document.createElement('div');
-        cell.className = 'confirm-value';
-        const term = document.createElement('span');
-        term.textContent = label;
-        const figure = document.createElement('strong');
-        figure.textContent = value;
-        cell.append(term, figure);
-        if (note) {
-            const small = document.createElement('small');
-            small.textContent = note;
-            cell.append(small);
-        }
-        return cell;
-    }
 
     /* WHAT IS MISSING, IN ONE LINE.
      *
@@ -1735,137 +1659,11 @@
      *
      * It claims nothing the verdict does not already claim - it only says the
      * same thing shorter and first. */
-    function rowGapText(entry, stateName, proofName) {
-        const prereq = String(entry.prerequisite?.state || '').trim();
-        if (!entry.prerequisite) {
-            return 'Missing: an enable-register state. The controller did not report one, and unknown is not armed.';
-        }
-        if (prereq === 'unverifiable') {
-            return 'Missing: a readable enable register. This profile cannot describe one, so this inverter is refused write authority permanently. Cite the register and its readback in the profile.';
-        }
-        if (prereq !== 'confirmed' && prereq !== 'not_required') {
-            return 'Missing: a read confirming the enable register. Until it holds, the setpoint is accepted and echoed back while the inverter keeps generating at full output.';
-        }
-        if (entry.write_issued === false) {
-            return 'Nothing has been written to this inverter yet, so there is nothing to confirm.';
-        }
-        if (stateName === 'mismatched') {
-            return 'A readback disagreed with the requested setpoint. The controller has driven this inverter to its safe fallback and the fault stays latched until a readback confirms that value.';
-        }
-        if (stateName === 'pending') {
-            return 'Missing: a readback. The write was accepted by the transport and nothing has confirmed it yet.';
-        }
-        if (entry.limit_demonstrated === true) {
-            return 'Nothing is missing: measured output was above the new limit before the command and at or below it after.';
-        }
-        if (proofName === 'setpoint_readback') {
-            return 'Missing: a measurement. This rests on a setpoint echo, which shows the command was accepted and does not show the limit is in force.';
-        }
-        if (proofName === 'ambiguous_headroom') {
-            return 'Missing: a sample taken while generating above the new limit. Output is at or below it but was already there, so nothing has been proven either way.';
-        }
-        if (entry.baseline_valid !== true) {
-            return 'Missing: a pre-command baseline. Without one a limit can never be demonstrated, only found consistent.';
-        }
-        return 'Missing: any evidence for or against this command. Neither a qualified setpoint readback nor a usable measurement was obtained.';
-    }
 
     /* The full meaning of the setpoint state, for the drawer. Called only from
      * inside disclosure(). */
-    function rowMeaningElement(entry, meta) {
-        const meaning = document.createElement('p');
-        meaning.className = 'confirm-row-meaning';
-        meaning.textContent = entry.write_issued === false
-            ? 'No write has been issued to this inverter, so there is nothing to confirm.'
-            : meta ? meta.meaning
-            : 'The controller reported a confirmation state this interface does not recognise. It is shown above exactly as received.';
-        return meaning;
-    }
 
-    function rowGapElement(entry, stateName, proofName) {
-        const line = document.createElement('p');
-        line.className = 'confirm-row-gap';
-        line.textContent = rowGapText(entry, stateName, proofName);
-        if (entry.limit_demonstrated === true) line.classList.add('gap-none');
-        return line;
-    }
 
-    function confirmRowElement(entry) {
-        const name = String(entry.state || '').trim();
-        const meta = writeStateMeta(name);
-        const row = document.createElement('article');
-        row.className = `confirm-row state-${meta ? name : 'unverified'}`;
-        row.dataset.inverterIndex = String(entry.index);
-
-        const head = document.createElement('div');
-        head.className = 'confirm-row-head';
-        const title = document.createElement('span');
-        title.className = 'confirm-row-title';
-        title.textContent = `Inverter ${Number(entry.index) + 1}`;
-        /* The verdict and what it rests on, in the same line, always both. A
-         * verdict pill on its own is the defect this panel exists to remove. */
-        const proofName = String(entry.write_proof || '').trim();
-        head.append(title, confirmStatePill(name), proofPill(proofName));
-        /* The enable-register verdict joins the other two in the head rather than
-         * waiting inside the block below, because a setpoint reading Confirmed
-         * next to an unarmed enable register is the dangerous combination on this
-         * panel and it must be legible without opening anything. */
-        head.append(prerequisitePill(String(entry.prerequisite?.state || '').trim()));
-
-        /* Requested and confirmed are separate figures with separate labels.
-         * readback_percent is shown as a third figure because it is the raw
-         * observation the verdict was made from, and it is not the same claim as
-         * "confirmed". */
-        const values = document.createElement('div');
-        values.className = 'confirm-values';
-        values.append(
-            confirmValue('Requested', formatPercent(entry.requested_percent, 'No write issued'),
-                'What the controller wrote.'),
-            confirmValue('Confirmed', formatPercent(entry.confirmed_percent, 'Not confirmed'),
-                'Only set when a readback matched.'),
-            confirmValue('Last readback', formatPercent(entry.readback_percent, 'No readback'),
-                'The raw observation, not a verdict.')
-        );
-
-        const counters = document.createElement('div');
-        counters.className = 'confirm-counters';
-        [
-            ['Confirmed', entry.confirmed_count],
-            ['Unverified', entry.unverified_count],
-            ['Mismatched', entry.mismatch_count],
-            ['Write successes', entry.write_successes],
-            ['Write errors', entry.write_errors]
-        ].forEach(([label, value]) => {
-            const item = document.createElement('span');
-            item.textContent = `${label}: ${Number.isFinite(Number(value)) ? Number(value) : '--'}`;
-            counters.append(item);
-        });
-
-        /* DEFAULT VIEW: the three verdicts, the three figures, the counters, and
-         * - when the verdict is not qualified - one line naming the evidence
-         * that is missing. Everything that explains WHY is one level down. */
-        const gap = rowGapElement(entry, name, proofName);
-        row.append(head, values, gap, counters,
-                   disclosure('Why this verdict, and what it rests on',
-                              rowMeaningElement(entry, meta), provenanceBlock(entry),
-                              prerequisiteBlock(entry)));
-        /* The row is marked by its EVIDENCE as well as by its verdict. A limit
-         * demonstrated by measurement and a stored-command echo must not look
-         * alike, and the ambiguous case must look like neither. */
-        if (entry.limit_demonstrated === true) row.classList.add('proof-measured');
-        else if (proofName === 'setpoint_readback') row.classList.add('proof-echo');
-        else if (proofName === 'ambiguous_headroom') row.classList.add('proof-ambiguous');
-
-        /* An unarmed enable register re-rules the whole row. A reader scanning
-         * state pills must not be able to see "Confirmed" on the setpoint and
-         * miss that the limit is not armed. */
-        const prereqName = String(entry.prerequisite?.state || '').trim();
-        if (prereqName === 'unverifiable') row.classList.add('prereq-unverifiable');
-        else if (prereqName !== 'confirmed' && prereqName !== 'not_required') {
-            row.classList.add('prereq-unconfirmed');
-        }
-        return row;
-    }
 
     /* WHAT CONFIRMED IT, per inverter, immediately under the setpoint figures the
      * verdict was drawn from.
@@ -1874,127 +1672,12 @@
      * the same reason the enable-register block is: an absent block cannot be
      * told apart from a controller that did not report, and a verdict with no
      * stated evidence is the defect. */
-    function provenanceBlock(entry) {
-        const name = String(entry.write_proof || '').trim();
-        const meta = writeProofMeta(name);
-        const block = document.createElement('div');
-        block.className = 'proof-block';
-
-        const head = document.createElement('div');
-        head.className = 'proof-block-head';
-        const title = document.createElement('span');
-        title.className = 'proof-block-title';
-        title.textContent = 'Limit evidence';
-        head.append(title, proofPill(name));
-        block.append(head);
-
-        const meaning = document.createElement('p');
-        meaning.className = 'proof-block-meaning';
-        /* A missing key is not "no evidence needed". It is a controller that did
-         * not say, and unknown evidence supports no claim at all. */
-        meaning.textContent = entry.write_proof == null
-            ? 'The controller did not report what this verdict rests on. Nothing on this row should be read as a limit that was shown to be in force.'
-            : meta ? meta.meaning
-            : 'The controller reported a kind of evidence this interface does not recognise. It is shown above exactly as received and claims nothing.';
-        block.append(meaning);
-
-        const detail = document.createElement('p');
-        detail.className = 'proof-block-detail';
-        /* limit_demonstrated is the firmware's own flag and is the only field
-         * that says a limit was shown to be in force. It is read explicitly:
-         * truthiness would make a missing field read as a demonstrated limit. */
-        const parts = [
-            `Limit demonstrated by measurement: ${entry.limit_demonstrated === true ? 'yes' : 'no'}`,
-            `Measured output after the command: ${formatEvidenceKw(entry.measured_power_kw, 'Not reported')}`,
-            /* Without a pre-command baseline a limit can never be demonstrated,
-             * only found consistent, so the baseline is shown next to the
-             * measurement rather than left implicit. */
-            `Baseline before the command: ${entry.baseline_valid === true ? formatEvidenceKw(entry.baseline_power_kw, 'Not reported') : 'None recorded'}`,
-            `Times nothing could be proven: ${Number.isFinite(Number(entry.ambiguous_count)) ? Number(entry.ambiguous_count) : '--'}`,
-            `Times another master took scheduling: ${Number.isFinite(Number(entry.authority_lost_count)) ? Number(entry.authority_lost_count) : '--'}`,
-            /* A lost count of zero is ambiguous on its own: it means either that
-             * authority was never taken or that nothing ever checked. Those are
-             * not the same finding, so whether the target publishes an authority
-             * register at all is stated first, and the current holding is stated
-             * as three answers rather than a boolean. */
-            `Scheduling-authority register: ${entry.authority?.supported === true ? 'published by this target' : 'not published by this target, so contention cannot be detected'}`,
-            `Authority currently held by this controller: ${entry.authority?.supported !== true ? 'Not checked' : entry.authority?.read_valid !== true ? 'Unknown, the register could not be read' : entry.authority?.holds === true ? 'yes' : 'no'}`
-        ];
-        detail.textContent = parts.join(' · ');
-        block.append(detail);
-
-        /* Contention is not a confirmation state and is not folded into one. A
-         * different master owning the plant will fight this controller, and it is
-         * stated in words the moment it has ever happened. */
-        const lost = Number(entry.authority_lost_count);
-        if (Number.isFinite(lost) && lost > 0) {
-            const contention = document.createElement('p');
-            contention.className = 'proof-block-contention';
-            contention.textContent = 'A read-only register naming which authority owns scheduling of this target has, since this controller commanded it, named somebody else. Another master is scheduling this plant and will fight this controller for it. A limit this controller commanded cannot be relied on while that is true, whatever the verdict above says.';
-            block.append(contention);
-        }
-        return block;
-    }
 
     /* The enable register, per inverter, immediately under the setpoint figures it
      * silently invalidates. Rendered for every inverter including the ones that
      * need no enable register, because "this model needs none" is itself an answer
      * an engineer needs, and an absent block would be indistinguishable from a
      * controller that did not report. */
-    function prerequisiteBlock(entry) {
-        const prerequisite = entry.prerequisite || null;
-        const block = document.createElement('div');
-        block.className = 'prereq-block';
-
-        const head = document.createElement('div');
-        head.className = 'prereq-block-head';
-        const title = document.createElement('span');
-        title.className = 'prereq-block-title';
-        title.textContent = 'Enable register';
-        /* No prerequisite object at all means this controller did not report one.
-         * That is not "not required": it is unknown, and unknown is not armed. */
-        const name = prerequisite ? String(prerequisite.state || '').trim() : '';
-        head.append(title, prerequisitePill(name));
-        block.append(head);
-
-        const meaning = document.createElement('p');
-        meaning.className = 'prereq-block-meaning';
-        const meta = prerequisiteStateMeta(name);
-        meaning.textContent = !prerequisite
-            ? 'The controller did not report an enable-register state for this inverter. Unknown is not confirmed: a setpoint could read back correctly here and still be ignored.'
-            : meta ? meta.meaning
-            : 'The controller reported an enable-register state this interface does not recognise. It is shown above exactly as received and is treated as not confirmed.';
-        block.append(meaning);
-
-        if (prerequisite) {
-            const detail = document.createElement('p');
-            detail.className = 'prereq-block-detail';
-            const raw = Number(prerequisite.raw);
-            const lost = Number(prerequisite.lost_count);
-            const parts = [
-                `Last read valid: ${prerequisite.read_valid === true ? 'yes' : 'no'}`,
-                `Register holds required value: ${prerequisite.holds === true ? 'yes' : 'no'}`,
-                `Last raw value: ${Number.isFinite(raw) ? raw : '--'}`,
-                `Confirmed reads: ${Number.isFinite(Number(prerequisite.confirmed_count)) ? Number(prerequisite.confirmed_count) : '--'}`,
-                `Enable writes: ${Number.isFinite(Number(prerequisite.write_count)) ? Number(prerequisite.write_count) : '--'}`,
-                /* Non-zero means the limit was armed and then switched off
-                 * underneath this controller. For Solis that returns the machine
-                 * to 100 %, so it is reported rather than averaged away. */
-                `Times lost after being armed: ${Number.isFinite(lost) ? lost : '--'}`,
-                /* Published all along and not shown until now. With the state at
-                 * "not confirmed" these two say whether the controller has even
-                 * tried to arm the register yet and whether a writable and
-                 * readable one can be described at all - the difference between
-                 * waiting for the next poll and waiting forever. */
-                `Controller has attempted to arm it: ${prerequisite.write_issued === true ? 'yes' : 'no'}`,
-                `Profile can describe a writable and readable register: ${prerequisite.describable === true ? 'yes' : 'no'}`,
-                `Last error: ${verbatim(prerequisite.last_error_name, 'Not reported')}`
-            ];
-            detail.textContent = parts.join(' · ');
-            block.append(detail);
-        }
-        return block;
-    }
 
     /* A legend is built as a dense row of the pills themselves plus ONE drawer
      * holding all four definitions. The vocabulary stays on screen - a reader
@@ -2005,27 +1688,7 @@
     /* Built only to fill a drawer, and called only from inside disclosure(), so
      * that "this prose is not in the default view" is a property of the code
      * rather than a claim about it. */
-    function legendDefinitions(order, pillFor, states) {
-        const list = document.createElement('div');
-        list.className = 'legend-definitions';
-        order.forEach((name) => {
-            const item = document.createElement('div');
-            item.className = 'confirm-legend-item';
-            item.append(pillFor(name));
-            const text = document.createElement('small');
-            text.textContent = states[name].meaning;
-            item.append(text);
-            list.append(item);
-        });
-        return list;
-    }
 
-    function legendElement(order, pillFor, states, summaryText) {
-        const pills = document.createElement('div');
-        pills.className = 'legend-pill-row';
-        order.forEach((name) => pills.append(pillFor(name)));
-        return [pills, disclosure(summaryText, legendDefinitions(order, pillFor, states))];
-    }
 
     /*
      * A LEGEND IS DRAWN ONLY WHEN THE THING IT EXPLAINS IS ON SCREEN.
@@ -2040,88 +1703,19 @@
      * an engineer can act on is hidden by this: a legend explains symbols, and
      * with no symbols on screen it explains nothing.
      */
-    function renderConfirmLegend(present) {
-        const legend = byId('confirmLegend');
-        if (!legend) return;
-        if (!present) { legend.replaceChildren(); return; }
-        if (legend.childElementCount) return;
-        legend.replaceChildren(...legendElement(
-            WRITE_CONFIRMATION_ORDER, confirmStatePill, WRITE_CONFIRMATION_STATES,
-            'What each setpoint state means'));
-    }
 
     /* All four kinds of limit evidence explained once, next to the four setpoint
      * states, so a reader can see that they are two independent answers rather
      * than one scale. Built once; these sentences never change. */
-    function renderProofLegend(present) {
-        const legend = byId('proofLegend');
-        if (!legend) return;
-        if (!present) { legend.replaceChildren(); return; }
-        if (legend.childElementCount) return;
-        legend.replaceChildren(...legendElement(
-            WRITE_PROOF_ORDER, proofPill, WRITE_PROOF_STATES,
-            'What each kind of limit evidence proves'));
-    }
 
     /* The fleet evidence counts. Demonstrated, echo-only and ambiguous are three
      * separate figures and are never summed: adding a stored-command echo to a
      * demonstrated limit produces a number that claims more than the evidence
      * supports, which is the whole defect. */
-    function provenanceCountLine(payload) {
-        const written = Number(payload?.written_count);
-        const demonstrated = Number(payload?.limit_demonstrated_count);
-        const echo = Number(payload?.setpoint_echo_count);
-        const ambiguous = Number(payload?.ambiguous_now_count);
-        const ambiguousTotal = Number(payload?.ambiguous_count);
-        const lost = Number(payload?.authority_lost_count);
-        if (![written, demonstrated, echo, ambiguous].every(Number.isFinite)) return null;
-        return `Written to: ${written}`
-            + ` · Limit demonstrated by measurement: ${demonstrated}`
-            + ` · Setpoint echo only (acceptance, not a limit): ${echo}`
-            + ` · Below the limit but already below it (nothing proven): ${ambiguous}`
-            + ` · Times nothing could be proven: ${Number.isFinite(ambiguousTotal) ? ambiguousTotal : '--'}`
-            + ` · Times another master took scheduling: ${Number.isFinite(lost) ? lost : '--'}`;
-    }
 
     /* Fleet limit evidence, stated alongside the fleet verdict and never instead
      * of it. The verdict says whether the writes were confirmed; this says what
      * confirmed them, and the two together are the only honest reading. */
-    function renderWriteProvenance(payload) {
-        renderProofLegend(Boolean(payload));
-        /* Three "Unavailable" lines said one thing three times. With no report
-         * at all the line below carries it once, and this stays empty. */
-        setCountStrip('confirmProvenanceCounts', provenanceCountLine(payload));
-        if (!payload) {
-            setTextIfChanged('confirmProvenance',
-                'The controller has not reported what any confirmation rests on. Unknown evidence is not a demonstrated limit: nothing on this panel shows that a limit is in force.');
-            setNoticeLine('confirmProvenanceDetail', '');
-            return;
-        }
-        const proofName = String(payload.write_proof || '').trim();
-        const meta = writeProofMeta(proofName);
-        /* Read explicitly. Truthiness would let a missing field read as a
-         * demonstrated limit, which is the one mistake this panel exists to stop. */
-        const demonstrated = payload.limit_demonstrated === true;
-        const echoOnly = payload.setpoint_echo_only === true;
-        const written = Number(payload.written_count);
-        let sentence;
-        if (Number.isFinite(written) && written === 0) {
-            sentence = 'No inverter has been written to, so there is no evidence to weigh and no limit has been demonstrated.';
-        } else if (demonstrated) {
-            sentence = 'Every inverter that has been written to had measured output above its new limit before the command and at or below it after. The limits are demonstrated, which is the strongest statement available about a power limit.';
-        } else if (echoOnly) {
-            sentence = 'At least one inverter is confirmed on a setpoint readback alone. On a plant-level logger that readback is an echo of a stored command: it shows the command was accepted and does not show the limit is in force. Read this fleet as accepted, not as limited.';
-        } else {
-            sentence = 'No limit has been demonstrated by measurement across this fleet. The weakest evidence any written inverter holds is shown beside the verdict; read the per-inverter rows for which one is which.';
-        }
-        /* The weakest evidence any written inverter holds is named, because the
-         * fleet is only ever as well evidenced as its least well evidenced
-         * member - the same rule the firmware applies to the verdict itself. */
-        setTextIfChanged('confirmProvenance', `${sentence} Weakest evidence held by any written inverter: `
-            + `${meta ? meta.label : verbatim(proofName)}.`);
-        /* The controller's own wording, written as received. */
-        setNoticeLine('confirmProvenanceDetail', payload.limit_evidence_notice);
-    }
 
     /* Fleet roll-up for the enable register, stated alongside the fleet setpoint
      * state rather than instead of it. The three counts are never summed: the
@@ -2141,104 +1735,8 @@
     /* All four enable-register states are explained once, next to the four
      * setpoint states, so an engineer can see that they are two independent
      * answers rather than one scale. Built once; these sentences never change. */
-    function renderPrerequisiteLegend(present) {
-        const legend = byId('prereqLegend');
-        if (!legend) return;
-        if (!present) { legend.replaceChildren(); return; }
-        if (legend.childElementCount) return;
-        legend.replaceChildren(...legendElement(
-            PREREQUISITE_STATE_ORDER, prerequisitePill, PREREQUISITE_STATES,
-            'What each enable-register state means'));
-    }
 
-    function renderPrerequisiteFleet(payload) {
-        renderPrerequisiteLegend(Boolean(payload));
-        setCountStrip('prereqCounts', prerequisiteCountLine(payload));
-        if (!payload) {
-            setTextIfChanged('prereqFleetState',
-                'The controller has not reported an enable-register state. Unknown is not confirmed: nothing on this panel proves a limit is armed.');
-            setNoticeLine('prereqNoticeDetail', '');
-            return;
-        }
-        const faulted = payload.prerequisite_enable_fault === true;
-        const unverifiable = Number(payload.prerequisite_unverifiable_count);
-        setTextIfChanged('prereqFleetState', faulted
-            ? (Number.isFinite(unverifiable) && unverifiable > 0
-                ? 'At least one inverter needs an enable register that cannot be read back at all. It is refused write authority permanently and no amount of polling will change that; cite the register and its readback in its profile.'
-                : 'At least one inverter has an enable register that is not confirmed to hold. Its setpoint would read back correctly and still be ignored, and it is excluded from the commandable fleet until a read confirms the register.')
-            : 'Every inverter that needs an enable register is confirmed to hold it by a read of that register.');
-        /* The controller's own wording, written as received. */
-        setNoticeLine('prereqNoticeDetail', payload.prerequisite_notice);
-    }
 
-    function renderWriteConfirmation() {
-        const list = byId('confirmList');
-        if (!list) return;
-        const payload = state.writeConfirmation;
-        /* The setpoint legend belongs to the table below it, so it appears when
-         * the table has rows and not merely when a report arrived. */
-        renderConfirmLegend(Array.isArray(payload?.inverters) && payload.inverters.length > 0);
-        renderPrerequisiteFleet(payload);
-        renderWriteProvenance(payload);
-        if (!payload) {
-            setBadgeIfChanged('confirmFleetBadge', STATES.dataQuality.unavailable, '');
-            /* NOT "Reading setpoint confirmation…" for ever.
-             *
-             * That is the markup's placeholder and nothing replaced it when the
-             * report never arrived, so the panel claimed to be loading on a
-             * controller that had been up for hours. A permanent "loading" is
-             * read as "this will resolve shortly" and stops a reader looking for
-             * the reason, which is stated at the bottom of this same panel. */
-            setTextIfChanged('confirmFleetDetail',
-                'No setpoint confirmation has been reported. The two statements '
-                + 'below say what that means; the line at the foot of this panel '
-                + 'says why the report is missing.');
-            if (state.confirmSignature !== '') {
-                state.confirmSignature = '';
-                list.replaceChildren();
-            }
-            return;
-        }
-
-        const fleet = String(payload.fleet_state || '').trim();
-        const meta = writeStateMeta(fleet);
-        const proofMeta = writeProofMeta(String(payload.write_proof || '').trim());
-        const demonstrated = payload.limit_demonstrated === true;
-        /* The badge carries the verdict AND the evidence, in that order, in one
-         * string. The word "Confirmed" is never on screen here without what
-         * confirmed it beside it, and a fleet confirmed on an echo does not take
-         * the success tone: a green badge reading "Confirmed" is exactly how an
-         * accepted command becomes a limit the operator believes is in force. */
-        setBadgeIfChanged('confirmFleetBadge',
-            `Fleet: ${meta ? meta.label : verbatim(fleet)}`
-            + ` · ${proofMeta ? proofMeta.label : verbatim(payload.write_proof)}`,
-            fleet === 'confirmed' ? (demonstrated ? 'good' : 'warning')
-            : fleet === 'mismatched' ? 'bad'
-            : fleet === 'pending' ? 'warning' : '');
-        /* The verdict, not its definition. This line used to carry the whole
-         * paragraph explaining the fleet state; that paragraph is unchanged and
-         * is one click away in the setpoint-state legend below, where it is
-         * stated once for all four states instead of re-stated on every poll. */
-        setTextIfChanged('confirmFleetDetail',
-            `${meta ? meta.label : 'The controller reported a fleet confirmation state this interface does not recognise.'}`
-            + ` The fleet takes its least trustworthy member's state.`
-            + (payload.confirmation_fault === true
-                ? ' A confirmation fault is latched on at least one inverter.'
-                : ' No confirmation fault is latched.'));
-
-        const items = Array.isArray(payload.inverters) ? payload.inverters : [];
-        const signature = JSON.stringify(items);
-        if (state.confirmSignature === signature) return;
-        state.confirmSignature = signature;
-        if (items.length === 0) {
-            const empty = document.createElement('div');
-            empty.className = 'empty-state';
-            empty.textContent = 'The controller reports no inverters, so there are no setpoints to confirm. An empty fleet is reported unverified, never confirmed.';
-            list.replaceChildren(empty);
-            return;
-        }
-        list.replaceChildren(...items.map(confirmRowElement));
-    }
 
     /* ------------------------------------------------------- lab target control */
 
@@ -2251,186 +1749,16 @@
      * for the same channel and whichever was pressed last silently won. The
      * declaration - whether the endpoint is a simulator - is this panel's own
      * fact and stays editable here. */
-    function assignedProfileId(index) {
-        const assignments = Array.isArray(state.labAssignments) ? state.labAssignments : [];
-        const entry = assignments.find((item) => Number(item?.inverter_index) === index) || null;
-        return entry && typeof entry.profile_id === 'string' ? entry.profile_id : '';
-    }
 
-    function labTargetSelections() {
-        const index = Number(byId('labTargetInverter')?.value);
-        const resolved = Number.isInteger(index) && index >= 0 ? index : null;
-        const declare = byId('labTargetDeclaration')?.value === 'true';
-        return {
-            index: resolved,
-            profileId: resolved === null ? '' : assignedProfileId(resolved),
-            declare
-        };
-    }
 
-    function renderLabTargetReadiness() {
-        const button = byId('labTargetApply');
-        const badge = byId('labTargetBadge');
-        if (!button) return;
-        const access = window.AutomatrixEngineeringAccess;
-        const authorized = Boolean(access && access.isAuthenticated());
-        const acknowledged = Boolean(byId('labTargetAcknowledge')?.checked);
-        const { index, profileId } = labTargetSelections();
-        button.disabled = state.labTargetSending || !authorized || !acknowledged
-            || index === null || !profileId;
-        if (badge) {
-            if (!authorized) setBadge('labTargetBadge', 'Sign in to declare a lab target', '');
-            else if (!state.labProfiles.length) setBadge('labTargetBadge', 'Profile catalogue unavailable', 'bad');
-            /* Named precisely rather than left to the disabled button: an
-             * unassigned channel has nothing to declare, and that is a different
-             * blocker from a missing acknowledgement. */
-            else if (index !== null && !profileId) setBadge('labTargetBadge', 'No profile assigned to this inverter', 'bad');
-            else if (!acknowledged) setBadge('labTargetBadge', 'Acknowledgement required', 'warning');
-            else setBadge('labTargetBadge', 'Ready to send', 'warning');
-        }
-    }
 
     /* Displays the assignment the controller holds for the selected channel.
      * The profile's own qualification word stays part of the line: choosing a
      * simulator-only profile and declaring the endpoint a simulator are two
      * separate decisions and both must be visible at the moment of declaring. */
-    function renderLabAssignedProfile() {
-        const target = byId('labTargetProfileAssigned');
-        if (!target) return;
-        const index = Number(byId('labTargetInverter')?.value);
-        if (!Number.isInteger(index) || index < 0) {
-            target.textContent = 'Select an inverter.';
-            return;
-        }
-        const profileId = assignedProfileId(index);
-        if (!profileId) {
-            target.textContent = `Inverter ${index + 1} has no profile assigned. Assign one in the profile catalogue above before declaring it a lab target.`;
-            return;
-        }
-        const profile = state.labProfiles.find((entry) => entry.id === profileId) || null;
-        target.textContent = profile
-            ? `${`${profile.manufacturer || 'Unknown'} ${profile.model_family || ''}`.trim()}`
-              + ` · ${verbatim(profile.qualification, 'qualification unknown')}`
-              + (profile.simulator_only === true ? ' · simulator-only profile' : '')
-              + ` · ${profileId}`
-            : `${profileId} — the controller holds this assignment but the catalogue does not describe it.`;
-        renderLabTargetReadiness();
-    }
 
-    function ensureLabInverterOptions() {
-        const select = byId('labTargetInverter');
-        if (!select || select.childElementCount) return;
-        /* Twelve is APP_MAX_INVERTERS, the same bound the profile picker uses.
-         * The controller rejects an index outside it. */
-        for (let index = 0; index < 12; index += 1) {
-            const option = document.createElement('option');
-            option.value = String(index);
-            option.textContent = `Inverter ${index + 1}`;
-            select.append(option);
-        }
-    }
 
-    function renderLabTargetResult(payload) {
-        const list = byId('labTargetResult');
-        if (!list) return;
-        list.replaceChildren();
-        if (!payload) {
-            list.hidden = true;
-            return;
-        }
-        const rows = [
-            ['Lab target stored', payload.lab_target === true ? 'Yes' : 'No'],
-            ['Write permission after restart', verbatim(payload.write_permission_after_restart)],
-            ['Profile assigned', verbatim(payload.profile_id)],
-            ['Restart required', payload.restart_required === true ? 'Yes' : 'No'],
-            ['Automatic control', payload.automatic_control_disabled === true
-                ? 'Disabled by the controller as a result of this change'
-                : 'Not reported']
-        ];
-        const notice = typeof payload.lab_target_notice === 'string'
-            ? payload.lab_target_notice.trim() : '';
-        if (notice) rows.push(['Controller notice', notice]);
-        rows.forEach(([term, value]) => {
-            const dt = document.createElement('dt');
-            const dd = document.createElement('dd');
-            dt.textContent = term;
-            dd.textContent = value;
-            list.append(dt, dd);
-        });
-        list.hidden = false;
-    }
 
-    async function applyLabTarget() {
-        const { index, profileId, declare } = labTargetSelections();
-        if (index === null || !profileId || state.labTargetSending) return;
-        const profile = state.labProfiles.find((entry) => entry.id === profileId) || null;
-
-        /* The consequences are restated at the moment of the decision, not only
-         * in the panel above it. Nothing here names a register, a command or a
-         * timing value. */
-        const consequences = declare
-            ? [
-                `Declare Inverter ${index + 1} a Modbus simulator and assign profile ${profileId}.`,
-                '',
-                'This grants command authority through a profile that has not been qualified on physical equipment.',
-                'It disables automatic control; the firmware does this deliberately whenever a profile assignment changes.',
-                'Commissioning will report lab_simulator_only, never production, while this declaration stands.',
-                'The controller must be restarted before the new write permission takes effect.'
-            ].join('\n')
-            : [
-                `Revoke the simulator declaration on Inverter ${index + 1} and assign profile ${profileId}.`,
-                '',
-                'Command authority then depends only on whether the assigned profile is qualified for production writes.',
-                'It disables automatic control; the firmware does this deliberately whenever a profile assignment changes.',
-                'The controller must be restarted before the new write permission takes effect.'
-            ].join('\n');
-        if (!window.confirm(consequences)) return;
-
-        state.labTargetSending = true;
-        renderLabTargetReadiness();
-        setMessage('labTargetMessage', 'Sending declaration…');
-        renderLabTargetResult(null);
-        try {
-            const payload = await api('/api/inverter-profile-assignment', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    inverter_index: index,
-                    profile_id: profileId,
-                    lab_target: declare
-                })
-            });
-            renderLabTargetResult(payload);
-            /* The stored declaration is reported, not the requested one, so the
-             * message repeats what came back rather than what was asked for. */
-            setMessage('labTargetMessage', payload?.lab_target === true
-                ? 'Saved. This inverter is now a declared lab simulator target. Restart the controller to apply the write permission below.'
-                : 'Saved. No lab simulator declaration is stored for this inverter. Restart the controller to apply the write permission below.',
-                payload?.lab_target === true ? 'bad' : 'good');
-            setBadge('labTargetBadge', 'Sent · restart required', 'warning');
-            /* The scope may have changed, so re-read the gate rather than leaving
-             * the banner describing the previous state. */
-            refreshCommissioningGate();
-        } catch (error) {
-            if (error.status === 401) {
-                setMessage('labTargetMessage',
-                    'Declaring a lab target requires an authenticated engineering session. Nothing was changed.',
-                    'bad');
-            } else {
-                setMessage('labTargetMessage',
-                    `Declaration failed: ${error.message} Nothing was changed.`, 'bad');
-            }
-            setBadge('labTargetBadge', 'Send failed', 'bad');
-        } finally {
-            state.labTargetSending = false;
-            renderLabTargetReadiness();
-        }
-        if (profile && profile.simulator_only === true) {
-            /* Worth saying out loud: the profile itself is simulator-only, which
-             * is a separate fact from the endpoint declaration. */
-            toast('The assigned profile is itself marked simulator-only.', 'warning');
-        }
-    }
 
     /* --------------------------------------------------------------- the reads */
 
@@ -2489,90 +1817,29 @@
         renderLabBanner();
     }
 
-    async function refreshWriteConfirmation() {
-        const access = window.AutomatrixEngineeringAccess;
-        if (!access || !access.mayUseEngineering('inverters', 'control', 'commissioning')) {
-            state.writeConfirmation = null;
-            setStateMessage('confirmMessage', 'confirm-message', gateAccessNote(), '');
-            renderWriteConfirmation();
-            return;
-        }
-        try {
-            state.writeConfirmation = await api('/api/inverters/write-confirmation');
-            setStateMessage('confirmMessage', 'confirm-message', '', '');
-        } catch (error) {
-            state.writeConfirmation = null;
-            setStateMessage('confirmMessage', 'confirm-message', error.status === 401
-                ? 'The engineering session ended. Sign in again to read setpoint confirmation.'
-                : `Setpoint confirmation could not be read: ${error.message}`, 'bad');
-        }
-        renderWriteConfirmation();
-    }
 
-    async function refreshLabProfiles() {
-        const access = window.AutomatrixEngineeringAccess;
-        ensureLabInverterOptions();
-        if (!access || !access.mayRequest('/api/inverter-profiles')) {
-            state.labProfiles = [];
-            state.labAssignments = [];
-            renderLabAssignedProfile();
-            return;
-        }
-        try {
-            const payload = await api('/api/inverter-profiles');
-            state.labProfiles = Array.isArray(payload?.profiles) ? payload.profiles : [];
-            state.labAssignments = Array.isArray(payload?.inverter_assignments)
-                ? payload.inverter_assignments : [];
-        } catch (error) {
-            state.labProfiles = [];
-            state.labAssignments = [];
-        }
-        renderLabAssignedProfile();
-        renderLabAssignments();
-    }
 
     /* Renders the declarations the controller holds.
      * Deliberately not what this browser last sent: a panel that echoes its own
      * last request cannot tell an operator whether commands are reaching a
      * simulator or a plant, which is the one thing here that must not be
      * guessed. */
-    function renderLabAssignments() {
-        const target = byId('labTargetCurrentValue');
-        if (!target) return;
-        const assignments = Array.isArray(state.labAssignments) ? state.labAssignments : [];
-        if (!assignments.length) {
-            target.textContent = 'The controller has not reported any inverter assignments.';
-            return;
-        }
-        const declared = assignments.filter((entry) => entry && entry.lab_target === true);
-        if (!declared.length) {
-            target.textContent = `No inverter is declared a lab simulator (${assignments.length} `
-                + `slot${assignments.length === 1 ? '' : 's'} reported).`;
-            return;
-        }
-        target.textContent = declared
-            /* +1 so this reads as the same channel the rest of the page names.
-             * It printed the raw zero-based index, so a declaration on the first
-             * channel appeared as "Inverter 0" beside panels calling it 1. */
-            .map((entry) => `Inverter ${Number(entry.inverter_index) + 1}: ${entry.profile_id} `
-                + `(write authority: ${entry.write_permission})`)
-            .join(' · ');
-    }
 
+    /*
+     * The lab-target and setpoint-confirmation panels are gone from the
+     * inverter page, so nothing polls their endpoints any more. The commissioning
+     * gate and the Solar-Grid status stay: the lab BANNER in the shell reads
+     * them, and it is what tells an engineer on every page that a commanded
+     * inverter is a declared simulator.
+     *
+     * The firmware is untouched. /api/inverters/write-confirmation and the
+     * lab-target endpoints still exist and still answer; the controller still
+     * refuses to command an unqualified profile. What is removed is the display,
+     * not the gate.
+     */
     function refreshLabControl() {
         refreshCommissioningGate();
         refreshSolarGridStatus();
-        refreshWriteConfirmation();
-        refreshLabProfiles();
-    }
-
-    function bindLabControl() {
-        ensureLabInverterOptions();
-        byId('labTargetAcknowledge')?.addEventListener('change', renderLabTargetReadiness);
-        byId('labTargetInverter')?.addEventListener('change', renderLabAssignedProfile);
-        byId('labTargetDeclaration')?.addEventListener('change', renderLabTargetReadiness);
-        byId('labTargetApply')?.addEventListener('click', applyLabTarget);
-        renderLabTargetReadiness();
     }
 
     function bindEvents() {
@@ -2619,7 +1886,6 @@
     async function start() {
         bindEvents();
         bindSiteTelemetry();
-        bindLabControl();
         watchNavigation();
         if (!window.location.hash) window.location.hash = '#/dashboard';
         navigate();
@@ -2683,7 +1949,10 @@
          * would cost an operator their own page. */
         window.setInterval(refreshCommissioningGate, 10000);
         window.setInterval(refreshSolarGridStatus, 10000);
-        window.setInterval(refreshWriteConfirmation, 5000);
+        /* The 5-second setpoint-confirmation poll is gone with its panel. It was
+         * the most frequent engineering request this page made, on a controller
+         * whose client socket pool is small, and nothing displays its answer
+         * any more. */
     }
 
     start().catch((error) => {

@@ -775,17 +775,9 @@ input:disabled, select:disabled, textarea:disabled {
  * workflow-blocked treatment and a heavier rule rather than the fault colour. */
 .gate-item.unmet { border-color: var(--gate-unmet); border-left-width: 4px; }
 .gate-item.unmet .gate-item-mark, .gate-item.unmet .gate-item-state { color: var(--gate-unmet); }
-
-.confirm-legend { display: grid; gap: 6px; margin-top: 13px; }
 .confirm-legend-item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 9px; align-items: baseline; font-size: 11px; line-height: 1.5; }
 .confirm-legend-item small { color: var(--muted); }
-/* The vocabulary stays visible as a dense row of pills; the paragraph defining
- * each one lives in the drawer beneath it. A reader scanning rows needs to
- * recognise the pills, not to re-read their definitions on every visit. */
-.legend-pill-row { display: flex; flex-wrap: wrap; gap: 7px; }
 .legend-definitions { display: grid; gap: 8px; padding-bottom: 4px; }
-.confirm-list { display: grid; gap: 10px; margin-top: 14px; }
-.confirm-row { padding: 13px; border: 1px solid var(--gate-boundary); border-radius: 12px; }
 .confirm-row-head { display: flex; flex-wrap: wrap; gap: 9px; justify-content: space-between; align-items: center; }
 .confirm-row-title { color: var(--text); font-size: 13px; font-weight: 800; }
 /* The state pill's own colour is its border and its text; the background stays
@@ -862,10 +854,6 @@ input:disabled, select:disabled, textarea:disabled {
 .notice-drawer > summary { cursor: pointer; padding: 3px 0; min-height: 44px; display: flex; align-items: center; gap: 7px; }
 .notice-drawer > summary::marker { color: var(--muted); }
 .notice-drawer > span { display: block; margin-top: 5px; }
-/* Counts. Required, unconfirmed and unverifiable are three separate figures and
- * are never summed into one "problem" number: the last of the three is the only
- * one that will not resolve on its own. */
-.prereq-counts { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 9px; color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
 /* Per-inverter block inside a confirmation row, ruled off from the setpoint
  * figures above it so it cannot be read as one of them. */
 .prereq-block { margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--gate-boundary); }
@@ -920,10 +908,6 @@ input:disabled, select:disabled, textarea:disabled {
 .lab-target-ack { margin-top: 14px; min-height: 44px; }
 .lab-target-caveat { margin: 12px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
 .lab-target-panel .button { min-height: 44px; min-width: 44px; }
-.lab-target-result { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr); gap: 8px 14px; margin: 14px 0 0; padding: 13px; border: 1px solid var(--gate-boundary); border-radius: 12px; }
-.lab-target-result[hidden] { display: none; }
-.lab-target-result dt { color: var(--muted); font-size: 11px; font-weight: 750; }
-.lab-target-result dd { margin: 0; color: var(--text); font-size: 11px; line-height: 1.55; overflow-wrap: anywhere; }
 
 /* ---------------------------------------------- derived facts and disclosures
  *
@@ -986,8 +970,6 @@ input:disabled, select:disabled, textarea:disabled {
 
 @media (max-width: 650px) {
     .confirm-values { grid-template-columns: 1fr; }
-    .lab-target-result { grid-template-columns: 1fr; }
-    .lab-target-result dt { margin-top: 6px; }
 }
 
 /* --------------------------------------------- limit evidence (what confirmed it)
@@ -1019,13 +1001,6 @@ input:disabled, select:disabled, textarea:disabled {
     border-left-width: 4px;
     border-radius: 11px;
 }
-.proof-notice strong { color: var(--text); font-size: 12px; font-weight: 800; line-height: 1.45; }
-.proof-notice span { color: var(--muted); font-size: 11px; line-height: 1.55; }
-.proof-notice span[hidden] { display: none; }
-/* Demonstrated, echo-only and ambiguous are three separate figures and are never
- * summed: adding an echo to a demonstrated limit produces a number that claims
- * more than the evidence supports. */
-.proof-counts { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 9px; color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
 /* Per-inverter block inside a confirmation row, ruled off from the setpoint
  * figures above it so it reads as a statement ABOUT them rather than one of them. */
 .proof-block { margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--gate-boundary); }
