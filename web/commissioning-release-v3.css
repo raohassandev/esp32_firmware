@@ -95,3 +95,41 @@
 /* The only one that commands equipment. It is the loudest thing in the header
  * for exactly as long as the engineer is standing in that step. */
 .cr-risk-write { color: var(--warning, var(--orange)); border-color: var(--warning, var(--orange)); }
+
+/* ---------------------------------------------------------------- pickers
+ *
+ * Four meters and fourteen inverter profiles were a wall of cards, so this step
+ * ran to several screens and the catalogue an engineer had finished with stayed
+ * in the way of the one they were using.
+ */
+.cr-picker {
+    display: flex;
+    gap: var(--sp-2);
+    align-items: stretch;
+}
+
+.cr-picker select {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: var(--tap);
+    padding: var(--sp-2) var(--sp-3);
+    border: 1px solid var(--line);
+    border-radius: var(--r-1);
+    background: var(--field);
+    color: var(--text);
+    font-size: var(--fs-2);
+}
+
+.cr-picker .button { flex: 0 0 auto; }
+
+/* What the choice MEANS, before it is made. A lab-simulator profile, a brand
+ * deferred this phase and a family with no transcribed register map looked
+ * identical as cards, and the difference decides whether this firmware may
+ * command the machine or only read it. */
+.cr-picker-note {
+    margin: var(--sp-2) 0 0;
+    min-height: var(--sp-5);
+    font-size: var(--fs-1);
+    color: var(--muted);
+    line-height: 1.45;
+}
