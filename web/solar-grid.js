@@ -255,6 +255,13 @@
         RAMP_PROFILES.forEach((profile) => profiles.append(rampFields(profile)));
         panel.append(profiles);
 
+        /* Sits with the ramp fields, not in a tooltip: an engineer setting the
+         * rate must see what will actually be applied while they are setting
+         * it. */
+        const urgentNote = node('p', 'metric-foot');
+        urgentNote.id = 'generatorRampUrgentNote';
+        profiles.append(urgentNote);
+
         const advisory = node('p', 'action-message warning');
         advisory.id = 'controlRampAdvisory';
         advisory.setAttribute('role', 'status');
@@ -279,6 +286,7 @@
                 const control = panel.querySelector(`#${profile.prefix}${suffix}`);
                 control?.addEventListener('change', rampAdvisory);
                 control?.addEventListener('input', rampAdvisory);
+            control?.addEventListener('input', () => renderUrgentRampNote(state.lastControl));
             });
         });
     }
@@ -304,6 +312,42 @@
             : '';
     }
 
+    /*
+     * THE MULTIPLIER THAT IS APPLIED TO A COMMISSIONED RATE WITHOUT ASKING.
+     *
+     * An engineer commissions a generator ramp-DOWN of 5 %/s. While a generator
+     * carries the plant and its loading falls below a fraction of the online
+     * rating, the control loop doubles that rate, because an under-loaded engine
+     * needs PV pulled off it faster than normal.
+     *
+     * That is correct behaviour and it was invisible. The number on this form
+     * was not the number in force, and nothing anywhere said so -- the same
+     * class of defect as showing a commanded setpoint as if it were a
+     * measurement.
+     *
+     * The figures come from the controller (control.generator_urgent_ramp),
+     * never restated here: a second copy of 25% and 2x would drift from the
+     * firmware the first time either was tuned, and then this sentence would
+     * confidently describe behaviour the controller no longer has.
+     */
+    function renderUrgentRampNote(control) {
+        const target = byId('generatorRampUrgentNote');
+        if (!target) return;
+        const urgent = control?.generator_urgent_ramp;
+        if (!urgent || !Number.isFinite(Number(urgent.down_rate_multiplier))) {
+            target.textContent = '';
+            return;
+        }
+        const percent = Math.round(Number(urgent.below_loading_fraction) * 100);
+        const down = Number(byId('generatorRampDown')?.value);
+        const applied = Number.isFinite(down) ? (down * Number(urgent.down_rate_multiplier)) : null;
+        target.textContent =
+            `While a generator carries the plant and its loading is below ${percent}% of the `
+            + `online rating, the DOWN rate is multiplied by ${urgent.down_rate_multiplier}`
+            + (applied !== null ? ` — ${down} %/s becomes ${applied} %/s.` : '.')
+            + (urgent.configurable === false ? ' This is fixed in firmware.' : '');
+    }
+
     function renderRamps(control) {
         RAMP_PROFILES.forEach((profile) => {
             const values = control?.[profile.key] || {};
@@ -315,6 +359,7 @@
                 ? Number(values.down_pct_s) : (generator ? 20 : 100);
         });
         rampAdvisory();
+        renderUrgentRampNote(control);
     }
 
     function collectRamps() {
@@ -338,11 +383,14 @@
         return { control };
     }
 
+    /* Kept so the note can be recomputed as the engineer types. */
+    function rememberControl(control) { state.lastControl = control; return control; }
+
     async function loadRamps() {
         if (!byId('controlRampEditor')) return;
         try {
             const config = await api('/api/config', { timeoutMs: 5000 });
-            renderRamps(config?.control || {});
+            renderRamps(rememberControl(config?.control || {}));
             setRampMessage('Ramp profiles loaded from the controller.');
         } catch (error) {
             setRampMessage(`Ramp profiles unavailable: ${error.message}`, 'bad');

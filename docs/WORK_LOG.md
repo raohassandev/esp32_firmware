@@ -26,10 +26,10 @@ done, so what you check is what is running.
 | 7 | Periodic setpoint refresh: on comms restore | **done** | 01-08 | `inverter_manager_fleet_rejoins()` counts rejoins; the control loop forces one write when it changes. NOTE: the periodic keepalive already existed at **2 s**, not 30 min — see Notes. | | |
 | 8 | Control-evidence: error kW, generator-safe PV ceiling | **done** | 01-08 | Added to the runtime gate panel in `web/solar-grid.js`. Both were published and reached no screen, so "why is PV held down" had no answer. min/max/average are not published by the API — not invented. | | |
 | 9 | Automatic control arm/disarm in the UI | **blocked — needs your decision** | | Three separate contracts forbid it: the Solar-Grid page, the readiness page and the commissioning wizard. See Notes. | | |
-| 10 | Audit log page — who changed what | todo | | | | |
-| 11 | Service page: heap, PSRAM, partitions, firmware version | todo | | | | |
-| 12 | Alarm detail: shelf expiry, out-of-service reason and actor, delays | todo | | | | |
-| 13 | Urgent ramp 25% / 2x — currently hardcoded, make it commissioned | todo | | | | |
+| 10 | Audit log page — who changed what | **done** | 01-08 | `web/service-page.js`, on the System route. Uptime times, not invented dates; overwritten entries admitted; actor is a class, never a person. | | |
+| 11 | Service page: heap, PSRAM, firmware, reset reason | **done** | 01-08 | Same module. Free heap next to the LARGEST FREE BLOCK and fragmentation, with the controller's own thresholds beside them — free heap alone does not say whether a page can still be served. | | |
+| 12 | Alarm detail: delays, counts, shelf expiry, out-of-service end | **done** | 01-08 | On/off delays shown only when non-zero — an alarm that takes 30 s to appear looked like a slow controller. Plus raises_total, shelf_count, out_of_service_count, shelved_age, shelf_expires_in, out_of_service_expires, design_suppressed_age. | | |
+| 13 | Urgent ramp 25% / 2x | **disclosed, not yet configurable** | 01-08 | The ramp editor now states, from the firmware's own constants, that 5 %/s becomes 10 %/s below 25% loading. Making it commissioned waits on B2. | | |
 | 14 | Verify every page in a real browser on the board | **done** | 01-08 | `tools/browser_check.js` — Playwright/Chromium against the live board. Walks every route read FROM the shell, screenshots each, fails on any console error, and asserts the source attribution on the rendered screen. All 10 routes clean. | | |
 
 ## Blocked on you
@@ -49,6 +49,18 @@ default, I implement the mechanism and leave the value fail-closed.
 ---
 
 ## Notes
+
+**Field coverage, measured.** 757 published, 503 named by the interface, **254
+never named** — down from 286 when this log started. The 32 closed are the ones
+that answer a question somebody actually asks: what the controller concluded,
+what its memory is doing, what changed, and why an alarm behaves as it does.
+
+**Task 13 — disclosed rather than made configurable.** Whether 25% and 2x should
+become commissioned values is B2 and still yours. What did not need an answer:
+an engineer commissioning 5 %/s was never told it becomes 10 %/s below 25%
+loading. The editor now says so, reading the firmware's own constants rather
+than restating them.
+
 
 **Task 9 — arming is forbidden in the UI, deliberately, in three places.** I
 tried each and each is held by its own contract:

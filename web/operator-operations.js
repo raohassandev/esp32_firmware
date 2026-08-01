@@ -681,13 +681,34 @@
         }
         if (alarm.shelved === true) {
             facts.append(alarmMetaRow('Shelf remaining', formatDuration(alarm.shelf_remaining_ms)));
+            /* Two different facts that were both published and neither shown:
+             * how long it has ALREADY been hidden, and the deadline it expires
+             * at. A shelf with time left says nothing about how long the
+             * condition has been invisible. */
+            if (Number(alarm.shelved_age_ms) > 0) {
+                facts.append(alarmMetaRow('Hidden for', formatAge(alarm.shelved_age_ms)));
+            }
+            if (Number(alarm.shelf_expires_in_ms) > 0) {
+                facts.append(alarmMetaRow('Shelf ends in', formatDuration(alarm.shelf_expires_in_ms)));
+            }
         }
         if (alarm.suppressed_by_design === true) {
+            if (Number(alarm.design_suppressed_age_ms) > 0) {
+                facts.append(alarmMetaRow('Suppressed by design for',
+                    formatAge(alarm.design_suppressed_age_ms)));
+            }
             facts.append(alarmMetaRow('Explained by',
                 String(alarm.design_suppressed_by || 'another condition')));
         }
         if (alarm.out_of_service === true) {
             facts.append(alarmMetaRow('Out of service since', formatAge(alarm.out_of_service_age_ms)));
+            /* Out of service has no automatic end unless one was set, and the
+             * difference matters: an indefinite suppression is a decision
+             * somebody has to revisit, and a dated one is not. */
+            facts.append(alarmMetaRow('Returns to service',
+                Number(alarm.out_of_service_expires) > 0
+                    ? formatDuration(alarm.out_of_service_expires)
+                    : 'Only when someone puts it back'));
         }
         drawer.append(facts);
         if (alarm.out_of_service === true && alarm.out_of_service_reason_text) {
@@ -849,6 +870,40 @@
             alarmMetaRow('Present now', alarm.present ? 'Yes' : 'No'),
             alarmMetaRow('Acknowledged', alarm.acknowledged ? formatAge(alarm.acknowledged_age_ms) : 'No')
         );
+
+        /*
+         * WHY THIS CONDITION BEHAVES AS IT DOES.
+         *
+         * The controller publishes an on-delay and an off-delay per condition
+         * and neither reached a screen, so an alarm that took thirty seconds to
+         * appear looked like a controller that was slow to notice, and one that
+         * lingered after the fault cleared looked like it had not cleared.
+         * Both are configured, deliberate, and were invisible.
+         *
+         * Shown only when non-zero: a row of "0 s" on every condition is noise
+         * that trains a reader to skip the block.
+         */
+        if (Number(alarm.on_delay_ms) > 0) {
+            metaGrid.append(alarmMetaRow('Waits before raising', formatDuration(alarm.on_delay_ms)));
+        }
+        if (Number(alarm.off_delay_ms) > 0) {
+            metaGrid.append(alarmMetaRow('Waits before clearing', formatDuration(alarm.off_delay_ms)));
+        }
+        /* How often this condition has been raised over the controller's life,
+         * which is what distinguishes a one-off from a nuisance alarm -- the
+         * distinction ISA-18.2 rationalisation is built on. */
+        if (Number(alarm.raises_total) > 0) {
+            metaGrid.append(alarmMetaRow('Raised in total', Number(alarm.raises_total)));
+        }
+        /* How often somebody has had to hide it. A condition that has been
+         * shelved repeatedly is telling you something about the condition, not
+         * about the operator. */
+        if (Number(alarm.shelf_count) > 0) {
+            metaGrid.append(alarmMetaRow('Times shelved', Number(alarm.shelf_count)));
+        }
+        if (Number(alarm.out_of_service_count) > 0) {
+            metaGrid.append(alarmMetaRow('Times out of service', Number(alarm.out_of_service_count)));
+        }
         history.append(metaGrid);
 
         /* ONE drawer per row, not two.
