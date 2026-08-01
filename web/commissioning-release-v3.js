@@ -116,7 +116,7 @@ async function importCommissioned(announce=true){if(announce)say('Reading the st
  say(`Loaded ${devices.length} commissioned device(s) from the controller.${unknown.length?` ${unknown.length} field(s) could not be interpreted and are shown as unknown; they will be left as stored.`:''}${error?` ${error}`:''}`,!unknown.length&&!error);return true;}
 function route(){return(location.hash.replace(/^#\/?/,'')||'dashboard')==='commissioning';}
 function page(){const main=$('mainContent');if(!main)return null;let page=main.querySelector('[data-page="commissioning"]');if(!page){page=document.createElement('section');page.className='page';page.dataset.page='commissioning';main.append(page);}page.innerHTML='<div id="commissioningReleaseV3" class="commissioning-release-v3"></div>';return page;}
-const labels=['Site','Devices','Channel','Modbus tuning','Plant control','Connection test','Controller health','Review'];
+const labels=['Site','Devices','Channel','Modbus tuning','Plant control','Source detection','Connection test','Controller health','Review'];
 /* The step indicator is the navigation, not a picture of it. It used to be an
  * inert <ol>: the only way to reach "Modbus tuning" on a commissioned unit was
  * Continue through five steps or "Start new commissioning", and the second of
@@ -326,10 +326,32 @@ function review(){const v=verdict();return`<section class="cr-stage"><div class=
  */
 function plantControl(){return`<section class="cr-stage"><div class="cr-head"><p class="eyebrow">What the controller regulates on</p><h2>Plant control</h2><p>The grid policy and its limit, the measurement it is enforced on, the generator protections and the PV ramp rates. Saving any of these forces automatic control back to disabled, so it must be armed again deliberately afterwards.</p></div><div id="crPlantControlHost"></div></section>${nav()}`;}
 
-function render(){if(!route())return;page();const root=$('commissioningReleaseV3');if(!root)return;const views=[site,devices,channel,tuningStep,plantControl,tests,health,review];root.innerHTML=header()+restartBanner()+views[state.step]();bind();if(state.step===1)loadInverters();
+/* ---------------------------------------------------------- source detection
+ *
+ * Whether the plant is running on the grid or on a generator. Everything the
+ * controller does downstream depends on that answer: which policy applies,
+ * whether reverse power matters, how fast PV may ramp.
+ *
+ * Two topologies, and the site has one or the other:
+ *
+ *   ONE METER  -- the EM-500 tariff input at 0x2100. The generator's 220 V feeds
+ *                 it. Zero is grid; any energised input is generator.
+ *   TWO METERS -- whichever meter reads above its threshold is carrying the
+ *                 load. Both above is a fault, unless the plant was commissioned
+ *                 as synchronisation-capable.
+ *
+ * This was implemented, tested and given a UI -- as a TAB inside the EM-500
+ * analyser workspace. An engineer had to open the meter page, find the analyser,
+ * and know the tab existed. Commissioning never asked. It does now, and it hosts
+ * the same panels rather than a copy.
+ */
+function sourceStep(){return`<section class="cr-stage"><div class="cr-head"><p class="eyebrow">Grid or generator</p><h2>Source detection</h2><p>How the controller decides which source is carrying the plant. One meter uses the EM-500 tariff input; two meters compare measured power against a threshold. Until this is commissioned, automatic control stays fail-closed.</p></div><div id="crSourceDetectionHost"></div></section>${nav()}`;}
+
+function render(){if(!route())return;page();const root=$('commissioningReleaseV3');if(!root)return;const views=[site,devices,channel,tuningStep,plantControl,sourceStep,tests,health,review];root.innerHTML=header()+restartBanner()+views[state.step]();bind();if(state.step===1)loadInverters();
  /* The workspace is built by its own module; this asks it to mount into
   * the host above and load what is commissioned. */
- if(state.step===4)window.AutomatrixSolarGrid?.mount();}
+ if(state.step===4)window.AutomatrixSolarGrid?.mount();
+ if(state.step===5)window.AutomatrixSourceDetection?.mount();}
 const access=()=>window.AutomatrixEngineeringAccess;
 /* Engineering-only catalogue: never requested outside the commissioning route,
  * because a guaranteed 401 still consumes one of the few client sockets. */
@@ -360,8 +382,12 @@ function stepBlocker(step){
   *
   * The workspace mounted in this step still refuses its own invalid input, and
   * still forces automatic control back to disabled on every save. */
- if(step===5)return state.devices.some(d=>d.status!=='ready')?'Every release-enabled device must pass qualification or be removed.':'';
- if(step===6)return(!state.resources||state.resources.resource_state==='critical')?'Load controller health and resolve critical resource conditions.':'';
+ /* Step 5 is Source detection. No blocker for the same reason as step 4:
+  * the controller states what it genuinely requires at
+  * /api/commissioning/gate, and the panel itself stays fail-closed until
+  * it is commissioned. */
+ if(step===6)return state.devices.some(d=>d.status!=='ready')?'Every release-enabled device must pass qualification or be removed.':'';
+ if(step===7)return(!state.resources||state.resources.resource_state==='critical')?'Load controller health and resolve critical resource conditions.':'';
  return'';}
 /* Move to any step directly.
  *

@@ -523,4 +523,36 @@
     }
 
     registerTab('source', 'Source detection', renderSource);
+
+    /*
+     * MOUNTABLE, so commissioning can ask the same question.
+     *
+     * Source detection decides whether the plant is on grid or on generator, and
+     * everything the controller does downstream depends on that answer. It lived
+     * as a TAB inside the EM500 analyser workspace -- which is to say, an
+     * engineer had to open the meter page, find the analyser, and know that a tab
+     * called "Source detection" existed. Commissioning never asked.
+     *
+     * The panels were already built as detached nodes by statusPanels() and
+     * buildConfiguration(), including the save binding, so hosting them
+     * elsewhere needs no second copy: the same builders, appended somewhere
+     * else. The POST, the validation and the fail-closed rules stay here.
+     */
+    async function mount(host) {
+        const target = host || document.getElementById('crSourceDetectionHost');
+        if (!target) return;
+        try {
+            const data = await api('/api/source-detection', { timeoutMs: 5000 });
+            target.replaceChildren(...statusPanels(data), buildConfiguration(data));
+        } catch (error) {
+            /* Named, not generic. "Could not load" on this panel is
+             * indistinguishable from "this plant has no source detection", and
+             * those want different responses from the engineer. */
+            const failed = node('div', 'notice warning',
+                `Source detection could not be read: ${error.message}`);
+            target.replaceChildren(failed);
+        }
+    }
+
+    window.AutomatrixSourceDetection = { mount };
 })();

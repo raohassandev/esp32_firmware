@@ -18,8 +18,8 @@ done, so what you check is what is running.
 | # | Task | Status | Flashed | Evidence | Owner verdict | Owner comment |
 |---|---|---|---|---|---|---|
 | 1 | Commissioning step: grid policy + control basis | **done** | 01-08 | Step 4 of 8, "Plant control". `web/commissioning-release-v3.js` `plantControl()`; mounts the existing workspace from `web/solar-grid.js` — one form, not a copy. Board serves it: `labels` now has 8 steps. | | |
-| 2 | Commissioning step: generator limits | todo | | | | |
-| 3 | Commissioning step: source detection (1 meter tariff / 2 meter) | todo | | | | |
+| 2 | Commissioning step: generator limits | **done with 1** | 01-08 | Same mounted workspace. Confirmed present in the bundle the board serves: "Rated power (kW)", "Minimum loading (% of rating)", "Spinning reserve (kW)", "Reverse-power margin (kW)", per-engine cards. No separate step built — it would have been a second copy. | | |
+| 3 | Commissioning step: source detection (1 meter tariff / 2 meter) | **done** | 01-08 | Step 6 of 9. `sourceStep()` in `web/commissioning-release-v3.js`; mounts the panels from `web/source-detection.js` — same builders, no copy. Board serves 9 step labels with "Source detection" sixth. | | |
 | 4 | Commissioning step: PV ramp per source | todo | | | | |
 | 5 | Commissioning: show WHY the gate is not met | todo | | | | |
 | 6 | Inverter comms fail-safe ordering (controller 2 min > inverter 1 min) — not implemented at all | todo | | | | |
@@ -51,6 +51,13 @@ default, I implement the mechanism and leave the value fail-closed.
 ## Notes
 
 Anything I find while working that you should know goes here, newest first.
+
+**Task 3 — where source detection was hiding.** It was implemented, tested and
+given a full UI, as a TAB inside the EM-500 analyser workspace. To reach it an
+engineer had to open the meter page, find the analyser, and know a tab called
+"Source detection" existed. Commissioning never asked — on a plant where this
+decides whether reverse-power protection applies at all. Same treatment as task
+1: the panels were already detached nodes, so commissioning hosts the same ones.
 
 **Task 1 — why it is a mount and not a new form.** Every control for the grid
 policy, the generator limits and the ramps already existed in `web/solar-grid.js`,
