@@ -306,6 +306,32 @@ static esp_err_t identity_get(httpd_req_t *request)
     return err;
 }
 
+/* The rule, in one place. resources_get publishes the full picture and
+ * /api/status publishes this summary; both come from here so the operator's word
+ * and the engineer's numbers can never disagree about the same controller. */
+system_resource_health_t system_resource_health(void)
+{
+    const size_t free_internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const size_t largest_internal = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const double fragmentation = free_internal > 0U
+                                     ? 1.0 - ((double)largest_internal / (double)free_internal)
+                                     : 1.0;
+    const bool reset_attention = reset_reason_unexpected(esp_reset_reason());
+    const bool warning = free_internal < (size_t)RESOURCE_FREE_INTERNAL_WARNING_BYTES ||
+                         largest_internal < (size_t)RESOURCE_LARGEST_BLOCK_WARNING_BYTES ||
+                         fragmentation > RESOURCE_FRAGMENTATION_WARNING_RATIO;
+    const bool critical = free_internal < (size_t)RESOURCE_FREE_INTERNAL_CRITICAL_BYTES ||
+                          largest_internal < (size_t)RESOURCE_LARGEST_BLOCK_CRITICAL_BYTES ||
+                          fragmentation > RESOURCE_FRAGMENTATION_CRITICAL_RATIO;
+
+    system_resource_health_t health = {
+        .uptime_ms = (uint64_t)(esp_timer_get_time() / 1000ULL),
+        .state = critical ? "critical" : (warning || reset_attention) ? "review" : "healthy",
+        .last_reboot_unexpected = reset_attention,
+    };
+    return health;
+}
+
 static esp_err_t resources_get(httpd_req_t *request)
 {
     esp_chip_info_t chip = {0};
@@ -386,17 +412,12 @@ static esp_err_t resources_get(httpd_req_t *request)
     cJSON_AddStringToObject(root, "temperature_note",
                             "Internal temperature sensor is not initialized in this build");
 
-    const bool reset_attention = reset_reason_unexpected(reset_reason);
-    cJSON_AddBoolToObject(root, "last_reboot_unexpected", reset_attention);
-    const bool heap_warning = free_internal < (size_t)RESOURCE_FREE_INTERNAL_WARNING_BYTES ||
-                              largest_internal < (size_t)RESOURCE_LARGEST_BLOCK_WARNING_BYTES ||
-                              internal_fragmentation > RESOURCE_FRAGMENTATION_WARNING_RATIO;
-    const bool heap_critical = free_internal < (size_t)RESOURCE_FREE_INTERNAL_CRITICAL_BYTES ||
-                               largest_internal < (size_t)RESOURCE_LARGEST_BLOCK_CRITICAL_BYTES ||
-                               internal_fragmentation > RESOURCE_FRAGMENTATION_CRITICAL_RATIO;
-    cJSON_AddStringToObject(root, "resource_state",
-                            heap_critical ? "critical" :
-                            (heap_warning || reset_attention) ? "review" : "healthy");
+    /* The verdict comes from the shared rule, not from a second copy of the
+     * thresholds: an operator seeing "healthy" while this page said "review"
+     * about the same controller would destroy both. */
+    const system_resource_health_t health = system_resource_health();
+    cJSON_AddBoolToObject(root, "last_reboot_unexpected", health.last_reboot_unexpected);
+    cJSON_AddStringToObject(root, "resource_state", health.state);
 
     cJSON *thresholds = cJSON_AddObjectToObject(root, "thresholds");
     cJSON_AddNumberToObject(thresholds, "free_internal_warning_bytes",

@@ -25,7 +25,6 @@
 #include "web_assets.h"
 
 static httpd_handle_t s_server;
-typedef const char *(*asset_getter_t)(size_t *length);
 
 static void set_asset_headers(httpd_req_t *request, const char *content_type)
 {
@@ -40,20 +39,6 @@ static esp_err_t send_asset(httpd_req_t *request, const char *content_type, cons
     return httpd_resp_send(request, content, length);
 }
 
-static esp_err_t send_asset_parts(httpd_req_t *request, const char *content_type, const asset_getter_t *getters, size_t count)
-{
-    set_asset_headers(request, content_type);
-    for (size_t index = 0; index < count; ++index) {
-        size_t length = 0;
-        const char *content = getters[index](&length);
-        esp_err_t err = httpd_resp_send_chunk(request, content, length);
-        if (err != ESP_OK) {
-            httpd_resp_send_chunk(request, NULL, 0);
-            return err;
-        }
-    }
-    return httpd_resp_send_chunk(request, NULL, 0);
-}
 
 static esp_err_t index_handler(httpd_req_t *request)
 {

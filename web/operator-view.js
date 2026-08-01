@@ -894,6 +894,40 @@
             }));
         }
 
+        /*
+         * HAS THE BOX ON THE WALL BEEN ALL RIGHT?
+         *
+         * A small factory cannot read a heap fragmentation ratio and should not
+         * be asked to. What it needs is the thing an engineer would say out
+         * loud: it has been running for eleven days and it did not fall over in
+         * the night. That is the difference between trusting the controller and
+         * quietly working around it.
+         *
+         * Shown only when something is worth saying. A permanent green
+         * "everything is fine" card trains the reader to skip that corner of the
+         * screen, which is precisely where the one abnormal day would appear.
+         */
+        const health = payload.status?.controller;
+        if (health && (health.last_reboot_unexpected === true || health.state !== 'healthy')) {
+            const days = finite(health.uptime_ms) ? health.uptime_ms / 86400000 : null;
+            const running = days === null ? 'for an unknown time'
+                : days >= 1 ? `for ${Math.floor(days)} day${Math.floor(days) === 1 ? '' : 's'}`
+                : `for ${Math.max(1, Math.round(health.uptime_ms / 3600000))} hour(s)`;
+            now.grid.append(cards.status({
+                label: 'This controller',
+                mode: health.last_reboot_unexpected ? 'Restarted unexpectedly'
+                    : health.state === 'critical' ? 'Needs attention' : 'Worth a look',
+                state: health.state === 'critical' || health.last_reboot_unexpected ? 'bad' : 'warn',
+                reason: health.last_reboot_unexpected
+                    ? `It restarted by itself and has been running ${running} since. `
+                      + 'A controller that restarts on its own did so for a reason, '
+                      + 'and nobody was watching when it happened. Show this to your engineer.'
+                    : `It has been running ${running} and its memory is tighter than it `
+                      + 'should be. The plant is unaffected right now; an engineer can see '
+                      + 'the detail on the service page.'
+            }));
+        }
+
         /* ---- 2. what the plant is doing ----------------------------------- */
         const gridKw = finite(status.grid_power_kw) ? Number(status.grid_power_kw) : null;
         const gridFresh = Boolean(status.meter_online) && !Boolean(status.meter_stale);

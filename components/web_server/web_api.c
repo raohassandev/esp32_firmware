@@ -15,6 +15,7 @@
 #include "http_json.h"
 #include "meter_manager.h"
 #include "network_manager.h"
+#include "system_resource_api.h"
 #include "safety_manager.h"
 
 /* Staleness is NOT defined here either. One definition, owned by safety_manager,
@@ -75,6 +76,28 @@ static esp_err_t status_get(httpd_req_t *request)
     cJSON_AddNumberToObject(root, "recovery_ap_channel", network.ap_channel);
     cJSON_AddStringToObject(root, "mdns_hostname", network.hostname);
     cJSON_AddNumberToObject(root, "disconnect_count", network.disconnect_count);
+
+    /*
+     * THE CONTROLLER'S OWN HEALTH, WHERE AN OPERATOR WILL SEE IT.
+     *
+     * A small factory cannot read a heap fragmentation ratio and does not need
+     * to. It needs to know the controller has been running for eleven days and
+     * did not fall over in the night -- which is the difference between trusting
+     * the box on the wall and not.
+     *
+     * Three fields, from the same rule the engineering resource page uses, so
+     * the two can never disagree about the same controller. Everything else in
+     * that report -- chip revision, partitions, block sizes -- stays gated,
+     * because it is detail about HOW the controller works rather than WHETHER it
+     * is working.
+     */
+    const system_resource_health_t health = system_resource_health();
+    cJSON *controller = cJSON_AddObjectToObject(root, "controller");
+    cJSON_AddNumberToObject(controller, "uptime_ms", (double)health.uptime_ms);
+    cJSON_AddStringToObject(controller, "state", health.state);
+    /* The one that matters: a controller that restarted by itself did so for a
+     * reason, and nobody was watching when it happened. */
+    cJSON_AddBoolToObject(controller, "last_reboot_unexpected", health.last_reboot_unexpected);
     cJSON_AddNumberToObject(root, "reconnect_count", network.reconnect_count);
 
     uint32_t current_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
