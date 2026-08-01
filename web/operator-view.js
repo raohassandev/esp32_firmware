@@ -1391,7 +1391,7 @@
         top.append(productionCard, fleetCard(summary, inverters));
         /* Same ordering as Grid power, for the same reason: "is anything down"
          * is answered by the table, and it was below a 500px chart. */
-        view.append(top, inverterTable(inverters, telemetryMap), chartHost());
+        view.append(top, inverterTable(inverters, telemetryMap));
     }
 
     /* ------------------------------------------------------ fleet composition

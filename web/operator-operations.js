@@ -1327,14 +1327,11 @@
          *
          * The same quantity over time is still on the plant overview, where the
          * line is not making a claim about one supply.
+         *
+         * The solar trend is gone too, at the owner's request. The plant
+         * overview is now the ONLY page with a chart, and it is the one page
+         * whose subject is the whole site rather than one device.
          */
-        inverters: {
-            title: 'Solar production trend',
-            description: 'Measured inverter production stored by the controller',
-            series: [
-                { key: 'solar_kw', label: 'Solar production', meaning: { positive: 'producing', negative: 'consuming' } }
-            ]
-        }
     };
 
     function chart() {
@@ -1414,10 +1411,8 @@
             renderAlarmPage();
             return;
         }
-        /* meters and generator are absent on purpose: neither carries a chart.
-         * See CHART_PAGES. */
-        const target = current === 'dashboard' ? byId('operatorDashboardView')
-            : current === 'inverters' ? byId('operatorInverterView') : null;
+        /* The plant overview is the only page with a chart. See CHART_PAGES. */
+        const target = current === 'dashboard' ? byId('operatorDashboardView') : null;
         if (!target) return;
         mountChart(target, current);
         /* The band is re-rendered rather than appended once: operator-view.js
