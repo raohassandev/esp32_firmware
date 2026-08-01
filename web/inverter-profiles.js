@@ -67,6 +67,52 @@
         return { label: 'Read-only / pending', tone: 'neutral' };
     }
 
+    /*
+     * WHY THIS BRAND CANNOT BE COMMANDED.
+     *
+     * The picker showed a verdict -- "Write locked", "Read-only / pending",
+     * "Deferred this phase" -- and never the reason. An engineer choosing a
+     * brand saw that it was refused and had no way to learn what would change
+     * that, so the reasonable conclusion was that the product does not support
+     * the brand at all.
+     *
+     * Every one of these facts is published and none of them reached a screen.
+     * They are stated in the PROFILE'S own words where it has them: the manual a
+     * map was transcribed from, or the criterion recorded against a deferral.
+     */
+    function writeReason(profile) {
+        if (!profile) return '';
+        if (isDeferred(profile)) {
+            return profile.deferred_reason
+                ? `Not commandable in this release phase: ${profile.deferred_reason}`
+                : 'Not commandable in this release phase. The register map is kept and cited; '
+                  + 'only the permission is withheld.';
+        }
+        if (profile.simulator_only) {
+            return 'A lab simulator profile. It is commandable only against an endpoint an '
+                 + 'engineer has declared a simulator, and nothing it does is evidence about '
+                 + 'physical equipment.';
+        }
+        if (profile.write_allowed) {
+            return profile.manual_reference
+                ? `Qualified for writing. Register map transcribed from: ${profile.manual_reference}`
+                : 'Qualified for writing.';
+        }
+        if (!profile.power_limit_supported) {
+            return 'No command register has been transcribed for this family, so there is '
+                 + 'nothing to write. It commissions as a monitored endpoint, and the '
+                 + 'registers would be yours rather than the manufacturer.';
+        }
+        /* A command register IS cited and the write is still refused: the
+         * missing thing is physical evidence, which is the one gap an engineer
+         * can actually close. */
+        return 'The command register is transcribed from the manual, but this profile has '
+             + 'not been qualified against physical hardware. Writing stays locked until a '
+             + 'readback on the real machine confirms the register, the scale and the '
+             + 'settle time.'
+             + (profile.manual_reference ? ` Source: ${profile.manual_reference}` : '');
+    }
+
     function setBadge(label, tone = 'neutral') {
         const badge = byId('inverterProfileQualification');
         if (!badge) return;
@@ -249,7 +295,8 @@
         renderScopeRefusal(profile);
 
         const summary = capabilitySummary(profile);
-        if (notice) notice.textContent = `${profile.manufacturer} ${profile.model_family}: ${summary}. ${profile.write_allowed ? 'Production write permission is approved.' : 'Live writes remain locked.'}`;
+        /* The reason, not just the verdict. */
+        if (notice) notice.textContent = `${profile.manufacturer} ${profile.model_family}: ${summary}. ${writeReason(profile)}`;
         renderProfileLink(profile);
     }
 

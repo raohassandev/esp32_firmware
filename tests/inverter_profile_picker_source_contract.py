@@ -17,7 +17,15 @@ required_js = [
     "inverterManufacturer",
     "inverterModelFamily",
     "write_allowed",
-    "Live writes remain locked",
+    # The picker used to state only the VERDICT ("Live writes remain locked"),
+    # which told an engineer their brand was refused and nothing about what would
+    # change that -- so the reasonable conclusion was that the product does not
+    # support the brand. It now states the REASON, and these are the three the
+    # firmware actually distinguishes.
+    "writeReason",
+    "Not commandable in this release phase",
+    "lab simulator profile",
+    "not been qualified against physical hardware",
     "inverterProfileApply",
     "restart_required",
 ]
