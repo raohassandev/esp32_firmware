@@ -2024,13 +2024,45 @@ const inverter_profile_t *inverter_profiles_find(const char *id)
     return NULL;
 }
 
+/*
+ * READING IS ALLOWED FROM A DOCUMENTED PROFILE. WRITING IS NOT.
+ *
+ * This gate used to require READ_ONLY_QUALIFIED before the controller would so
+ * much as ask an inverter what it was producing, and the refusal was silent:
+ * inverter_telemetry_task() skips the channel with a bare `continue`, so a
+ * plant with a real Huawei on the wire showed no measurement, no error and not
+ * one line in the log. The owner had configured everything correctly.
+ *
+ * It was also a closed loop. A profile is promoted on evidence gathered from
+ * physical hardware -- readings that agree with the machine's own display --
+ * and the gate refused the reads that produce that evidence. There was no path
+ * from DOCUMENTED to qualified that did not start by editing this file.
+ *
+ * WHY OPENING IT IS SAFE. Every register these profiles read is RO in the
+ * manufacturer's manual. A read cannot change a setpoint, cannot arm anything
+ * and cannot damage equipment; the worst outcome of a wrong address is a
+ * Modbus exception or a value that is obviously nonsense -- which is itself the
+ * evidence an engineer is looking for. The dangerous direction is writing, and
+ * that is a different predicate: inverter_profile_allows_write() still refuses
+ * everything below WRITE_QUALIFIED, and tests/inverter_write_permission_test.c
+ * executes that refusal.
+ *
+ * SIMULATOR-ONLY PROFILES ARE UNCHANGED. They describe a simulator's register
+ * map, not a manufacturer's, so reading a real machine through one produces
+ * numbers that mean nothing while looking exactly like measurements. They still
+ * require SIMULATOR_VERIFIED.
+ *
+ * Reading grants nothing. A profile does not leave DOCUMENTED because data
+ * arrived; it leaves when an engineer compares that data with the machine and
+ * records the comparison.
+ */
 bool inverter_profile_allows_read(const inverter_profile_t *profile)
 {
     if (!profile) return false;
     if (profile->simulator_only) {
         return profile->qualification >= INVERTER_PROFILE_QUALIFICATION_SIMULATOR_VERIFIED;
     }
-    return profile->qualification >= INVERTER_PROFILE_QUALIFICATION_READ_ONLY_QUALIFIED;
+    return true;
 }
 
 bool inverter_profile_allows_write(const inverter_profile_t *profile)

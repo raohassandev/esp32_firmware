@@ -120,6 +120,13 @@ typedef struct {
      * a device that refuses the enable write from being hammered once per
      * acquisition pass. */
     uint32_t next_prerequisite_ms;
+    /* Consecutive failures on the two acquisition steps, used only to rate limit
+     * the log lines that report them. Not published and not a control input:
+     * data.consecutive_read_failures is the counter the rest of the firmware
+     * reads, and it means something different -- this one exists so that an
+     * unreachable endpoint states itself once instead of at the poll rate. */
+    uint32_t identity_failures;
+    uint32_t telemetry_failures;
     modbus_connection_t connection;
     SemaphoreHandle_t io_mutex;
     inverter_data_t data;
@@ -1192,17 +1199,77 @@ static void inverter_telemetry_task(void *argument)
             if ((int32_t)(timestamp - runtime->next_poll_ms) < 0) continue;
             runtime->next_poll_ms = timestamp + profile_poll_ms(runtime->profile);
 
-            if (!identity_is_current(runtime, timestamp) && verify_identity(runtime) != ESP_OK) {
+            /*
+             * SAY WHY, THE WAY THE METER DOES.
+             *
+             * This path was silent. A plant with a real inverter on the wire
+             * produced no measurement, no error and not one line in the log --
+             * the identity probe failed and the channel was skipped with a bare
+             * `continue`. An engineer could not tell a wrong IP address from a
+             * wrong register, because both look exactly the same: nothing.
+             *
+             * The meter path has always reported its failures with the endpoint
+             * and a running count, which is how its problems get diagnosed in
+             * minutes. This is that, for inverters.
+             *
+             * Rate limited to the first failure and then every sixteenth, so a
+             * permanently unreachable endpoint states itself once and does not
+             * fill the console at the poll rate.
+             */
+            const esp_err_t identity_err =
+                identity_is_current(runtime, timestamp) ? ESP_OK : verify_identity(runtime);
+            if (identity_err != ESP_OK) {
                 portENTER_CRITICAL(&runtime->lock);
                 runtime->data.online = false;
                 runtime->data.telemetry_valid = false;
                 runtime->data.telemetry_stale = true;
+                const uint32_t failures = ++runtime->identity_failures;
                 mark_status_unknown(runtime, true);
                 portEXIT_CRITICAL(&runtime->lock);
+                if (failures == 1U || (failures % 16U) == 0U) {
+                    ESP_LOGW(TAG,
+                             "inverter %u '%s': identity probe failed (%s) reading %s:%u unit %u "
+                             "register %u [failure %lu]",
+                             i, runtime->config.name,
+                             esp_err_to_name(identity_err),
+                             runtime->config.endpoint.host,
+                             (unsigned)runtime->config.endpoint.port,
+                             (unsigned)runtime->config.endpoint.unit_id,
+                             (unsigned)runtime->profile->identity_address,
+                             (unsigned long)failures);
+                }
                 continue;
+            }
+            if (runtime->identity_failures != 0U) {
+                ESP_LOGI(TAG, "inverter %u '%s': identity confirmed after %lu failed probe(s)",
+                         i, runtime->config.name,
+                         (unsigned long)runtime->identity_failures);
+                runtime->identity_failures = 0U;
             }
 
             esp_err_t telemetry_err = poll_active_power(runtime, timestamp);
+            if (telemetry_err != ESP_OK) {
+                /* Same rule for the measurement read: an inverter that answers
+                 * the identity probe and then refuses the power register is a
+                 * different fault from one that never answered, and the two
+                 * were indistinguishable. */
+                const uint32_t failures = ++runtime->telemetry_failures;
+                if (failures == 1U || (failures % 16U) == 0U) {
+                    ESP_LOGW(TAG,
+                             "inverter %u '%s': active-power read failed (%s) from %s:%u "
+                             "register %u [failure %lu]",
+                             i, runtime->config.name, esp_err_to_name(telemetry_err),
+                             runtime->config.endpoint.host,
+                             (unsigned)runtime->config.endpoint.port,
+                             (unsigned)runtime->profile->active_power_address,
+                             (unsigned long)failures);
+                }
+            } else if (runtime->telemetry_failures != 0U) {
+                ESP_LOGI(TAG, "inverter %u '%s': production reading recovered after %lu failure(s)",
+                         i, runtime->config.name,
+                         (unsigned long)runtime->telemetry_failures);
+                runtime->telemetry_failures = 0U;
+            }
             if (telemetry_err == ESP_OK && runtime->profile->has_power_limit_readback) {
                 (void)poll_readback(runtime, timestamp);
             }

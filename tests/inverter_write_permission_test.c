@@ -152,6 +152,67 @@ static void test_phase_parking_only_ever_adds_a_refusal(void)
     assert(inverter_profile_write_permission(&profile, true) == INVERTER_WRITE_FORBIDDEN);
 }
 
+/*
+ * READING AND WRITING ARE DIFFERENT PERMISSIONS, AND THE GAP BETWEEN THEM IS
+ * THE POINT.
+ *
+ * A DOCUMENTED manufacturer profile may READ. It used to be refused, silently:
+ * the acquisition loop skipped the channel with a bare `continue`, so a plant
+ * with a real inverter on the wire showed no measurement, no error and nothing
+ * in the log, and the only path out was to edit the catalogue. It was also a
+ * closed loop -- promotion needs evidence gathered from hardware, and the gate
+ * refused the reads that produce it.
+ *
+ * What must NOT follow from that is any relaxation of the write gate. This test
+ * holds both halves at once, over the shipped catalogue, so a future change
+ * that opens reading further cannot open writing with it.
+ */
+static void test_documented_profiles_may_read_and_never_write(void)
+{
+    size_t documented = 0;
+    for (size_t i = 0; i < inverter_profiles_count(); ++i) {
+        const inverter_profile_t *profile = inverter_profiles_get(i);
+        if (profile->simulator_only) continue;
+        if (profile->qualification != INVERTER_PROFILE_QUALIFICATION_DOCUMENTED) continue;
+        documented++;
+
+        /* Reading is permitted: this is what makes qualification possible at
+         * all, and every register these profiles read is RO in the manual. */
+        assert(inverter_profile_allows_read(profile));
+
+        /* Writing is not, in either mode, and not by any route. */
+        assert(!inverter_profile_allows_write(profile));
+        assert(inverter_profile_write_permission(profile, false) != INVERTER_WRITE_PRODUCTION);
+        assert(inverter_profile_write_permission(profile, true) != INVERTER_WRITE_PRODUCTION);
+    }
+    /* The catalogue must still contain such profiles, or this proves nothing. */
+    assert(documented > 0);
+}
+
+/*
+ * A SIMULATOR PROFILE STILL MAY NOT READ BELOW SIMULATOR_VERIFIED.
+ *
+ * Unchanged on purpose. A simulator profile describes a simulator's register
+ * map, not a manufacturer's, so reading a real machine through one returns
+ * numbers that mean nothing while looking exactly like measurements -- which is
+ * worse than no reading at all.
+ */
+static void test_unverified_simulator_profile_may_not_read(void)
+{
+    inverter_profile_t profile;
+    memset(&profile, 0, sizeof(profile));
+    profile.simulator_only = true;
+
+    profile.qualification = INVERTER_PROFILE_QUALIFICATION_DOCUMENTED;
+    assert(!inverter_profile_allows_read(&profile));
+
+    profile.qualification = INVERTER_PROFILE_QUALIFICATION_SIMULATOR_VERIFIED;
+    assert(inverter_profile_allows_read(&profile));
+
+    /* And reading never implies writing, at any level a simulator can reach. */
+    assert(!inverter_profile_allows_write(&profile));
+}
+
 /* A simulator-only profile can never reach production authority, no matter what
  * is declared about its endpoint. */
 static void test_simulator_profiles_never_reach_production(void)
@@ -524,6 +585,8 @@ int main(void)
     test_no_shipped_profile_can_command_production();
     test_only_huawei_is_in_scope_for_this_phase();
     test_phase_parking_only_ever_adds_a_refusal();
+    test_documented_profiles_may_read_and_never_write();
+    test_unverified_simulator_profile_may_not_read();
     test_simulator_profiles_never_reach_production();
     test_readback_is_mandatory_even_in_lab();
     test_documented_profile_is_lab_only_when_declared();
