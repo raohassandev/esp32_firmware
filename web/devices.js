@@ -354,21 +354,67 @@
         );
 
         const meta = element('div', 'device-meta-grid');
-        const commandPower = runtime.has_command ? utils.formatPower(runtime.commanded_power_kw) : 'Never commanded';
-        const commandPercent = runtime.has_command ? utils.formatPercent(runtime.commanded_percent) : 'Never commanded';
         const errorLabel = !runtime.has_command || Number(runtime.last_error) === 0
             ? 'None'
             : runtime.last_error_name || `Error ${runtime.last_error}`;
+        /*
+         * THE SETUP, which is true whether or not anything was ever commanded.
+         */
         meta.append(
             metaItem('Endpoint', `${utils.endpointLabel(inverter.endpoint)} · Unit ${inverter.endpoint?.unit_id ?? '--'}`),
             metaItem('Rated power', utils.formatPower(inverter.rated_kw)),
             metaItem('Limit register', `FC${command.function ?? '--'} · PDU ${command.limit_pdu_address ?? '--'}`),
-            metaItem('Allowed range', `${command.minimum_percent ?? '--'}–${command.maximum_percent ?? '--'}%`),
-            metaItem('Last command', runtime.has_command ? utils.formatAge(runtime.last_command_age_ms) : 'Never'),
-            metaItem('Commanded setpoint', `${commandPower} · ${commandPercent}`),
-            metaItem('Write results', `${runtime.write_successes ?? 0} OK · ${runtime.write_errors ?? 0} failed`),
-            metaItem('Last write error', errorLabel)
+            metaItem('Allowed range', `${command.minimum_percent ?? '--'}–${command.maximum_percent ?? '--'}%`)
         );
+        /*
+         * THE COMMAND HISTORY, and only when there is one.
+         *
+         * This card used to say that nothing had ever been commanded FIVE
+         * times: in the state line, in "Last command", twice inside "Commanded
+         * setpoint" (once for the power and once for the percent), and again in
+         * the output section below. A fact stated five times is not emphasis; it
+         * fills the card so that the one line carrying a real finding has to
+         * compete with four restatements of nothing.
+         */
+        if (runtime.has_command) {
+            meta.append(
+                metaItem('Last command', utils.formatAge(runtime.last_command_age_ms)),
+                metaItem('Commanded setpoint',
+                    `${utils.formatPower(runtime.commanded_power_kw)} · ${utils.formatPercent(runtime.commanded_percent)}`),
+                metaItem('Write results', `${runtime.write_successes ?? 0} OK · ${runtime.write_errors ?? 0} failed`),
+                metaItem('Last write error', errorLabel));
+        }
+
+        /*
+         * WHAT ONLY THE TELEMETRY READ KNOWS.
+         *
+         * These four were the entire justification for a second per-inverter
+         * table further down the page; everything else in that table -- state,
+         * measured power, last error -- this card already carried. They are here
+         * now and the table is gone.
+         */
+        /* Read from the telemetry module's published cache, not fetched again.
+         * These four live only on /api/inverter-telemetry, which that module
+         * already polls; a second request for data on the wire is the load that
+         * once made the operator dashboard unreachable. Absent cache means the
+         * read has not landed yet, which is not the same as a machine that
+         * answered with nothing -- so the fields say so. */
+        const live = (window.AutomatrixInverterTelemetryCache || {})[Number(inverter.index)] || null;
+        meta.append(
+            metaItem('Sample age', !live ? 'Not read yet'
+                : live.telemetry_valid === true ? utils.formatAge(live.telemetry_age_ms)
+                : 'No valid sample'),
+            metaItem('Identity', !live ? 'Not read yet'
+                : live.identity_supported === true
+                    ? (live.identity_verified === true ? 'Verified' : 'Mismatch / unavailable')
+                    : 'Not supported'),
+            metaItem('Readback', !live ? 'Not read yet'
+                : live.has_readback === true
+                    ? `${utils.formatPercent(live.readback_percent)} · ${utils.formatAge(live.readback_age_ms)}`
+                    : 'Unavailable'),
+            metaItem('Reads', !live ? 'Not read yet'
+                : `${live.read_successes ?? 0} ok · ${live.read_errors ?? 0} err`
+                  + ` · ${live.consecutive_read_failures ?? 0} consec`));
         card.append(top, reading, meta);
 
         /* And everything the machine measures, when the profile describes it.
@@ -405,6 +451,17 @@
             list.append(emptyState('Inverter runtime diagnostics are unavailable.', true));
             return;
         }
+        /*
+         * A ROLL-UP OF ONE IS THE ROW BELOW IT.
+         *
+         * "Configured 1 · Enabled 1 · Answering 0" above a single card that says
+         * the same thing is not a summary; it is the card again in smaller type.
+         * The roll-up earns its place when there are several machines and the
+         * question becomes "how many", which cannot be answered by reading down
+         * a list.
+         */
+        const summaryBar = byId('inverterTelemetrySummary');
+        if (summaryBar) summaryBar.hidden = data.inverters.length < 2;
         setText('inverterConfiguredCount', data.configured_count ?? data.inverters.length);
         setText('inverterEnabledCount', data.summary?.enabled ?? 0);
         setText('inverterOnlineCount', data.summary?.online ?? 0);
@@ -503,6 +560,13 @@
         byId('meterTelemetryRefresh')?.addEventListener('click', () => refresh(true));
         byId('inverterTelemetryRefresh')?.addEventListener('click', () => refresh(true));
         window.addEventListener('hashchange', () => refresh(false));
+        /* The telemetry read lands on its own schedule and carries four fields
+         * the cards show. Redrawing when it arrives is what stops those fields
+         * appearing a poll late; without it the card would show "Not read yet"
+         * for up to a full cycle after the data was already in the browser. */
+        window.addEventListener('amx-inverter-telemetry', () => {
+            if (currentRoute() === 'inverters') renderInverters();
+        });
         window.setInterval(() => refresh(false), 5000);
     }
 

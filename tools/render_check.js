@@ -901,38 +901,44 @@ check('a meter is attributed to the page whose heading is true', () => {
 /*
  * A SILENT INVERTER IS NOT AN INVERTER MEASURING ZERO.
  *
- * The live telemetry table printed "0.00 kW" beside its own "No valid sample",
- * and the runtime card further down the same page said "Unavailable" for the
- * same machine. One screen, two contradictory claims about one inverter, and
- * the zero is the one a person believes because it looks like a reading.
+ * The telemetry table this rule was first pinned on has been removed -- every
+ * column in it was already on the runtime card. The rule outlived it, so the
+ * check follows the rule rather than the markup: the output section is now the
+ * only place a per-inverter production figure is drawn, and it must not print a
+ * number for a machine that reported nothing.
  */
-check('the telemetry table never reports zero for a machine that said nothing', () => {
-    const source = fs.readFileSync(path.join(WEB, 'inverter-telemetry.js'), 'utf8')
-        .replace(/\\r\\n/g, '\\n');
-    const start = source.indexOf('    const COLUMNS = [');
-    const end = source.indexOf('    function stateLabel(item)');
-    assert.ok(start > 0 && end > start, 'the telemetry columns could not be located');
+check('a machine that reported nothing is never drawn as producing zero', () => {
     const sandbox = makeSandbox();
-    vm.runInContext(
-        'function formatPower(v) { const n = Number(v); '
-        + 'return Number.isFinite(n) ? n.toFixed(2) + " kW" : "--"; }'
-        + 'function formatAge(v) { return String(v) + " ms"; }'
-        + 'function formatPercent(v) { return String(v) + " %"; }'
-        + 'function stateLabel(i) { return i.online ? "Online" : "Offline"; }'
-        + source.slice(start, end)
-        + 'window.__columns = COLUMNS;',
-        sandbox, { filename: 'inverter-telemetry.js#columns' });
-    const columns = sandbox.window.__columns;
-    const power = columns.find((c) => c.label === 'Measured power');
-    assert.ok(power, 'the measured power column is gone');
+    load(sandbox, 'inverter-detail.js');
+    const render = sandbox.window.AutomatrixInverterDetail.render;
 
-    /* Nothing measured: an em dash, never a number. */
-    assert.strictEqual(power.get({ telemetry_valid: false, measured_power_kw: 0 }), '—');
-    /* And the payload carrying a stale figure must not leak it either. */
-    assert.strictEqual(power.get({ telemetry_valid: false, measured_power_kw: 41.5 }), '—');
-    /* A real measurement is still printed, including a true zero. */
-    assert.strictEqual(power.get({ telemetry_valid: true, measured_power_kw: 0 }), '0.00 kW');
-    assert.strictEqual(power.get({ telemetry_valid: true, measured_power_kw: 41.5 }), '41.50 kW');
+    /* Silent, and the controller has a command for it. The commanded figure is
+     * shown -- it is a decision, and it is real -- while the measurement is an
+     * em dash. */
+    const silent = render({
+        rated_kw: 60,
+        measured_power_kw: 0,
+        measurements: { available: false },
+        runtime: { commanded_percent: 45, commanded_power_kw: 27 },
+        command_preview: { available: true, percent: 30, share_kw: 18,
+            would_write: false, blocked_by: 'the inverter is not answering' }
+    });
+    assert.ok(silent, 'a silent inverter renders nothing at all');
+    const text = silent.textContent;
+    assert.ok(/has not reported|\\u2014/.test(text),
+        `the measurement is not marked absent: ${text.slice(0, 200)}`);
+    assert.ok(!/0\.00 kW/.test(text.split('Would send')[0]),
+        `a machine that said nothing is drawn as measuring zero: ${text.slice(0, 200)}`);
+
+    /* And a machine that DID report zero still prints zero: that is a
+     * measurement, and hiding it would be the opposite error. */
+    const reporting = render({
+        rated_kw: 60,
+        measured_power_kw: 0,
+        measurements: { available: true, active_power_kw: 0 },
+        runtime: {}
+    });
+    assert.ok(reporting, 'a reporting inverter renders nothing');
 });
 
 /* --------------------------------------------------------------------- run */

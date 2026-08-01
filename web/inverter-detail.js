@@ -146,7 +146,24 @@
     function commandVersusMeasured(inverter) {
         const runtime = inverter.runtime || {};
         const rated = finite(inverter.rated_kw) ? inverter.rated_kw : null;
-        const measuredKw = finite(inverter.measured_power_kw) ? inverter.measured_power_kw : null;
+        /*
+         * A NUMBER IS NOT A MEASUREMENT.
+         *
+         * measured_power_kw is finite whenever the field is present, and a
+         * machine that has never answered carries 0 there. Testing only
+         * finiteness therefore drew "0.00 kW · reported by the inverter" for an
+         * inverter that reported nothing -- a zero attributed to a silent
+         * machine, which is the one claim this section exists to prevent.
+         *
+         * The question is whether a measurement EXISTS, and the controller
+         * answers it: telemetry_valid on the runtime, or an available
+         * measurement block. Only then is the number a reading.
+         */
+        const reported = inverter.measurements?.available === true
+            || runtime.telemetry_valid === true
+            || inverter.telemetry_valid === true;
+        const measuredKw = reported && finite(inverter.measured_power_kw)
+            ? inverter.measured_power_kw : null;
         const commandedPercent = finite(runtime.commanded_percent) ? runtime.commanded_percent : null;
         const commandedKw = finite(runtime.commanded_power_kw) ? runtime.commanded_power_kw : null;
 
