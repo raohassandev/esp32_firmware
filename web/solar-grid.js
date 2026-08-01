@@ -258,6 +258,22 @@
         /* Sits with the ramp fields, not in a tooltip: an engineer setting the
          * rate must see what will actually be applied while they are setting
          * it. */
+        /* THE BOOST, NOW COMMISSIONED.
+         *
+         * It was two constants in firmware, so the rate on this form was not the
+         * rate in force and nothing said so. The threshold belongs to the plant,
+         * not to the product: the fraction that is comfortable on a 500 kVA set
+         * is not the one for a 50 kVA set, which the owner has recorded
+         * destabilises and de-synchronises the inverters. */
+        const urgent = node('div', 'field-grid');
+        urgent.append(
+            field('Boost below generator loading (%)',
+                numberInput('generatorUrgentFraction', 0, '1')),
+            field('Boost the rate by (x)',
+                numberInput('generatorUrgentMultiplier', 0, '0.1'))
+        );
+        profiles.append(node('h4', '', 'Urgent ramp'), urgent);
+
         const urgentNote = node('p', 'metric-foot');
         urgentNote.id = 'generatorRampUrgentNote';
         profiles.append(urgentNote);
@@ -338,14 +354,18 @@
             target.textContent = '';
             return;
         }
-        const percent = Math.round(Number(urgent.below_loading_fraction) * 100);
+        const percent = Number(byId('generatorUrgentFraction')?.value);
         const down = Number(byId('generatorRampDown')?.value);
-        const applied = Number.isFinite(down) ? (down * Number(urgent.down_rate_multiplier)) : null;
+        const factor = Number(byId('generatorUrgentMultiplier')?.value);
+        const applied = Number.isFinite(down) && Number.isFinite(factor) ? (down * factor) : null;
+        if (!Number.isFinite(percent) || percent <= 0 || !Number.isFinite(factor) || factor <= 1) {
+            target.textContent = 'No boost: the commissioned rate is the rate in force at all loadings.';
+            return;
+        }
         target.textContent =
             `While a generator carries the plant and its loading is below ${percent}% of the `
-            + `online rating, the DOWN rate is multiplied by ${urgent.down_rate_multiplier}`
-            + (applied !== null ? ` — ${down} %/s becomes ${applied} %/s.` : '.')
-            + (urgent.configurable === false ? ' This is fixed in firmware.' : '');
+            + `online rating, the DOWN rate is multiplied by ${factor}`
+            + (applied !== null ? ` — ${down} %/s becomes ${Number(applied.toFixed(2))} %/s.` : '.');
     }
 
     function renderRamps(control) {
@@ -357,6 +377,20 @@
                 ? Number(values.up_pct_s) : (generator ? 5 : 100);
             byId(`${profile.prefix}Down`).value = Number.isFinite(Number(values.down_pct_s))
                 ? Number(values.down_pct_s) : (generator ? 20 : 100);
+        });
+        const urgentCfg = control?.generator_urgent_ramp || {};
+        const fractionField = byId('generatorUrgentFraction');
+        const multiplierField = byId('generatorUrgentMultiplier');
+        if (fractionField) {
+            fractionField.value = Number.isFinite(Number(urgentCfg.below_loading_fraction))
+                ? Math.round(Number(urgentCfg.below_loading_fraction) * 100) : 25;
+        }
+        if (multiplierField) {
+            multiplierField.value = Number.isFinite(Number(urgentCfg.down_rate_multiplier))
+                ? Number(urgentCfg.down_rate_multiplier) : 2;
+        }
+        ['generatorUrgentFraction', 'generatorUrgentMultiplier'].forEach((id) => {
+            byId(id)?.addEventListener('input', () => renderUrgentRampNote(state.lastControl));
         });
         rampAdvisory();
         renderUrgentRampNote(control);
@@ -380,6 +414,20 @@
             }
             control[profile.key] = { enabled, up_pct_s: up, down_pct_s: down };
         }
+        /* Percent on screen, fraction on the wire: an engineer thinks in "below
+         * 25%", and the control loop multiplies by a fraction. */
+        const fraction = Number(byId('generatorUrgentFraction')?.value);
+        const multiplier = Number(byId('generatorUrgentMultiplier')?.value);
+        if (!Number.isFinite(fraction) || fraction < 0 || fraction >= 100) {
+            throw new Error('Urgent ramp: the loading threshold must be between 0 and 100%. Use 0 to disable the boost.');
+        }
+        if (!Number.isFinite(multiplier) || (multiplier !== 0 && (multiplier < 1 || multiplier > 10))) {
+            throw new Error('Urgent ramp: the multiplier must be between 1 and 10, or 0 to disable the boost. Below 1 would shed PV more slowly on an under-loaded engine, which is backwards.');
+        }
+        control.generator_urgent_ramp = {
+            below_loading_fraction: fraction / 100,
+            down_rate_multiplier: multiplier
+        };
         return { control };
     }
 

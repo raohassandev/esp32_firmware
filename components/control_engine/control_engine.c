@@ -834,7 +834,9 @@ static void control_task(void *argument)
                                    interval_seconds) *
                 generator_urgent_ramp_multiplier(generator_carrying, fleet_limit.known,
                                                  fabsf(measured_grid_kw),
-                                                 fleet_limit.online_rated_kw),
+                                                 fleet_limit.online_rated_kw,
+                                                 s_config.urgent_loading_fraction,
+                                                 s_config.urgent_ramp_multiplier),
             .integral_kw = integral_kw,
             .generator_safe_limit_kw = generator_safe_limit_kw,
         };

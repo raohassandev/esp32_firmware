@@ -252,6 +252,35 @@ typedef struct {
     uint32_t wifi_provision_id;
 } legacy_app_config_v7_t;
 
+/* Schema 8, frozen. control_config_t gained the urgent-ramp fields, so the live
+ * struct can no longer describe a schema-8 blob. */
+typedef struct {
+    bool enabled;
+    float grid_import_target_kw;
+    float deadband_kw;
+    float kp;
+    float ki;
+    float ramp_up_percent_per_second;
+    float ramp_down_percent_per_second;
+    uint32_t interval_ms;
+    uint32_t meter_stale_timeout_ms;
+    ramp_profile_t grid_ramp;
+    ramp_profile_t generator_ramp;
+} legacy_control_config_v8_t;
+
+typedef struct {
+    uint32_t magic;
+    uint16_t version;
+    char device_name[32];
+    app_wifi_config_t wifi;
+    uint8_t meter_count;
+    meter_config_t meters[APP_MAX_METERS];
+    uint8_t inverter_count;
+    inverter_config_t inverters[APP_MAX_INVERTERS];
+    legacy_control_config_v8_t control;
+    uint32_t wifi_provision_id;
+} legacy_app_config_v8_t;
+
 /* The missing link in the chain, found by tests/phase_scope_source_contract.py
  * once it started checking every adjacent pair rather than only the newest.
  * Every other pair was asserted; schemas 1 and 2 never were. If they were the
@@ -287,8 +316,16 @@ _Static_assert(sizeof(legacy_app_config_v7_t) > sizeof(legacy_app_config_v6_t),
  * loads as schema 8 with every inverter acquiring a fail-safe timeout made of
  * padding bytes -- which decides whether the controller believes the machine
  * will protect itself when the link drops. */
-_Static_assert(sizeof(app_config_t) > sizeof(legacy_app_config_v7_t),
+_Static_assert(sizeof(legacy_app_config_v8_t) > sizeof(legacy_app_config_v7_t),
                "schema 8 must stay distinguishable from schema 7 by blob size");
+/* THE ONE THAT CATCHES A NARROWED urgent_loading_fraction or
+ * urgent_ramp_multiplier: a narrower field is absorbed by tail padding,
+ * sizeof(app_config_t) does not change, and a commissioned schema-8 blob then
+ * loads as schema 9 with every plant acquiring an urgent-ramp threshold and
+ * multiplier made of padding bytes -- which decides how fast PV is pulled off an
+ * under-loaded engine. */
+_Static_assert(sizeof(app_config_t) > sizeof(legacy_app_config_v8_t),
+               "schema 9 must stay distinguishable from schema 8 by blob size");
 
 static void defaults(app_config_t *c)
 {
@@ -434,6 +471,8 @@ static void defaults(app_config_t *c)
      * poll interval lets control keep acting on an old sample. Shorter is the
      * safe direction - it fails closed sooner. */
     c->control.meter_stale_timeout_ms = 1000;
+    c->control.urgent_loading_fraction = GENERATOR_URGENT_LOADING_FRACTION;
+    c->control.urgent_ramp_multiplier = GENERATOR_URGENT_RAMP_MULTIPLIER;
     c->wifi_provision_id = CONFIG_PVDG_WIFI_PROVISION_ID;
 }
 
@@ -639,7 +678,28 @@ static bool control_valid(const control_config_t *c)
            c->deadband_kw >= 0.0f && c->kp >= 0.0f && c->ki >= 0.0f &&
            c->ramp_up_percent_per_second >= 0.0f && c->ramp_down_percent_per_second >= 0.0f &&
            c->interval_ms >= 50U && c->meter_stale_timeout_ms >= 100U &&
-           ramp_profile_valid(&c->grid_ramp) && ramp_profile_valid(&c->generator_ramp);
+           ramp_profile_valid(&c->grid_ramp) && ramp_profile_valid(&c->generator_ramp) &&
+           /*
+            * THE URGENT RAMP.
+            *
+            * Zero in either field disables the boost, which is the fail-safe
+            * reading: a plant that has not commissioned it gets the plain
+            * commissioned rate and no surprise multiplier.
+            *
+            * The fraction is bounded below 1.0 because a threshold at or above
+            * the whole rating would mean the boost is ALWAYS in force, and the
+            * commissioned ramp rate would then never be the rate in force --
+            * which is the confusion this field exists to remove.
+            *
+            * The multiplier is bounded at or above 1.0 because a value below
+            * one would make an under-loaded engine shed PV more SLOWLY than
+            * normal, which is backwards, and capped at 10 because beyond that
+            * the ramp is not a ramp.
+            */
+           isfinite(c->urgent_loading_fraction) && isfinite(c->urgent_ramp_multiplier) &&
+           c->urgent_loading_fraction >= 0.0f && c->urgent_loading_fraction < 1.0f &&
+           (c->urgent_ramp_multiplier == 0.0f ||
+            (c->urgent_ramp_multiplier >= 1.0f && c->urgent_ramp_multiplier <= 10.0f));
 }
 
 static bool valid(const app_config_t *c)
@@ -894,6 +954,63 @@ esp_err_t config_manager_init(void)
             have_valid_config = err == ESP_OK && valid(loaded);
             stored_matches = have_valid_config;
             if (!have_valid_config) ESP_LOGW(TAG, "Stored configuration rejected by validation");
+        } else if (err == ESP_OK && stored_size == sizeof(legacy_app_config_v8_t)) {
+            /* Schema 8 to 9: the urgent generator ramp stops being a firmware
+             * constant and becomes commissioned.
+             *
+             * It migrates to the SAME values the constants held, so an upgraded
+             * plant behaves exactly as it did before -- the fields become
+             * editable without anything changing underneath a site that has not
+             * asked for a change. */
+            legacy_app_config_v8_t *legacy = malloc(sizeof(*legacy));
+            if (!legacy) {
+                nvs_close(h);
+                free(loaded);
+                return ESP_ERR_NO_MEM;
+            }
+            size_t legacy_size = sizeof(*legacy);
+            err = nvs_get_blob(h, KEY, legacy, &legacy_size);
+            if (err == ESP_OK) {
+                memset(loaded, 0, sizeof(*loaded));
+                loaded->magic = legacy->magic;
+                loaded->version = APP_CONFIG_VERSION;
+                memcpy(loaded->device_name, legacy->device_name, sizeof(loaded->device_name));
+                loaded->wifi = legacy->wifi;
+                loaded->meter_count = legacy->meter_count;
+                memcpy(loaded->meters, legacy->meters, sizeof(loaded->meters));
+                loaded->inverter_count = legacy->inverter_count;
+                memcpy(loaded->inverters, legacy->inverters, sizeof(loaded->inverters));
+                /* NOT carried across. An upgrade must not arm a plant: the
+                 * urgent-ramp fields this migration adds are control settings,
+                 * and this product's own rule is that changing a control setting
+                 * forces automatic control off until somebody arms it again
+                 * deliberately. tests/control_arm_source_contract.py holds that
+                 * arming happens in exactly one place, and this is not it. */
+                loaded->control.enabled = false;
+                loaded->control.grid_import_target_kw = legacy->control.grid_import_target_kw;
+                loaded->control.deadband_kw = legacy->control.deadband_kw;
+                loaded->control.kp = legacy->control.kp;
+                loaded->control.ki = legacy->control.ki;
+                loaded->control.ramp_up_percent_per_second = legacy->control.ramp_up_percent_per_second;
+                loaded->control.ramp_down_percent_per_second = legacy->control.ramp_down_percent_per_second;
+                loaded->control.interval_ms = legacy->control.interval_ms;
+                loaded->control.meter_stale_timeout_ms = legacy->control.meter_stale_timeout_ms;
+                loaded->control.grid_ramp = legacy->control.grid_ramp;
+                loaded->control.generator_ramp = legacy->control.generator_ramp;
+                loaded->control.urgent_loading_fraction = GENERATOR_URGENT_LOADING_FRACTION;
+                loaded->control.urgent_ramp_multiplier = GENERATOR_URGENT_RAMP_MULTIPLIER;
+                loaded->wifi_provision_id = legacy->wifi_provision_id;
+                have_valid_config = valid(loaded);
+                if (have_valid_config) {
+                    ESP_LOGW(TAG, "migrated schema 8 configuration to schema %u; the urgent "
+                                  "generator ramp is now commissioned and keeps its previous "
+                                  "values (%.0f%% loading, x%.1f)",
+                             (unsigned)APP_CONFIG_VERSION,
+                             (double)(GENERATOR_URGENT_LOADING_FRACTION * 100.0f),
+                             (double)GENERATOR_URGENT_RAMP_MULTIPLIER);
+                }
+            }
+            free(legacy);
         } else if (err == ESP_OK && stored_size == sizeof(legacy_app_config_v7_t)) {
             /* Schema 7 to 8: the only new fact is
              * inverter_config_t.comms_failsafe_ms -- how long the MACHINE waits
@@ -1375,11 +1492,11 @@ esp_err_t config_manager_export_json(char **out)
      */
     cJSON *urgent = cJSON_AddObjectToObject(cc, "generator_urgent_ramp");
     cJSON_AddNumberToObject(urgent, "below_loading_fraction",
-                            GENERATOR_URGENT_LOADING_FRACTION);
+                            c->control.urgent_loading_fraction);
     cJSON_AddNumberToObject(urgent, "down_rate_multiplier",
-                            GENERATOR_URGENT_RAMP_MULTIPLIER);
+                            c->control.urgent_ramp_multiplier);
     cJSON_AddBoolToObject(urgent, "applies_to_down_only", true);
-    cJSON_AddBoolToObject(urgent, "configurable", false);
+    cJSON_AddBoolToObject(urgent, "configurable", true);
 
     cJSON_AddNumberToObject(cc, "interval_ms", c->control.interval_ms);
     cJSON_AddNumberToObject(cc, "meter_stale_timeout_ms", c->control.meter_stale_timeout_ms);
@@ -1506,6 +1623,22 @@ esp_err_t config_manager_import_json(const char *text)
             !read_float(cc, "ki", &c->control.ki)) err = ESP_ERR_INVALID_ARG;
         cJSON *x = cJSON_GetObjectItemCaseSensitive(cc, "interval_ms");
         if (cJSON_IsNumber(x)) c->control.interval_ms = (uint32_t)x->valuedouble;
+
+        /* The urgent generator ramp. Optional: an import that does not mention
+         * it keeps whatever is commissioned, so a partial config write cannot
+         * silently disable a protection nobody was editing. valid() bounds the
+         * range; this only reads. */
+        cJSON *urgent = cJSON_GetObjectItemCaseSensitive(cc, "generator_urgent_ramp");
+        if (cJSON_IsObject(urgent)) {
+            cJSON *fraction = cJSON_GetObjectItemCaseSensitive(urgent, "below_loading_fraction");
+            if (cJSON_IsNumber(fraction)) {
+                c->control.urgent_loading_fraction = (float)fraction->valuedouble;
+            }
+            cJSON *multiplier = cJSON_GetObjectItemCaseSensitive(urgent, "down_rate_multiplier");
+            if (cJSON_IsNumber(multiplier)) {
+                c->control.urgent_ramp_multiplier = (float)multiplier->valuedouble;
+            }
+        }
 
         /* Ramp behaviour is commissioning data: which sources are rate-limited,
          * and how fast in each direction. valid() rejects an enabled profile

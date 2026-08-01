@@ -5,7 +5,7 @@
 #include "modbus_types.h"
 
 #define APP_CONFIG_MAGIC 0x50564447u
-#define APP_CONFIG_VERSION 8u
+#define APP_CONFIG_VERSION 9u
 /* Core reserved for deterministic work: the control loop and the meter
  * acquisition tasks are pinned here, leaving the other core for the Wi-Fi stack,
  * lwIP and the HTTP server.
@@ -65,6 +65,9 @@ typedef enum {
  */
 #define INVERTER_COMMS_FAIL_GRACE_MS (2U * 60U * 1000U)
 
+/* Defaults. Commissioned per plant in control_config_t; these are what a
+ * fresh controller starts from and what every earlier schema migrates to,
+ * so an upgrade never changes how a commissioned plant behaves. */
 #define GENERATOR_URGENT_LOADING_FRACTION 0.25f
 #define GENERATOR_URGENT_RAMP_MULTIPLIER 2.0f
 
@@ -320,6 +323,29 @@ typedef struct {
      * that seed generator_ramp on upgrade. */
     ramp_profile_t grid_ramp;
     ramp_profile_t generator_ramp;
+    /*
+     * THE URGENT GENERATOR RAMP, appended in schema 9.
+     *
+     * While a generator carries the plant and its loading falls below
+     * urgent_loading_fraction of the online rating, the PV ramp rate is
+     * multiplied by urgent_ramp_multiplier. An under-loaded engine needs PV
+     * moved off it faster than normal.
+     *
+     * These were fixed constants -- 0.25 and 2.0 -- so an engineer commissioned
+     * a rate of 5 %/s and the plant sometimes ran at 10 %/s with nothing on any
+     * screen saying so. The number on the form was not the number in force.
+     *
+     * COMMISSIONED, because the right threshold depends on the engine: the same
+     * fraction that is comfortable on a 500 kVA set is not on a 50 kVA one, and
+     * the owner has recorded that a small set destabilises and the inverters
+     * de-synchronise.
+     *
+     * Zero in either field disables the boost, which is the fail-safe reading:
+     * a plant that has not commissioned it gets the plain commissioned rate and
+     * no surprise multiplier.
+     */
+    float urgent_loading_fraction;
+    float urgent_ramp_multiplier;
 } control_config_t;
 
 typedef struct {

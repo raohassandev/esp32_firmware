@@ -22,17 +22,23 @@
 
 #include "generator_fleet_limit.h"
 
+/* The threshold and multiplier are commissioned per plant now, so they travel
+ * with the call. These are the firmware defaults, which is what every existing
+ * plant migrates to -- the behaviour these cases describe is unchanged. */
+#define FRACTION GENERATOR_URGENT_LOADING_FRACTION
+#define MULTIPLIER GENERATOR_URGENT_RAMP_MULTIPLIER
+
 #define RATED_KW 500.0f
 #define URGENT_BELOW_KW (RATED_KW * GENERATOR_URGENT_LOADING_FRACTION)   /* 125 kW */
 
 static void test_boost_applies_below_the_threshold(void)
 {
-    assert(generator_urgent_ramp_multiplier(true, true, 0.0f, RATED_KW) ==
+    assert(generator_urgent_ramp_multiplier(true, true, 0.0f, RATED_KW, FRACTION, MULTIPLIER) ==
            GENERATOR_URGENT_RAMP_MULTIPLIER);
-    assert(generator_urgent_ramp_multiplier(true, true, 60.0f, RATED_KW) ==
+    assert(generator_urgent_ramp_multiplier(true, true, 60.0f, RATED_KW, FRACTION, MULTIPLIER) ==
            GENERATOR_URGENT_RAMP_MULTIPLIER);
     /* One kW below the threshold is still urgent. */
-    assert(generator_urgent_ramp_multiplier(true, true, URGENT_BELOW_KW - 1.0f, RATED_KW) ==
+    assert(generator_urgent_ramp_multiplier(true, true, URGENT_BELOW_KW - 1.0f, RATED_KW, FRACTION, MULTIPLIER) ==
            GENERATOR_URGENT_RAMP_MULTIPLIER);
 }
 
@@ -40,19 +46,19 @@ static void test_normal_rate_at_and_above_the_threshold(void)
 {
     /* AT the threshold the boost is already off: 25 percent is the point the
      * plant was hurrying towards, so arriving there ends the hurry. */
-    assert(generator_urgent_ramp_multiplier(true, true, URGENT_BELOW_KW, RATED_KW) == 1.0f);
-    assert(generator_urgent_ramp_multiplier(true, true, URGENT_BELOW_KW + 1.0f, RATED_KW) == 1.0f);
+    assert(generator_urgent_ramp_multiplier(true, true, URGENT_BELOW_KW, RATED_KW, FRACTION, MULTIPLIER) == 1.0f);
+    assert(generator_urgent_ramp_multiplier(true, true, URGENT_BELOW_KW + 1.0f, RATED_KW, FRACTION, MULTIPLIER) == 1.0f);
     /* Between the urgency threshold and the 30 percent minimum-loading target
      * the commissioned rate is enough. */
-    assert(generator_urgent_ramp_multiplier(true, true, RATED_KW * 0.28f, RATED_KW) == 1.0f);
-    assert(generator_urgent_ramp_multiplier(true, true, RATED_KW * 0.90f, RATED_KW) == 1.0f);
+    assert(generator_urgent_ramp_multiplier(true, true, RATED_KW * 0.28f, RATED_KW, FRACTION, MULTIPLIER) == 1.0f);
+    assert(generator_urgent_ramp_multiplier(true, true, RATED_KW * 0.90f, RATED_KW, FRACTION, MULTIPLIER) == 1.0f);
 }
 
 /* On the grid there is no minimum loading to protect, so there is nothing to
  * hurry for. */
 static void test_no_boost_when_the_grid_is_carrying(void)
 {
-    assert(generator_urgent_ramp_multiplier(false, true, 0.0f, RATED_KW) == 1.0f);
+    assert(generator_urgent_ramp_multiplier(false, true, 0.0f, RATED_KW, FRACTION, MULTIPLIER) == 1.0f);
 }
 
 /*
@@ -62,20 +68,20 @@ static void test_no_boost_when_the_grid_is_carrying(void)
  */
 static void test_untrusted_inputs_fall_back_to_the_commissioned_rate(void)
 {
-    assert(generator_urgent_ramp_multiplier(true, false, 0.0f, RATED_KW) == 1.0f);
-    assert(generator_urgent_ramp_multiplier(true, true, 0.0f, 0.0f) == 1.0f);
-    assert(generator_urgent_ramp_multiplier(true, true, 0.0f, -1.0f) == 1.0f);
-    assert(generator_urgent_ramp_multiplier(true, true, NAN, RATED_KW) == 1.0f);
-    assert(generator_urgent_ramp_multiplier(true, true, INFINITY, RATED_KW) == 1.0f);
-    assert(generator_urgent_ramp_multiplier(true, true, 0.0f, NAN) == 1.0f);
-    assert(generator_urgent_ramp_multiplier(true, true, -5.0f, RATED_KW) == 1.0f);
+    assert(generator_urgent_ramp_multiplier(true, false, 0.0f, RATED_KW, FRACTION, MULTIPLIER) == 1.0f);
+    assert(generator_urgent_ramp_multiplier(true, true, 0.0f, 0.0f, FRACTION, MULTIPLIER) == 1.0f);
+    assert(generator_urgent_ramp_multiplier(true, true, 0.0f, -1.0f, FRACTION, MULTIPLIER) == 1.0f);
+    assert(generator_urgent_ramp_multiplier(true, true, NAN, RATED_KW, FRACTION, MULTIPLIER) == 1.0f);
+    assert(generator_urgent_ramp_multiplier(true, true, INFINITY, RATED_KW, FRACTION, MULTIPLIER) == 1.0f);
+    assert(generator_urgent_ramp_multiplier(true, true, 0.0f, NAN, FRACTION, MULTIPLIER) == 1.0f);
+    assert(generator_urgent_ramp_multiplier(true, true, -5.0f, RATED_KW, FRACTION, MULTIPLIER) == 1.0f);
 }
 
 /* The boost scales with the machine, not with a fixed kW figure. */
 static void test_threshold_follows_the_rating(void)
 {
-    assert(generator_urgent_ramp_multiplier(true, true, 30.0f, 100.0f) == 1.0f);
-    assert(generator_urgent_ramp_multiplier(true, true, 30.0f, 200.0f) ==
+    assert(generator_urgent_ramp_multiplier(true, true, 30.0f, 100.0f, FRACTION, MULTIPLIER) == 1.0f);
+    assert(generator_urgent_ramp_multiplier(true, true, 30.0f, 200.0f, FRACTION, MULTIPLIER) ==
            GENERATOR_URGENT_RAMP_MULTIPLIER);
 }
 
@@ -84,7 +90,7 @@ static void test_threshold_follows_the_rating(void)
 static void test_multiplier_cannot_create_movement_from_zero(void)
 {
     const float stopped = 0.0f;
-    assert(stopped * generator_urgent_ramp_multiplier(true, true, 0.0f, RATED_KW) == 0.0f);
+    assert(stopped * generator_urgent_ramp_multiplier(true, true, 0.0f, RATED_KW, FRACTION, MULTIPLIER) == 0.0f);
 }
 
 int main(void)

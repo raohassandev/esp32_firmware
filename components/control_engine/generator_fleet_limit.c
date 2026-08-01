@@ -459,11 +459,16 @@ bool generator_sharing_mode_supported(uint8_t mode)
 }
 
 float generator_urgent_ramp_multiplier(bool generator_carrying, bool fleet_known,
-                                       float generator_load_kw, float online_rated_kw)
+                                       float generator_load_kw, float online_rated_kw,
+                                       float loading_fraction, float multiplier)
 {
     if (!generator_carrying || !fleet_known) return 1.0f;
     if (!isfinite(generator_load_kw) || generator_load_kw < 0.0f) return 1.0f;
     if (!isfinite(online_rated_kw) || online_rated_kw <= 0.0f) return 1.0f;
-    const float urgent_below_kw = online_rated_kw * GENERATOR_URGENT_LOADING_FRACTION;
-    return generator_load_kw < urgent_below_kw ? GENERATOR_URGENT_RAMP_MULTIPLIER : 1.0f;
+    /* Commissioned per plant. Zero in either disables the boost, which is the
+     * fail-safe reading: the plain commissioned rate, no surprise multiplier. */
+    if (!isfinite(loading_fraction) || loading_fraction <= 0.0f) return 1.0f;
+    if (!isfinite(multiplier) || multiplier <= 1.0f) return 1.0f;
+    const float urgent_below_kw = online_rated_kw * loading_fraction;
+    return generator_load_kw < urgent_below_kw ? multiplier : 1.0f;
 }

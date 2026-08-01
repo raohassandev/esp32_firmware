@@ -391,7 +391,8 @@ float generator_base_load_tolerance_band_kw(float tolerance_kw,
  * inferred.
  */
 float generator_urgent_ramp_multiplier(bool generator_carrying, bool fleet_known,
-                                       float generator_load_kw, float online_rated_kw);
+                                       float generator_load_kw, float online_rated_kw,
+                                       float loading_fraction, float multiplier);
 
 #ifdef __cplusplus
 }
