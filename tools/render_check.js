@@ -189,6 +189,13 @@ const METER = {
 
 const INVERTER = {
     rated_kw: 60, measured_power_kw: 81.4, measured_age_ms: 900,
+    /* 45% on a x10 register is the word 450. The check below asserts the WORD,
+     * because that is the only place a wrong scale is visible before it is
+     * sent -- the readback would echo a wrong value, decode it with the same
+     * wrong scale, agree with the request and report CONFIRMED. */
+    command_preview: { available: true, share_kw: 27, percent: 45, register: 40125,
+        function: 6, raw_units_per_percent: 10, words: [450],
+        would_write: false, blocked_by: 'this profile is not permitted to write' },
     runtime: { commanded_percent: 45, commanded_power_kw: 27.0 },
     measurements: {
         available: true, age_ms: 880,
@@ -683,6 +690,24 @@ check('reverse power is not called export', () => {
         'power flowing back into a generator is reported as export');
     assert.ok(!text.includes('exporting'),
         'the generator vocabulary is not used for a negative generator reading');
+});
+
+check('the register word that would be sent is shown, not just the percent', () => {
+    const sandbox = makeSandbox();
+    load(sandbox, 'inverter-detail.js');
+    const text = sandbox.window.AutomatrixInverterDetail.render(INVERTER).textContent;
+
+    assert.ok(text.includes('450'),
+        'the register WORD is not shown. A wrong scale is the one error nothing '
+        + 'downstream catches: 45 on a x10 register commands 4.5%, and the '
+        + 'readback echoes it, decodes it the same wrong way and reports CONFIRMED.');
+    assert.ok(text.includes('40125'), 'the register address is not shown');
+    /* And it must say it will NOT be sent, or an engineer reads a preview as a
+     * commanded state. */
+    assert.ok(text.includes('Not written'),
+        'a preview that will not be written must say so');
+    assert.ok(text.includes('not permitted to write'),
+        'the first gate that stops it is not stated');
 });
 
 /* --------------------------------------------------------------------- run */

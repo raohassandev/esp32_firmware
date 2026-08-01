@@ -209,3 +209,16 @@
 }
 
 .amx-counter.is-attention .amx-counter-value { color: var(--warning, var(--orange)); }
+
+/* A COMPUTATION, not a measurement and not a commanded state.
+ *
+ * "Would send" is what the controller has calculated for a register it may not
+ * be allowed to write. Three different kinds of claim -- measured, commanded,
+ * computed -- must not share one style, or the page has three things that look
+ * equally like facts about the plant. */
+.amx-counter.is-preview {
+    border-style: dotted;
+    background: transparent;
+}
+
+.amx-counter.is-preview .amx-counter-value { color: var(--muted); }

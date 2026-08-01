@@ -248,6 +248,12 @@ static esp_err_t inverters_get(httpd_req_t *request)
     float configured_rated_kw = 0.0f;
     float enabled_rated_kw = 0.0f;
 
+    /* The fleet target the control loop last applied. Read once for the whole
+     * response so every inverter's preview describes the same instant. */
+    control_status_t control_status = {0};
+    control_engine_get_status(&control_status);
+    const float control_target_kw = control_status.applied_pv_kw;
+
     cJSON_AddNumberToObject(root, "generated_ms", current_ms);
     cJSON_AddNumberToObject(root, "configured_count", config->inverter_count);
     /* Was hardcoded false while the runtime already carried a measured value,
@@ -322,6 +328,47 @@ static esp_err_t inverters_get(httpd_req_t *request)
         cJSON_AddStringToObject(runtime, "last_error_name", esp_err_to_name(data.last_error));
         cJSON_AddStringToObject(runtime, "state", health.state);
         inverter_json_add_measurements(item, &data, current_ms);
+
+        /*
+         * WHAT WOULD BE WRITTEN, WHETHER OR NOT IT MAY BE.
+         *
+         * A profile stays at LAB_ONLY until a readback on real hardware confirms
+         * the register, the scale and the settle time -- and until now an
+         * engineer had no way to see what the controller would send, so there was
+         * nothing to check against the manual before enabling anything.
+         *
+         * The scale is the error nothing downstream can catch. 45% on a x10
+         * register is the word 450; sending 45 commands 4.5%, and the readback
+         * echoes 45, decodes with the same wrong scale, agrees with the request
+         * and reports the command CONFIRMED. Only the word itself shows that,
+         * and only before it is sent.
+         *
+         * Computed through the same encoder the write path uses. Nothing is
+         * written and no Modbus transaction happens here.
+         */
+        inverter_command_preview_t preview = {0};
+        if (inverter_manager_preview_command(index, control_target_kw, &preview)) {
+            cJSON *would = cJSON_AddObjectToObject(item, "command_preview");
+            cJSON_AddBoolToObject(would, "available", preview.available);
+            if (preview.available) {
+                cJSON_AddNumberToObject(would, "share_kw", preview.share_kw);
+                cJSON_AddNumberToObject(would, "percent", preview.percent);
+                cJSON_AddNumberToObject(would, "register", preview.address);
+                cJSON_AddNumberToObject(would, "function", preview.function);
+                cJSON_AddNumberToObject(would, "raw_units_per_percent",
+                                        preview.raw_units_per_percent);
+                cJSON *words = cJSON_AddArrayToObject(would, "words");
+                for (uint8_t w = 0; w < preview.word_count; ++w) {
+                    cJSON_AddItemToArray(words, cJSON_CreateNumber(preview.words[w]));
+                }
+            }
+            cJSON_AddBoolToObject(would, "would_write", preview.would_write);
+            if (preview.blocked_by) {
+                cJSON_AddStringToObject(would, "blocked_by", preview.blocked_by);
+            } else {
+                cJSON_AddNullToObject(would, "blocked_by");
+            }
+        }
         cJSON_AddItemToArray(inverters, item);
     }
 

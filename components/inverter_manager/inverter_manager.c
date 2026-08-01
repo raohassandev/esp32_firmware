@@ -158,6 +158,78 @@ static uint32_t now_ms(void)
  * acquisition task owns the safe-zero that an unconfirmed write demands. */
 static esp_err_t encode_command(const inverter_profile_t *profile, float percent,
                                 uint16_t *words, uint8_t *word_count);
+/*
+ * The command this inverter would receive, computed and not sent.
+ *
+ * Shares encode_command() with the write path on purpose: a preview computed by
+ * separate code would be a second implementation of the scaling rule, and the
+ * one thing it must never do is disagree with what would actually go on the
+ * wire.
+ */
+bool inverter_manager_preview_command(uint8_t index, float fleet_target_kw,
+                                      inverter_command_preview_t *out)
+{
+    if (!out || index >= s_inverter_count) return false;
+    memset(out, 0, sizeof(*out));
+
+    inverter_runtime_t *runtime = &s_inverters[index];
+    portENTER_CRITICAL(&runtime->lock);
+    const inverter_profile_t *profile = runtime->profile;
+    const float rated = runtime->config.rated_power_kw;
+    const bool enabled = runtime->config.enabled;
+    const bool allowed = runtime->write_allowed;
+    const bool online = runtime->data.online && runtime->data.telemetry_valid &&
+                        !runtime->data.telemetry_stale;
+    const bool prerequisite = runtime->data.prerequisite_satisfied;
+    const bool confirmation_fault = runtime->data.confirmation_fault;
+    portEXIT_CRITICAL(&runtime->lock);
+
+    if (!profile || !profile->has_power_limit || !isfinite(rated) || rated <= 0.0f) {
+        out->blocked_by = "this profile describes no command register";
+        return true;
+    }
+
+    /* The same share the planner would give it: proportional to rated power
+     * across the commandable fleet. Falls back to this machine's own rating when
+     * the fleet total is unavailable, so a preview is still possible before
+     * anything is eligible -- which is exactly when an engineer wants it. */
+    const float fleet_kw = inverter_manager_get_total_rated_kw();
+    const float basis = (isfinite(fleet_kw) && fleet_kw > 0.0f) ? fleet_kw : rated;
+    float share_kw = isfinite(fleet_target_kw) && fleet_target_kw > 0.0f
+        ? fleet_target_kw * rated / basis : 0.0f;
+    float percent = share_kw <= 0.0f ? 0.0f : 100.0f * share_kw / rated;
+    if (percent > 0.0f && percent < profile->minimum_percent) percent = 0.0f;
+    if (percent > profile->maximum_percent) percent = profile->maximum_percent;
+
+    uint16_t words[2] = {0};
+    uint8_t word_count = 0;
+    if (encode_command(profile, percent, words, &word_count) != ESP_OK) {
+        out->blocked_by = "the command could not be encoded from this profile";
+        return true;
+    }
+
+    out->available = true;
+    out->share_kw = share_kw;
+    out->percent = percent;
+    out->address = profile->power_limit_address;
+    out->function = profile->power_limit_function;
+    out->word_count = word_count;
+    out->words[0] = words[0];
+    out->words[1] = word_count > 1U ? words[1] : 0U;
+    out->raw_units_per_percent = profile->raw_units_per_percent;
+
+    /* Why it would not go through, in the order the gates are actually applied,
+     * so the first reason reported is the first one an engineer must fix. */
+    out->blocked_by = !enabled ? "this inverter is disabled"
+        : !allowed ? "this profile is not permitted to write"
+        : !prerequisite ? "the prerequisite enable register is not confirmed"
+        : confirmation_fault ? "a previous setpoint could not be confirmed"
+        : !online ? "the inverter is not answering"
+        : NULL;
+    out->would_write = out->blocked_by == NULL;
+    return true;
+}
+
 static esp_err_t write_profile_command(inverter_runtime_t *runtime,
                                        const inverter_profile_t *profile,
                                        const uint16_t *words,

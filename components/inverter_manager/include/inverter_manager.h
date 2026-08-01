@@ -92,6 +92,38 @@ float inverter_manager_get_total_rated_kw(void);
  * rejoin.
  */
 uint32_t inverter_manager_fleet_rejoins(void);
+
+/*
+ * WHAT WOULD BE WRITTEN, WITHOUT WRITING IT.
+ *
+ * Computes the command this inverter would receive for a given fleet target,
+ * through the same encoder the write path uses, and reports it whether or not
+ * writing is permitted.
+ *
+ * This is the proof an engineer needs before a profile is ever allowed to
+ * command real equipment. A wrong scale is the one error nothing downstream can
+ * catch: 45% on a x10 register is the word 450, and sending 45 commands 4.5%
+ * while the readback echoes 45, decodes with the same wrong scale, agrees with
+ * the request and reports CONFIRMED. Seeing the word first is what makes it
+ * visible to a person.
+ *
+ * Reads cached state only. No Modbus transaction, no write, no side effect.
+ */
+typedef struct {
+    bool available;          /* False when the profile cannot describe a command. */
+    float share_kw;          /* This machine's share of the fleet target. */
+    float percent;           /* After the profile's own minimum/maximum clamp. */
+    uint16_t address;        /* The register that would be written. */
+    uint8_t function;        /* 6 or 16. */
+    uint8_t word_count;
+    uint16_t words[2];       /* Exactly what would go on the wire. */
+    float raw_units_per_percent;
+    bool would_write;        /* Whether the gates would actually let it through. */
+    const char *blocked_by;  /* When they would not, in the firmware's own words. */
+} inverter_command_preview_t;
+
+bool inverter_manager_preview_command(uint8_t index, float fleet_target_kw,
+                                      inverter_command_preview_t *out);
 /*
  * Issues a fleet power setpoint.
  *

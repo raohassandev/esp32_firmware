@@ -14,6 +14,7 @@
 #include "config_manager.h"
 #include "esp_timer.h"
 #include "inverter_manager.h"
+#include "control_engine.h"
 #include "inverter_json.h"
 #include "meter_json.h"
 #include "meter_manager.h"
@@ -227,6 +228,35 @@ static esp_err_t safe_inverters(httpd_req_t *request)
          * thing on the page that is evidence. Same serializer as the
          * engineering view -- see inverter_json.h. */
         inverter_json_add_measurements(item, &data, now_ms());
+
+        /*
+         * WHAT THE CONTROLLER WOULD SEND, in the operator view too -- but only
+         * the PERCENTAGE.
+         *
+         * The register address, the function code and the raw word are how the
+         * firmware talks to the machine, and that is exactly what this gate
+         * exists to withhold. The percentage is not: it is what the controller
+         * has decided this inverter should produce, and whether it will actually
+         * be sent. A plant owner asking "is it going to curtail?" is asking that
+         * question, and it was answerable nowhere.
+         */
+        control_status_t control_status = {0};
+        control_engine_get_status(&control_status);
+        inverter_command_preview_t preview = {0};
+        if (inverter_manager_preview_command(i, control_status.applied_pv_kw, &preview)) {
+            cJSON *would = cJSON_AddObjectToObject(item, "command_preview");
+            cJSON_AddBoolToObject(would, "available", preview.available);
+            if (preview.available) {
+                cJSON_AddNumberToObject(would, "percent", preview.percent);
+                cJSON_AddNumberToObject(would, "share_kw", preview.share_kw);
+            }
+            cJSON_AddBoolToObject(would, "would_write", preview.would_write);
+            if (preview.blocked_by) {
+                cJSON_AddStringToObject(would, "blocked_by", preview.blocked_by);
+            } else {
+                cJSON_AddNullToObject(would, "blocked_by");
+            }
+        }
         cJSON_AddItemToArray(items, item);
     }
     cJSON_AddBoolToObject(root, "measured_power_supported", measured_supported > 0);

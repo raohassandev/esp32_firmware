@@ -189,6 +189,59 @@
                 : `an instruction, not a reading · ${commandedKw.toFixed(2)} kW of ${rated === null ? '—' : rated.toFixed(0)} kW rated`));
         grid.append(commandBox);
 
+        /*
+         * WHAT THE CONTROLLER WOULD SEND, whether or not it is allowed to.
+         *
+         * A profile stays at LAB_ONLY until a readback on real hardware confirms
+         * the register, the scale and the settle time -- and there was no way to
+         * see what would be sent, so nothing could be checked against the manual
+         * before enabling anything.
+         *
+         * The register WORD is shown, not just the percentage, because the scale
+         * is the error nothing downstream can catch: 45% on a x10 register is
+         * the word 450, and sending 45 commands 4.5% while the readback echoes
+         * 45, decodes with the same wrong scale, agrees with the request and
+         * reports CONFIRMED. Only the word shows that, and only before it goes.
+         */
+        const preview = inverter.command_preview;
+        if (preview && preview.available) {
+            /* Its own treatment. Not a measurement and not a commanded state
+             * either: a COMPUTATION of what would go on the wire. Three
+             * different kinds of claim must not share one style. */
+            const box = node('div', 'amx-counter is-preview');
+            box.append(node('span', 'amx-counter-label', 'Would send'));
+            const value = node('span', 'amx-counter-value');
+            value.append(document.createTextNode(preview.percent.toFixed(0)));
+            value.append(node('span', 'amx-counter-unit', '%'));
+            box.append(value);
+            const words = Array.isArray(preview.words) ? preview.words : [];
+            /* The register and the word are engineering detail and are absent
+             * from the operator view by design -- that is how the firmware
+             * talks to the machine. The percentage is the decision, and it is
+             * shown to both. */
+            if (Number.isFinite(preview.register) && words.length) {
+                box.append(node('span', 'amx-counter-note',
+                    `Register ${preview.register} (FC${preview.function}) = ${words.join(', ')}`
+                    + ` · ${preview.percent} % x ${preview.raw_units_per_percent}`));
+            } else if (Number.isFinite(preview.share_kw)) {
+                box.append(node('span', 'amx-counter-note',
+                    `${preview.share_kw.toFixed(2)} kW of this machine's share`));
+            }
+            /* Whether it would actually go, and the first gate that stops it --
+             * which is the one an engineer must clear first. */
+            box.append(node('span', 'amx-counter-note',
+                preview.would_write
+                    ? 'This would be written on the next control cycle.'
+                    : `Not written: ${preview.blocked_by || 'the write gate refuses it'}.`));
+            grid.append(box);
+        } else if (preview && preview.blocked_by) {
+            const box = node('div', 'amx-counter is-preview');
+            box.append(node('span', 'amx-counter-label', 'Would send'));
+            box.append(node('span', 'amx-counter-value amx-absent', 'nothing'));
+            box.append(node('span', 'amx-counter-note', preview.blocked_by));
+            grid.append(box);
+        }
+
         /* The disagreement, stated. Only when there is enough to compare: a
          * machine producing less than its limit is equally consistent with the
          * limit being honoured and with the sun going in, so this reports the
