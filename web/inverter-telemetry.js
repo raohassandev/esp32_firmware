@@ -33,7 +33,15 @@
     const COLUMNS = [
         { label: 'Inverter', get: (item) => `Inverter ${Number(item.index) + 1}` },
         { label: 'State', get: (item) => stateLabel(item) },
-        { label: 'Measured power', get: (item) => formatPower(item.measured_power_kw) },
+        /* NEVER 0.00 kW FOR A MACHINE THAT REPORTED NOTHING.
+         *
+         * The very next column already says "No valid sample", so the table
+         * contradicted itself on one line -- and the runtime card further down
+         * the same page says "Unavailable" for the same inverter. A zero here
+         * reads as a measurement of a machine that is there and producing
+         * nothing, which is a different physical claim from silence. */
+        { label: 'Measured power',
+          get: (item) => (item.telemetry_valid ? formatPower(item.measured_power_kw) : '—') },
         { label: 'Sample age', get: (item) => (item.telemetry_valid ? formatAge(item.telemetry_age_ms) : 'No valid sample') },
         { label: 'Identity', get: (item) => (item.identity_supported ? (item.identity_verified ? 'Verified' : 'Mismatch / unavailable') : 'Not supported') },
         { label: 'Readback', get: (item) => (item.has_readback ? `${formatPercent(item.readback_percent)} · ${formatAge(item.readback_age_ms)}` : 'Unavailable') },
@@ -136,18 +144,21 @@
         const message = byId('inverterTelemetryLiveMessage');
         if (!summary || !rows || !message) return;
         const values = data?.summary || {};
+        /* ONLY WHAT THIS ENDPOINT ALONE KNOWS.
+         *
+         * "Answering" and "Commandable capacity" were here too, from a
+         * different poll than the roll-up above, so the page carried two
+         * numbers for each and they could disagree. They live above now. What
+         * remains is what only the telemetry read can say: whether anything was
+         * measured, and whether the machines identified themselves. */
         summary.replaceChildren(
-            summaryCard('Online', values.online ?? 0, `${data?.count ?? 0} configured runtime channels`),
-            summaryCard('Measured production', formatPower(values.measured_total_kw), `${values.telemetry_valid ?? 0} valid telemetry channels`),
-            summaryCard('Identity verified', values.identity_verified ?? 0, `${values.stale ?? 0} stale channels`),
-            /* A bare "0.00 kW" reads as a measurement of a fleet that is there
-             * and producing nothing. It is not: it is the capacity the control
-             * loop may command, and zero almost always means a condition is
-             * unmet rather than a plant at rest. */
-            summaryCard('Commandable capacity', formatPower(values.commandable_rated_kw),
-                Number(values.commandable_rated_kw) === 0
-                    ? 'Nothing is eligible to be commanded — see below'
-                    : `${values.command_mismatched ?? 0} readback mismatches`)
+            summaryCard('Measured production',
+                Number(values.telemetry_valid) > 0 ? formatPower(values.measured_total_kw) : '—',
+                Number(values.telemetry_valid) > 0
+                    ? `${values.telemetry_valid} valid telemetry channels`
+                    : 'No inverter reported a measurement'),
+            summaryCard('Identity verified', values.identity_verified ?? 0,
+                `${values.stale ?? 0} stale channels`)
         );
         rows.replaceChildren();
         const inverters = Array.isArray(data?.inverters) ? data.inverters : [];

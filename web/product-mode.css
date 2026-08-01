@@ -25,7 +25,6 @@ html[data-access="operator"] #meterRuntimeList,
 html[data-access="operator"] #inverterTelemetrySummary,
 html[data-access="operator"] #inverterRuntimeList,
 html[data-access="operator"] #inverterLiveTelemetry,
-html[data-access="operator"] #inverterList,
 html[data-access="operator"] .operator-legacy-hidden {
     display: none !important;
 }

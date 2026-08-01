@@ -910,50 +910,6 @@
         });
     }
 
-    function renderInverters(inverters) {
-        const container = byId('inverterList');
-        const signature = JSON.stringify(inverters ?? null);
-        if (container.dataset.inverterSignature === signature) return;
-        container.dataset.inverterSignature = signature;
-        container.replaceChildren();
-        if (!Array.isArray(inverters) || inverters.length === 0) {
-            const empty = document.createElement('div');
-            empty.className = 'empty-state';
-            empty.textContent = 'No inverter profiles are configured.';
-            container.appendChild(empty);
-            return;
-        }
-
-        inverters.forEach((inverter, index) => {
-            const card = document.createElement('article');
-            card.className = 'asset-card';
-            const title = document.createElement('h3');
-            title.textContent = inverter.name || `Inverter ${index + 1}`;
-            const badge = document.createElement('span');
-            badge.className = 'asset-state';
-            badge.textContent = inverter.enabled ? 'Configured and enabled' : 'Disabled';
-            const list = document.createElement('dl');
-            const rows = [
-                ['Endpoint', `${inverter.host || '--'}:${inverter.port || '--'}`],
-                ['Unit ID', inverter.unit_id ?? '--'],
-                ['Rated power', Number.isFinite(Number(inverter.rated_kw)) ? `${Number(inverter.rated_kw).toFixed(1)} kW` : '--'],
-                ['Limit PDU address', inverter.limit_address ?? '--'],
-                ['Write function', inverter.limit_function ?? '--'],
-                ['Raw units / %', inverter.raw_units_per_percent ?? '--'],
-                ['Allowed range', `${inverter.min_percent ?? '--'}–${inverter.max_percent ?? '--'}%`]
-            ];
-            rows.forEach(([term, value]) => {
-                const dt = document.createElement('dt');
-                const dd = document.createElement('dd');
-                dt.textContent = term;
-                dd.textContent = String(value);
-                list.append(dt, dd);
-            });
-            card.append(title, badge, list);
-            container.appendChild(card);
-        });
-    }
-
     function renderConfig() {
         const config = state.config;
         if (!config) return;
@@ -988,7 +944,6 @@
         setText('systemSchema', config.schema ?? '--');
         setText('sidebarVersion', `Configuration schema ${config.schema ?? '--'} · ${config.device_name || 'Controller'}`);
         byId('advancedJson').value = JSON.stringify(config, null, 2);
-        renderInverters(config.inverters || []);
     }
 
     async function loadConfig() {

@@ -898,6 +898,43 @@ check('a meter is attributed to the page whose heading is true', () => {
         'an unresolved source is not explained');
 });
 
+/*
+ * A SILENT INVERTER IS NOT AN INVERTER MEASURING ZERO.
+ *
+ * The live telemetry table printed "0.00 kW" beside its own "No valid sample",
+ * and the runtime card further down the same page said "Unavailable" for the
+ * same machine. One screen, two contradictory claims about one inverter, and
+ * the zero is the one a person believes because it looks like a reading.
+ */
+check('the telemetry table never reports zero for a machine that said nothing', () => {
+    const source = fs.readFileSync(path.join(WEB, 'inverter-telemetry.js'), 'utf8')
+        .replace(/\\r\\n/g, '\\n');
+    const start = source.indexOf('    const COLUMNS = [');
+    const end = source.indexOf('    function stateLabel(item)');
+    assert.ok(start > 0 && end > start, 'the telemetry columns could not be located');
+    const sandbox = makeSandbox();
+    vm.runInContext(
+        'function formatPower(v) { const n = Number(v); '
+        + 'return Number.isFinite(n) ? n.toFixed(2) + " kW" : "--"; }'
+        + 'function formatAge(v) { return String(v) + " ms"; }'
+        + 'function formatPercent(v) { return String(v) + " %"; }'
+        + 'function stateLabel(i) { return i.online ? "Online" : "Offline"; }'
+        + source.slice(start, end)
+        + 'window.__columns = COLUMNS;',
+        sandbox, { filename: 'inverter-telemetry.js#columns' });
+    const columns = sandbox.window.__columns;
+    const power = columns.find((c) => c.label === 'Measured power');
+    assert.ok(power, 'the measured power column is gone');
+
+    /* Nothing measured: an em dash, never a number. */
+    assert.strictEqual(power.get({ telemetry_valid: false, measured_power_kw: 0 }), '—');
+    /* And the payload carrying a stale figure must not leak it either. */
+    assert.strictEqual(power.get({ telemetry_valid: false, measured_power_kw: 41.5 }), '—');
+    /* A real measurement is still printed, including a true zero. */
+    assert.strictEqual(power.get({ telemetry_valid: true, measured_power_kw: 0 }), '0.00 kW');
+    assert.strictEqual(power.get({ telemetry_valid: true, measured_power_kw: 41.5 }), '41.50 kW');
+});
+
 /* --------------------------------------------------------------------- run */
 
 let failed = 0;

@@ -117,17 +117,23 @@
         const bar = toolbar('inverterTelemetryMessage', 'inverterTelemetryRefresh');
         const summary = element('div', 'device-summary');
         summary.id = 'inverterTelemetrySummary';
+        /* THE ONE FLEET ROLL-UP ON THIS PAGE.
+         *
+         * The live telemetry panel below used to carry a second one, and two of
+         * its cards -- how many are answering, and how much capacity is
+         * commandable -- were the same facts drawn from a different poll. Two
+         * numbers for one fact is worse than one, because they are read at
+         * different instants and nothing on the screen says which to believe.
+         * Both now come from /api/inverters, which is the endpoint that carries
+         * the configured side as well. */
         summary.append(
             summaryCard('inverterConfiguredCount', 'Configured'),
             summaryCard('inverterEnabledCount', 'Enabled'),
+            summaryCard('inverterOnlineCount', 'Answering'),
             summaryCard('inverterRatedTotal', 'Enabled rating'),
+            summaryCard('inverterCommandable', 'Commandable'),
             summaryCard('inverterCommandTested', 'Command-tested')
         );
-        const legacyList = byId('inverterList');
-        if (legacyList) {
-            legacyList.hidden = true;
-            legacyList.setAttribute('aria-hidden', 'true');
-        }
         const runtimeList = element('div', 'device-list');
         runtimeList.id = 'inverterRuntimeList';
         anchor.after(bar, summary, runtimeList);
@@ -401,7 +407,12 @@
         }
         setText('inverterConfiguredCount', data.configured_count ?? data.inverters.length);
         setText('inverterEnabledCount', data.summary?.enabled ?? 0);
+        setText('inverterOnlineCount', data.summary?.online ?? 0);
         setText('inverterRatedTotal', utils.formatPower(data.summary?.enabled_rated_kw));
+        /* Zero commandable capacity is almost always an unmet condition rather
+         * than a fleet at rest, so it is never left as a bare number to be read
+         * as "the plant can move nothing because it is idle". */
+        setText('inverterCommandable', utils.formatPower(data.summary?.commandable_rated_kw));
         setText('inverterCommandTested', data.summary?.command_tested ?? 0);
         if (!data.inverters.length) list.append(emptyState('No inverter profiles are configured.'));
         else data.inverters.forEach((inverter) => list.append(inverterCard(inverter)));
