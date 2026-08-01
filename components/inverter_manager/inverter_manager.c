@@ -114,6 +114,8 @@ typedef struct {
     uint32_t next_poll_ms;
     /* The monitoring block is due independently of the control read. */
     uint32_t next_measurements_ms;
+    /* Whether this inverter was in the commandable fleet last pass. */
+    bool was_eligible;
     /* Earliest timestamp at which prerequisite I/O may be attempted again. Keeps
      * a device that refuses the enable write from being hammered once per
      * acquisition pass. */
@@ -139,6 +141,8 @@ static uint8_t s_inverter_count;
 /* Consecutive command refusals, for log throttling. See the refusal site. */
 static uint32_t s_command_refusals;
 static float s_total_rated_kw;
+/* See inverter_manager_fleet_rejoins(). */
+static uint32_t s_fleet_rejoins;
 static portMUX_TYPE s_capacity_lock = portMUX_INITIALIZER_UNLOCKED;
 static TaskHandle_t s_telemetry_task;
 /* False until init has resolved every configured inverter and its profile. The
@@ -288,12 +292,37 @@ static void recompute_commandable_capacity(void)
                         isfinite(runtime->config.rated_power_kw) &&
                         runtime->config.rated_power_kw > 0.0f;
         float rated = runtime->config.rated_power_kw;
+        /*
+         * A MACHINE THAT HAS JUST REJOINED THE FLEET.
+         *
+         * While it was out, the control engine went on commanding the inverters
+         * that remained, so the setpoint it is holding is the one it was given
+         * before the link dropped -- and nothing else will rewrite it, because
+         * the control engine only commands when the target CHANGES.
+         *
+         * A plant that lost one inverter for a minute therefore came back with
+         * that machine enforcing a stale limit, while the controller believed
+         * the whole fleet was on the current one. Counting the rejoin lets the
+         * control engine force one write, which is what the plant owner asked
+         * for: "one write when communication is restored".
+         */
+        const bool rejoined = eligible && !runtime->was_eligible;
+        runtime->was_eligible = eligible;
         portEXIT_CRITICAL(&runtime->lock);
+        if (rejoined) s_fleet_rejoins++;
         if (eligible) total += rated;
     }
     portENTER_CRITICAL(&s_capacity_lock);
     s_total_rated_kw = total;
     portEXIT_CRITICAL(&s_capacity_lock);
+}
+
+/* Increments every time an inverter rejoins the commandable fleet. The control
+ * engine watches it and forces one write when it changes; it never resets, so a
+ * missed observation cannot lose a rejoin. */
+uint32_t inverter_manager_fleet_rejoins(void)
+{
+    return s_fleet_rejoins;
 }
 
 static esp_err_t read_profile_block(inverter_runtime_t *runtime,

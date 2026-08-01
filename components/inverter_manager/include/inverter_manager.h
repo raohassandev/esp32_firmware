@@ -78,6 +78,20 @@ void inverter_manager_commissioning_summary(inverter_fleet_commissioning_t *out_
 esp_err_t inverter_manager_init(void);
 uint8_t inverter_manager_get_count(void);
 float inverter_manager_get_total_rated_kw(void);
+
+/*
+ * How many times an inverter has rejoined the commandable fleet.
+ *
+ * While a machine is out, the control engine goes on commanding the ones that
+ * remain, so the setpoint the absent machine holds is the one it had before the
+ * link dropped -- and nothing rewrites it, because commands are only issued when
+ * the target changes. The plant then runs with one inverter enforcing a stale
+ * limit while the controller believes the whole fleet is on the current one.
+ *
+ * Monotonic and never reset, so an observer that misses a cycle cannot miss a
+ * rejoin.
+ */
+uint32_t inverter_manager_fleet_rejoins(void);
 /*
  * Issues a fleet power setpoint.
  *

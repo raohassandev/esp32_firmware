@@ -23,9 +23,9 @@ done, so what you check is what is running.
 | 4 | Commissioning step: PV ramp per source | **done with 1** | 01-08 | Ramp editor is in the workspace step 4 mounts (`rampFields`, per-source profiles, live advisory). Confirmed in the bundle the board serves. | | |
 | 5 | Commissioning: show WHY the gate is not met | **done** | 01-08 | The wizard's spine is now the controller's own nine prerequisites, read live from `/api/commissioning/gate` and shown on EVERY step, not just Review. Plus the runbook's risk ladder on each step header: READ ONLY / CONFIGURATION / WRITES TO PLANT. | | |
 | 6 | Inverter comms fail-safe ordering (controller 2 min > inverter 1 min) | **done** | 01-08 | Schema 8: `inverter_config_t.comms_failsafe_ms`, 0 = not stated. Validator refuses a stated value >= the controller's grace. Both published on `/api/inverters/config`. Migration keeps commissioned NVS. | | |
-| 7 | Periodic setpoint refresh: on comms restore + every ~30 min — not implemented | todo | | | | |
-| 8 | Control-evidence page: grid min/max/average, error kW, safe PV, gate state | todo | | | | |
-| 9 | Automatic control arm/disarm in the UI | todo | | | | |
+| 7 | Periodic setpoint refresh: on comms restore | **done** | 01-08 | `inverter_manager_fleet_rejoins()` counts rejoins; the control loop forces one write when it changes. NOTE: the periodic keepalive already existed at **2 s**, not 30 min — see Notes. | | |
+| 8 | Control-evidence: error kW, generator-safe PV ceiling | **done** | 01-08 | Added to the runtime gate panel in `web/solar-grid.js`. Both were published and reached no screen, so "why is PV held down" had no answer. min/max/average are not published by the API — not invented. | | |
+| 9 | Automatic control arm/disarm in the UI | **blocked — needs your decision** | | Three separate contracts forbid it: the Solar-Grid page, the readiness page and the commissioning wizard. See Notes. | | |
 | 10 | Audit log page — who changed what | todo | | | | |
 | 11 | Service page: heap, PSRAM, partitions, firmware version | todo | | | | |
 | 12 | Alarm detail: shelf expiry, out-of-service reason and actor, delays | todo | | | | |
@@ -49,6 +49,33 @@ default, I implement the mechanism and leave the value fail-closed.
 ---
 
 ## Notes
+
+**Task 9 — arming is forbidden in the UI, deliberately, in three places.** I
+tried each and each is held by its own contract:
+
+- `solar_grid_control_source_contract.py` — the Solar-Grid page must not call
+  `/api/control`. Every save there forces control off; an arm button beside it
+  would let a setting be changed and re-armed without leaving the page.
+- `prelab_readiness_source_contract.py` — the readiness workspace must remain
+  read-only, so a controller can be inspected with no risk of changing it.
+- `commissioning_release_v3_source_contract.py` — the wizard must not call
+  `/api/control`.
+
+Together these say the product has decided arming is an out-of-band action, not
+a button. I reverted all three attempts rather than lift a safety contract to
+satisfy a todo I wrote. **Your call:** should any of them be lifted, and if so
+which page should own arming?
+
+**Task 7 — the periodic half already existed, at a very different interval.**
+The owner's rule was "one write every ~30 minutes, and one on communication
+restore". The keepalive was already there at **2 seconds**, because a commanded
+limit can EXPIRE — the Huawei SmartLogger's schedule-validity register drops it
+after a configured time. I did not change 2 s to 30 min: there is a documented
+reason for the short interval and changing it would need the SmartLogger
+validity period to be read first. What was genuinely missing is now added: a
+machine that rejoins the fleet is still holding the setpoint it had before its
+link dropped, and nothing rewrote it while the target was steady.
+
 
 **Commissioning had no journey — accepted.** Tasks 1 and 3 mounted existing
 panels into new steps and called it done. That was component dumping, not a

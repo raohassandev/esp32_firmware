@@ -479,6 +479,8 @@ static void control_task(void *argument)
     float last_commanded_kw = 0.0f;
     uint32_t last_command_issued_ms = 0U;
     bool command_ever_issued = false;
+    /* Last observed value of inverter_manager_fleet_rejoins(). */
+    uint32_t last_seen_rejoins = inverter_manager_fleet_rejoins();
 
     while (true) {
         uint32_t timestamp = now_ms();
@@ -888,8 +890,26 @@ static void control_task(void *argument)
             const bool changed = delta_kw < 0.0f
                                      ? true
                                      : delta_kw > CONTROL_COMMAND_EPSILON_KW;
+            /*
+             * ONE WRITE WHEN A MACHINE COMES BACK.
+             *
+             * While an inverter is out of the fleet the loop goes on commanding
+             * the ones that remain, and commands are only issued when the target
+             * changes -- so a machine that rejoins is still holding the setpoint
+             * it had before its link dropped, and nothing would rewrite it while
+             * the target happens to be steady. The plant then runs with one
+             * inverter enforcing a stale limit and the controller believing the
+             * whole fleet is on the current one.
+             *
+             * The counter is monotonic, so a cycle that does not observe a rejoin
+             * cannot lose it.
+             */
+            const uint32_t rejoins = inverter_manager_fleet_rejoins();
+            const bool fleet_rejoined = rejoins != last_seen_rejoins;
+            last_seen_rejoins = rejoins;
+
             esp_err_t write_result = ESP_OK;
-            if (first_command || changed || keepalive_due) {
+            if (first_command || changed || keepalive_due || fleet_rejoined) {
                 write_result = inverter_manager_set_total_power_kw(applied_kw);
                 if (write_result == ESP_OK) {
                     last_commanded_kw = applied_kw;

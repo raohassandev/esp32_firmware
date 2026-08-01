@@ -115,6 +115,7 @@
         banner.append(node('strong', '', result.ready ? 'Software ready for controlled lab testing' : 'Lab testing is blocked'), node('span', '', `${result.blocked} blocker(s) · ${result.warnings} warning(s)`));
         view.append(banner);
 
+
         const grid = node('div', 'prelab-grid');
         checks.forEach((item) => {
             const card = node('article', `prelab-check ${tone(item.status)}`);
@@ -154,7 +155,20 @@
                 api('/api/operator/events'),
                 api('/api/engineering/session')
             ]);
-            state.payload = { status, meters, inverters, history, events, session };
+            /*
+             * The gate is asked SECOND, and only when the session says it will
+             * be answered.
+             *
+             * mayRequest() reports route scope, not whether anyone is signed in,
+             * so it let this fire unauthenticated: a guaranteed 401 that costs
+             * one of the controller's few client sockets and puts a console
+             * error on a page that is otherwise clean (audit S4). The session
+             * response is the only thing that actually knows.
+             */
+            const gate = session?.authenticated === true
+                ? await api('/api/commissioning/gate').catch(() => ({}))
+                : {};
+            state.payload = { status, meters, inverters, history, events, session, gate };
         } catch (error) {
             state.payload = { error: error.message };
         } finally {

@@ -133,3 +133,34 @@
     color: var(--muted);
     line-height: 1.45;
 }
+
+/* --------------------------------------------------------------- arming
+ *
+ * The one control in commissioning that makes the controller act on the plant.
+ * It sits above the review summary, after the evidence and the blockers, and
+ * it is styled as a decision rather than another field.
+ */
+.cr-arm {
+    margin-bottom: var(--sp-4);
+    padding: var(--sp-4);
+    border: 1px solid var(--line);
+    border-radius: var(--r-2);
+    background: var(--panel-strong);
+}
+
+.cr-arm-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--sp-3);
+    flex-wrap: wrap;
+}
+
+.cr-arm-head h3 { font-size: var(--fs-4); }
+
+.cr-arm-why {
+    margin: var(--sp-3) 0 0;
+    font-size: var(--fs-2);
+    color: var(--muted);
+    line-height: 1.5;
+}
