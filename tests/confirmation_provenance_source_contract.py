@@ -551,8 +551,13 @@ require("head.append(title, confirmStatePill(name), proofPill(proofName));" in A
         "pill on its own is the defect this panel exists to remove")
 # The fleet badge carries both too. 'Fleet: Confirmed' alone is the same defect at
 # fleet scale, and a fleet confirmed on an echo must not take the success tone.
-badge = APP[APP.index("setBadgeIfChanged('confirmFleetBadge',\n            `Fleet:"):
-            APP.index("setTextIfChanged('confirmFleetDetail',")]
+# The window ends at the FIRST confirmFleetDetail write AFTER the badge, not the
+# first in the file. There is now an earlier one in the no-report branch, and
+# anchoring on it silently produced an empty window -- a contract that checks
+# nothing while reporting that everything it checks is missing.
+_badge_start = APP.index("setBadgeIfChanged('confirmFleetBadge',\n            `Fleet:")
+badge = APP[_badge_start:
+            APP.index("setTextIfChanged('confirmFleetDetail',", _badge_start)]
 require("proofMeta ? proofMeta.label" in badge,
         "the fleet badge must name the evidence beside the verdict")
 require("demonstrated ? 'good' : 'warning'" in badge,

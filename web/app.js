@@ -1384,6 +1384,19 @@
     /* Writes only when the value actually changed. The lab banner is role="alert",
      * so rewriting identical text on every poll would re-announce it to a screen
      * reader several times a minute. */
+    /*
+     * An em dash is the convention for A VALUE that is not available, and it is
+     * the right answer in a labelled slot. A whole counts strip with no counts
+     * is a different thing: a lone "--" there reads as one of the counts, so the
+     * strip is emptied rather than filled with a marker.
+     */
+    function setCountStrip(id, line) {
+        const node = byId(id);
+        if (!node) return;
+        const text = line || '';
+        if (node.textContent !== text) node.textContent = text;
+    }
+
     function setTextIfChanged(id, value) {
         const node = byId(id);
         if (!node) return;
@@ -2014,9 +2027,24 @@
         return [pills, disclosure(summaryText, legendDefinitions(order, pillFor, states))];
     }
 
-    function renderConfirmLegend() {
+    /*
+     * A LEGEND IS DRAWN ONLY WHEN THE THING IT EXPLAINS IS ON SCREEN.
+     *
+     * This panel used to draw three of them permanently: twelve symbols across
+     * three rows, above an empty table, three "Unavailable" counts and two
+     * paragraphs about unknown evidence. A vocabulary for a table that is not
+     * there teaches a reader to skip the panel, which is where the one real
+     * finding would appear.
+     *
+     * The sentences themselves are untouched and still one click away. Nothing
+     * an engineer can act on is hidden by this: a legend explains symbols, and
+     * with no symbols on screen it explains nothing.
+     */
+    function renderConfirmLegend(present) {
         const legend = byId('confirmLegend');
-        if (!legend || legend.childElementCount) return;
+        if (!legend) return;
+        if (!present) { legend.replaceChildren(); return; }
+        if (legend.childElementCount) return;
         legend.replaceChildren(...legendElement(
             WRITE_CONFIRMATION_ORDER, confirmStatePill, WRITE_CONFIRMATION_STATES,
             'What each setpoint state means'));
@@ -2025,9 +2053,11 @@
     /* All four kinds of limit evidence explained once, next to the four setpoint
      * states, so a reader can see that they are two independent answers rather
      * than one scale. Built once; these sentences never change. */
-    function renderProofLegend() {
+    function renderProofLegend(present) {
         const legend = byId('proofLegend');
-        if (!legend || legend.childElementCount) return;
+        if (!legend) return;
+        if (!present) { legend.replaceChildren(); return; }
+        if (legend.childElementCount) return;
         legend.replaceChildren(...legendElement(
             WRITE_PROOF_ORDER, proofPill, WRITE_PROOF_STATES,
             'What each kind of limit evidence proves'));
@@ -2057,9 +2087,10 @@
      * of it. The verdict says whether the writes were confirmed; this says what
      * confirmed them, and the two together are the only honest reading. */
     function renderWriteProvenance(payload) {
-        renderProofLegend();
-        setTextIfChanged('confirmProvenanceCounts',
-            provenanceCountLine(payload) || STATES.dataQuality.unavailable);
+        renderProofLegend(Boolean(payload));
+        /* Three "Unavailable" lines said one thing three times. With no report
+         * at all the line below carries it once, and this stays empty. */
+        setCountStrip('confirmProvenanceCounts', provenanceCountLine(payload));
         if (!payload) {
             setTextIfChanged('confirmProvenance',
                 'The controller has not reported what any confirmation rests on. Unknown evidence is not a demonstrated limit: nothing on this panel shows that a limit is in force.');
@@ -2110,18 +2141,19 @@
     /* All four enable-register states are explained once, next to the four
      * setpoint states, so an engineer can see that they are two independent
      * answers rather than one scale. Built once; these sentences never change. */
-    function renderPrerequisiteLegend() {
+    function renderPrerequisiteLegend(present) {
         const legend = byId('prereqLegend');
-        if (!legend || legend.childElementCount) return;
+        if (!legend) return;
+        if (!present) { legend.replaceChildren(); return; }
+        if (legend.childElementCount) return;
         legend.replaceChildren(...legendElement(
             PREREQUISITE_STATE_ORDER, prerequisitePill, PREREQUISITE_STATES,
             'What each enable-register state means'));
     }
 
     function renderPrerequisiteFleet(payload) {
-        renderPrerequisiteLegend();
-        const counts = prerequisiteCountLine(payload);
-        setTextIfChanged('prereqCounts', counts || STATES.dataQuality.unavailable);
+        renderPrerequisiteLegend(Boolean(payload));
+        setCountStrip('prereqCounts', prerequisiteCountLine(payload));
         if (!payload) {
             setTextIfChanged('prereqFleetState',
                 'The controller has not reported an enable-register state. Unknown is not confirmed: nothing on this panel proves a limit is armed.');
@@ -2142,12 +2174,25 @@
     function renderWriteConfirmation() {
         const list = byId('confirmList');
         if (!list) return;
-        renderConfirmLegend();
         const payload = state.writeConfirmation;
+        /* The setpoint legend belongs to the table below it, so it appears when
+         * the table has rows and not merely when a report arrived. */
+        renderConfirmLegend(Array.isArray(payload?.inverters) && payload.inverters.length > 0);
         renderPrerequisiteFleet(payload);
         renderWriteProvenance(payload);
         if (!payload) {
             setBadgeIfChanged('confirmFleetBadge', STATES.dataQuality.unavailable, '');
+            /* NOT "Reading setpoint confirmation…" for ever.
+             *
+             * That is the markup's placeholder and nothing replaced it when the
+             * report never arrived, so the panel claimed to be loading on a
+             * controller that had been up for hours. A permanent "loading" is
+             * read as "this will resolve shortly" and stops a reader looking for
+             * the reason, which is stated at the bottom of this same panel. */
+            setTextIfChanged('confirmFleetDetail',
+                'No setpoint confirmation has been reported. The two statements '
+                + 'below say what that means; the line at the foot of this panel '
+                + 'says why the report is missing.');
             if (state.confirmSignature !== '') {
                 state.confirmSignature = '';
                 list.replaceChildren();
