@@ -172,10 +172,18 @@
         if (n < 60000) return `${Math.round(n / 1000)} s ago`;
         return `${(n / 60000).toFixed(1)} min ago`;
     }
-    async function api(path) {
-        const response = await fetch(path, { cache: 'no-store', credentials: 'same-origin' });
+    /* Options are passed through so this can POST. It could not, and a caller
+     * that handed it a method got a silent GET -- a request that looks like it
+     * succeeded and changed nothing, which on an arming control would report a
+     * plant armed that was never asked to arm. */
+    async function api(path, options) {
+        const response = await fetch(path, {
+            cache: 'no-store', credentials: 'same-origin', ...(options || {})
+        });
         const payload = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+        if (!response.ok) {
+            throw new Error(payload.message || payload.error || `HTTP ${response.status}`);
+        }
         return payload;
     }
 
@@ -1391,7 +1399,93 @@
         top.append(productionCard, fleetCard(summary, inverters));
         /* Same ordering as Grid power, for the same reason: "is anything down"
          * is answered by the table, and it was below a 500px chart. */
-        view.append(top, inverterTable(inverters, telemetryMap));
+        view.append(armCard(payload), top, inverterTable(inverters, telemetryMap));
+    }
+
+    /*
+     * THE SWITCH, ON THE PAGE THAT SHOWS WHAT IT WILL DO.
+     *
+     * Automatic control had no control anywhere in the interface. The engine was
+     * complete -- step, ramp, readback confirmation, safe zero -- and unreachable,
+     * so the loop had never run end to end. The owner asked for the switch here,
+     * beside the fleet it commands and the percentage it would send.
+     *
+     * THE CONTROLLER IS THE AUTHORITY, NOT THIS CARD. The engine re-evaluates
+     * the commissioning gate every cycle and withholds command authority itself,
+     * so this never reports success on its own: it sends the request and then
+     * re-reads the controller, and what is shown is what the controller says. A
+     * card that echoed the request would tell an engineer the plant was armed
+     * when it had been refused -- the same defect as drawing a commanded
+     * setpoint as though it were a measurement.
+     *
+     * DISARMING IS NEVER DISABLED. Being unable to command is recoverable;
+     * being unable to stop commanding is not. The button is only ever disabled
+     * in the arming direction.
+     */
+    function armCard(payload) {
+        const status = payload.status || {};
+        const enabled = status.control_enabled === true;
+        const summary = payload.inverters?.summary || {};
+        const commandable = Number(summary.commandable_rated_kw) || 0;
+
+        const card = node('article', 'op-card');
+        const head = node('div', 'op-measure-head');
+        head.append(node('span', 'op-measure-label', 'Automatic control'));
+        /* The product's own control vocabulary, not two words invented here.
+         * "Armed" and "Off" read fine and are a fifth and sixth name for states
+         * the rest of the product already calls Active and Standby -- and a
+         * reader who learns a word on one page must find it on the next. */
+        head.append(node('span', `op-state-pill ${enabled ? 'good' : ''}`,
+            enabled ? stateWord('control', 'active', 'Active')
+                : stateWord('control', 'standby', 'Standby')));
+        card.append(head);
+
+        card.append(node('p', 'op-card-note', enabled
+            ? 'The controller is adjusting the inverters from its own measurements. '
+              + 'Turning it off stops that immediately; the last limit stays in force on '
+              + 'each machine until its own fail-safe expires.'
+            : commandable > 0
+                ? `The controller is watching only. It can move ${formatPower(commandable)} `
+                  + 'of inverter capacity when it is on.'
+                : 'No inverter is eligible to be commanded, so starting it would '
+                  + 'change nothing. The table below says why for each machine.'));
+
+        const actions = node('div', 'op-card-actions');
+        const button = node('button', enabled ? 'button secondary' : 'button primary',
+            enabled ? 'Stop automatic control' : 'Start automatic control');
+        button.type = 'button';
+        /* Never disabled while armed: see above. */
+        button.disabled = !enabled && commandable <= 0;
+        const message = node('span', 'action-message');
+        message.setAttribute('role', 'status');
+
+        button.addEventListener('click', async () => {
+            if (!enabled && !window.confirm(
+                'Start automatic control?' + String.fromCharCode(10, 10)
+                + 'The controller will begin commanding the solar inverters from its own '
+                + 'measurements. It will write a power limit to real equipment.')) return;
+            button.disabled = true;
+            message.className = 'action-message';
+            message.textContent = enabled ? 'Stopping…' : 'Starting…';
+            try {
+                await api('/api/control/enable', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled: !enabled })
+                });
+                /* Re-read. The controller may have refused, and it is the only
+                 * honest source for what actually happened. */
+                await refreshAll();
+            } catch (error) {
+                message.textContent = `Refused: ${error.message}`;
+                message.className = 'action-message bad';
+                button.disabled = false;
+            }
+        });
+
+        actions.append(button, message);
+        card.append(actions);
+        return card;
     }
 
     /* ------------------------------------------------------ fleet composition

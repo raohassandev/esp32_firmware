@@ -233,3 +233,13 @@
  * limit the plant is actually being held to -- the foot of the card says which
  * gate is stopping it. */
 .amx-metric-value.is-not-in-force { opacity: 0.6; font-style: italic; }
+
+/* The automatic-control switch on the Solar inverters page.
+ *
+ * Its own row under the statement, because the sentence above it says what
+ * turning it on will do and a control sitting inline with prose gets pressed
+ * before the sentence is read. */
+.op-card-note { margin: var(--space-2) 0 0; line-height: 1.5; color: var(--muted); }
+.op-card-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; margin-top: var(--space-3); }
+.op-card-actions .action-message { color: var(--muted); }
+.op-card-actions .action-message.bad { color: var(--red); }
