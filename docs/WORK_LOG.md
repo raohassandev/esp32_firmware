@@ -22,7 +22,7 @@ done, so what you check is what is running.
 | 3 | Commissioning step: source detection (1 meter tariff / 2 meter) | **done** | 01-08 | Step 6 of 9. `sourceStep()` in `web/commissioning-release-v3.js`; mounts the panels from `web/source-detection.js` — same builders, no copy. Board serves 9 step labels with "Source detection" sixth. | | |
 | 4 | Commissioning step: PV ramp per source | **done with 1** | 01-08 | Ramp editor is in the workspace step 4 mounts (`rampFields`, per-source profiles, live advisory). Confirmed in the bundle the board serves. | | |
 | 5 | Commissioning: show WHY the gate is not met | **done** | 01-08 | The wizard's spine is now the controller's own nine prerequisites, read live from `/api/commissioning/gate` and shown on EVERY step, not just Review. Plus the runbook's risk ladder on each step header: READ ONLY / CONFIGURATION / WRITES TO PLANT. | | |
-| 6 | Inverter comms fail-safe ordering (controller 2 min > inverter 1 min) — not implemented at all | todo | | | | |
+| 6 | Inverter comms fail-safe ordering (controller 2 min > inverter 1 min) | **done** | 01-08 | Schema 8: `inverter_config_t.comms_failsafe_ms`, 0 = not stated. Validator refuses a stated value >= the controller's grace. Both published on `/api/inverters/config`. Migration keeps commissioned NVS. | | |
 | 7 | Periodic setpoint refresh: on comms restore + every ~30 min — not implemented | todo | | | | |
 | 8 | Control-evidence page: grid min/max/average, error kW, safe PV, gate state | todo | | | | |
 | 9 | Automatic control arm/disarm in the UI | todo | | | | |
@@ -30,7 +30,7 @@ done, so what you check is what is running.
 | 11 | Service page: heap, PSRAM, partitions, firmware version | todo | | | | |
 | 12 | Alarm detail: shelf expiry, out-of-service reason and actor, delays | todo | | | | |
 | 13 | Urgent ramp 25% / 2x — currently hardcoded, make it commissioned | todo | | | | |
-| 14 | Verify every page in a real browser on the board | todo | | | | |
+| 14 | Verify every page in a real browser on the board | **done** | 01-08 | `tools/browser_check.js` — Playwright/Chromium against the live board. Walks every route read FROM the shell, screenshots each, fails on any console error, and asserts the source attribution on the rendered screen. All 10 routes clean. | | |
 
 ## Blocked on you
 

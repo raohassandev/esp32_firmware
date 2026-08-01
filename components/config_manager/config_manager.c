@@ -65,6 +65,30 @@ typedef struct {
     uint32_t poll_interval_ms;
 } legacy_meter_config_v3_t;
 
+/*
+ * THE INVERTER LAYOUT EVERY SCHEMA UP TO 7 STORED.
+ *
+ * Six frozen legacy layouts referenced the LIVE inverter_config_t, so none of
+ * them was actually frozen: adding comms_failsafe_ms to the live struct silently
+ * changed all six, and the _Static_assert chain caught it. Without that chain a
+ * commissioned schema-6 blob would have been read with every inverter's fields
+ * shifted by four bytes.
+ *
+ * A frozen layout must not name a live type. This is the shape as it stood
+ * through schema 7, and it is what every legacy struct below uses.
+ */
+typedef struct {
+    bool enabled;
+    char name[24];
+    modbus_endpoint_t endpoint;
+    float rated_power_kw;
+    uint16_t power_limit_address;
+    uint8_t power_limit_function;
+    float raw_units_per_percent;
+    float minimum_percent;
+    float maximum_percent;
+} legacy_inverter_config_v7_t;
+
 typedef struct {
     uint32_t magic;
     uint16_t version;
@@ -73,7 +97,7 @@ typedef struct {
     uint8_t meter_count;
     legacy_meter_config_v3_t meters[APP_MAX_METERS];
     uint8_t inverter_count;
-    inverter_config_t inverters[APP_MAX_INVERTERS];
+    legacy_inverter_config_v7_t inverters[APP_MAX_INVERTERS];
     legacy_control_config_v4_t control;
 } legacy_app_config_v1_t;
 
@@ -85,7 +109,7 @@ typedef struct {
     uint8_t meter_count;
     legacy_meter_config_v3_t meters[APP_MAX_METERS];
     uint8_t inverter_count;
-    inverter_config_t inverters[APP_MAX_INVERTERS];
+    legacy_inverter_config_v7_t inverters[APP_MAX_INVERTERS];
     legacy_control_config_v4_t control;
 } legacy_app_config_v2_t;
 
@@ -114,7 +138,7 @@ typedef struct {
     uint8_t meter_count;
     legacy_meter_config_v3_t meters[APP_MAX_METERS];
     uint8_t inverter_count;
-    inverter_config_t inverters[APP_MAX_INVERTERS];
+    legacy_inverter_config_v7_t inverters[APP_MAX_INVERTERS];
     legacy_control_config_v4_t control;
     uint32_t wifi_provision_id;
 } legacy_app_config_v3_t;
@@ -127,7 +151,7 @@ typedef struct {
     uint8_t meter_count;
     legacy_meter_config_v4_t meters[APP_MAX_METERS];
     uint8_t inverter_count;
-    inverter_config_t inverters[APP_MAX_INVERTERS];
+    legacy_inverter_config_v7_t inverters[APP_MAX_INVERTERS];
     legacy_control_config_v4_t control;
     uint32_t wifi_provision_id;
 } legacy_app_config_v4_t;
@@ -178,7 +202,7 @@ typedef struct {
     uint8_t meter_count;
     legacy_meter_config_v5_t meters[APP_MAX_METERS];
     uint8_t inverter_count;
-    inverter_config_t inverters[APP_MAX_INVERTERS];
+    legacy_inverter_config_v7_t inverters[APP_MAX_INVERTERS];
     legacy_control_config_v5_t control;
     uint32_t wifi_provision_id;
 } legacy_app_config_v5_t;
@@ -210,10 +234,23 @@ typedef struct {
     uint8_t meter_count;
     legacy_meter_config_v6_t meters[APP_MAX_METERS];
     uint8_t inverter_count;
-    inverter_config_t inverters[APP_MAX_INVERTERS];
+    legacy_inverter_config_v7_t inverters[APP_MAX_INVERTERS];
     control_config_t control;
     uint32_t wifi_provision_id;
 } legacy_app_config_v6_t;
+
+typedef struct {
+    uint32_t magic;
+    uint16_t version;
+    char device_name[32];
+    app_wifi_config_t wifi;
+    uint8_t meter_count;
+    meter_config_t meters[APP_MAX_METERS];
+    uint8_t inverter_count;
+    legacy_inverter_config_v7_t inverters[APP_MAX_INVERTERS];
+    control_config_t control;
+    uint32_t wifi_provision_id;
+} legacy_app_config_v7_t;
 
 /* The missing link in the chain, found by tests/phase_scope_source_contract.py
  * once it started checking every adjacent pair rather than only the newest.
@@ -242,8 +279,16 @@ _Static_assert(sizeof(legacy_app_config_v6_t) > sizeof(legacy_app_config_v5_t),
  * then loads as schema 7 with every meter acquiring a control basis made of
  * padding bytes -- which decides whether a site's export limit is enforced on the
  * worst phase or on the total. */
-_Static_assert(sizeof(app_config_t) > sizeof(legacy_app_config_v6_t),
+_Static_assert(sizeof(legacy_app_config_v7_t) > sizeof(legacy_app_config_v6_t),
                "schema 7 must stay distinguishable from schema 6 by blob size");
+/* THE ONE THAT CATCHES A NARROWED inverter_config_t.comms_failsafe_ms, for the
+ * same reason the two above exist: a narrower field is absorbed by tail padding,
+ * sizeof(app_config_t) does not change, and a commissioned schema-7 blob then
+ * loads as schema 8 with every inverter acquiring a fail-safe timeout made of
+ * padding bytes -- which decides whether the controller believes the machine
+ * will protect itself when the link drops. */
+_Static_assert(sizeof(app_config_t) > sizeof(legacy_app_config_v7_t),
+               "schema 8 must stay distinguishable from schema 7 by blob size");
 
 static void defaults(app_config_t *c)
 {
@@ -545,7 +590,30 @@ static bool inverter_valid(const inverter_config_t *i)
            isfinite(i->minimum_percent) && isfinite(i->maximum_percent) &&
            i->minimum_percent >= 0.0f && i->maximum_percent >= i->minimum_percent &&
            i->maximum_percent <= 100.0f &&
-           (i->power_limit_function == 0 || i->power_limit_function == 6 || i->power_limit_function == 16);
+           (i->power_limit_function == 0 || i->power_limit_function == 6 || i->power_limit_function == 16) &&
+           /*
+            * THE ORDERING BETWEEN TWO INDEPENDENT SAFETIES.
+            *
+            * The inverter reverts to its own safe output after
+            * comms_failsafe_ms of silence. The controller drops a silent
+            * inverter from the commandable fleet after
+            * INVERTER_COMMS_FAIL_GRACE_MS. The controller must wait LONGER.
+            *
+            * Get it the other way round and the controller stops counting a
+            * machine that is still holding the last setpoint it was given, and
+            * goes on holding it -- uncurtailed -- until its own timer runs out.
+            * The controller meanwhile redistributes that capacity to the
+            * remaining inverters, so the plant produces more than the setpoint
+            * it believes it is enforcing. On an export-limited site that is the
+            * export it exists to prevent.
+            *
+            * Zero means NOT STATED and is accepted: seven of eight brands do not
+            * document this, so refusing an unstated value would make most
+            * plants uncommissionable. What is refused is a STATED value that
+            * puts the two safeties in the dangerous order.
+            */
+           (i->comms_failsafe_ms == 0U ||
+            i->comms_failsafe_ms < INVERTER_COMMS_FAIL_GRACE_MS);
 }
 
 static bool ramp_profile_valid(const ramp_profile_t *r)
@@ -826,6 +894,64 @@ esp_err_t config_manager_init(void)
             have_valid_config = err == ESP_OK && valid(loaded);
             stored_matches = have_valid_config;
             if (!have_valid_config) ESP_LOGW(TAG, "Stored configuration rejected by validation");
+        } else if (err == ESP_OK && stored_size == sizeof(legacy_app_config_v7_t)) {
+            /* Schema 7 to 8: the only new fact is
+             * inverter_config_t.comms_failsafe_ms -- how long the MACHINE waits
+             * before reverting to its own safe output when the controller stops
+             * talking to it.
+             *
+             * It migrates to ZERO, which means NOT STATED, and that is the only
+             * honest value. It is a setting on the inverter, seven of eight
+             * brands do not document a default, and inventing one would make the
+             * controller believe a machine protects itself on a timescale nobody
+             * has verified. Zero disables the ordering CHECK; it does not claim
+             * the ordering holds.
+             *
+             * Nothing else changes and no commissioned value is lost, so no site
+             * has to be re-commissioned for this upgrade. */
+            legacy_app_config_v7_t *legacy = malloc(sizeof(*legacy));
+            if (!legacy) {
+                nvs_close(h);
+                free(loaded);
+                return ESP_ERR_NO_MEM;
+            }
+            size_t legacy_size = sizeof(*legacy);
+            err = nvs_get_blob(h, KEY, legacy, &legacy_size);
+            if (err == ESP_OK) {
+                memset(loaded, 0, sizeof(*loaded));
+                loaded->magic = legacy->magic;
+                loaded->version = APP_CONFIG_VERSION;
+                memcpy(loaded->device_name, legacy->device_name, sizeof(loaded->device_name));
+                loaded->wifi = legacy->wifi;
+                loaded->meter_count = legacy->meter_count;
+                memcpy(loaded->meters, legacy->meters, sizeof(loaded->meters));
+                loaded->inverter_count = legacy->inverter_count;
+                for (uint8_t i = 0; i < APP_MAX_INVERTERS; ++i) {
+                    const legacy_inverter_config_v7_t *old_inverter = &legacy->inverters[i];
+                    inverter_config_t *next = &loaded->inverters[i];
+                    next->enabled = old_inverter->enabled;
+                    memcpy(next->name, old_inverter->name, sizeof(next->name));
+                    next->endpoint = old_inverter->endpoint;
+                    next->rated_power_kw = old_inverter->rated_power_kw;
+                    next->power_limit_address = old_inverter->power_limit_address;
+                    next->power_limit_function = old_inverter->power_limit_function;
+                    next->raw_units_per_percent = old_inverter->raw_units_per_percent;
+                    next->minimum_percent = old_inverter->minimum_percent;
+                    next->maximum_percent = old_inverter->maximum_percent;
+                    /* Not stated. See the field comment. */
+                    next->comms_failsafe_ms = 0U;
+                }
+                loaded->control = legacy->control;
+                loaded->wifi_provision_id = legacy->wifi_provision_id;
+                have_valid_config = valid(loaded);
+                if (have_valid_config) {
+                    ESP_LOGW(TAG, "migrated schema 7 configuration to schema %u; "
+                                  "each inverter's own comms fail-safe is NOT STATED "
+                                  "until an engineer enters it",
+                             (unsigned)APP_CONFIG_VERSION);
+                }
+            }
+            free(legacy);
         } else if (err == ESP_OK && stored_size == sizeof(legacy_app_config_v6_t)) {
             /* Schema 6 to 7: the only new fact is meter_config_t.phase_control_basis,
              * and unlike the model it CAN be defaulted safely, because both values

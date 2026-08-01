@@ -19,6 +19,7 @@ theme.js
 icons.js
 operator-proof.js
 product-mode.js
+source-attribution.js
 app.js
 wifi-utils.js
 wifi-guard.js
@@ -40,7 +41,6 @@ em500-profiles.js
 em500-plan.js
 source-detection.js
 solar-grid.js
-source-attribution.js
 operator-view.js
 operator-network.js
 alarm-journal.js

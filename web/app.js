@@ -709,17 +709,46 @@
          * cannot tell which one the controller is acting on. */
         setText('gridPowerProvenance', describeProvenance(status.grid_measurement));
 
+        /*
+         * WHOSE POWER THIS CARD IS SHOWING.
+         *
+         * The card is headed "Grid power" in the markup, and the plant overview
+         * showed 371.82 kW under it while the controller had resolved GENERATOR
+         * and the site energy balance directly below correctly said GENERATOR.
+         * Two panels on one screen, disagreeing about the same measurement.
+         *
+         * On a single-meter tariff plant one meter measures whichever source is
+         * live. See web/source-attribution.js -- the rule is the firmware's, not
+         * re-derived here.
+         */
+        const supply = window.AutomatrixSource?.attribution(status)
+            || { node: 'grid', label: 'Grid', known: true, reason: '' };
+        const cardTitle = document.querySelector('#gridDot')?.closest('.metric-head')?.querySelector('span');
+        if (cardTitle) {
+            cardTitle.textContent = supply.node === 'generator' ? 'Generator power'
+                : supply.known ? 'Grid power' : 'Live source power';
+        }
+
         if (meterFresh) {
             setText('gridPowerValue', formatPower(status.grid_power_kw));
             const descriptor = gridDescriptor(status.grid_power_kw);
-            setText('gridPowerDetail', descriptor.detail);
+            /* The direction wording belongs to whichever source it is: negative
+             * is ordinary export on a grid and reverse power -- a fault -- on a
+             * generator. */
+            setText('gridPowerDetail', supply.known
+                ? (supply.node === 'generator'
+                    ? `${supply.direction(Number(status.grid_power_kw))} · the plant is on the generator`
+                    : descriptor.detail)
+                : supply.reason);
             setDot('gridDot', Number(status.grid_power_kw) > 0 ? 'warning' : 'good');
             setText('meterHealthValue', 'Online');
             setText('meterHealthDetail', `Fresh sample · ${formatAge(status.meter_age_ms)}`);
             setDot('meterDot', 'good');
         } else if (meterStale) {
             setText('gridPowerValue', `${formatPower(status.grid_power_kw)} stale`);
-            setText('gridPowerDetail', 'Last valid sample retained; not current');
+            setText('gridPowerDetail', supply.known
+                ? `Last valid ${supply.label.toLowerCase()} sample retained; not current`
+                : 'Last valid sample retained; not current');
             setDot('gridDot', 'warning');
             setText('meterHealthValue', 'Stale');
             setText('meterHealthDetail', `Last sample ${formatAge(status.meter_age_ms)} ago`);
@@ -2576,9 +2605,51 @@
          * when the shared observer reports the addition. */
         window.AutomatrixEngineeringAccess?.onContentChange(applyRoute);
         await Promise.allSettled([loadConfig(), refreshStatus()]);
-        window.setInterval(refreshStatus, 2000);
+        /*
+         * RELOAD WHEN THE FIRMWARE CHANGES UNDER US.
+         *
+         * The browser kept running the JavaScript it had already loaded across
+         * firmware updates, so a fix could be flashed, verified on the wire, and
+         * remain invisible on screen. That cost real time on this project more
+         * than once, and no amount of care in the fix itself prevents it.
+         *
+         * One reload, on the first status that reports a different build. Guarded
+         * by a flag so a controller that reboots into a different image cannot
+         * put the page into a reload loop.
+         */
+        let loadedFirmware = null;
+        let reloading = false;
+        window.setInterval(async () => {
+            await refreshStatus();
+            const running = state.status?.firmware_version;
+            if (!running) return;
+            if (loadedFirmware === null) { loadedFirmware = running; return; }
+            if (running !== loadedFirmware && !reloading) {
+                reloading = true;
+                location.reload();
+            }
+        }, 2000);
         window.AutomatrixEngineeringAccess?.onScopeChange(refreshSourceDetection);
         refreshSourceDetection();
+        /*
+         * AND KEEP ASKING.
+         *
+         * This ran once at start-up and once whenever the engineering scope
+         * changed, and never again -- so the "Active power source" panel on the
+         * plant overview went on reporting whatever the source had been when the
+         * page was opened. Observed on the plant: the site changed over to the
+         * generator and the panel still read GRID, Tariff 1, four minutes later.
+         *
+         * On the one panel whose entire question is "which supply is carrying
+         * the plant", a value frozen at page-load is not stale information, it
+         * is a wrong answer stated confidently.
+         *
+         * Ten seconds, matching the commissioning-gate poll below rather than
+         * the 2 s status poll: this endpoint is engineering-gated and the
+         * controller's client socket pool is small, and a changeover is a thing
+         * that happens over seconds, not milliseconds.
+         */
+        window.setInterval(refreshSourceDetection, 10000);
         /* Signing in, signing out and changing route are the three events that
          * change what these reads may ask for, so all three re-run them. */
         window.AutomatrixEngineeringAccess?.onScopeChange(refreshLabControl);

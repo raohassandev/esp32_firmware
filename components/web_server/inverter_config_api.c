@@ -134,6 +134,31 @@ static bool parse_inverter(cJSON *object, inverter_config_t *next,
         return false;
     }
     next->endpoint.timeout_ms = value;
+
+    /*
+     * THE INVERTER'S OWN COMMS FAIL-SAFE. Optional: absent leaves whatever is
+     * stored, and zero means NOT STATED rather than zero seconds.
+     *
+     * The upper bound is the controller's own grace, and that refusal is the
+     * point of the field. A machine that waits LONGER than the controller means
+     * the controller stops counting it while it is still holding the last
+     * setpoint it was given -- and goes on holding it, uncurtailed, until its
+     * own timer expires, while the controller redistributes that capacity to the
+     * others. On an export-limited site that is the export the product exists to
+     * prevent.
+     */
+    if (cJSON_HasObjectItem(object, "comms_failsafe_ms")) {
+        if (!read_integer(object, "comms_failsafe_ms", 0,
+                          INVERTER_COMMS_FAIL_GRACE_MS - 1U, &value)) {
+            snprintf(error, error_size,
+                     "Inverter %u: the machine's own communication fail-safe must be "
+                     "shorter than the controller's %u s tolerance, so the inverter "
+                     "protects itself first. Use 0 if the machine's setting is unknown.",
+                     index + 1U, (unsigned)(INVERTER_COMMS_FAIL_GRACE_MS / 1000U));
+            return false;
+        }
+        next->comms_failsafe_ms = value;
+    }
     if (!read_rated_kw(object, &next->rated_power_kw)) {
         snprintf(error, error_size, "Inverter %u has an invalid rated power", index + 1U);
         return false;
@@ -327,6 +352,10 @@ static esp_err_t inverters_config_get(httpd_req_t *request)
         cJSON_AddNumberToObject(item, "unit_id", inverter->endpoint.unit_id);
         cJSON_AddNumberToObject(item, "timeout_ms", (double)inverter->endpoint.timeout_ms);
         cJSON_AddNumberToObject(item, "rated_kw", (double)inverter->rated_power_kw);
+        cJSON_AddNumberToObject(item, "comms_failsafe_ms", inverter->comms_failsafe_ms);
+        /* Published so a screen can state the ordering instead of each one
+         * restating the controller's tolerance and drifting from it. */
+        cJSON_AddNumberToObject(item, "controller_grace_ms", INVERTER_COMMS_FAIL_GRACE_MS);
         cJSON_AddItemToArray(array, item);
     }
 

@@ -236,7 +236,8 @@ static void invalidate_identity(inverter_runtime_t *runtime)
  * safety behaviour is worth having before the form is. The value below IS the
  * agreed default.
  */
-#define INVERTER_COMMS_FAIL_GRACE_MS (2U * 60U * 1000U)
+/* Defined in config_types.h so the configuration validator can compare it
+ * against each inverter's own commissioned fail-safe. */
 
 /* True while this inverter has answered at least once AND that answer is inside
  * the grace window.

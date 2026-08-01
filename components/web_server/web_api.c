@@ -15,6 +15,7 @@
 #include "http_json.h"
 #include "meter_manager.h"
 #include "network_manager.h"
+#include "esp_app_desc.h"
 #include "source_detection.h"
 #include "source_detection_engine.h"
 #include "system_resource_api.h"
@@ -102,6 +103,22 @@ static esp_err_t status_get(httpd_req_t *request)
      */
     source_detection_status_t source = {0};
     const bool have_source = source_detection_get_status(&source) == ESP_OK;
+    /*
+     * WHICH BUILD IS RUNNING.
+     *
+     * After every firmware update the browser went on running the JavaScript it
+     * had already loaded, so a fix could be flashed, verified on the wire, and
+     * still be invisible on screen -- which cost real time before anyone
+     * realised the page simply had not been reloaded.
+     *
+     * The interface compares this against the build it was loaded from and
+     * reloads itself once when they differ. It is the app version, not a
+     * timestamp: a timestamp changes on every rebuild of identical code and
+     * would reload a browser for nothing.
+     */
+    const esp_app_desc_t *build = esp_app_get_description();
+    cJSON_AddStringToObject(root, "firmware_version", build ? build->version : "");
+
     cJSON *source_json = cJSON_AddObjectToObject(root, "source");
     cJSON_AddBoolToObject(source_json, "available", have_source);
     if (have_source) {

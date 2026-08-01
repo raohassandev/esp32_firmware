@@ -5,7 +5,7 @@
 #include "modbus_types.h"
 
 #define APP_CONFIG_MAGIC 0x50564447u
-#define APP_CONFIG_VERSION 7u
+#define APP_CONFIG_VERSION 8u
 /* Core reserved for deterministic work: the control loop and the meter
  * acquisition tasks are pinned here, leaving the other core for the Wi-Fi stack,
  * lwIP and the HTTP server.
@@ -51,6 +51,20 @@ typedef enum {
  * JavaScript -- would drift the first time one was tuned, and then a screen
  * would confidently describe behaviour the controller no longer has.
  */
+/*
+ * HOW LONG THE CONTROLLER TOLERATES A SILENT INVERTER before dropping it from
+ * the commandable fleet.
+ *
+ * Here rather than beside the code that applies it, for the same reason as the
+ * urgent-ramp constants below: the configuration validator has to compare it
+ * against each inverter's own commissioned fail-safe, and inverter_manager
+ * already requires config_manager, so this is the only direction that avoids a
+ * dependency cycle.
+ *
+ * It must exceed every commissioned comms_failsafe_ms. See that field.
+ */
+#define INVERTER_COMMS_FAIL_GRACE_MS (2U * 60U * 1000U)
+
 #define GENERATOR_URGENT_LOADING_FRACTION 0.25f
 #define GENERATOR_URGENT_RAMP_MULTIPLIER 2.0f
 
@@ -244,6 +258,32 @@ typedef struct {
     float raw_units_per_percent;
     float minimum_percent;
     float maximum_percent;
+    /*
+     * THE INVERTER'S OWN COMMUNICATION FAIL-SAFE, in milliseconds.
+     *
+     * Most grid-tied inverters revert to a safe output by themselves when the
+     * controller stops talking to them. This records how long THAT machine waits
+     * before doing so.
+     *
+     * COMMISSIONED, NOT IN THE PROFILE. It is a setting on the machine,
+     * adjustable on site, and docs/BRAND_REGISTER_EVIDENCE records that seven of
+     * eight brands do not document it at all. A profile default would be a
+     * number this firmware invented about equipment it cannot read.
+     *
+     * ZERO MEANS NOT STATED, which is not zero seconds. With it unknown the
+     * ordering below cannot be checked, and the interface says so rather than
+     * assuming the safe case.
+     *
+     * THE ORDERING IS THE SAFETY PROPERTY. The controller waits
+     * INVERTER_COMMS_FAIL_GRACE_MS before dropping a silent inverter from the
+     * commandable fleet, and that must be LONGER than this value. On a lost link
+     * the machine then reaches its own fail-safe first and protects itself, and
+     * the controller never has to guess what it is doing. Reversed, the
+     * controller gives up while the machine is still holding the last setpoint it
+     * was given -- and goes on holding it, uncurtailed, until its own timer runs
+     * out.
+     */
+    uint32_t comms_failsafe_ms;
 } inverter_config_t;
 
 /* Rate limiting for the PV command, configurable independently per source.

@@ -54,6 +54,11 @@ const PRECEDENCE = [
     ['meter-detail.js', 'devices.js'],
     ['inverter-detail.js', 'devices.js'],
     ['alarm-journal.js', 'operator-operations.js'],
+    /* Five modules name the live source and all of them ask this helper. It has
+     * no dependencies of its own, so it goes first. */
+    ['source-attribution.js', 'app.js'],
+    ['source-attribution.js', 'devices-utils.js'],
+    ['source-attribution.js', 'operator-view.js'],
 ];
 
 /* Sheets the card layer is replacing. While both exist, cards.css has to win at
