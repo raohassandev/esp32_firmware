@@ -710,6 +710,39 @@ check('the register word that would be sent is shown, not just the percent', () 
         'the first gate that stops it is not stated');
 });
 
+/*
+ * THE CASE THE OWNER FOUND: a silent inverter.
+ *
+ * The whole detail block returned null whenever the measurement set was
+ * unavailable, so the computed command disappeared exactly when it is most
+ * needed -- an inverter that is not answering is when an engineer most wants to
+ * know what the controller decided and why it is not being sent.
+ */
+check('a silent inverter still shows what the controller decided', () => {
+    const sandbox = makeSandbox();
+    load(sandbox, 'inverter-detail.js');
+    const silent = {
+        rated_kw: 60,
+        measured_power_kw: null,
+        runtime: { commanded_percent: 45, commanded_power_kw: 27 },
+        measurements: { available: false },
+        command_preview: { available: true, percent: 30, share_kw: 18,
+            would_write: false, blocked_by: 'the inverter is not answering' }
+    };
+    const rendered = sandbox.window.AutomatrixInverterDetail.render(silent);
+    assert.ok(rendered, 'a silent inverter renders nothing at all');
+
+    const text = rendered.textContent;
+    assert.ok(text.includes('Would send'), 'the computed command is hidden');
+    assert.ok(text.includes('30'), 'the computed percentage is not shown');
+    assert.ok(text.includes('not answering'), 'the reason it will not be sent is hidden');
+
+    /* And the measurement sections stay away: there is nothing to draw in them,
+     * and an empty matrix would say the machine answered with nothing. */
+    assert.ok(!text.includes('DC strings'), 'a measurement section is drawn with no measurements');
+    assert.ok(!text.includes('AC side'), 'a measurement section is drawn with no measurements');
+});
+
 /* --------------------------------------------------------------------- run */
 
 let failed = 0;

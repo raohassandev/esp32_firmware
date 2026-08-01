@@ -219,3 +219,10 @@
     margin: 0;
     padding: 0;
 }
+
+/* A commanded value the controller has computed but will NOT send.
+ *
+ * It is a real decision and it is not in force, and those must not look the
+ * same as a commanded value that IS being applied -- the hover says which gate
+ * is stopping it. */
+.op-num-pending { opacity: 0.6; font-style: italic; }

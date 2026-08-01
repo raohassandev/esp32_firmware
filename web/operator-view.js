@@ -1340,6 +1340,11 @@
                 enabled: inverter.enabled === true,
                 online, measured, rated,
                 age: live.data_age_ms ?? inverter.runtime?.data_age_ms,
+                /* What the controller has DECIDED for this machine, which is a
+                 * different fact from what the machine is producing and was
+                 * visible nowhere. It is known even when the inverter is
+                 * silent -- which is exactly when somebody asks. */
+                preview: inverter.command_preview || null,
                 /* Failed and offline first: this table is read to find the unit
                  * that stopped, not to admire the ones that did not. */
                 rank: online ? 2 : inverter.enabled ? 0 : 1
@@ -1348,7 +1353,10 @@
 
         const table = node('table', 'op-table');
         const headRow = node('tr');
-        ['Inverter', 'State', 'Now', 'Rated', 'Use', 'Last update'].forEach((label) => headRow.append(node('th', '', label)));
+        /* "Commanded" is the controller's own decision for this machine; "Now"
+         * is what the machine reports. Adjacent on purpose, and never merged:
+         * one is an instruction and the other is a measurement. */
+        ['Inverter', 'State', 'Now', 'Commanded', 'Rated', 'Use', 'Last update'].forEach((label) => headRow.append(node('th', '', label)));
         const thead = node('thead');
         thead.append(headRow);
         table.append(thead);
@@ -1365,6 +1373,22 @@
             row.append(stateCell);
             /* Never 0 kW for an inverter nobody is measuring. */
             row.append(node('td', 'op-num', finite(entry.measured) ? formatPower(entry.measured) : '—'));
+            /* The percentage the controller would send, and whether it will
+             * actually go. An em dash when the profile describes no command, so
+             * "not commandable" and "commanded to zero" stay distinguishable. */
+            const commanded = node('td', 'op-num');
+            const preview = entry.preview;
+            if (preview && preview.available && finite(Number(preview.percent))) {
+                commanded.textContent = `${Number(preview.percent).toFixed(0)} %`;
+                if (!preview.would_write) {
+                    commanded.classList.add('op-num-pending');
+                    commanded.title = `Not written: ${preview.blocked_by || 'the write gate refuses it'}`;
+                }
+            } else {
+                commanded.textContent = '—';
+                if (preview && preview.blocked_by) commanded.title = preview.blocked_by;
+            }
+            row.append(commanded);
             row.append(node('td', 'op-num', entry.rated ? formatPower(entry.rated) : '—'));
             row.append(node('td', 'op-num', finite(use) ? formatPercent(use) : '—'));
             row.append(node('td', '', finite(entry.age) ? formatAge(entry.age) : '—'));

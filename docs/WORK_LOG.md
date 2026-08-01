@@ -42,6 +42,7 @@ done, so what you check is what is running.
 | B4 | Periodic refresh interval | Confirm ~30 min (drives task 7) |
 | B5 | Modbus efficiency | Serve the control read from the 72-register block instead of 4 separate reads per cycle. Cuts 4–5 transactions to 1. Touches the control input, so I will not do it without your go-ahead |
 | B6 | Huawei bench qualification | The only path from LAB_ONLY to PRODUCTION for inverter writes |
+| B7 | The computed command is visible to an operator | Done, flashed 01-08 | `web/operator-view.js` Solar inverters table has a **Commanded** column: the percentage the controller decided, shown whether or not it will be sent, muted and italic with the refusing gate on hover. Verified in Chromium on 192.168.100.14: `0 %` / "Not written: the inverter is not answering". Pinned by render check 20. | | |
 
 I proceed on tasks 1–14 without waiting. Where a blocked answer changes a
 default, I implement the mechanism and leave the value fail-closed.
@@ -144,4 +145,3 @@ new step is commissioned on the Control page and the other way round.
 *required* depends on the plant: a generator-only site commissions none. Refusing
 to continue would reject a legitimate configuration. What is genuinely required is
 stated by the controller itself at `/api/commissioning/gate`, and that is task 5.
-

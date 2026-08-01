@@ -43,3 +43,6 @@ evidence/ui-baseline/shots/*.png
 # Partial after-audit screenshots (run interrupted when the AP dropped)
 evidence/ui-after/shots/*.png
 build/screenshots/
+
+node_modules/
+package-lock.json

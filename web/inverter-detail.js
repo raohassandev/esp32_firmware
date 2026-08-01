@@ -275,7 +275,24 @@
      */
     function render(inverter) {
         const measurements = inverter && inverter.measurements;
-        if (!measurements || !measurements.available) return null;
+        /*
+         * THE OUTPUT SECTION IS DRAWN EVEN WHEN THE MACHINE IS SILENT.
+         *
+         * This returned null whenever the measurement block was unavailable, so
+         * the commanded limit and the computed command vanished exactly when
+         * they matter most: an inverter that is not answering is the case where
+         * an engineer most needs to see what the controller has decided and why
+         * it is not being sent.
+         *
+         * Only the sections that describe MEASUREMENTS are withheld -- there is
+         * nothing to draw in them. What the controller decided is known
+         * regardless of whether the machine is talking.
+         */
+        const measured = Boolean(measurements && measurements.available);
+        const hasPreview = Boolean(inverter && inverter.command_preview
+            && (inverter.command_preview.available || inverter.command_preview.blocked_by));
+        const hasCommand = Boolean(inverter?.runtime?.has_command);
+        if (!measured && !hasPreview && !hasCommand) return null;
 
         const dc = measurements.dc || {};
         const ac = measurements.ac || {};
@@ -287,7 +304,8 @@
 
         container.append(section('Output', age, commandVersusMeasured(inverter)));
 
-        const strings = Array.isArray(dc.string_voltage_v) ? dc.string_voltage_v.length : 0;
+        const strings = measured && Array.isArray(dc.string_voltage_v)
+            ? dc.string_voltage_v.length : 0;
         if (strings) {
             const labels = [];
             for (let index = 0; index < strings; index += 1) labels.push(`PV${index + 1}`);
@@ -297,12 +315,13 @@
             ])));
         }
 
-        container.append(section('AC side', age, matrix('Per phase, as measured', ['L1', 'L2', 'L3'], [
+        if (measured) container.append(section('AC side', age, matrix('Per phase, as measured', ['L1', 'L2', 'L3'], [
             { label: 'Phase voltage', unit: 'V phase-neutral', values: ac.phase_voltage_v, kind: 'v' },
             { label: 'Line voltage', unit: 'V L1-L2, L2-L3, L3-L1', values: ac.line_voltage_v, kind: 'v' },
             { label: 'Current', unit: 'A', values: ac.phase_current_a, kind: 'a', signed: true }
         ])));
 
+        if (measured) {
         const system = node('div', 'amx-counters');
         system.append(
             counter('DC power', dc.power_kw, 'kW', 'kw'),
@@ -316,7 +335,9 @@
             counter('Insulation resistance', device.insulation_resistance_mohm, 'MΩ', 'mohm')
         );
         container.append(section('Machine', age, system));
+        }
 
+        if (measured) {
         const yields = node('div', 'amx-counters');
         yields.append(
             counter('Today', energy.today_kwh, 'kWh'),
@@ -325,6 +346,7 @@
             counter('Lifetime DC input', energy.total_dc_input_kwh, 'kWh')
         );
         container.append(section('Yield', age, yields));
+        }
 
         /*
          * STATUS AND FAULT, AS CODES.
@@ -335,7 +357,7 @@
          * because it ends the search. The number is what a person quotes to the
          * support line, so it is shown as a number and said to be one.
          */
-        if (finite(device.status_raw) || finite(device.fault_code_raw)) {
+        if (measured && (finite(device.status_raw) || finite(device.fault_code_raw))) {
             const codes = node('div', 'amx-counters');
             const status = node('div', 'amx-counter');
             status.append(node('span', 'amx-counter-label', 'Device status code'));
