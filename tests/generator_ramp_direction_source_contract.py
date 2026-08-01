@@ -24,6 +24,11 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ENGINE = ROOT / "components" / "control_engine" / "control_engine.c"
 LIMIT_H = ROOT / "components" / "control_engine" / "include" / "generator_fleet_limit.h"
+# The two urgent-ramp constants moved to config_types.h so the configuration
+# export can publish them to the interface without a dependency cycle -- a
+# screen must be able to state that a commissioned ramp-down rate is doubled
+# under 25% loading, and it must read the firmware's numbers rather than a copy.
+CONSTANTS_H = ROOT / "components" / "config_manager" / "include" / "config_types.h"
 
 failures = []
 
@@ -38,7 +43,7 @@ def strip_comments(text):
 
 
 engine = strip_comments(ENGINE.read_text(encoding="utf-8", errors="replace"))
-header = LIMIT_H.read_text(encoding="utf-8", errors="replace")
+header = CONSTANTS_H.read_text(encoding="utf-8", errors="replace")
 
 # The multiplier is used exactly once. Two call sites would mean it reached both
 # directions, which is the defect this file exists to prevent.

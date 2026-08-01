@@ -200,7 +200,7 @@ require(".slice(0, 3)" in OPERATOR,
 # implementation copied into this file.
 require("function sparkline" not in OPERATOR,
         "the operator view must not carry a second chart implementation")
-for token in ["Grid power trend", "Solar production trend", "Plant power trend"]:
+for token in ["Metered supply trend", "Solar production trend", "Plant power trend"]:
     require(token in OPERATIONS, f"operator trend chart missing {token}")
 require("PvdgChart" in OPERATIONS and "create" in CHART,
         "the operator screens must mount the shared chart component")

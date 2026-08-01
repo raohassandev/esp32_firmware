@@ -15,6 +15,8 @@
 #include "http_json.h"
 #include "meter_manager.h"
 #include "network_manager.h"
+#include "source_detection.h"
+#include "source_detection_engine.h"
 #include "system_resource_api.h"
 #include "safety_manager.h"
 
@@ -76,6 +78,61 @@ static esp_err_t status_get(httpd_req_t *request)
     cJSON_AddNumberToObject(root, "recovery_ap_channel", network.ap_channel);
     cJSON_AddStringToObject(root, "mdns_hostname", network.hostname);
     cJSON_AddNumberToObject(root, "disconnect_count", network.disconnect_count);
+
+    /*
+     * WHICH SOURCE IS CARRYING THE PLANT.
+     *
+     * This was missing entirely, and the consequence was on the home page: the
+     * controller had resolved GENERATOR from the EM-500 tariff input, and the
+     * power-flow diagram drew the measured 347 kW under GRID with the generator
+     * dimmed and captioned "not running".
+     *
+     * The diagram was not at fault. On a single-meter tariff plant ONE meter
+     * measures whichever source is live -- the number is the same, and what it
+     * MEANS changes with the tariff input. Without the source in this payload
+     * every reader had no choice but to call it "grid", and was wrong whenever
+     * the generator was running.
+     *
+     * PUBLISHED WITH ITS CONFIDENCE, NOT AS A BARE LABEL. A reader must be able
+     * to tell "the controller knows this is the generator" from "the controller
+     * cannot establish the source", because the honest rendering of the second
+     * is not a guess -- it is saying so. attributed_to is exactly that: the node
+     * the measurement may be drawn under, or "unknown" when nothing may be
+     * claimed.
+     */
+    source_detection_status_t source = {0};
+    const bool have_source = source_detection_get_status(&source) == ESP_OK;
+    cJSON *source_json = cJSON_AddObjectToObject(root, "source");
+    cJSON_AddBoolToObject(source_json, "available", have_source);
+    if (have_source) {
+        cJSON_AddNumberToObject(source_json, "mode", source.mode);
+        cJSON_AddStringToObject(source_json, "state", source_detection_state_name(source.state));
+        cJSON_AddBoolToObject(source_json, "configured", source.configured);
+        cJSON_AddBoolToObject(source_json, "evidence_fresh", source.evidence_fresh);
+        cJSON_AddBoolToObject(source_json, "fail_closed", source.fail_closed);
+        cJSON_AddBoolToObject(source_json, "conflict", source.conflict);
+        cJSON_AddStringToObject(source_json, "reason", source.reason_text);
+
+        /*
+         * The single field a screen needs, so no page has to re-derive the rule
+         * and none of them can derive it differently.
+         *
+         * "unknown" unless the source is BOTH resolved and backed by fresh
+         * evidence. A stale tariff read that last said generator is not a
+         * statement about the plant now, and drawing 347 kW under a node on the
+         * strength of it is the same error in the other direction.
+         */
+        const bool trustworthy = source.configured && source.evidence_fresh &&
+                                 !source.conflict &&
+                                 (source.state == SOURCE_STATE_GRID ||
+                                  source.state == SOURCE_STATE_GENERATOR);
+        cJSON_AddStringToObject(source_json, "attributed_to",
+                                !trustworthy ? "unknown"
+                                : source.state == SOURCE_STATE_GENERATOR ? "generator"
+                                : "grid");
+    } else {
+        cJSON_AddStringToObject(source_json, "attributed_to", "unknown");
+    }
 
     /*
      * THE CONTROLLER'S OWN HEALTH, WHERE AN OPERATOR WILL SEE IT.

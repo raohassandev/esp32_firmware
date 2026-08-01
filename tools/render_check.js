@@ -425,6 +425,9 @@ check('the journal starts collapsed and explains itself', () => {
 function flowSandbox() {
     const sandbox = makeSandbox();
     load(sandbox, 'operator-proof.js');   /* AutomatrixCards: measured(), icon() */
+    /* The real attribution helper. Stubbing it would test the fallback rather
+     * than the module the browser runs. */
+    load(sandbox, 'source-attribution.js');
     /* Namespaced, like the real icon builder. A stub that produced a plain
      * element would fail the namespace assertion for a reason that lives in this
      * file rather than in the product -- which is a test reporting its own bug
@@ -465,10 +468,18 @@ function loadEnergyFlow(sandbox) {
     return sandbox.window.__energyFlow;
 }
 
+const ON_GRID = { available: true, state: 'grid', configured: true,
+    evidence_fresh: true, conflict: false, fail_closed: false,
+    attributed_to: 'grid', reason: '' };
+const ON_GENERATOR = { ...ON_GRID, state: 'generator', attributed_to: 'generator' };
+const SOURCE_UNKNOWN = { available: true, state: 'unknown', configured: true,
+    evidence_fresh: false, conflict: false, fail_closed: true,
+    attributed_to: 'unknown', reason: 'The source evidence is stale.' };
+
 const PLANT = {
     status: {
         meter_online: true, meter_stale: false,
-        grid_power_kw: 216.5, generator_power_kw: null
+        grid_power_kw: 216.5, generator_power_kw: null, source: ON_GRID
     },
     inverterTelemetry: { summary: { measured_total_kw: 81.4 } }
 };
@@ -552,7 +563,7 @@ check('a stale meter is not drawn as a live flow', () => {
     const sandbox = flowSandbox();
     const energyFlow = loadEnergyFlow(sandbox);
     const rendered = energyFlow({
-        status: { meter_online: true, meter_stale: true, grid_power_kw: 216.5 },
+        status: { meter_online: true, meter_stale: true, grid_power_kw: 216.5, source: ON_GRID },
         inverterTelemetry: { summary: { measured_total_kw: 81.4 } }
     });
     const grid = rendered.withClass('amx-flow-node')
@@ -567,7 +578,7 @@ check('export reverses the grid dashes and says so in words', () => {
     const sandbox = flowSandbox();
     const energyFlow = loadEnergyFlow(sandbox);
     const rendered = energyFlow({
-        status: { meter_online: true, meter_stale: false, grid_power_kw: -18.2 },
+        status: { meter_online: true, meter_stale: false, grid_power_kw: -18.2, source: ON_GRID },
         inverterTelemetry: { summary: { measured_total_kw: 120.0 } }
     });
 
@@ -589,7 +600,7 @@ check('a flow that carries nothing is not animated', () => {
     const sandbox = flowSandbox();
     const energyFlow = loadEnergyFlow(sandbox);
     const rendered = energyFlow({
-        status: { meter_online: true, meter_stale: false, grid_power_kw: 216.5 },
+        status: { meter_online: true, meter_stale: false, grid_power_kw: 216.5, source: ON_GRID },
         inverterTelemetry: { summary: { measured_total_kw: 0 } }
     });
     const solarPaths = rendered.findAll(
@@ -599,6 +610,79 @@ check('a flow that carries nothing is not animated', () => {
         assert.ok(path.classList.contains('is-inactive'),
             'a flow at zero must be still -- a moving line means power is flowing now');
     });
+});
+
+/*
+ * THE DEFECT THIS EXISTS FOR.
+ *
+ * Observed on the plant 2026-08-01: source detection resolved GENERATOR from the
+ * EM-500 tariff input, and the diagram drew the measured 347.3 kW under GRID
+ * with the generator dimmed and captioned "not running", while the site ran on
+ * the generator.
+ *
+ * On a single-meter tariff plant one meter measures whichever source is live.
+ * The number is identical; only its name changes.
+ */
+check('the measurement follows the source the controller resolved', () => {
+    const sandbox = flowSandbox();
+    const energyFlow = loadEnergyFlow(sandbox);
+    const rendered = energyFlow({
+        status: { meter_online: true, meter_stale: false,
+                  grid_power_kw: 347.3, source: ON_GENERATOR },
+        inverterTelemetry: { summary: { measured_total_kw: 0 } }
+    });
+
+    const nodeFor = (kind) =>
+        rendered.withClass('amx-flow-node').find((n) => n.classList.contains(kind));
+
+    const generator = nodeFor('is-generator');
+    assert.ok(generator.textContent.includes('347.3'),
+        `the generator node shows "${generator.textContent}" -- the measurement `
+        + 'belongs to the source the controller resolved');
+    assert.ok(!generator.textContent.includes('not running'),
+        'the generator is carrying the plant and the page says it is not running');
+
+    const grid = nodeFor('is-grid');
+    assert.ok(!grid.textContent.includes('347.3'),
+        'the measurement is drawn under GRID while the plant runs on the generator');
+    assert.ok(grid.textContent.includes('—'),
+        'the utility is not measured on this topology and must show an em dash');
+});
+
+/* And the third answer: the controller cannot say which supply is live. The
+ * honest rendering is to say so, not to pick the likelier one. */
+check('an unestablished source is stated, not guessed', () => {
+    const sandbox = flowSandbox();
+    const energyFlow = loadEnergyFlow(sandbox);
+    const text = energyFlow({
+        status: { meter_online: true, meter_stale: false,
+                  grid_power_kw: 120.0, source: SOURCE_UNKNOWN },
+        inverterTelemetry: { summary: { measured_total_kw: 0 } }
+    }).textContent;
+
+    assert.ok(text.includes('stale'),
+        'the reason the source is unknown is not shown');
+    assert.ok(!text.includes('importing'),
+        'the page claims a direction on the utility while the source is unknown');
+    assert.ok(!text.includes('not running'),
+        'the page asserts the generator is not running while the source is unknown');
+});
+
+/* Negative power is ordinary export on a grid and REVERSE POWER on a generator
+ * -- a fault. The same sign must not read the same way on both. */
+check('reverse power is not called export', () => {
+    const sandbox = flowSandbox();
+    const energyFlow = loadEnergyFlow(sandbox);
+    const text = energyFlow({
+        status: { meter_online: true, meter_stale: false,
+                  grid_power_kw: -8.4, source: ON_GENERATOR },
+        inverterTelemetry: { summary: { measured_total_kw: 90 } }
+    }).textContent;
+
+    assert.ok(text.includes('reverse power'),
+        'power flowing back into a generator is reported as export');
+    assert.ok(!text.includes('exporting'),
+        'the generator vocabulary is not used for a negative generator reading');
 });
 
 /* --------------------------------------------------------------------- run */

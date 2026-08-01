@@ -248,16 +248,27 @@
         const fresh = Boolean(status.meter_online) && !status.meter_stale;
         const kilowatts = finite(status.grid_power_kw);
         const flow = flowDirection(hasData ? kilowatts : null);
+        /* On a single-meter tariff plant this meter measures whichever source is
+         * live. See web/source-attribution.js. */
+        const attribution = window.AutomatrixSource?.attribution(status)
+            || { node: 'grid', label: 'Utility grid', known: true, reason: '' };
+        const onGenerator = attribution.node === 'generator';
         const detail = !hasData
             ? 'No valid meter sample has been received. Exchange with the utility is unknown.'
+            : !attribution.known
+            ? attribution.reason
+            : onGenerator
+            ? 'The plant is running on the generator. This meter is measuring the generator, not the utility.'
             : flow.direction === 'in' ? 'Importing from the utility'
             : flow.direction === 'out' ? 'Exporting to the utility'
             : 'Near-zero exchange at the point of common coupling';
         return {
             id: 'grid',
             role: 'supply',
-            label: 'Utility grid',
-            sublabel: 'Point of common coupling',
+            label: onGenerator ? 'Generator' : !attribution.known ? 'Live source' : 'Utility grid',
+            sublabel: onGenerator ? 'Carrying the plant'
+                : !attribution.known ? 'Source not established'
+                : 'Point of common coupling',
             state: fresh ? 'measured' : hasData ? 'stale' : 'unavailable',
             measured: hasData,
             value: hasData ? formatPower(kilowatts) : 'Unavailable',

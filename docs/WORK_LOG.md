@@ -20,8 +20,8 @@ done, so what you check is what is running.
 | 1 | Commissioning step: grid policy + control basis | **done** | 01-08 | Step 4 of 8, "Plant control". `web/commissioning-release-v3.js` `plantControl()`; mounts the existing workspace from `web/solar-grid.js` — one form, not a copy. Board serves it: `labels` now has 8 steps. | | |
 | 2 | Commissioning step: generator limits | **done with 1** | 01-08 | Same mounted workspace. Confirmed present in the bundle the board serves: "Rated power (kW)", "Minimum loading (% of rating)", "Spinning reserve (kW)", "Reverse-power margin (kW)", per-engine cards. No separate step built — it would have been a second copy. | | |
 | 3 | Commissioning step: source detection (1 meter tariff / 2 meter) | **done** | 01-08 | Step 6 of 9. `sourceStep()` in `web/commissioning-release-v3.js`; mounts the panels from `web/source-detection.js` — same builders, no copy. Board serves 9 step labels with "Source detection" sixth. | | |
-| 4 | Commissioning step: PV ramp per source | todo | | | | |
-| 5 | Commissioning: show WHY the gate is not met | todo | | | | |
+| 4 | Commissioning step: PV ramp per source | **done with 1** | 01-08 | Ramp editor is in the workspace step 4 mounts (`rampFields`, per-source profiles, live advisory). Confirmed in the bundle the board serves. | | |
+| 5 | Commissioning: show WHY the gate is not met | **done** | 01-08 | The wizard's spine is now the controller's own nine prerequisites, read live from `/api/commissioning/gate` and shown on EVERY step, not just Review. Plus the runbook's risk ladder on each step header: READ ONLY / CONFIGURATION / WRITES TO PLANT. | | |
 | 6 | Inverter comms fail-safe ordering (controller 2 min > inverter 1 min) — not implemented at all | todo | | | | |
 | 7 | Periodic setpoint refresh: on comms restore + every ~30 min — not implemented | todo | | | | |
 | 8 | Control-evidence page: grid min/max/average, error kW, safe PV, gate state | todo | | | | |
@@ -49,6 +49,40 @@ default, I implement the mechanism and leave the value fail-closed.
 ---
 
 ## Notes
+
+**Commissioning had no journey — accepted.** Tasks 1 and 3 mounted existing
+panels into new steps and called it done. That was component dumping, not a
+commissioning flow, and the owner was right to say so.
+
+`docs/SITE_COMMISSIONING_RUNBOOK.md` already contains the real procedure, and its
+spine is section 9: nine named prerequisites, evaluated in order, fail-closed,
+each with the reason it is not met. The wizard now reads them live from
+`/api/commissioning/gate` and keeps them on screen the whole way through, with
+the single next thing to do stated as a sentence — `first_unmet` is exactly what
+the control engine publishes as its own inhibit reason.
+
+Read from the firmware, never restated: a hardcoded list of nine here would drift
+from the gate the first time one was added or renamed.
+
+The runbook also tags every section [RO], [CFG] or [WRITE], and that order is a
+safety property — identify before configuring, configure before writing. Each
+wizard step now declares which it is. Still missing from the wizard, and recorded
+rather than glossed: recording the plant inventory, proving the addressing
+convention empirically, the first controlled write with settle-time measurement,
+and abort/rollback.
+
+**A defect the owner found that I should have: the source panel never
+refreshed.** It rendered once when the tab opened and then never again, so a
+plant that changed over from grid to generator went on showing the old source
+until someone reloaded. On the one screen whose whole job is to say which supply
+is live. Now polls every 4 s, stops when its host leaves the document or the tab
+is hidden.
+
+**And the audit that should have come first.** Every live module was checked at
+once for two things: does it refresh, and does it name the source without asking
+the controller. That found the remaining sites in one pass instead of the owner
+finding them one at a time.
+
 
 Anything I find while working that you should know goes here, newest first.
 

@@ -275,3 +275,19 @@
      * screen next to their names, so it is the redundant copy. */
     .amx-flow-legend { display: none; }
 }
+
+/* Said in words when the controller cannot establish which supply is live.
+ *
+ * The diagram places the measurement under a node, and that placement is a
+ * claim. When the source is unknown the claim cannot be made, so the reason is
+ * printed instead of the diagram quietly picking the more likely one. */
+.amx-flow-unattributed {
+    margin: 0 var(--sp-4) var(--sp-3);
+    padding: var(--sp-2) var(--sp-3);
+    border-left: 3px solid var(--warning, var(--orange));
+    background: var(--panel-strong);
+    border-radius: var(--r-1);
+    font-size: var(--fs-1);
+    color: var(--muted);
+    line-height: 1.45;
+}

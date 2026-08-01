@@ -1254,17 +1254,17 @@
     const CHART_PAGES = {
         dashboard: {
             title: 'Plant power trend',
-            description: 'Grid exchange and solar production stored by the controller',
+            description: 'Metered supply and solar production stored by the controller',
             series: [
-                { key: 'grid_kw', label: 'Grid power', meaning: { positive: 'importing from the utility', negative: 'exporting to the utility' } },
+                { key: 'grid_kw', label: 'Metered supply', meaning: { positive: 'supplying the plant', negative: 'flowing back to the supply' } },
                 { key: 'solar_kw', label: 'Solar production', meaning: { positive: 'producing', negative: 'consuming' } }
             ]
         },
         meters: {
-            title: 'Grid power trend',
-            description: 'Grid exchange stored by the controller',
+            title: 'Metered supply trend',
+            description: 'What the source meter recorded. On a single-meter plant the supply may have changed within this window.',
             series: [
-                { key: 'grid_kw', label: 'Grid power', meaning: { positive: 'importing from the utility', negative: 'exporting to the utility' } }
+                { key: 'grid_kw', label: 'Metered supply', meaning: { positive: 'supplying the plant', negative: 'flowing back to the supply' } }
             ]
         },
         inverters: {

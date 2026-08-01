@@ -520,6 +520,13 @@
     async function renderSource(signal) {
         const data = await api('/api/source-detection', { signal, timeoutMs: 5000 });
         setContent(...statusPanels(data), buildConfiguration(data));
+        /* Same reason as mount(): this screen exists to say which supply is
+         * live, and a value frozen at tab-open time is confidently wrong the
+         * moment the plant changes over. */
+        window.clearTimeout(refreshTimer);
+        refreshTimer = window.setTimeout(() => {
+            if (!document.hidden) renderSource();
+        }, REFRESH_MS);
     }
 
     registerTab('source', 'Source detection', renderSource);
@@ -538,12 +545,43 @@
      * elsewhere needs no second copy: the same builders, appended somewhere
      * else. The POST, the validation and the fail-closed rules stay here.
      */
+    /*
+     * IT REFRESHES ITSELF.
+     *
+     * The panel rendered once, when the tab was opened, and then never again --
+     * so a plant that changed over from grid to generator went on showing GRID
+     * and Tariff 1 until somebody reloaded the page. On the one screen whose
+     * entire job is to say which supply is live, a value frozen at whatever it
+     * was when the tab opened is worse than no value: it is confidently wrong.
+     *
+     * The controller re-evaluates the source continuously; this follows it.
+     */
+    const REFRESH_MS = 4000;
+    let refreshTimer = null;
+    let mountedHost = null;
+
+    function scheduleRefresh() {
+        window.clearTimeout(refreshTimer);
+        refreshTimer = null;
+        /* Stop when the host has gone from the document -- a tab that was
+         * closed, or a commissioning step the engineer navigated away from --
+         * so a hidden panel does not keep polling the controller. */
+        if (!mountedHost || !mountedHost.isConnected || document.hidden) return;
+        refreshTimer = window.setTimeout(() => { mount(mountedHost); }, REFRESH_MS);
+    }
+
     async function mount(host) {
-        const target = host || document.getElementById('crSourceDetectionHost');
+        const target = host || mountedHost || document.getElementById('crSourceDetectionHost');
         if (!target) return;
+        mountedHost = target;
         try {
             const data = await api('/api/source-detection', { timeoutMs: 5000 });
+            /* Rebuilt rather than patched: the panels are cheap, and a partial
+             * update is how one field ends up describing a different reading
+             * from the one beside it. */
             target.replaceChildren(...statusPanels(data), buildConfiguration(data));
+            scheduleRefresh();
+            return;
         } catch (error) {
             /* Named, not generic. "Could not load" on this panel is
              * indistinguishable from "this plant has no source detection", and
@@ -551,8 +589,16 @@
             const failed = node('div', 'notice warning',
                 `Source detection could not be read: ${error.message}`);
             target.replaceChildren(failed);
+            /* Keep trying: a transient network failure must not leave the panel
+             * dead until the engineer reloads. */
+            scheduleRefresh();
         }
     }
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) { window.clearTimeout(refreshTimer); refreshTimer = null; }
+        else if (mountedHost?.isConnected) mount(mountedHost);
+    });
 
     window.AutomatrixSourceDetection = { mount };
 })();

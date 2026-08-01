@@ -1227,6 +1227,34 @@ esp_err_t config_manager_export_json(char **out)
         cJSON_AddNumberToObject(ro, "up_pct_s", ramp->up_percent_per_second);
         cJSON_AddNumberToObject(ro, "down_pct_s", ramp->down_percent_per_second);
     }
+    /*
+     * THE MULTIPLIER THAT IS APPLIED TO A COMMISSIONED RAMP WITHOUT ASKING.
+     *
+     * The generator ramp-DOWN rate an engineer commissions is not the rate that
+     * is always in force. While a generator carries the plant and its loading is
+     * below GENERATOR_URGENT_LOADING_FRACTION of the online rating, the control
+     * loop multiplies the down rate by GENERATOR_URGENT_RAMP_MULTIPLIER, because
+     * an under-loaded engine needs PV pulled off it faster than normal.
+     *
+     * That is correct behaviour and it was invisible. An engineer set 5 %/s,
+     * the plant sometimes ran at 10 %/s, and nothing on any screen said so --
+     * which is the same class of defect as showing a commanded setpoint as if it
+     * were a measurement: the number on the screen is not the number in force.
+     *
+     * Published READ-ONLY so the interface can state it. Deliberately taken from
+     * the firmware's own constants rather than restated in JavaScript: a second
+     * copy of 25% and 2x would drift from generator_fleet_limit.h the first time
+     * either was tuned, and then the screen would confidently describe behaviour
+     * the controller no longer has.
+     */
+    cJSON *urgent = cJSON_AddObjectToObject(cc, "generator_urgent_ramp");
+    cJSON_AddNumberToObject(urgent, "below_loading_fraction",
+                            GENERATOR_URGENT_LOADING_FRACTION);
+    cJSON_AddNumberToObject(urgent, "down_rate_multiplier",
+                            GENERATOR_URGENT_RAMP_MULTIPLIER);
+    cJSON_AddBoolToObject(urgent, "applies_to_down_only", true);
+    cJSON_AddBoolToObject(urgent, "configurable", false);
+
     cJSON_AddNumberToObject(cc, "interval_ms", c->control.interval_ms);
     cJSON_AddNumberToObject(cc, "meter_stale_timeout_ms", c->control.meter_stale_timeout_ms);
 

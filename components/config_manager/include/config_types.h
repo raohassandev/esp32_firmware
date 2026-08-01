@@ -35,6 +35,26 @@ typedef enum {
     APP_WIFI_IP_STATIC = 1
 } app_wifi_ip_mode_t;
 
+/*
+ * URGENT GENERATOR RAMP.
+ *
+ * While a generator carries the plant and its loading is below
+ * GENERATOR_URGENT_LOADING_FRACTION of the online rating, the PV ramp-DOWN rate
+ * is multiplied by GENERATOR_URGENT_RAMP_MULTIPLIER. An under-loaded engine
+ * needs PV pulled off it faster than normal; ramping PV UP faster would do the
+ * opposite, so the multiplier is deliberately one-directional.
+ *
+ * DEFINED HERE, not beside the logic that applies it, because two things need
+ * them and only this direction avoids a dependency cycle: control_engine already
+ * requires config_manager, so the fleet limiter can read these while the
+ * configuration export publishes them. A second copy in either place -- or in
+ * JavaScript -- would drift the first time one was tuned, and then a screen
+ * would confidently describe behaviour the controller no longer has.
+ */
+#define GENERATOR_URGENT_LOADING_FRACTION 0.25f
+#define GENERATOR_URGENT_RAMP_MULTIPLIER 2.0f
+
+
 typedef struct {
     bool enabled;
     char ssid[33];

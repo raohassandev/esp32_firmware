@@ -15,7 +15,10 @@
 
   const PAGE = {
     dashboard: { eyebrow: 'Operations', title: 'Plant overview', question: 'Is the power system operating normally?', action: 'Review the power balance, current limitations and anything requiring attention.' },
-    meters: { eyebrow: 'Grid', title: 'Grid power', question: 'Can the grid measurement be trusted right now?', action: 'Confirm direction, freshness and availability before relying on the reading.' },
+    /* "Grid power" is the durable route name and stays; the QUESTION now admits
+     * that on a single-meter tariff plant this meter measures whichever source
+     * is live, so the page is about the live supply rather than the utility. */
+    meters: { eyebrow: 'Live supply', title: 'Grid power', question: 'Can the source measurement be trusted right now?', action: 'Confirm which supply is carrying the plant, then its direction, freshness and availability before relying on the reading.' },
     inverters: { eyebrow: 'Solar', title: 'Solar inverters', question: 'How much solar is available and which equipment needs attention?', action: 'Review fleet availability, production and equipment state.' },
     control: { eyebrow: 'Control', title: 'PV-DG control', question: 'Is automatic control available, safe and intentionally enabled?', action: 'Resolve blockers before enabling any automatic command path.' },
     alarms: { eyebrow: 'Attention', title: 'Alarms and events', question: 'What changed, what is affected and what should be done next?', action: 'Work from highest severity to lowest and confirm each condition clears.' },

@@ -178,6 +178,16 @@
         setSummaryTone('operationalNetwork', networkOnline ? 'good' : 'bad');
 
         const gridFresh = data.grid_meter.fresh === true;
+        /* Named by the controller: on a tariff plant this meter measures the
+         * generator whenever the generator carries the site. */
+        const supply = window.AutomatrixSource?.attribution(state.telemetry?.status || {})
+            || { node: 'grid', label: 'Grid', known: true };
+        const card = document.getElementById('operationalGrid')?.closest('.device-summary-card');
+        const title = card?.querySelector('span');
+        if (title) {
+            title.textContent = supply.node === 'generator' ? 'Fresh generator power'
+                : supply.known ? 'Fresh grid power' : 'Fresh source power';
+        }
         setText('operationalGrid', utils.formatPower(data.grid_meter.active_power_kw));
         let gridDetail = data.grid_meter.state || 'unavailable';
         if (!gridFresh && data.grid_meter.retained_active_power_kw != null) {

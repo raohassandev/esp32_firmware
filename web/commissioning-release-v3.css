@@ -1,1 +1,97 @@
 .commissioning-release-v3{max-width:1180px;margin:0 auto;padding:0 0 96px}.cr-progress{position:sticky;top:0;z-index:8;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px 16px;margin-bottom:18px}.cr-progress-title{display:flex;justify-content:space-between;gap:12px;align-items:center}.cr-progress-title span{font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}.cr-progress-title strong{font-size:.95rem}.cr-progress ol{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;list-style:none;padding:12px 0 0;margin:0}.cr-progress li{display:flex;gap:7px;align-items:center;color:var(--muted);min-width:0}.cr-progress li span{display:grid;place-items:center;width:27px;height:27px;border-radius:50%;border:1px solid currentColor;flex:0 0 auto}.cr-progress li b{font-size:.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cr-progress li.active{color:var(--accent-text)}.cr-progress li.complete{color:var(--green)}.cr-stage{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:22px}.cr-head{max-width:760px;margin-bottom:20px}.cr-head h2{margin:.25rem 0 .45rem}.cr-head p:last-child{color:var(--muted);margin:0}.cr-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px}.cr-grid label{display:grid;gap:7px;min-width:0}.cr-grid label.wide{grid-column:1/-1}.cr-grid label span{font-size:.82rem;font-weight:650;color:var(--muted)}.cr-grid input,.cr-grid select{width:100%;min-height:48px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--field);color:var(--text);font-size:16px}.cr-nav{position:sticky;bottom:12px;z-index:9;display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:16px;padding:12px;border-radius:14px;background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line);backdrop-filter:blur(12px)}.cr-nav>div{margin-right:auto;color:var(--red);font-size:.86rem}.cr-catalog{display:grid;grid-template-columns:1fr 1fr;gap:18px}.cr-catalog article,.cr-editor,.cr-selected{border:1px solid var(--line);border-radius:14px;padding:16px}.cr-add{width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left;border:1px solid var(--line);background:var(--panel-strong);padding:12px;border-radius:11px;margin-top:9px;min-height:58px}.cr-add span{display:grid}.cr-add small{color:var(--muted)}.cr-add b{color:var(--accent-text)}.cr-selected{margin-top:18px}.cr-selected article,.cr-test-list article{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px 0;border-top:1px solid var(--line-soft)}.cr-selected article:first-of-type{border-top:0}.cr-selected article>div,.cr-test-list article>div{display:grid;gap:3px;min-width:0}.cr-selected article span,.cr-test-list article span{text-transform:uppercase;font-size:.72rem;letter-spacing:.07em;color:var(--muted)}.cr-selected article small,.cr-test-list article small,.cr-test-list article p{overflow-wrap:anywhere;color:var(--muted)}.cr-empty{padding:22px;border:1px dashed var(--line);border-radius:12px;text-align:center;color:var(--muted)}.cr-layout{display:grid;grid-template-columns:280px minmax(0,1fr);gap:16px}.cr-tabs{display:grid;align-content:start;gap:8px}.cr-tabs button{display:flex;gap:10px;align-items:center;text-align:left;padding:11px;border:1px solid var(--line);border-radius:11px;background:var(--panel-strong);min-height:58px}.cr-tabs button.active{border-color:var(--accent-text);box-shadow:inset 0 0 0 1px var(--accent-text)}.cr-tabs button>span{display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--panel)}.cr-tabs button div{display:grid;min-width:0}.cr-tabs small{color:var(--muted)}.cr-editor-head{display:flex;align-items:start;justify-content:space-between;gap:12px;margin-bottom:16px}.cr-editor-head p{margin:0;color:var(--muted);font-size:.82rem}.cr-editor-head h3{margin:.25rem 0}.cr-editor-head>span{padding:5px 9px;border-radius:999px;background:var(--panel-strong);font-size:.75rem}.cr-editor-head>span.healthy,.cr-estimate .healthy{color:var(--green)}.cr-editor-head>span.review,.cr-estimate .review{color:var(--yellow)}.cr-editor-head>span.block,.cr-estimate .block{color:var(--red)}.cr-section{border-top:1px solid var(--line-soft);padding-top:16px;margin-top:16px}.cr-section h4{margin:0 0 12px}.cr-notice{display:grid;gap:4px;padding:13px 14px;border-radius:11px;margin:0 0 15px}.cr-notice.warn{background:var(--panel-strong);border:1px solid var(--yellow);color:var(--text)}.cr-notice.good{background:var(--panel-strong);border:1px solid var(--green);color:var(--text)}.cr-estimate,.cr-summary,.cr-health-grid,.cr-review-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:18px}.cr-estimate>div,.cr-summary>div,.cr-health-grid article,.cr-review-grid article{display:grid;gap:5px;padding:14px;border-radius:11px;background:var(--panel-strong);border:1px solid var(--line-soft)}.cr-estimate span,.cr-summary span,.cr-health-grid span{font-size:.76rem;color:var(--muted)}.cr-test-list article{padding:16px;border:1px solid var(--line);border-radius:12px;margin-top:10px}.cr-test-list article.ready{border-color:var(--green)}.cr-test-list article.failed{border-color:var(--red);border-left-width:4px}.cr-test-list article.testing{border-color:var(--yellow)}.cr-health-verdict,.cr-final{display:grid;gap:4px;padding:18px;border-radius:14px;margin-bottom:16px;border:1px solid var(--line)}.cr-health-verdict strong,.cr-final strong{text-transform:uppercase;font-size:1.35rem}.cr-health-verdict.healthy,.cr-final.ready{background:var(--panel-strong);border-color:var(--green);border-left-width:5px}.cr-health-verdict.review,.cr-final.review{background:var(--panel-strong);border-color:var(--yellow);border-left-width:5px}.cr-health-verdict.critical,.cr-final.blocked{background:var(--panel-strong);border-color:var(--red);border-left-width:5px}.cr-health-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.cr-review-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.cr-review-grid h3{margin:0}.cr-review-grid p{margin:0;color:var(--muted);line-height:1.55}.cr-blockers{padding:16px;border-radius:8px;background:var(--panel-strong);border:1px solid var(--red);border-left-width:5px;margin-top:16px}.cr-blockers h3{margin-top:0}.cr-blockers li+li{margin-top:7px}.cr-final-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:18px}.cr-selected-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:4px}.cr-selected-head h3{margin:0}.cr-nav>div.ok{color:var(--green)}.cr-progress li button{display:flex;gap:7px;align-items:center;background:none;border:0;padding:4px 2px;color:inherit;font:inherit;cursor:pointer;min-width:0;min-height:44px;text-align:left;border-radius:8px}.cr-progress li button:hover{color:var(--text)}.cr-progress li button:focus-visible{outline:2px solid var(--accent-text);outline-offset:2px}.cr-step-links{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 18px}.cr-step-links .button{min-height:44px}.cr-restart{margin-bottom:18px}.cr-restart .cr-step-links{margin:8px 0 0}@media(max-width:900px){.cr-progress ol{grid-template-columns:repeat(7,72px);overflow-x:auto;padding-bottom:4px}.cr-progress li b{display:none}.cr-layout{grid-template-columns:1fr}.cr-tabs{grid-auto-flow:column;grid-auto-columns:minmax(190px,70vw);overflow-x:auto;padding-bottom:5px}.cr-catalog{grid-template-columns:1fr}.cr-estimate,.cr-summary,.cr-health-grid,.cr-review-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:600px){.commissioning-release-v3{padding-bottom:130px}.cr-progress{border-radius:0;margin-inline:-12px;top:0}.cr-progress-title{align-items:flex-start;flex-direction:column;gap:2px}.cr-stage{padding:16px;border-radius:14px}.cr-grid{grid-template-columns:1fr}.cr-grid label.wide{grid-column:auto}.cr-nav{bottom:74px;margin-inline:-4px}.cr-nav>div{position:absolute;bottom:100%;left:0;right:0;padding:6px 9px;background:var(--panel)}.cr-nav .button{flex:1;min-height:50px}.cr-estimate,.cr-summary,.cr-health-grid,.cr-review-grid{grid-template-columns:1fr}.cr-test-list article,.cr-selected article{align-items:stretch;flex-direction:column}.cr-test-list .button,.cr-selected .button,.cr-final-actions .button{width:100%;min-height:50px}.cr-final-actions{display:grid}.cr-editor{padding:14px}.cr-catalog article{padding:13px}}
+
+/* ------------------------------------------------------------- the spine
+ *
+ * The controller's nine prerequisites, on screen the whole way through
+ * commissioning rather than revealed at Review. An engineer who has filled
+ * every form and still cannot run the plant needs to see WHY without going
+ * looking for it.
+ *
+ * Layout does the work: what is satisfied recedes, what is not stays legible,
+ * and the single next thing to do is a sentence rather than a hunt through a
+ * list.
+ */
+.cr-readiness {
+    margin-top: var(--sp-3);
+    padding: var(--sp-3) var(--sp-4);
+    border: 1px solid var(--line-soft);
+    border-radius: var(--r-2);
+    background: var(--panel-strong);
+}
+
+.cr-readiness-empty { color: var(--muted); font-size: var(--fs-1); }
+
+.cr-readiness-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--sp-3);
+    margin-bottom: var(--sp-2);
+    font-size: var(--fs-1);
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--muted);
+}
+
+.cr-readiness-head strong { color: var(--text); letter-spacing: 0; text-transform: none; }
+
+.cr-readiness-list {
+    /* Reset from .amx-plain-list in cards.css. */
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-2) var(--sp-4);
+}
+
+.cr-readiness-list li {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    font-size: var(--fs-1);
+}
+
+/* Satisfied recedes. It is done; the eye should not keep landing on it. */
+.cr-readiness-list li.met { color: var(--muted); }
+.cr-readiness-list li.met b { font-weight: 400; }
+
+/* Unmet is the work. Colour only here, per ISA-101: this is the actionable
+ * state, and if satisfied items were coloured too the distinction would be
+ * lost. */
+.cr-readiness-list li.unmet { color: var(--text); }
+.cr-readiness-list li.unmet span { color: var(--warning, var(--orange)); }
+
+/* The one thing to do next, in a sentence. A list of nine tells an engineer
+ * where they are; it does not tell them what to do, and the controller already
+ * knows -- first_unmet is exactly what the control engine publishes as its own
+ * inhibit reason. */
+.cr-readiness-next {
+    margin: var(--sp-3) 0 0;
+    padding-top: var(--sp-2);
+    border-top: 1px solid var(--line-soft);
+    font-size: var(--fs-2);
+    line-height: 1.5;
+}
+
+.cr-readiness-done { color: var(--muted); }
+
+/* ------------------------------------------------------------ risk ladder
+ *
+ * The runbook tags every section [RO], [CFG] or [WRITE], and the order is a
+ * safety property: identify before configuring, configure before writing. The
+ * wizard never showed which kind of step an engineer was standing in.
+ */
+.cr-risk {
+    margin-left: var(--sp-3);
+    padding: var(--sp-1) var(--sp-2);
+    border-radius: var(--r-1);
+    border: 1px solid var(--line);
+    font-size: var(--fs-1);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    white-space: nowrap;
+}
+
+.cr-risk-ro { color: var(--muted); }
+.cr-risk-cfg { color: var(--blue); border-color: var(--blue); }
+/* The only one that commands equipment. It is the loudest thing in the header
+ * for exactly as long as the engineer is standing in that step. */
+.cr-risk-write { color: var(--warning, var(--orange)); border-color: var(--warning, var(--orange)); }

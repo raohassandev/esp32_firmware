@@ -859,7 +859,7 @@
             '<div class="health-row"><span>Source mode</span><strong id="solarGridSourceMode">--</strong></div>',
             '<div class="health-row"><span>Grid evidence</span><strong id="solarGridEvidenceState">--</strong></div>',
             '<div class="health-row"><span>Availability / breaker</span><strong id="solarGridContactState">--</strong></div>',
-            '<div class="health-row"><span>Oriented grid power</span><strong id="solarGridPower">--</strong></div>',
+            '<div class="health-row"><span id="solarGridPowerLabel">Oriented source power</span><strong id="solarGridPower">--</strong></div>',
             '<div class="health-row"><span>Grid target</span><strong id="solarGridTarget">--</strong></div>',
             '<div class="health-row"><span>Evidence reads</span><strong id="solarGridEvidenceReads">--</strong></div>',
             '</div>'
@@ -1081,6 +1081,16 @@
             ? status.grid_evidence_fresh ? `Fresh · ${age(status.grid_evidence_age_ms)}` : 'Configured but stale/unavailable'
             : 'Not configured · control blocked';
         byId('solarGridContactState').textContent = `Available ${status.grid_available ? 'YES' : 'NO'} · Breaker ${status.grid_breaker_closed ? 'CLOSED' : 'OPEN'}`;
+        /* Named from the source the controller resolved, shown on the row above.
+         * This is the oriented CONTROL input: on a tariff plant it is the
+         * generator's power whenever the generator carries the site. */
+        const sourceName = String(status.source_mode_name || '').toLowerCase();
+        const label = byId('solarGridPowerLabel');
+        if (label) {
+            label.textContent = sourceName.includes('generator') ? 'Oriented generator power'
+                : sourceName.includes('grid') ? 'Oriented grid power'
+                : 'Oriented source power';
+        }
         byId('solarGridPower').textContent = power(status.grid_power_kw);
         byId('solarGridTarget').textContent = power(status.grid_target_kw);
         byId('solarGridEvidenceReads').textContent = `${Number(status.grid_evidence_success_count) || 0} OK · ${Number(status.grid_evidence_error_count) || 0} errors`;

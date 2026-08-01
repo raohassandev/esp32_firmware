@@ -123,7 +123,59 @@ const labels=['Site','Devices','Channel','Modbus tuning','Plant control','Source
  * those clears the draft. Each entry is now a button that jumps straight there.
  * aria-current marks the step in view, and the disabled state is never used --
  * a step that is not yet reachable still explains itself when pressed. */
-function header(){return`<div class="cr-progress"><div class="cr-progress-title"><span>Commissioning</span><strong>Step ${state.step+1} of ${labels.length}: ${labels[state.step]}</strong></div><ol>${labels.map((x,i)=>`<li class="${i===state.step?'active':i<state.step?'complete':''}"><button type="button" data-step="${i}" ${i===state.step?'aria-current="step"':''}><span>${i+1}</span><b>${x}</b></button></li>`).join('')}</ol></div>`;}
+/* ------------------------------------------------------------------- the spine
+ *
+ * WHAT COMMISSIONING IS FOR, kept on screen the whole way through.
+ *
+ * The controller refuses automatic control until nine named prerequisites are
+ * satisfied. They are evaluated in order, they are fail-closed -- anything the
+ * controller could not read is UNMET, never assumed -- and each carries the
+ * reason it is not met. That is the actual journey, and it is defined in
+ * components/commissioning_gate/commissioning_gate.c, not here.
+ *
+ * The wizard used to hide all of it until the Review step. An engineer could
+ * complete every form and still not know why the controller would not run.
+ *
+ * READ FROM THE FIRMWARE, NEVER RESTATED. A hardcoded list of nine here would
+ * drift from the gate the first time one was added or renamed, and then the
+ * wizard would confidently describe requirements the controller does not have.
+ */
+const RISK = {
+    ro: { label: 'READ ONLY', detail: 'Nothing on the plant is changed by this step.' },
+    cfg: { label: 'CONFIGURATION', detail: 'Changes what the controller will do. No plant equipment is written.' },
+    write: { label: 'WRITES TO PLANT', detail: 'This step commands equipment. Automatic control is forced off on every save.' }
+};
+
+/* Which risk level each step operates at, and what it is trying to satisfy.
+ * The order is the runbook's: record and identify before configuring, configure
+ * before writing, and never the reverse. */
+const STEP_RISK = ['ro', 'ro', 'ro', 'cfg', 'cfg', 'cfg', 'write', 'ro', 'ro'];
+
+function riskBadge(step){const r=RISK[STEP_RISK[step]||'ro'];return`<span class="cr-risk cr-risk-${STEP_RISK[step]||'ro'}" title="${esc(r.detail)}">${r.label}</span>`;}
+
+function readinessRail(){
+ const gate=state.gate;
+ if(!gate)return`<div class="cr-readiness cr-readiness-empty">Reading what the controller still requires…</div>`;
+ if(gate.error)return`<div class="cr-readiness cr-readiness-empty">${esc(gate.error)}</div>`;
+ const list=Array.isArray(gate.prerequisites)?gate.prerequisites:[];
+ if(!list.length)return'';
+ const met=list.filter(p=>p.satisfied).length;
+ /* The first unmet is what the control engine itself publishes as its inhibit
+  * reason, so it is the one thing an engineer should work on next. */
+ const first=list.find(p=>!p.satisfied);
+ return`<div class="cr-readiness">
+  <div class="cr-readiness-head"><span>The controller requires</span><strong>${met} of ${list.length} satisfied</strong></div>
+  <ol class="amx-plain-list cr-readiness-list">${list.map(p=>`<li class="${p.satisfied?'met':'unmet'}" title="${esc(p.reason||p.detail||'')}"><span aria-hidden="true">${p.satisfied?'✓':'○'}</span><b>${esc(p.title||p.id)}</b></li>`).join('')}</ol>
+  ${first?`<p class="cr-readiness-next"><b>Next:</b> ${esc(first.title||first.id)} — ${esc(first.reason||first.detail||'not satisfied')}</p>`:'<p class="cr-readiness-next cr-readiness-done">Every configuration prerequisite is satisfied. Runtime evidence is still checked every cycle before any command is issued.</p>'}
+ </div>`;}
+
+async function loadGate(){
+ if(!access()?.mayRequest('/api/commissioning/gate')){state.gate={error:'Unlock Engineering to see what the controller still requires.'};render();return;}
+ try{state.gate=await api('/api/commissioning/gate',{timeoutMs:5000});}
+ catch(error){state.gate={error:`The controller could not be asked what it requires: ${error.message}`};}
+ render();}
+
+function header(){return`<div class="cr-progress"><div class="cr-progress-title"><span>Commissioning</span><strong>Step ${state.step+1} of ${labels.length}: ${labels[state.step]}</strong>${riskBadge(state.step)}</div><ol>${labels.map((x,i)=>`<li class="${i===state.step?'active':i<state.step?'complete':''}"><button type="button" data-step="${i}" ${i===state.step?'aria-current="step"':''}><span>${i+1}</span><b>${x}</b></button></li>`).join('')}</ol></div>${readinessRail()}`;}
 /* A named shortcut back into an earlier step, for the places where the next
  * thing an engineer wants is behind one. */
 function editLink(step,text){return`<button class="button secondary" data-step="${step}">${text||`Edit ${labels[step].toLowerCase()}`}</button>`;}
@@ -350,6 +402,7 @@ function sourceStep(){return`<section class="cr-stage"><div class="cr-head"><p c
 function render(){if(!route())return;page();const root=$('commissioningReleaseV3');if(!root)return;const views=[site,devices,channel,tuningStep,plantControl,sourceStep,tests,health,review];root.innerHTML=header()+restartBanner()+views[state.step]();bind();if(state.step===1)loadInverters();
  /* The workspace is built by its own module; this asks it to mount into
   * the host above and load what is commissioned. */
+ if(state.gate===undefined){state.gate=null;loadGate();}
  if(state.step===4)window.AutomatrixSolarGrid?.mount();
  if(state.step===5)window.AutomatrixSourceDetection?.mount();}
 const access=()=>window.AutomatrixEngineeringAccess;
@@ -401,7 +454,7 @@ function stepBlocker(step){
 function goto(target){commit();const step=Math.max(0,Math.min(labels.length-1,Number(target)));
  if(step>state.step){for(let i=state.step;i<step;i+=1){const blocker=stepBlocker(i);if(blocker){state.step=i;save();render();say(blocker,false);return;}}}
  state.step=step;save();render();}
-function next(){commit();const blocker=stepBlocker(state.step);if(blocker){say(blocker,false);return;}state.step=Math.min(labels.length-1,state.step+1);save();render();}
+function next(){commit();loadGate();const blocker=stepBlocker(state.step);if(blocker){say(blocker,false);return;}state.step=Math.min(labels.length-1,state.step+1);save();render();}
 function bind(){document.querySelectorAll('[data-add]').forEach(button=>button.onclick=()=>addDevice(catalog.find(p=>p.id===button.dataset.add)));document.querySelectorAll('[data-remove]').forEach(button=>button.onclick=()=>{state.devices=state.devices.filter(d=>d.id!==button.dataset.remove);state.active=state.devices[0]?.id||null;save();render();});document.querySelectorAll('[data-device]').forEach(button=>button.onclick=()=>{if(state.step===2)updateChannel();if(state.step===3)updateTuning();state.active=button.dataset.device;save();render();});document.querySelectorAll('[data-test]').forEach(button=>button.onclick=()=>qualify(state.devices.find(d=>d.id===button.dataset.test)));document.querySelectorAll('[data-step]').forEach(button=>button.onclick=()=>goto(button.dataset.step));document.querySelector('[data-action="back"]')?.addEventListener('click',()=>goto(state.step-1));document.querySelector('[data-action="next"]')?.addEventListener('click',next);document.querySelector('[data-action="refresh-health"]')?.addEventListener('click',loadResources);document.querySelector('[data-action="export"]')?.addEventListener('click',download);document.querySelector('[data-action="finish"]')?.addEventListener('click',finish);document.querySelector('[data-action="restart"]')?.addEventListener('click',restartController);document.querySelector('[data-action="dismiss-restart"]')?.addEventListener('click',()=>{
  /* "Later" hides the banner for this render only. It does NOT clear
   * restart_required: the controller is still running the old settings and the

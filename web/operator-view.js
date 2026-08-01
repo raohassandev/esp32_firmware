@@ -768,18 +768,43 @@
         const card = node('article', 'amx-card amx-wide');
         card.append(node('span', 'amx-card-label', 'Power flow'));
 
-        /* MEASURED. The grid figure is only used when the meter is online and
-         * not stale: a retained value drawn as a live flow is how a diagram
-         * shows a plant importing from a meter that stopped answering. */
-        const gridFresh = Boolean(status.meter_online) && !Boolean(status.meter_stale);
-        const gridKw = gridFresh && finite(status.grid_power_kw) ? Number(status.grid_power_kw) : null;
+        /* MEASURED. Only used when the meter is online and not stale: a retained
+         * value drawn as a live flow is how a diagram shows a plant importing
+         * from a meter that stopped answering. */
+        const sourceFresh = Boolean(status.meter_online) && !Boolean(status.meter_stale);
+        const measuredKw = sourceFresh && finite(status.grid_power_kw)
+            ? Number(status.grid_power_kw) : null;
         const solarKw = cards.measured(telemetry?.summary?.measured_total_kw);
-        const generatorKw = cards.measured(status.generator_power_kw);
 
-        /* Import-positive: above zero the utility supplies the site, below it the
-         * site pushes power back. */
-        const importing = gridKw !== null && gridKw > 0.01;
-        const exporting = gridKw !== null && gridKw < -0.01;
+        /*
+         * WHOSE POWER IS IT.
+         *
+         * This diagram drew the measured 347.3 kW under GRID while the
+         * controller had resolved GENERATOR from the tariff input, with the
+         * generator node dimmed and captioned "not running". The measurement was
+         * never wrong -- its NAME was.
+         *
+         * On a single-meter tariff plant one meter measures whichever source is
+         * live. The firmware settles which, and publishes it; this asks rather
+         * than assuming. See web/source-attribution.js.
+         */
+        const attribution = window.AutomatrixSource?.attribution(status)
+            || { node: 'grid', label: 'Grid', known: true, reason: '', direction: (kw) => (kw > 0.01 ? 'importing' : kw < -0.01 ? 'exporting' : 'balanced') };
+
+        /* The measurement lands on whichever node the controller says it
+         * belongs to. The other source is not "zero" -- it is not measured, and
+         * an em dash says that where a 0.0 would claim the meter looked. */
+        const onGenerator = attribution.node === 'generator';
+        const gridKw = onGenerator ? null : measuredKw;
+        const generatorKw = onGenerator ? measuredKw
+            : cards.measured(status.generator_power_kw);
+
+        /* Import-positive: above zero the source supplies the site, below it the
+         * site pushes power back. On a generator that second case is not export,
+         * it is reverse power -- a fault -- so the wording comes from the
+         * attribution rather than being fixed here. */
+        const importing = measuredKw !== null && measuredKw > 0.01;
+        const exporting = measuredKw !== null && measuredKw < -0.01;
 
         /* DERIVED, and said so on screen. */
         const parts = [gridKw, generatorKw, solarKw].filter((v) => v !== null);
@@ -804,10 +829,13 @@
         stage.append(flowNode('solar', 'solar', 'solar', 'Solar', solarKw,
             solarKw === null ? 'not measured' : active.solar ? 'generating' : 'idle'));
 
-        stage.append(flowNode('grid', 'grid', 'grid', 'Grid', gridKw,
-            gridKw === null ? 'no measurement'
-                : importing ? 'importing'
-                : exporting ? 'exporting' : 'balanced'));
+        stage.append(flowNode('grid', 'grid', 'grid',
+            attribution.node === 'grid' ? attribution.label : 'Grid',
+            gridKw,
+            gridKw !== null ? attribution.direction(gridKw)
+                : onGenerator ? 'not carrying the plant'
+                : !attribution.known ? 'source not established'
+                : 'no measurement'));
 
         const hub = node('div', 'amx-flow-hub');
         /* The junction carries no number on purpose: the moment it shows one,
@@ -822,10 +850,28 @@
             'derived, not metered'));
 
         stage.append(flowNode('generator', 'generator', 'generator', 'Generator', generatorKw,
-            generatorKw === null ? 'not running'
-                : active.generator ? 'supplying' : 'running, no load'));
+            generatorKw !== null
+                ? (onGenerator ? attribution.direction(generatorKw)
+                    : active.generator ? 'supplying' : 'running, no load')
+                /* "not running" was asserted whenever no generator measurement
+                 * existed, which on a tariff plant is also what an unestablished
+                 * source looks like. Only say it when the controller actually
+                 * knows the plant is on the grid. */
+                : attribution.node === 'grid' ? 'not running'
+                : 'not measured'));
 
         card.append(stage);
+
+        /*
+         * SAID IN WORDS WHEN THE SOURCE IS NOT ESTABLISHED.
+         *
+         * A diagram that quietly draws the measurement under one node is making
+         * a claim. When the controller cannot say which supply is live, the
+         * honest rendering is to say so -- not to pick the more likely one.
+         */
+        if (!attribution.known && measuredKw !== null) {
+            card.append(node('p', 'amx-flow-unattributed', attribution.reason));
+        }
 
         const legend = node('div', 'amx-flow-legend');
         legend.setAttribute('aria-label', 'Power source legend');
@@ -931,18 +977,21 @@
         /* ---- 2. what the plant is doing ----------------------------------- */
         const gridKw = finite(status.grid_power_kw) ? Number(status.grid_power_kw) : null;
         const gridFresh = Boolean(status.meter_online) && !Boolean(status.meter_stale);
+        /* Named by the controller, not assumed. See web/source-attribution.js. */
+        const supply = window.AutomatrixSource?.attribution(status)
+            || { node: 'grid', label: 'Grid', known: true, reason: '', direction: (kw) => (kw > 0.01 ? 'importing' : kw < -0.01 ? 'exporting' : 'balanced') };
         now.grid.append(cards.metric({
-            label: 'Grid power',
+            label: supply.known ? `${supply.label} power` : 'Live source power',
             value: gridFresh ? gridKw : null,
             unit: 'kW',
-            /* Direction in words. The sign alone is a convention nobody told the
-             * reader about, and "-12.4" on a power screen is ambiguous to
-             * everyone who has not read the commissioning notes. */
+            /* Direction in words, in the vocabulary of whichever source it is:
+             * negative is ordinary export on a grid and reverse power -- a
+             * fault -- on a generator. The sign alone is a convention nobody
+             * told the reader about. */
             foot: !gridFresh ? 'No current measurement'
                 : gridKw === null ? 'Not measured'
-                : gridKw > 0.01 ? 'Importing from the utility'
-                : gridKw < -0.01 ? 'Exporting to the utility'
-                : 'Near-zero exchange'
+                : !supply.known ? supply.reason
+                : supply.direction(gridKw)
         }));
 
         const solarKw = cards.measured(telemetry?.summary?.measured_total_kw);
@@ -1041,8 +1090,14 @@
         const runtime = primary?.runtime || {};
         const power = finite(status.grid_power_kw) ? Number(status.grid_power_kw) : runtime.active_power_kw;
         const online = runtime.online === true || (status.meter_online && !status.meter_stale);
+        /* Named by the controller. On a tariff plant this meter measures the
+         * generator whenever the generator is carrying the site. */
+        const supply = window.AutomatrixSource?.attribution(status)
+            || { node: 'grid', label: 'Grid', known: true, reason: '', direction: (kw) => (kw > 0.01 ? 'importing' : kw < -0.01 ? 'exporting' : 'balanced') };
         const direction = finite(power)
-            ? (power > 0.01 ? 'Importing from the utility' : power < -0.01 ? 'Exporting to the utility' : 'Near-zero exchange')
+            ? (supply.known
+                ? `${supply.direction(power)}`.replace(/^./, (c) => c.toUpperCase())
+                : supply.reason)
             : stateWord('dataQuality', 'unavailable', 'Unavailable');
         const flow = finite(power) ? (power > 0.01 ? 'in' : power < -0.01 ? 'out' : 'balanced') : 'unknown';
         const range = rangeFor('grid_kw');
@@ -1056,7 +1111,9 @@
         const overview = node('div', 'op-meter-overview');
         const measureCard = node('article', 'op-card op-measure-card');
         measureCard.append(measureBar({
-            label: 'Grid power at the point of common coupling',
+            label: supply.node === 'generator' ? 'Generator power carrying the plant'
+                : supply.known ? 'Grid power at the point of common coupling'
+                : 'Live source power — source not established',
             value: power,
             unit: 'kW',
             tone: online ? 'good' : 'bad',
