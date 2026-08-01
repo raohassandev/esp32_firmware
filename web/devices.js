@@ -286,8 +286,24 @@
 
         /* And everything else the instrument measures, when the commissioned
          * family has a transcribed block. Rendered by its own module: null means
-         * this family has no such block, not that it answered with nothing. */
-        const detail = window.AutomatrixMeterDetail?.render(meter);
+         * this family has no such block, not that it answered with nothing.
+         *
+         * NOT WHEN THE EM500 WORKSPACE IS ON THE PAGE.
+         *
+         * That workspace renders the same register block above this card, so an
+         * engineer was reading every voltage, current and power twice on one
+         * screen from two different modules -- and two renderings of one
+         * quantity is worse than one, because when they disagree there is
+         * nothing to say which is right.
+         *
+         * The rest of this card stays either way. Endpoint, acquisition,
+         * format, timing, poll and error counts and the per-phase split exist
+         * nowhere else, and deleting the whole card to remove the duplicate
+         * would take the diagnostics with it.
+         */
+        const workspaceRendersIt = document.documentElement.dataset.access === 'engineering'
+            && Boolean(byId('em500Workspace'));
+        const detail = workspaceRendersIt ? null : window.AutomatrixMeterDetail?.render(meter);
         if (detail) card.append(detail);
         return card;
     }
