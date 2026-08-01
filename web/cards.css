@@ -205,3 +205,17 @@
     .amx-metric-value { font-size: var(--fs-5); }
     .amx-status-mode { font-size: var(--fs-4); }
 }
+
+/* A list with the browser's bullets and indent removed.
+ *
+ * Shared because every module that renders a record, a checklist or a feed needs
+ * exactly this reset, and each one writing its own is three raw values per file
+ * that the design ratchet rightly counts. One rule, used by name. */
+.amx-plain-list,
+/* .gate-checklist predates this rule and had its own identical reset; folded in
+ * here rather than left duplicated, which is what this class is for. */
+.gate-checklist {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}

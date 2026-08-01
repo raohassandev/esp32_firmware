@@ -84,6 +84,8 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-proof.js" "${CMAKE_
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/icons.js" "${CMAKE_CURRENT_BINARY_DIR}/icons.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/meter-detail.js" "${CMAKE_CURRENT_BINARY_DIR}/meter_detail.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/inverter-detail.js" "${CMAKE_CURRENT_BINARY_DIR}/inverter_detail.js" COPYONLY)
+configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/alarm-journal.js" "${CMAKE_CURRENT_BINARY_DIR}/alarm_journal.js" COPYONLY)
+configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/alarm-journal.css" "${CMAKE_CURRENT_BINARY_DIR}/alarm_journal.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/meter-detail.css" "${CMAKE_CURRENT_BINARY_DIR}/meter_detail.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/cards.css" "${CMAKE_CURRENT_BINARY_DIR}/cards.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/energy-flow.css" "${CMAKE_CURRENT_BINARY_DIR}/energy-flow.css" COPYONLY)
@@ -196,6 +198,8 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/icons.js"
         "${CMAKE_CURRENT_BINARY_DIR}/meter_detail.js"
         "${CMAKE_CURRENT_BINARY_DIR}/inverter_detail.js"
+        "${CMAKE_CURRENT_BINARY_DIR}/alarm_journal.js"
+        "${CMAKE_CURRENT_BINARY_DIR}/alarm_journal.css"
         "${CMAKE_CURRENT_BINARY_DIR}/meter_detail.css"
         "${CMAKE_CURRENT_BINARY_DIR}/cards.css"
         "${CMAKE_CURRENT_BINARY_DIR}/energy-flow.css"

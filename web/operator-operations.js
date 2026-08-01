@@ -285,8 +285,14 @@
              * that class is hidden for engineering access, and acknowledgement is
              * an engineering action. A screen whose only action is invisible to
              * the only role that can perform it is not a screen. */
+            /* The journal sits below the live table on purpose. The table
+             * answers "what is wrong now"; the journal answers "what happened
+             * while nobody was watching", which is the question a small factory
+             * actually arrives with -- and which nothing in this interface could
+             * answer, though the firmware had been recording it all along. */
             page.innerHTML = '<div class="alarm-console" id="alarmConsole"></div>'
-                + '<div class="operator-product-view" id="operatorAlarmView"></div>';
+                + '<div class="operator-product-view" id="operatorAlarmView"></div>'
+                + '<div id="alarmJournal"></div>';
             main.append(page);
         }
     }
@@ -930,6 +936,10 @@
     function renderAlarmConsole() {
         const view = byId('alarmConsole');
         if (!view || route() !== 'alarms') return;
+        /* The history below the live table. It renders its own collapsed state
+         * and only reads the controller when opened -- it is a paged read over
+         * flash and this console re-renders every ten seconds. */
+        window.AutomatrixAlarmJournal?.render();
         const payload = state.alarms || {};
         const alarms = Array.isArray(payload.alarms) ? payload.alarms : [];
         const summary = payload.summary || {};

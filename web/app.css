@@ -732,7 +732,9 @@ input:disabled, select:disabled, textarea:disabled {
 .gate-message, .confirm-message { min-height: 16px; margin: 12px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .gate-message.bad, .confirm-message.bad { color: var(--confirm-mismatched); }
 
-.gate-checklist { display: grid; gap: 8px; margin: 14px 0 0; padding: 0; list-style: none; }
+/* Reset shared with .amx-plain-list in cards.css -- list-style, margin and
+ * padding live there now, so this rule carries only its own layout. */
+.gate-checklist { display: grid; gap: var(--sp-2); margin-top: var(--sp-4); }
 /* State is carried by the word, the marker glyph AND the colour - never colour
  * alone. A satisfied and an unmet row differ in all three. */
 .gate-item {

@@ -1,0 +1,115 @@
+/* alarm-journal.css — a record, laid out so it can be scanned.
+ *
+ * The reading task is one thing: run down the list looking for the moment
+ * something changed. That is a scan, not a study, so the layout puts the two
+ * words that answer it -- the transition and the alarm name -- at a fixed
+ * horizontal position on every row, and everything else beneath in a quieter
+ * line. A row whose first meaningful word starts at a different x each time
+ * cannot be scanned at all; the eye has to read.
+ */
+
+/* The reset comes from .amx-plain-list in cards.css, applied alongside this
+ * class. Only the layout belongs here. */
+.amx-journal-list { display: grid; }
+
+.amx-journal-row {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: baseline;
+    gap: var(--sp-3);
+    padding: var(--sp-3) var(--sp-1);
+    border-bottom: 1px solid var(--line-soft);
+}
+
+/* The sequence number survives a restart, so it is what a person quotes when
+ * reporting an incident. Present and quiet: an identifier, never a time. */
+.amx-journal-seq {
+    font-size: var(--fs-1);
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+    /* Fixed width so the titles beside it line up down the column and the list
+     * can be scanned rather than read. */
+    min-width: 64px;
+    text-align: right;
+}
+
+.amx-journal-body { display: grid; gap: var(--sp-1); min-width: 0; }
+
+.amx-journal-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--sp-2);
+}
+
+.amx-journal-transition {
+    font-size: var(--fs-2);
+    font-weight: 650;
+    /* Fixed width so "Raised" and "Acknowledged" both leave the alarm name
+     * starting in the same place. */
+    min-width: 130px;
+}
+
+.amx-journal-title { font-size: var(--fs-2); color: var(--text); }
+
+.amx-journal-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-3);
+    font-size: var(--fs-1);
+    color: var(--muted);
+}
+
+/* The uptime, quieter than the relative age beside it. It is the precise fact;
+ * "4 h ago" is the one a person actually uses. */
+.amx-journal-uptime { opacity: 0.8; }
+
+.amx-journal-actor,
+.amx-journal-reason { font-style: italic; }
+
+/*
+ * COLOUR ONLY ON THE RAISE.
+ *
+ * ISA-101: colour marks the abnormal and the actionable. A raise is the plant
+ * telling us something went wrong. A clear, an acknowledgement, a shelving are
+ * the record working as intended -- and if those were coloured too, the reader
+ * would learn that this list is simply colourful and stop seeing the raises.
+ */
+.amx-journal-row.is-raised .amx-journal-transition { color: var(--danger, var(--orange)); }
+
+/* Human decisions are set apart by weight rather than hue: they are a different
+ * KIND of fact from a plant event -- somebody was watching -- and an audit reads
+ * the list asking exactly that. */
+.amx-journal-row.is-human .amx-journal-transition { font-weight: 500; font-style: italic; }
+.amx-journal-row.is-cleared .amx-journal-transition,
+.amx-journal-row.is-system .amx-journal-transition { color: var(--muted); font-weight: 500; }
+
+.amx-journal-note {
+    margin-block: 0 var(--sp-2);
+    font-size: var(--fs-1);
+    color: var(--muted);
+    line-height: 1.45;
+}
+
+/* An admitted gap in the history. Not styled as an alarm -- it is a statement
+ * about the RECORD, not about the plant -- but it must not be missable, because
+ * the gap is invisible exactly when it matters most. */
+.amx-journal-warn {
+    margin-block: 0 var(--sp-2);
+    padding: var(--sp-2) var(--sp-3);
+    border-left: 3px solid var(--warning, var(--orange));
+    background: var(--panel-strong);
+    border-radius: var(--r-1);
+    font-size: var(--fs-1);
+    line-height: 1.45;
+}
+
+.amx-journal-header { margin-bottom: var(--sp-3); }
+
+@media (max-width: 560px) {
+    /* The sequence number moves above the row rather than squeezing the title
+     * into a column too narrow to read. */
+    .amx-journal-row { grid-template-columns: 1fr; gap: var(--sp-1); }
+    .amx-journal-seq { text-align: left; min-width: 0; }
+    .amx-journal-transition { min-width: 0; }
+}

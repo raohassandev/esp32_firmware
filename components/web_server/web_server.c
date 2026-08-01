@@ -91,7 +91,8 @@ static esp_err_t css_handler(httpd_req_t *request)
          * are converted -- see tests/design_scale_source_contract.py. */
         web_assets_cards_css,
         web_assets_energy_flow_css,
-        web_assets_meter_detail_css
+        web_assets_meter_detail_css,
+        web_assets_alarm_journal_css
     };
     return send_asset_parts(request, "text/css; charset=utf-8", assets, sizeof(assets) / sizeof(assets[0]));
 }
@@ -131,6 +132,9 @@ static esp_err_t js_handler(httpd_req_t *request)
         web_assets_solar_grid_js,
         web_assets_operator_view_js,
         web_assets_operator_network_js,
+        /* Before operator-operations.js: its alarm console calls
+         * AutomatrixAlarmJournal while rendering. */
+        web_assets_alarm_journal_js,
         web_assets_operator_operations_js,
         web_assets_operator_product_suite_js,
         web_assets_prelab_readiness_js,
