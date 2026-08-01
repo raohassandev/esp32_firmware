@@ -340,12 +340,23 @@ static const inverter_profile_t PROFILES[] = {
         .qualification = INVERTER_PROFILE_QUALIFICATION_DOCUMENTED,
         .manual_reference = "Huawei Inverter Modbus Interface Definitions (V3.0), "
                             "Issue 01 (2023-01-17); not qualified on hardware",
-        .has_identity_probe = true,
-        .identity_function = 3,
-        .identity_address = 30000,
-        .identity_words = 1,
-        .identity_expected = 0x5355, /* "SU" */
-        .identity_mask = 0xFFFF,
+        /*
+         * NO NAMEPLATE PROBE.
+         *
+         * Register 30000 is the nameplate. It is documented for a SUN2000 and it
+         * is NOT on every endpoint that fronts one: a logger that forwards only
+         * its configured points answers ILLEGAL DATA ADDRESS for it, and this
+         * plant's does. It cost a round trip to learn nothing, and for a while
+         * it was the reason a producing inverter was reported as absent.
+         *
+         * Both questions it was asked are answered by the measurement block
+         * below, which has to be read anyway: a block that decodes is a machine
+         * that answered, and the grid voltage inside it is a live register that
+         * exists. Identity is not claimed at all rather than claimed on evidence
+         * this endpoint cannot give -- and a profile that claims no identity is
+         * still refused command authority by its qualification, which is where
+         * that refusal belongs.
+         */
         /* The full telemetry block, same manual, section 3. Reading only; see
          * inverter_telemetry_block.h. This does not affect any write gate. */
         .telemetry_layout = INVERTER_TELEMETRY_LAYOUT_HUAWEI_V3,

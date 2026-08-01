@@ -97,6 +97,24 @@ typedef struct {
      */
     const char *deferred_reason;
 
+    /*
+     * IS THE MACHINE ANSWERING? — a different question from WHO IS IT.
+     *
+     * The identity probe reads the nameplate, which some endpoints do not
+     * implement at all: a plant logger forwards only the points configured in
+     * it and answers ILLEGAL DATA ADDRESS for everything else. Deciding
+     * liveness from the nameplate therefore declared a producing inverter dead.
+     *
+     * This names a register the profile KNOWS the machine answers -- a live
+     * measurement, not a description of the device -- so "is it there" is
+     * settled by a register that exists. It proves nothing about identity and
+     * is never used in its place.
+     */
+    bool has_liveness_probe;
+    uint8_t liveness_function;
+    uint16_t liveness_address;
+    uint8_t liveness_words;
+
     bool has_identity_probe;
     uint8_t identity_function;
     uint16_t identity_address;

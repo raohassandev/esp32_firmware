@@ -28,6 +28,11 @@ static const char *DEFAULT_PROFILE_ID = "custom.modbus-percent-v1";
 #define INVERTER_TELEMETRY_IDLE_MS 100
 /* The monitoring block's own period. See poll_measurements. */
 #define INVERTER_MEASUREMENT_BLOCK_INTERVAL_MS 1000U
+/* How long to wait before offering an endpoint the block again after it
+ * refused one. Long enough not to cost a transaction a second; short
+ * enough that a logger reconfigured on site is picked up while the
+ * engineer is still standing next to it. */
+#define INVERTER_BLOCK_RETRY_MS 60000U
 #define INVERTER_IDENTITY_RECHECK_MS 60000U
 /* Transport-level retries only. There is no sleep between attempts and no
  * readback transaction here: both would sit inside the control loop, and Modbus
@@ -125,7 +130,13 @@ typedef struct {
      * data.consecutive_read_failures is the counter the rest of the firmware
      * reads, and it means something different -- this one exists so that an
      * unreachable endpoint states itself once instead of at the poll rate. */
-    uint32_t identity_failures;
+    /* When the endpoint refuses the measurement block, stop asking every
+     * second. Retried at INVERTER_BLOCK_RETRY_MS so a logger that gains the
+     * points later is picked up without a restart. */
+    uint32_t next_block_attempt_ms;
+    bool block_refused;
+    uint32_t identity_failures;      /* liveness probe */
+    uint32_t identity_mismatches;    /* identity probe */
     uint32_t telemetry_failures;
     /* The endpoint answered the identity probe with ILLEGAL DATA ADDRESS: it
      * does not implement the nameplate register. Distinct from "this profile
@@ -455,6 +466,13 @@ static esp_err_t read_profile_block(inverter_runtime_t *runtime,
     return err;
 }
 
+/*
+ * WHO IS THIS MACHINE?
+ *
+ * Asked only of a profile that names a nameplate register, and only to decide
+ * whether the machine may be COMMANDED. Liveness is not its job: a profile with
+ * a measurement block establishes that by reading the block.
+ */
 static esp_err_t verify_identity(inverter_runtime_t *runtime)
 {
     const inverter_profile_t *profile = runtime->profile;
@@ -529,8 +547,18 @@ static esp_err_t verify_identity(inverter_runtime_t *runtime)
     /* Checked, and timestamped, even when the answer was "no such register":
      * without that this would re-probe on every poll for a register that will
      * never exist. */
+    /*
+     * BACK OFF AFTER ANY OUTCOME, not only a conclusive one.
+     *
+     * Re-probing on every pass whenever the answer was inconclusive turned one
+     * unreachable register into a transaction per poll, on an endpoint that
+     * serves one at a time -- so the probe that could not succeed was also
+     * crowding out the reads that could. The recheck interval applies to
+     * failures too; identity_verified stays false either way, so nothing is
+     * granted by waiting.
+     */
     runtime->identity_checked = matched || unimplemented;
-    runtime->last_identity_ms = (matched || unimplemented) ? timestamp : 0U;
+    runtime->last_identity_ms = timestamp;
     runtime->data.identity_verified = matched;
     runtime->data.last_error = err == ESP_OK && !matched ? ESP_ERR_INVALID_RESPONSE : err;
     portEXIT_CRITICAL(&runtime->lock);
@@ -645,6 +673,26 @@ static esp_err_t poll_measurements(inverter_runtime_t *runtime, uint32_t timesta
     portENTER_CRITICAL(&runtime->lock);
     runtime->data.measurements = decoded;
     runtime->data.measurements_updated_ms = timestamp;
+    /*
+     * ONE READ ANSWERS EVERYTHING THIS BLOCK CONTAINS.
+     *
+     * Active power is register 32080, which is INSIDE 32016..32117. Reading it
+     * again on its own was a second round trip for a number already in hand,
+     * every cycle, for the life of the plant -- and on Modbus the cost is the
+     * round trip, not the payload.
+     *
+     * The grid voltage is in here too, which is what settles "is the machine
+     * answering": a block that decoded is a machine that answered, on a register
+     * that exists. The nameplate was never needed for that and is not read.
+     */
+    runtime->data.measured_power_kw = decoded.active_power_kw;
+    runtime->data.telemetry_supported = true;
+    runtime->data.last_telemetry_ms = timestamp;
+    runtime->data.telemetry_valid = true;
+    runtime->data.telemetry_stale = false;
+    runtime->data.online = true;
+    runtime->data.read_successes++;
+    runtime->data.consecutive_read_failures = 0;
     portEXIT_CRITICAL(&runtime->lock);
     return ESP_OK;
 }
@@ -1289,89 +1337,137 @@ static void inverter_telemetry_task(void *argument)
             runtime->next_poll_ms = timestamp + profile_poll_ms(runtime->profile);
 
             /*
-             * SAY WHY, THE WAY THE METER DOES.
+             * ONE TRANSACTION PER CYCLE.
              *
-             * This path was silent. A plant with a real inverter on the wire
-             * produced no measurement, no error and not one line in the log --
-             * the identity probe failed and the channel was skipped with a bare
-             * `continue`. An engineer could not tell a wrong IP address from a
-             * wrong register, because both look exactly the same: nothing.
+             * The measurement block at 32016..32117 contains the grid voltage,
+             * the currents, the DC strings, the temperature and the active
+             * power -- everything this controller reads. Reading it is therefore
+             * all three questions at once: is the machine answering, what is it
+             * producing, and what does the monitoring page show.
              *
-             * The meter path has always reported its failures with the endpoint
-             * and a running count, which is how its problems get diagnosed in
-             * minutes. This is that, for inverters.
+             * What this replaced, per cycle: a nameplate probe at 30000 that the
+             * plant's endpoint does not implement, a separate active-power read
+             * at 32080 for a register already inside the block, and a liveness
+             * probe added on top of both. Four round trips where one carries the
+             * same information. On Modbus the cost is the round trip.
              *
-             * Rate limited to the first failure and then every sixteenth, so a
-             * permanently unreachable endpoint states itself once and does not
-             * fill the console at the poll rate.
+             * The setpoint readback is asked only after a command has been
+             * issued: with nothing commanded there is nothing to confirm, and it
+             * was polling a register every second to compare it against nothing.
              */
-            const esp_err_t identity_err =
-                identity_probe_is_fresh(runtime, timestamp) ? ESP_OK : verify_identity(runtime);
-            if (identity_err != ESP_OK) {
+            /*
+             * A profile WITHOUT a block keeps the old path, unchanged: verify
+             * who it is, then read the one power register. Making the block the
+             * only route would have broken every profile that does not describe
+             * one, which is most of the catalogue -- the compiler said so by
+             * reporting four functions suddenly unused, and it was right.
+             */
+            const bool block_carries_everything =
+                runtime->profile->telemetry_layout != INVERTER_TELEMETRY_LAYOUT_NONE &&
+                runtime->profile->telemetry_registers > 0U;
+
+            if (!block_carries_everything) {
+                if (!identity_probe_is_fresh(runtime, timestamp) &&
+                    verify_identity(runtime) != ESP_OK) {
+                    portENTER_CRITICAL(&runtime->lock);
+                    runtime->data.online = false;
+                    runtime->data.telemetry_valid = false;
+                    runtime->data.telemetry_stale = true;
+                    mark_status_unknown(runtime, true);
+                    portEXIT_CRITICAL(&runtime->lock);
+                    continue;
+                }
+            }
+
+            /*
+             * BATCH FIRST. IF THE ENDPOINT WILL NOT CARRY IT, TAKE WHAT IT WILL.
+             *
+             * One read of 32016..32117 is the right shape and it is what a
+             * SUN2000 answers. Not every endpoint in front of one does: this
+             * plant's exposes a handful of small windows and refuses the block
+             * with ILLEGAL DATA ADDRESS -- 32016 is not even present on it,
+             * while 32069 x6 and 32080 x2 both answer.
+             *
+             * So the block is attempted, and when it is refused the controller
+             * falls back to the single power register rather than reporting a
+             * producing inverter as absent. The same shape the meter already
+             * uses for its energy counters, and for the same reason: the
+             * efficient read is the default, not a requirement.
+             *
+             * The fallback is remembered, so a refusing endpoint is asked for
+             * the block once a minute rather than every second.
+             */
+            esp_err_t telemetry_err = ESP_FAIL;
+            if (block_carries_everything &&
+                (int32_t)(timestamp - runtime->next_block_attempt_ms) >= 0) {
+                telemetry_err = poll_measurements(runtime, timestamp);
+                if (telemetry_err != ESP_OK) {
+                    runtime->next_block_attempt_ms = timestamp + INVERTER_BLOCK_RETRY_MS;
+                    if (!runtime->block_refused) {
+                        runtime->block_refused = true;
+                        ESP_LOGW(TAG,
+                                 "inverter %u '%s': %s does not carry the %u x%u measurement "
+                                 "block (%s); falling back to the single power register at %u. "
+                                 "Voltage, current and DC detail will not be available.",
+                                 i, runtime->config.name, runtime->config.endpoint.host,
+                                 (unsigned)runtime->profile->telemetry_start,
+                                 (unsigned)runtime->profile->telemetry_registers,
+                                 esp_err_to_name(telemetry_err),
+                                 (unsigned)runtime->profile->active_power_address);
+                    }
+                } else if (runtime->block_refused) {
+                    runtime->block_refused = false;
+                    ESP_LOGI(TAG, "inverter %u '%s': the measurement block is being served again",
+                             i, runtime->config.name);
+                }
+            }
+            if (telemetry_err != ESP_OK && runtime->profile->has_active_power) {
+                telemetry_err = poll_active_power(runtime, timestamp);
+            }
+            if (telemetry_err != ESP_OK) {
                 portENTER_CRITICAL(&runtime->lock);
                 runtime->data.online = false;
                 runtime->data.telemetry_valid = false;
                 runtime->data.telemetry_stale = true;
-                const uint32_t failures = ++runtime->identity_failures;
+                runtime->data.read_errors++;
+                runtime->data.consecutive_read_failures++;
+                const uint32_t failures = ++runtime->telemetry_failures;
                 mark_status_unknown(runtime, true);
                 portEXIT_CRITICAL(&runtime->lock);
                 if (failures == 1U || (failures % 16U) == 0U) {
                     ESP_LOGW(TAG,
-                             "inverter %u '%s': identity probe failed (%s) reading %s:%u unit %u "
-                             "register %u [failure %lu]",
-                             i, runtime->config.name,
-                             esp_err_to_name(identity_err),
+                             "inverter %u '%s': not answering (%s) at %s:%u unit %u, "
+                             "register %u x%u [failure %lu]",
+                             i, runtime->config.name, esp_err_to_name(telemetry_err),
                              runtime->config.endpoint.host,
                              (unsigned)runtime->config.endpoint.port,
                              (unsigned)runtime->config.endpoint.unit_id,
-                             (unsigned)runtime->profile->identity_address,
+                             block_carries_everything
+                                 ? (unsigned)runtime->profile->telemetry_start
+                                 : (unsigned)runtime->profile->active_power_address,
+                             block_carries_everything
+                                 ? (unsigned)runtime->profile->telemetry_registers
+                                 : (unsigned)runtime->profile->active_power_words,
                              (unsigned long)failures);
                 }
                 continue;
             }
-            if (runtime->identity_failures != 0U) {
-                ESP_LOGI(TAG, "inverter %u '%s': identity confirmed after %lu failed probe(s)",
-                         i, runtime->config.name,
-                         (unsigned long)runtime->identity_failures);
-                runtime->identity_failures = 0U;
-            }
-
-            esp_err_t telemetry_err = poll_active_power(runtime, timestamp);
-            if (telemetry_err != ESP_OK) {
-                /* Same rule for the measurement read: an inverter that answers
-                 * the identity probe and then refuses the power register is a
-                 * different fault from one that never answered, and the two
-                 * were indistinguishable. */
-                const uint32_t failures = ++runtime->telemetry_failures;
-                if (failures == 1U || (failures % 16U) == 0U) {
-                    ESP_LOGW(TAG,
-                             "inverter %u '%s': active-power read failed (%s) from %s:%u "
-                             "register %u [failure %lu]",
-                             i, runtime->config.name, esp_err_to_name(telemetry_err),
-                             runtime->config.endpoint.host,
-                             (unsigned)runtime->config.endpoint.port,
-                             (unsigned)runtime->profile->active_power_address,
-                             (unsigned long)failures);
-                }
-            } else if (runtime->telemetry_failures != 0U) {
-                ESP_LOGI(TAG, "inverter %u '%s': production reading recovered after %lu failure(s)",
+            if (runtime->telemetry_failures != 0U) {
+                ESP_LOGI(TAG, "inverter %u '%s': answering again after %lu failure(s)",
                          i, runtime->config.name,
                          (unsigned long)runtime->telemetry_failures);
                 runtime->telemetry_failures = 0U;
             }
-            if (telemetry_err == ESP_OK && runtime->profile->has_power_limit_readback) {
+
+            /* Only when there is a setpoint to confirm. */
+            if (runtime->profile->has_power_limit_readback && runtime->data.has_command) {
                 (void)poll_readback(runtime, timestamp);
             }
-            /* Who owns scheduling of this target. Read-only, and only for a
-             * profile that describes it, so no existing profile gains a
-             * transaction. It rides the ordinary telemetry cadence like every
-             * other read: the confirmation evaluator needs a sample taken after
-             * the write, not a synchronous one. */
-            if (telemetry_err == ESP_OK &&
-                inverter_profile_command_authority_described(runtime->profile)) {
+
+            if (inverter_profile_command_authority_described(runtime->profile)) {
                 (void)poll_command_authority(runtime, timestamp);
             }
-            if (telemetry_err == ESP_OK) {
+            if (!block_carries_everything) {
                 (void)poll_status(runtime, timestamp);
                 /* And the measurement block, at most once a second: it is a
                  * hundred registers that no control decision reads, so it must
