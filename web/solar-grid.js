@@ -119,6 +119,15 @@
         }
     }
 
+    /* The two routes this workspace may appear on. Commissioning is included
+     * because the plant-control step mounts the same workspace; without this the
+     * status poll and the scope-change reload both refuse to run there and the
+     * step renders a form that never loads. */
+    function onAHostRoute() {
+        const where = route();
+        return where === 'control' || where === 'commissioning';
+    }
+
     function node(tag, className = '', text = null) {
         const result = document.createElement(tag);
         if (className) result.className = className;
@@ -778,17 +787,66 @@
         }
     }
 
-    function ensureWorkspace() {
-        if (byId('solarGridWorkspace')) return;
+    /*
+     * WHERE THIS WORKSPACE APPEARS.
+     *
+     * It was built for the Control page and hardcoded to mount there. The plant
+     * owner then asked, rightly, why commissioning walks an engineer through
+     * meter registers and Modbus timing and never once asks for the grid policy,
+     * the generator limits or the ramp rates -- the settings the controller
+     * actually regulates on.
+     *
+     * The answer is NOT a second copy of this form inside the commissioning
+     * module. Every control here is validated, posted and gated by rules that
+     * live in this file; a duplicate would be a second implementation of those
+     * rules, and the two would drift the first time one was corrected.
+     *
+     * So the workspace takes a host. The Control page mounts it where it always
+     * was; commissioning mounts the same thing in its own step. One
+     * implementation, one set of rules, two places it can be reached.
+     */
+    function workspaceHost() {
+        const commissioning = byId('crPlantControlHost');
+        if (commissioning) return commissioning;
         const page = document.querySelector('.page[data-page="control"]');
-        const anchor = page?.querySelector('.dashboard-grid');
-        if (!page || !anchor) return;
+        return page?.querySelector('.dashboard-grid') ? page : null;
+    }
 
+    function ensureWorkspace() {
+        const existing = byId('solarGridWorkspace');
+        const host = workspaceHost();
+        if (!host) return;
+        /* Already mounted somewhere else: move it rather than build a second.
+         * Two live copies would both poll and both post, and the one the
+         * engineer is not looking at would win the last write. */
+        if (existing) {
+            if (existing.parentElement !== host && host.id === 'crPlantControlHost') {
+                host.append(existing);
+            }
+            return;
+        }
+        const root = buildWorkspace();
+        if (!root) return;
+        if (host.id === 'crPlantControlHost') {
+            host.append(root);
+            return;
+        }
+        /* On the Control page the workspace replaces the legacy form, so that
+         * one is hidden rather than left to offer a second way to set the same
+         * values. */
         const legacy = byId('controlSaveButton')?.closest('.form-panel');
         if (legacy) {
             legacy.hidden = true;
             legacy.setAttribute('aria-hidden', 'true');
         }
+        host.querySelector('.dashboard-grid').after(root);
+    }
+
+    /* Builds the workspace and returns it, unattached. Knowing nothing about
+     * where it will live is what lets commissioning host the same one. */
+    function buildWorkspace() {
+        const legacyUnused = byId('controlSaveButton')?.closest('.form-panel');
+        void legacyUnused;
 
         const root = node('section', 'solar-grid-workspace');
         root.id = 'solarGridWorkspace';
@@ -873,10 +931,10 @@
         root.append(runtime, configPanel);
         ensureFleetEditor(root);
         ensureRampEditor(root);
-        anchor.after(root);
 
         save.addEventListener('click', saveConfig);
         enabled.addEventListener('change', updateEvidenceVisibility);
+        return root;
     }
 
     function setMessage(message, tone = '') {
@@ -1040,12 +1098,12 @@
     function schedule() {
         window.clearTimeout(state.timer);
         state.timer = null;
-        if (route() !== 'control' || document.hidden || !controlScopeAllowed()) return;
+        if (!onAHostRoute() || document.hidden || !controlScopeAllowed()) return;
         state.timer = window.setTimeout(refreshStatus, REFRESH_MS);
     }
 
     async function refreshStatus() {
-        if (route() !== 'control' || document.hidden) return;
+        if (!onAHostRoute() || document.hidden) return;
         if (!controlScopeAllowed()) return;
         state.controller?.abort();
         const controller = new AbortController();
@@ -1084,7 +1142,7 @@
         }
         await loadRamps();
         await loadGateReason();
-        if (route() === 'control' && !document.hidden) refreshStatus();
+        if (onAHostRoute() && !document.hidden) refreshStatus();
     }
 
     function start() {
@@ -1093,15 +1151,20 @@
          * scope, so both re-run the gated load: settings appear straight after
          * sign-in without a manual refresh. */
         access()?.onScopeChange(() => {
-            if (route() === 'control' && controlScopeAllowed()) load();
+            if (onAHostRoute() && controlScopeAllowed()) load();
             else stop();
         });
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) stop();
-            else if (route() === 'control') refreshStatus();
+            else if (onAHostRoute()) refreshStatus();
         });
         window.addEventListener('beforeunload', stop);
     }
+
+    /* Commissioning calls this when its plant-control step renders. It is the
+     * same load path the Control page uses, so anything commissioned here is
+     * commissioned there and vice versa. */
+    window.AutomatrixSolarGrid = { mount: load };
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
     else start();

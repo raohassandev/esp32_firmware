@@ -127,8 +127,8 @@ the engine before PV can be curtailed.
 generator load < 25% of online rating  ->  PV ramp-DOWN runs at 2x
 ```
 
-**Ramp-DOWN only.** The urgency is to raise generator loading, and that is done
-by reducing PV faster. Ramping PV *up* faster would do the opposite.
+**Ramp-DOWN only.** The urgency is to raise generator loading, and th is done
+by reducing PV faster. Ramping PV *up* faster would do the opposite.at
 
 - Implemented: `components/control_engine/generator_fleet_limit.c:461`
 - Constants: `GENERATOR_URGENT_LOADING_FRACTION 0.25f`,

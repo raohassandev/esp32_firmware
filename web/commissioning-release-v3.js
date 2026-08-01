@@ -116,7 +116,7 @@ async function importCommissioned(announce=true){if(announce)say('Reading the st
  say(`Loaded ${devices.length} commissioned device(s) from the controller.${unknown.length?` ${unknown.length} field(s) could not be interpreted and are shown as unknown; they will be left as stored.`:''}${error?` ${error}`:''}`,!unknown.length&&!error);return true;}
 function route(){return(location.hash.replace(/^#\/?/,'')||'dashboard')==='commissioning';}
 function page(){const main=$('mainContent');if(!main)return null;let page=main.querySelector('[data-page="commissioning"]');if(!page){page=document.createElement('section');page.className='page';page.dataset.page='commissioning';main.append(page);}page.innerHTML='<div id="commissioningReleaseV3" class="commissioning-release-v3"></div>';return page;}
-const labels=['Site','Devices','Channel','Modbus tuning','Connection test','Controller health','Review'];
+const labels=['Site','Devices','Channel','Modbus tuning','Plant control','Connection test','Controller health','Review'];
 /* The step indicator is the navigation, not a picture of it. It used to be an
  * inert <ol>: the only way to reach "Modbus tuning" on a commissioned unit was
  * Continue through five steps or "Start new commissioning", and the second of
@@ -308,7 +308,28 @@ function finish(){const v=verdict();
  say('Commissioning marked complete and the report exported. Automatic control remains disabled.',true);}
 function download(){const blob=new Blob([JSON.stringify(report(),null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`Automatrix-Commissioning-${(state.site.name||'site').replace(/[^a-z0-9]+/gi,'-')}.json`;a.click();URL.revokeObjectURL(a.href);}
 function review(){const v=verdict();return`<section class="cr-stage"><div class="cr-head"><p class="eyebrow">Acceptance summary</p><h2>Review and finish</h2><p>Commissioning finishes only when required evidence is present. Warnings and blockers remain visible in the exported report.</p></div><div class="cr-final ${v.state}"><span>Commissioning verdict</span><strong>${v.state}</strong><small>${v.blockers.length?`${v.blockers.length} blocker(s) remain`:'Software acceptance checks passed'}</small></div><div class="cr-review-grid"><article><h3>Site</h3><p><strong>${esc(state.site.name)}</strong><br>${esc(state.site.location)}<br>${esc(state.site.engineer)}</p></article><article><h3>Devices</h3><p>${state.devices.length} configured<br>${state.devices.filter(d=>d.status==='ready').length} ready<br>${state.devices.filter(d=>d.applied).length} runtime-applied</p></article><article><h3>Controller</h3><p>Resources: ${esc(state.resources?.resource_state||'not loaded')}<br>Temperature: ${state.resources?.temperature_available?'available':'not available'}<br>Control: remains disabled</p></article></div>${v.blockers.length?`<div class="cr-blockers"><h3>Release blockers</h3><ul>${v.blockers.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`:'<div class="cr-notice good"><strong>Software commissioning checks passed.</strong><span>Physical field acceptance and controlled control-loop testing are still required.</span></div>'}<div class="cr-step-links">${editLink(0,'Edit site details')}${editLink(2,'Edit connection channel')}${editLink(3,'Edit Modbus tuning')}${editLink(4,'Re-run connection test')}</div><div class="cr-final-actions"><button class="button secondary" data-action="export">Export report</button><button class="button secondary" data-action="restart-wizard">Start new commissioning</button><button class="button primary" data-action="finish" ${v.state==='blocked'?'disabled':''}>Finish commissioning</button></div>${state.finished_at?`<div class="cr-notice good"><strong>Marked complete ${esc(new Date(state.finished_at).toLocaleString())}.</strong><span>Recorded in this browser and in the exported report. Automatic control remains disabled; physical field acceptance is still required.</span></div>`:''}</section>`;}
-function render(){if(!route())return;page();const root=$('commissioningReleaseV3');if(!root)return;const views=[site,devices,channel,tuningStep,tests,health,review];root.innerHTML=header()+restartBanner()+views[state.step]();bind();if(state.step===1)loadInverters();}
+/* ------------------------------------------------------------- plant control
+ *
+ * The settings the controller actually regulates on: the grid policy and its
+ * export or import limit, which measurement the limit is enforced on, the
+ * generator's minimum loading, reserve and reverse-power margin, the per-source
+ * PV ramp rates, and the grid loss and recovery timers.
+ *
+ * Commissioning walked an engineer through meter registers and Modbus timing and
+ * never once asked for any of it. Every one of these was implemented, tested and
+ * given a UI -- on a separate page an engineer had to know to go and find.
+ *
+ * THIS IS NOT A SECOND FORM. It mounts the workspace from web/solar-grid.js, so
+ * the validation, the fail-closed rules and the POST all stay in one place. A
+ * copy here would be a second implementation of the same safety rules, and the
+ * two would drift the first time one was corrected.
+ */
+function plantControl(){return`<section class="cr-stage"><div class="cr-head"><p class="eyebrow">What the controller regulates on</p><h2>Plant control</h2><p>The grid policy and its limit, the measurement it is enforced on, the generator protections and the PV ramp rates. Saving any of these forces automatic control back to disabled, so it must be armed again deliberately afterwards.</p></div><div id="crPlantControlHost"></div></section>${nav()}`;}
+
+function render(){if(!route())return;page();const root=$('commissioningReleaseV3');if(!root)return;const views=[site,devices,channel,tuningStep,plantControl,tests,health,review];root.innerHTML=header()+restartBanner()+views[state.step]();bind();if(state.step===1)loadInverters();
+ /* The workspace is built by its own module; this asks it to mount into
+  * the host above and load what is commissioned. */
+ if(state.step===4)window.AutomatrixSolarGrid?.mount();}
 const access=()=>window.AutomatrixEngineeringAccess;
 /* Engineering-only catalogue: never requested outside the commissioning route,
  * because a guaranteed 401 still consumes one of the few client sockets. */
@@ -331,8 +352,16 @@ function stepBlocker(step){
    * after the endpoint had already been written. */
   const unrated=state.devices.find(d=>d.type==='inverter'&&!(Number(d.rated_kw)>0));return unrated?`Enter the rated power for ${unrated.name}. It is never assumed.`:'';}
  if(step===3){const bad=state.devices.map(d=>[d,validateTuning(d)]).find(([,error])=>error);return bad?`${bad[0].name}: ${bad[1]}`:'';}
- if(step===4)return state.devices.some(d=>d.status!=='ready')?'Every release-enabled device must pass qualification or be removed.':'';
- if(step===5)return(!state.resources||state.resources.resource_state==='critical')?'Load controller health and resolve critical resource conditions.':'';
+ /* Step 4 is Plant control. It carries no blocker of its own: whether a policy
+  * is REQUIRED depends on the plant -- a generator-only site commissions no grid
+  * limit -- and inventing a requirement here would refuse a legitimate
+  * configuration. What is genuinely required is stated by the controller itself
+  * at /api/commissioning/gate, and is surfaced separately.
+  *
+  * The workspace mounted in this step still refuses its own invalid input, and
+  * still forces automatic control back to disabled on every save. */
+ if(step===5)return state.devices.some(d=>d.status!=='ready')?'Every release-enabled device must pass qualification or be removed.':'';
+ if(step===6)return(!state.resources||state.resources.resource_state==='critical')?'Load controller health and resolve critical resource conditions.':'';
  return'';}
 /* Move to any step directly.
  *
