@@ -14,6 +14,7 @@
 #include "config_manager.h"
 #include "esp_timer.h"
 #include "inverter_manager.h"
+#include "meter_json.h"
 #include "meter_manager.h"
 
 #define GATEWAY_MODE_PROTECTED 0
@@ -140,6 +141,26 @@ static esp_err_t safe_meters(httpd_req_t *request)
             cJSON_AddNullToObject(runtime, "data_age_ms");
         }
         cJSON_AddStringToObject(runtime, "state", fresh ? "online" : "unavailable");
+        /*
+         * WHAT THE METER SAYS, in the operator view too, through the same
+         * serializer the engineering view uses.
+         *
+         * The gate exists to withhold how the firmware TALKS to the meter --
+         * hosts, unit ids, register addresses -- not what the meter reports.
+         * Voltage, current, power factor, frequency and the energy counters are
+         * printed on the instrument's own front panel and are exactly the
+         * evidence a plant owner uses to satisfy themselves the controller is
+         * working. Hiding them here would keep the proof from the reader it
+         * exists for, while protecting nothing.
+         *
+         * Shared serializer, not a second copy: two hand-written versions of
+         * "volts, per phase, null when absent" drift, and the first symptom is
+         * an operator and an engineer reading different numbers off the same
+         * instrument while standing at the same panel.
+         */
+        meter_json_add_phase_power(runtime, &data, have && data.last_update_ms != 0);
+        meter_json_add_measurements(item, &data, current);
+        meter_json_add_energy(item, &data, current);
         cJSON_AddItemToArray(items, item);
     }
     cJSON *summary = cJSON_AddObjectToObject(root, "summary");

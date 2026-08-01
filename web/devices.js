@@ -247,6 +247,29 @@
             metaItem('Last error', errorLabel)
         );
         card.append(top, reading, meta);
+
+        /* Per-phase active power, next to the total it refines. This is how an
+         * unbalanced site is seen at a glance, and how an engineer explains a
+         * limit the total does not appear to justify. Only shown when the phases
+         * were actually read -- three em dashes would say the meter answered
+         * with nothing when in truth it was never asked. */
+        const phases = Array.isArray(runtime.phase_power_kw) ? runtime.phase_power_kw : [];
+        if (phases.some((value) => typeof value === 'number' && Number.isFinite(value))) {
+            const phaseMeta = element('div', 'device-meta-grid');
+            phases.forEach((value, index) => {
+                phaseMeta.append(metaItem(`L${index + 1} active power`,
+                    typeof value === 'number' && Number.isFinite(value)
+                        ? utils.formatPower(value)
+                        : 'Not read'));
+            });
+            card.append(phaseMeta);
+        }
+
+        /* And everything else the instrument measures, when the commissioned
+         * family has a transcribed block. Rendered by its own module: null means
+         * this family has no such block, not that it answered with nothing. */
+        const detail = window.AutomatrixMeterDetail?.render(meter);
+        if (detail) card.append(detail);
         return card;
     }
 

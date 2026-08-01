@@ -7,6 +7,7 @@
 #include "esp_check.h"
 #include "esp_timer.h"
 #include "inverter_manager.h"
+#include "meter_json.h"
 #include "meter_manager.h"
 #include "network_manager.h"
 #include "safety_manager.h"
@@ -44,114 +45,6 @@ static void add_age(cJSON *parent, const char *name, bool available,
 {
     if (available) cJSON_AddNumberToObject(parent, name, current_ms - event_ms);
     else cJSON_AddNullToObject(parent, name);
-}
-
-/* A measured quantity, or null.
- *
- * Never 0.0 as a stand-in. On a power screen "0.0 V" and "not measured" are
- * different plants, and a reader who cannot tell them apart will diagnose the
- * wrong one. cJSON emits null for a value the firmware does not have, and the
- * interface renders an em dash for it. */
-static void add_measured(cJSON *parent, const char *name, bool available, double value)
-{
-    if (available) cJSON_AddNumberToObject(parent, name, value);
-    else cJSON_AddNullToObject(parent, name);
-}
-
-static void add_measured_triple(cJSON *parent, const char *name, bool available,
-                                const float *values)
-{
-    cJSON *array = cJSON_AddArrayToObject(parent, name);
-    for (int phase = 0; phase < 3; ++phase) {
-        cJSON_AddItemToArray(array, available ? cJSON_CreateNumber(values[phase])
-                                              : cJSON_CreateNull());
-    }
-}
-
-/* Per-phase active power, alongside the total.
- *
- * This is how an operator sees an unbalanced site at a glance, and how an
- * engineer explains a limit the total does not appear to justify. The validity
- * flags travel with it, per phase and not as one flag, because WHICH phase is
- * missing is what decides whether the controller can use the worst conductor or
- * has to fall back to the total. */
-static void add_phase_power(cJSON *parent, const meter_data_t *data, bool has_data)
-{
-    cJSON *array = cJSON_AddArrayToObject(parent, "phase_power_kw");
-    for (int phase = 0; phase < 3; ++phase) {
-        bool valid = has_data && data->phase_valid[phase];
-        cJSON_AddItemToArray(array, valid ? cJSON_CreateNumber(data->phase_power_kw[phase])
-                                          : cJSON_CreateNull());
-    }
-}
-
-/*
- * THE FULL INSTANTANEOUS SET, exactly as the meter reported it.
- *
- * Nothing here is derived and nothing is recomputed: every field is one register
- * pair the manual names. That is the point of the block on a screen -- it is the
- * evidence that the instrument is wired the way the drawing says, and evidence
- * that has been massaged in transit is not evidence.
- *
- * `age_ms` travels with it because this block is polled on its own slower
- * cadence than the control measurement, so its freshness is genuinely different
- * and a page that showed one age for both would be lying about one of them.
- */
-static void add_measurements(cJSON *parent, const meter_data_t *data, uint32_t current_ms)
-{
-    cJSON *object = cJSON_AddObjectToObject(parent, "measurements");
-    const em500_measurements_t *m = &data->measurements;
-    const bool ok = m->valid;
-
-    cJSON_AddBoolToObject(object, "available", ok);
-    add_age(object, "age_ms", ok && data->measurements_updated_ms != 0,
-            current_ms, data->measurements_updated_ms);
-
-    add_measured_triple(object, "phase_voltage_v", ok, m->phase_voltage_v);
-    add_measured_triple(object, "line_voltage_v", ok, m->line_voltage_v);
-    add_measured_triple(object, "current_a", ok, m->current_a);
-    add_measured_triple(object, "active_power_kw", ok, m->active_power_kw);
-    add_measured_triple(object, "reactive_power_kvar", ok, m->reactive_power_kvar);
-    add_measured_triple(object, "apparent_power_kva", ok, m->apparent_power_kva);
-    add_measured_triple(object, "power_factor", ok, m->power_factor);
-
-    add_measured(object, "frequency_hz", ok, m->frequency_hz);
-    add_measured(object, "equivalent_phase_voltage_v", ok, m->equivalent_phase_voltage_v);
-    add_measured(object, "equivalent_line_voltage_v", ok, m->equivalent_line_voltage_v);
-    add_measured(object, "equivalent_current_a", ok, m->equivalent_current_a);
-    add_measured(object, "total_active_power_kw", ok, m->total_active_power_kw);
-    add_measured(object, "total_reactive_power_kvar", ok, m->total_reactive_power_kvar);
-    add_measured(object, "total_apparent_power_kva", ok, m->total_apparent_power_kva);
-    add_measured(object, "total_power_factor", ok, m->total_power_factor);
-    add_measured(object, "voltage_asymmetry_line_percent", ok, m->voltage_asymmetry_line_percent);
-    add_measured(object, "voltage_asymmetry_phase_percent", ok, m->voltage_asymmetry_phase_percent);
-    add_measured(object, "current_asymmetry_percent", ok, m->current_asymmetry_percent);
-    add_measured(object, "neutral_current_a", ok, m->neutral_current_a);
-}
-
-/* The cumulative counters. Slower still, and separately aged for the same
- * reason: they are read every thirty seconds and pretending otherwise would
- * make a stale counter look live. */
-static void add_energy(cJSON *parent, const meter_data_t *data, uint32_t current_ms)
-{
-    cJSON *object = cJSON_AddObjectToObject(parent, "energy");
-    const em500_energy_t *e = &data->energy;
-    const bool ok = e->valid;
-
-    cJSON_AddBoolToObject(object, "available", ok);
-    add_age(object, "age_ms", ok && data->energy_updated_ms != 0,
-            current_ms, data->energy_updated_ms);
-
-    add_measured(object, "total_import_active_kwh", ok, e->total_import_active_kwh);
-    add_measured(object, "total_export_active_kwh", ok, e->total_export_active_kwh);
-    add_measured(object, "total_import_reactive_kvarh", ok, e->total_import_reactive_kvarh);
-    add_measured(object, "total_export_reactive_kvarh", ok, e->total_export_reactive_kvarh);
-    add_measured(object, "total_apparent_kvah", ok, e->total_apparent_kvah);
-    add_measured(object, "partial_import_active_kwh", ok, e->partial_import_active_kwh);
-    add_measured(object, "partial_export_active_kwh", ok, e->partial_export_active_kwh);
-    add_measured(object, "partial_import_reactive_kvarh", ok, e->partial_import_reactive_kvarh);
-    add_measured(object, "partial_export_reactive_kvarh", ok, e->partial_export_reactive_kvarh);
-    add_measured(object, "partial_apparent_kvah", ok, e->partial_apparent_kvah);
 }
 
 static uint32_t meter_stale_after_ms(const app_config_t *config, uint8_t index)
@@ -312,9 +205,9 @@ static esp_err_t meters_get(httpd_req_t *request)
         cJSON_AddNumberToObject(runtime, "last_error", data.last_error);
         cJSON_AddStringToObject(runtime, "last_error_name", esp_err_to_name(data.last_error));
         cJSON_AddStringToObject(runtime, "state", health.state);
-        add_phase_power(runtime, &data, health.has_data);
-        add_measurements(item, &data, current_ms);
-        add_energy(item, &data, current_ms);
+        meter_json_add_phase_power(runtime, &data, health.has_data);
+        meter_json_add_measurements(item, &data, current_ms);
+        meter_json_add_energy(item, &data, current_ms);
         cJSON_AddItemToArray(meters, item);
     }
 

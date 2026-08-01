@@ -131,6 +131,8 @@ typedef struct {
 
 static inverter_runtime_t s_inverters[APP_MAX_INVERTERS];
 static uint8_t s_inverter_count;
+/* Consecutive command refusals, for log throttling. See the refusal site. */
+static uint32_t s_command_refusals;
 static float s_total_rated_kw;
 static portMUX_TYPE s_capacity_lock = portMUX_INITIALIZER_UNLOCKED;
 static TaskHandle_t s_telemetry_task;
@@ -1380,9 +1382,32 @@ esp_err_t inverter_manager_set_total_power_kw(float target_kw)
     }
 
     if (target_count == 0 || !isfinite(total_rated_kw) || total_rated_kw <= 0.0f) {
-        ESP_LOGW(TAG, "power command rejected: no online production-approved inverter profile is commandable");
+        /*
+         * THROTTLED, BECAUSE THIS IS A STANDING CONDITION AND NOT AN EVENT.
+         *
+         * The control loop asks for a command every cycle, so on a plant with no
+         * qualified inverter -- which is every plant before commissioning
+         * finishes -- this fired four times a second and buried the boot log.
+         * Observed on the bench 2026-08-01: the Wi-Fi association failures and
+         * the meter's route error were both scrolled off the console by it,
+         * which are the two messages an engineer is actually looking for.
+         *
+         * A message that appears too often stops being read, and then the
+         * absence of a message stops meaning anything. So: the first refusal
+         * after any change, then one every thirtieth, which is roughly every
+         * eight seconds at the control rate. `first` counts refusals rather than
+         * timing them, so the cadence follows the loop rather than the clock.
+         */
+        if (s_command_refusals++ % 30U == 0U) {
+            ESP_LOGW(TAG, "power command rejected: no online production-approved "
+                          "inverter profile is commandable (refusal %u)",
+                     (unsigned)s_command_refusals);
+        }
         return ESP_ERR_INVALID_STATE;
     }
+    /* A command got through, so the next refusal is news again and is logged
+     * immediately rather than waiting out the remainder of a throttle window. */
+    s_command_refusals = 0;
     if (target_kw > total_rated_kw) target_kw = total_rated_kw;
 
     /* Build and validate the complete immutable fleet plan before issuing the

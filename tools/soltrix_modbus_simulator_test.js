@@ -8,6 +8,8 @@ const {
     EM500_SOURCE_ADDRESS,
     EM500_SUPERSEDED_SOURCE_ADDRESS,
     EM500_POWER_ADDRESS,
+    EM500_BLOCK_START,
+    EM500_ENERGY_START,
     createServer,
     request,
 } = require('./soltrix_modbus_simulator');
@@ -15,6 +17,10 @@ const {
 const SOURCE_CONFIG_HEADER = path.join(
     __dirname, '..', 'components', 'source_detection', 'include',
     'source_detection_config.h');
+const METER_PROFILES = path.join(
+    __dirname, '..', 'components', 'meter_profiles', 'meter_profiles.c');
+const EM500_BLOCK_HEADER = path.join(
+    __dirname, '..', 'components', 'meter_profiles', 'include', 'em500_block.h');
 
 /* Strips block and line comments so a register address quoted in prose can never
  * satisfy a contract about the code. */
@@ -49,6 +55,43 @@ function assertSimulatorMatchesFirmwareSourceRegister() {
     assert.notStrictEqual(EM500_SOURCE_ADDRESS, EM500_SUPERSEDED_SOURCE_ADDRESS);
 }
 
+/*
+ * THE SAME CONTRACT, FOR THE REGISTER THE CONTROL LOOP ACTUALLY REGULATES ON.
+ *
+ * The simulator served active power at 57 while the firmware profile asks for
+ * 0x003A, which is 58. Nothing pinned them, so every EM500 run read a register
+ * the firmware never requests: the tests passed because both sides used the
+ * simulator's own constant, and the one address the whole control loop depends
+ * on was never exercised. An off-by-one that a green lab run cannot show.
+ *
+ * As above, the firmware value is READ OUT of meter_profiles.c rather than
+ * restated here, so correcting one side alone cannot satisfy this.
+ */
+function assertSimulatorMatchesFirmwarePowerRegister() {
+    const source = strippedSource(METER_PROFILES);
+    const match = source.match(
+        /\.active_power_address\s*=\s*(0[xX][0-9a-fA-F]+|\d+)/);
+    assert.ok(match, 'active_power_address not found in meter_profiles.c');
+    const firmwareAddress = Number(match[1]);
+    assert.strictEqual(
+        EM500_POWER_ADDRESS, firmwareAddress,
+        `simulator serves active power at 0x${EM500_POWER_ADDRESS.toString(16)} but the ` +
+        `firmware profile reads 0x${firmwareAddress.toString(16)}`);
+}
+
+/* And the two block reads must start where the firmware starts them. A block
+ * served one register off decodes into values of entirely plausible magnitude,
+ * because neighbouring registers on this meter hold related quantities -- so
+ * this is the drift least likely to be noticed by looking at a screen. */
+function assertSimulatorMatchesFirmwareBlockStarts() {
+    const header = strippedSource(EM500_BLOCK_HEADER);
+    const block = header.match(/#define\s+EM500_BLOCK_START\s+(0[xX][0-9a-fA-F]+|\d+)u?/);
+    const energy = header.match(/#define\s+EM500_ENERGY_START\s+(0[xX][0-9a-fA-F]+|\d+)u?/);
+    assert.ok(block && energy, 'block start constants not found in em500_block.h');
+    assert.strictEqual(EM500_BLOCK_START, Number(block[1]));
+    assert.strictEqual(EM500_ENERGY_START, Number(energy[1]));
+}
+
 async function withServer(scenario, fn) {
     const server = createServer(scenario);
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -71,6 +114,8 @@ async function readI32(port, unitId, address) {
 
 async function main() {
     assertSimulatorMatchesFirmwareSourceRegister();
+    assertSimulatorMatchesFirmwarePowerRegister();
+    assertSimulatorMatchesFirmwareBlockStarts();
 
     await withServer('normal', async (port) => {
         for (const [unitId, device] of DEVICES) {
@@ -117,6 +162,46 @@ async function main() {
     await withServer('em500-single-generator', async (port) => {
         assert.strictEqual(await readU16(port, 31, EM500_SOURCE_ADDRESS), 1);
         assert.strictEqual(await readU16(port, 31, EM500_SUPERSEDED_SOURCE_ADDRESS), 0);
+    });
+
+    /*
+     * THE TWO BLOCK READS, on the wire, in one transaction each.
+     *
+     * Asserted as raw words rather than decoded values: the decode is the
+     * firmware's job and em500_block_test.c executes it. What this proves is
+     * that a 72-register request from 0x0002 and a 40-register request from
+     * 0x1B20 both answer, and that the two values a wrong decode would destroy
+     * survive the wire -- L2 exporting (a negative signed long) and a counter
+     * above 2^32 (which a two-word read reports as zero).
+     */
+    await withServer('normal', async (port) => {
+        /* Byte 8 is the PDU's byte count; the registers start at 9. */
+        const block = await request(port, 31, 3, EM500_BLOCK_START, 72);
+        assert.strictEqual(block.readUInt8(8), 144,
+            'measurement block must answer 72 registers in ONE read');
+        const word = (frame, index) => frame.readUInt16BE(9 + index * 2);
+
+        /* L2 active power at 0x0016 is two words at register offset 20. */
+        const l2 = block.readInt32BE(9 + 20 * 2);
+        assert.ok(l2 < 0, 'L2 must export, so the signed path is exercised');
+        assert.strictEqual(l2, -2000000);
+
+        /* L1 at 0x0014 imports, so the two are not the same number and a map
+         * shifted by one register cannot satisfy both. */
+        const l1 = block.readInt32BE(9 + 18 * 2);
+        assert.ok(l1 > 0 && l1 !== l2);
+
+        const energy = await request(port, 31, 3, EM500_ENERGY_START, 40);
+        assert.strictEqual(energy.readUInt8(8), 80,
+            'energy block must answer 40 registers in ONE read');
+        /* Total imported at 0x1B20, four words at offset 0. A 32-bit decode
+         * reads the first two, which must be non-zero here -- otherwise this
+         * fixture could not tell a 64-bit decode from a 32-bit one. */
+        assert.ok(word(energy, 0) !== 0 || word(energy, 1) !== 0,
+            'fixture must exceed 2^32 or it cannot catch a 32-bit decode');
+        const total = (BigInt(word(energy, 0)) << 48n) | (BigInt(word(energy, 1)) << 32n) |
+                      (BigInt(word(energy, 2)) << 16n) | BigInt(word(energy, 3));
+        assert.strictEqual(total, 500000000123n);
     });
 
     /*

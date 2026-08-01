@@ -1,0 +1,175 @@
+/* meter-detail.css — what the instrument actually measures, laid out so it can
+ * be read rather than merely displayed.
+ *
+ * THE LAYOUT IS THE ARGUMENT. Every quantity on this page exists three times,
+ * once per phase, and the only question anyone brings to it is "are the three the
+ * same?". A stack of labelled values answers that badly: the reader has to hold
+ * three numbers in their head and compare them from memory. A matrix answers it
+ * for free -- the phases are columns, the quantities are rows, and an imbalance
+ * is a ragged column you see without reading a single digit.
+ *
+ * That is position, the strongest preattentive channel there is, doing the work
+ * that colour would otherwise be asked to do badly.
+ * https://www.nngroup.com/articles/preattentive-attributes/
+ *
+ * COLOUR IS NOT USED FOR QUANTITY HERE. The control surfaces on this product
+ * follow ISA-101: neutral while normal, colour only for abnormal or actionable.
+ * The one exception below is direction -- a phase that is exporting is tinted,
+ * because import and export are the same magnitude with opposite meaning and a
+ * minus sign is easy to miss in a column of numbers. Direction is a fact the
+ * meter reported, not a verdict this firmware formed.
+ */
+
+.amx-measure {
+    display: grid;
+    gap: var(--sp-4);
+}
+
+/* These sections sit INSIDE a device card, so they are tighter than a
+ * top-level one and their headings are a step smaller. The reset and the
+ * layout come from cards.css, which already styles a section head at any
+ * heading level; only the size differs here. */
+.amx-measure .amx-section { margin-bottom: var(--sp-4); }
+.amx-measure .amx-section:last-child { margin-bottom: 0; }
+
+.amx-section-head .amx-section-title {
+    font-size: var(--fs-3);
+    font-weight: 600;
+}
+
+/* ---------------------------------------------------------------- the matrix */
+
+.amx-matrix-wrap {
+    /* Four columns of figures do not fit a phone. The table scrolls inside its
+     * own box rather than making the whole page scroll sideways, which is the
+     * difference between a wide table and a broken layout. */
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.amx-matrix {
+    width: 100%;
+    min-width: 420px;
+    border-collapse: collapse;
+    font-variant-numeric: tabular-nums;
+}
+
+.amx-matrix caption {
+    text-align: left;
+    font-size: var(--fs-1);
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--muted);
+    padding-bottom: var(--sp-2);
+}
+
+.amx-matrix th,
+.amx-matrix td {
+    padding: var(--sp-2) var(--sp-3);
+    border-bottom: 1px solid var(--line-soft);
+    white-space: nowrap;
+}
+
+/* Row labels read left, figures read right. Decimal points then line up down
+ * each column, which is what makes three phases comparable at a glance. */
+.amx-matrix th[scope="row"] {
+    text-align: left;
+    font-weight: 500;
+    color: var(--muted);
+    font-size: var(--fs-2);
+}
+
+.amx-matrix thead th {
+    text-align: right;
+    font-size: var(--fs-1);
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--muted);
+    font-weight: 600;
+    border-bottom: 1px solid var(--line);
+}
+
+.amx-matrix thead th:first-child { text-align: left; }
+
+.amx-matrix td {
+    text-align: right;
+    font-size: var(--fs-3);
+    font-weight: 550;
+    color: var(--text);
+}
+
+/* The unit belongs with the row, not repeated in twelve cells. */
+.amx-matrix .amx-matrix-unit {
+    display: block;
+    font-size: var(--fs-1);
+    font-weight: 400;
+    color: var(--muted);
+    letter-spacing: 0.02em;
+}
+
+/* The whole-installation column. Separated by a rule rather than a colour,
+ * because it is a different KIND of number -- one measurement, not one of
+ * three -- and a rule says that without spending an alarm colour on it. */
+.amx-matrix .amx-matrix-total {
+    border-left: 1px solid var(--line);
+    font-weight: 650;
+}
+
+/* Not measured. An em dash, never a zero: "0.0 V" says the instrument measured
+ * nothing, "—" says nothing was measured, and on a power screen those are
+ * different plants. */
+.amx-matrix .amx-absent { color: var(--muted); font-weight: 400; }
+
+/* Direction, and only direction. */
+.amx-matrix .amx-exporting { color: var(--blue); }
+
+/* ------------------------------------------------------------------ counters */
+
+.amx-counters {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: var(--sp-3);
+}
+
+.amx-counter {
+    display: grid;
+    gap: var(--sp-1);
+    padding: var(--sp-3);
+    border: 1px solid var(--line-soft);
+    border-radius: var(--r-2);
+    background: var(--panel-strong);
+}
+
+.amx-counter-label {
+    font-size: var(--fs-1);
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--muted);
+}
+
+.amx-counter-value {
+    font-size: var(--fs-4);
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.amx-counter-unit { font-size: var(--fs-2); font-weight: 500; color: var(--muted); margin-left: var(--sp-1); }
+
+/* -------------------------------------------------------------------- notes */
+
+/* Freshness. These blocks are polled on their own slower cadences than the
+ * control measurement, so their age is genuinely different, and one age shown
+ * for all of them would be a lie about at least one. */
+.amx-measure-age {
+    font-size: var(--fs-1);
+    color: var(--muted);
+}
+
+.amx-measure-empty {
+    padding: var(--sp-4);
+    border: 1px dashed var(--line);
+    border-radius: var(--r-2);
+    color: var(--muted);
+    font-size: var(--fs-2);
+}

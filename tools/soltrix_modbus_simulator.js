@@ -30,9 +30,34 @@ const EM500_SOURCE_ADDRESS = 0x2100;
  * than the tariff, which is the closest this simulator gets to the real meters'
  * refusal and stops the old address from silently appearing to work. */
 const EM500_SUPERSEDED_SOURCE_ADDRESS = 0x2160;
-const EM500_POWER_ADDRESS = 57;
+/*
+ * "Eqv. Active Power", Table 1. This was 57 and the firmware asks for 0x003A,
+ * which is 58 -- so every EM500 run against this simulator read a register the
+ * firmware never requests, and the one address the control loop depends on was
+ * never actually exercised. An off-by-one that a green lab run would not show.
+ * soltrix_modbus_simulator_test.js now pins it against meter_profiles.c, the same
+ * way EM500_SOURCE_ADDRESS is pinned, so the two cannot drift again.
+ */
+const EM500_POWER_ADDRESS = 0x003A;
 const EM500_TARIFF1_IMPORT_ADDRESS = 0x1B48;
 const EM500_TARIFF2_IMPORT_ADDRESS = 0x1B5C;
+
+/*
+ * THE FULL TABLE 1 BLOCK AND THE TABLE 3 COUNTERS.
+ *
+ * The firmware now reads 0002H..0049H and 1B20H..1B47H in one transaction each.
+ * Serving only the three registers this simulator used to know meant those
+ * blocks came back as zeros, which decodes cleanly to a plant at 0 V -- the
+ * failure that looks like data rather than like an absence.
+ *
+ * The numbers below are one physically coherent site, not noise: 400 V, roughly
+ * balanced, with L2 exporting so the SIGNED path is exercised, and counters
+ * above 2^32 so the 64-bit path is exercised. A simulator whose values are all
+ * small and all positive cannot fail the two decodes that actually go wrong.
+ */
+const EM500_BLOCK_START = 0x0002;
+const EM500_ENERGY_START = 0x1B20;
+
 
 const DEVICES = new Map([
     [21, { kind: 'inverter', name: 'Huawei SUN2000', identityAddress: 40000, identity: 0xA021, powerAddress: 40010, powerW: 32000, limitAddress: 40125, limitRaw: 620 }],
@@ -60,6 +85,73 @@ function signed32Words(value) {
 function unsigned32Words(value) {
     const raw = value >>> 0;
     return [(raw >>> 16) & 0xFFFF, raw & 0xFFFF];
+}
+
+function unsigned64Words(value) {
+    /* Table 3 counters are four words. BigInt because the whole point of the
+     * field is that it exceeds what a 32-bit read -- or a JS bitwise operator,
+     * which truncates to 32 bits -- can carry. */
+    const raw = BigInt(value);
+    return [
+        Number((raw >> 48n) & 0xFFFFn),
+        Number((raw >> 32n) & 0xFFFFn),
+        Number((raw >> 16n) & 0xFFFFn),
+        Number(raw & 0xFFFFn),
+    ];
+}
+
+/* One coherent three-phase site, in the manual's raw units. Grid meters carry
+ * the load and export on L2; generator meters sit near idle. */
+function em500BlockWords(words, requestAddress, device) {
+    const grid = device.role === 'grid';
+    const put = (address, value, signed) => writeWords(words, requestAddress, address,
+        signed ? signed32Words(value) : unsigned32Words(value));
+
+    /* Phase voltage, V/100. */
+    put(0x0002, 23012); put(0x0004, 22987); put(0x0006, 23105);
+    /* Current, A/10000. */
+    put(0x0008, grid ? 3567890 : 120000);
+    put(0x000A, grid ? 1200000 : 118000);
+    put(0x000C, grid ? 2000000 : 121000);
+    /* Line to line, V/100. */
+    put(0x000E, 39876); put(0x0010, 39912); put(0x0012, 40001);
+    /* Active power, W/100, SIGNED. L2 exports on the grid meter. */
+    put(0x0014, grid ? 12266000 : 800000, true);
+    put(0x0016, grid ? -2000000 : 790000, true);
+    put(0x0018, grid ? 12388000 : 810000, true);
+    /* Reactive, var/100, signed. */
+    put(0x001A, 500000, true); put(0x001C, -250000, true); put(0x001E, 750000, true);
+    /* Apparent, VA/100, unsigned. */
+    put(0x0020, 12300000); put(0x0022, 2100000); put(0x0024, 12400000);
+    /* Power factor, /10000, signed -- L2 leads. */
+    put(0x0026, 9970, true); put(0x0028, -9520, true); put(0x002A, 9990, true);
+    /* Whole installation. */
+    put(0x0032, 49985);                         /* frequency, Hz/1000 */
+    put(0x0034, 23034); put(0x0036, 39930);     /* eqv phase and line voltage */
+    put(0x0038, grid ? 2255963 : 119667);       /* eqv current */
+    put(0x003C, 1000000, true);                 /* eqv reactive */
+    put(0x003E, grid ? 26800000 : 2400000);     /* eqv apparent */
+    put(0x0040, 9850, true);                    /* eqv power factor */
+    put(0x0042, 120); put(0x0044, 95); put(0x0046, 4310);  /* asymmetry, %/100 */
+    put(0x0048, grid ? 812345 : 40000);         /* neutral current */
+}
+
+/* Table 3, kWh/100, four words each. Deliberately above 2^32: a counter that
+ * fits in 32 bits cannot show whether the firmware decoded four words or two. */
+function em500EnergyWords(words, requestAddress, device) {
+    const grid = device.role === 'grid';
+    const put = (address, value) => writeWords(words, requestAddress, address,
+        unsigned64Words(value));
+    put(0x1B20, grid ? 500000000123n : 12345678n);   /* total imported */
+    put(0x1B24, grid ? 8765432100n : 0n);            /* total exported */
+    put(0x1B28, 98765n);
+    put(0x1B2C, 4321n);
+    put(0x1B30, 222222n);
+    put(0x1B34, 5000n);
+    put(0x1B38, 2500n);
+    put(0x1B3C, 1000n);
+    put(0x1B40, 300n);
+    put(0x1B44, 7777n);
 }
 
 function em500ScenarioValues(device, scenario, context) {
@@ -112,6 +204,12 @@ function wordsFor(device, address, count, scenario = 'normal', context = {}) {
             unsigned32Words(values.tariff1ImportRaw));
         writeWords(words, address, EM500_TARIFF2_IMPORT_ADDRESS,
             unsigned32Words(values.tariff2ImportRaw));
+        /* Written after the scenario power so a scenario that moves the total
+         * still wins at 0x003A: the scenarios exist to drive source detection
+         * and the block must not quietly override them. */
+        em500BlockWords(words, address, device);
+        writeWords(words, address, EM500_POWER_ADDRESS, signed32Words(values.powerRaw));
+        em500EnergyWords(words, address, device);
         return words;
     }
 
@@ -340,6 +438,8 @@ module.exports = {
     EM500_SOURCE_ADDRESS,
     EM500_SUPERSEDED_SOURCE_ADDRESS,
     EM500_POWER_ADDRESS,
+    EM500_BLOCK_START,
+    EM500_ENERGY_START,
     createServer,
     request,
     wordsFor,

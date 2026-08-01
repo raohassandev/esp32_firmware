@@ -35,7 +35,12 @@
     flex-wrap: wrap;
 }
 
-.amx-section-head h2 {
+/* Any heading level. A section nested inside a card is still a section head,
+ * and its heading is an h3 or h4 for document structure -- the level is a
+ * semantic fact for a screen reader, not a second layout to write. */
+.amx-section-head h2,
+.amx-section-head h3,
+.amx-section-head h4 {
     margin: 0;
     font-size: var(--fs-4);
     line-height: 1.25;
