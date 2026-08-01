@@ -66,6 +66,35 @@ function fetchJson(pathname) {
     const routes = await page.evaluate(() =>
         [...document.querySelectorAll('.page')].map((p) => p.dataset.page).filter(Boolean));
     console.log(`routes found in the shell: ${routes.join(', ')}`);
+
+    /*
+     * CAN A PERSON GET THERE?
+     *
+     * The Generator power page was added, opened correctly by hash, and was
+     * walked clean by this very sweep -- and nobody could reach it. The sidebar
+     * is built from anchors in index.html while the ROUTES table only supplies
+     * the icon and title for anchors that already exist, so a route with no
+     * anchor is a page reachable only by someone who already knows the URL.
+     *
+     * Nothing caught it because every tool here navigates by hash rather than by
+     * clicking. A test that reaches a page the way no user can is testing a path
+     * the product does not have -- so the check is: does a link exist for it.
+     *
+     * Anchors are read AFTER load because several are injected at runtime by the
+     * modules that own their pages.
+     */
+    const unreachable = await page.evaluate((known) => {
+        const linked = new Set([...document.querySelectorAll('[data-route]')]
+            .map((a) => a.dataset.route));
+        return known.filter((route) => !linked.has(route));
+    }, routes);
+    if (unreachable.length) {
+        console.log();
+        console.log(`${unreachable.length} page(s) exist with no way to reach them:`);
+        unreachable.forEach((route) => console.log(`  - ${route}: no navigation link`));
+        await browser.close();
+        process.exit(1);
+    }
     console.log();
 
     const problems = [];
