@@ -127,6 +127,10 @@ typedef struct {
      * unreachable endpoint states itself once instead of at the poll rate. */
     uint32_t identity_failures;
     uint32_t telemetry_failures;
+    /* The endpoint answered the identity probe with ILLEGAL DATA ADDRESS: it
+     * does not implement the nameplate register. Distinct from "this profile
+     * describes no probe" and from "the probe returned the wrong value". */
+    bool identity_unimplemented;
     modbus_connection_t connection;
     SemaphoreHandle_t io_mutex;
     inverter_data_t data;
@@ -272,9 +276,39 @@ static bool identity_matches(const inverter_profile_t *profile,
     return (identity_raw(words, count) & mask) == (profile->identity_expected & mask);
 }
 
-static bool identity_is_current(const inverter_runtime_t *runtime, uint32_t timestamp)
+/*
+ * TWO QUESTIONS THAT WERE ONE PREDICATE.
+ *
+ * "Do I need to probe again?" and "is this machine confirmed?" had the same
+ * answer for as long as an unconfirmed machine was never polled. They diverge
+ * the moment an endpoint is allowed to be READ while its identity stays
+ * unverified, and answering the second with the first fails OPEN: a machine
+ * whose nameplate register does not exist would be counted as commandable
+ * capacity. It briefly was.
+ */
+
+/* Whether the probe result is fresh enough to skip re-probing. Says nothing
+ * about whether it PASSED. */
+static bool identity_probe_is_fresh(const inverter_runtime_t *runtime, uint32_t timestamp)
 {
     if (!runtime->data.identity_supported) return true;
+    return runtime->identity_checked && runtime->last_identity_ms != 0U &&
+           timestamp - runtime->last_identity_ms <= INVERTER_IDENTITY_RECHECK_MS;
+}
+
+/*
+ * Whether this machine has been CONFIRMED to be the one the profile describes.
+ * The gate on commanding.
+ *
+ * A profile with no probe passes: nothing was ever claimed about identity, and
+ * the write gate stands alone. A profile that describes a probe must have
+ * passed it -- and "the endpoint does not implement the register" is not a
+ * pass. Unverifiable is not verified.
+ */
+static bool identity_is_confirmed(const inverter_runtime_t *runtime, uint32_t timestamp)
+{
+    if (!runtime->data.identity_supported) return true;
+    if (runtime->identity_unimplemented) return false;
     return runtime->identity_checked && runtime->data.identity_verified &&
            runtime->last_identity_ms != 0U &&
            timestamp - runtime->last_identity_ms <= INVERTER_IDENTITY_RECHECK_MS;
@@ -367,7 +401,7 @@ static void recompute_commandable_capacity(void)
                          * ignored. The flag is false when zeroed, so unknown is
                          * not satisfied. */
                         runtime->data.prerequisite_satisfied &&
-                        identity_is_current(runtime, timestamp) &&
+                        identity_is_confirmed(runtime, timestamp) &&
                         isfinite(runtime->config.rated_power_kw) &&
                         runtime->config.rated_power_kw > 0.0f;
         float rated = runtime->config.rated_power_kw;
@@ -442,15 +476,70 @@ static esp_err_t verify_identity(inverter_runtime_t *runtime)
                                        profile->identity_address, count, words);
     bool matched = err == ESP_OK && identity_matches(profile, words, count);
 
+    /*
+     * "THE REGISTER IS NOT THERE" IS NOT "THIS IS THE WRONG MACHINE".
+     *
+     * A Modbus ILLEGAL DATA ADDRESS says the endpoint does not implement the
+     * nameplate register at all. That happens on a plant logger or a gateway
+     * that forwards only the points configured in it, and it says NOTHING about
+     * which machine is behind it -- the device answered, it simply has no such
+     * register.
+     *
+     * A WRONG VALUE is the opposite: the endpoint implements the register and
+     * returned an identity that is not this profile's. That is a different
+     * machine, or the wrong profile, and it stays a hard stop.
+     *
+     * Treating the two the same is what stopped a producing inverter appearing
+     * anywhere: the probe failed, the acquisition loop skipped the channel, and
+     * the plant showed no measurement at all while 227.8 V, 115.6 A and 78.3 kW
+     * were sitting on the wire.
+     *
+     * UNVERIFIABLE IS NOT VERIFIED. identity_verified stays FALSE, so everything
+     * that asks "has this machine been confirmed" still gets no. This decides
+     * one thing only: whether the controller may keep LOOKING. Commanding is
+     * decided by the write gate, which requires PRODUCTION_APPROVED and is not
+     * touched here.
+     */
+    bool unimplemented = false;
+    if (err != ESP_OK || !matched) {
+        uint8_t exception_function = 0U;
+        uint8_t exception_code = 0U;
+        uint32_t exception_ms = 0U;
+        uint32_t exception_count = 0U;
+        if (modbus_tcp_get_last_exception(&runtime->connection, &exception_function,
+                                          &exception_code, &exception_ms, &exception_count)
+            /* The stored function code is the EXCEPTION function -- the request
+             * function with the high bit set, which is how a Modbus slave marks
+             * an exception response. Comparing against the plain function code
+             * never matched, so this branch was dead and the endpoint kept
+             * being treated as the wrong machine. */
+            && exception_function == (uint8_t)(profile->identity_function | 0x80U)
+            && exception_code == MODBUS_EXCEPTION_ILLEGAL_DATA_ADDRESS) {
+            unimplemented = true;
+        }
+    }
+
     portENTER_CRITICAL(&runtime->lock);
-    runtime->identity_checked = matched;
-    runtime->last_identity_ms = matched ? timestamp : 0U;
+    /* identity_supported stays TRUE: the profile describes a probe, and that is
+     * what the field means. Saying otherwise made identity_is_current() answer
+     * "nothing to check" and the machine became commandable capacity -- the
+     * failure ran open. */
     runtime->data.identity_supported = true;
+    runtime->identity_unimplemented = unimplemented;
+    /* Checked, and timestamped, even when the answer was "no such register":
+     * without that this would re-probe on every poll for a register that will
+     * never exist. */
+    runtime->identity_checked = matched || unimplemented;
+    runtime->last_identity_ms = (matched || unimplemented) ? timestamp : 0U;
     runtime->data.identity_verified = matched;
     runtime->data.last_error = err == ESP_OK && !matched ? ESP_ERR_INVALID_RESPONSE : err;
     portEXIT_CRITICAL(&runtime->lock);
 
-    return matched ? ESP_OK : (err == ESP_OK ? ESP_ERR_INVALID_RESPONSE : err);
+    if (matched) return ESP_OK;
+    /* Not implemented: keep reading, unverified and NOT commandable. Implemented
+     * and wrong, or unreachable: stop. */
+    if (unimplemented) return ESP_OK;
+    return err == ESP_OK ? ESP_ERR_INVALID_RESPONSE : err;
 }
 
 static esp_err_t poll_active_power(inverter_runtime_t *runtime, uint32_t timestamp)
@@ -1217,7 +1306,7 @@ static void inverter_telemetry_task(void *argument)
              * fill the console at the poll rate.
              */
             const esp_err_t identity_err =
-                identity_is_current(runtime, timestamp) ? ESP_OK : verify_identity(runtime);
+                identity_probe_is_fresh(runtime, timestamp) ? ESP_OK : verify_identity(runtime);
             if (identity_err != ESP_OK) {
                 portENTER_CRITICAL(&runtime->lock);
                 runtime->data.online = false;
@@ -1611,7 +1700,11 @@ esp_err_t inverter_manager_set_total_power_kw(float target_kw)
                         /* Reading a flag the background task maintains. No
                          * transaction is added to the control path. */
                         runtime->data.prerequisite_satisfied &&
-                        identity_is_current(runtime, timestamp) &&
+                        /* CONFIRMED, not merely freshly probed. This is the
+                         * command path; an endpoint whose nameplate register
+                         * does not exist has not been confirmed to be the
+                         * machine this profile describes. */
+                        identity_is_confirmed(runtime, timestamp) &&
                         isfinite(runtime->config.rated_power_kw) &&
                         runtime->config.rated_power_kw > 0.0f;
         float rated = runtime->config.rated_power_kw;

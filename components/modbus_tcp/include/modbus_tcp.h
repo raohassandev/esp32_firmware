@@ -12,6 +12,17 @@ esp_err_t modbus_tcp_write_multiple(modbus_connection_t *connection, uint16_t ad
 
 /* Returns the most recently received Modbus exception. A later successful or
  * transport-failed transaction does not erase the preserved device exception. */
+/*
+ * The one Modbus exception this firmware reasons about by name.
+ *
+ * ILLEGAL DATA ADDRESS means the slave answered and does not implement the
+ * register. It is evidence about the MAP, not about the device's health or its
+ * identity, and callers that treat it as a communication failure conclude the
+ * wrong thing: a plant logger that forwards only its configured points returns
+ * it for every register it was not told to forward.
+ */
+#define MODBUS_EXCEPTION_ILLEGAL_DATA_ADDRESS 0x02U
+
 bool modbus_tcp_get_last_exception(modbus_connection_t *connection,
                                    uint8_t *function_code,
                                    uint8_t *exception_code,

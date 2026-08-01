@@ -28,7 +28,16 @@ REQUIRED = [
     'runtime->data.telemetry_valid',
     '!runtime->data.telemetry_stale',
     '!runtime->data.confirmation_fault',
-    'identity_is_current(runtime, timestamp)',
+    # CONFIRMED, not merely freshly probed.
+    #
+    # identity_is_current() answered two different questions with one boolean:
+    # "do I need to probe again" and "is this machine confirmed". They agreed for
+    # as long as an unconfirmed machine was never polled at all, and diverged the
+    # moment reading was allowed while identity stayed unverified -- at which
+    # point the old predicate returned TRUE for an endpoint whose nameplate
+    # register does not exist, and that endpoint was counted as commandable
+    # capacity. The write gate must ask the question that fails closed.
+    'identity_is_confirmed(runtime, timestamp)',
     'recompute_commandable_capacity',
     'command_target_t targets[APP_MAX_INVERTERS]',
     'Build and validate the complete immutable fleet plan',
