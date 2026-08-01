@@ -33,8 +33,13 @@ const WEB = path.join(ROOT, 'web');
 /* ------------------------------------------------------------------ the shim */
 
 class Element {
-    constructor(tag) {
+    constructor(tag, namespace) {
         this.tagName = String(tag).toUpperCase();
+        /* Recorded, because an SVG element built with createElement is a
+         * different thing from one built with createElementNS: the browser lays
+         * the first out as an unknown inline box and draws nothing at all. A
+         * shim that collapsed the two would pass a page that renders blank. */
+        this.namespaceURI = namespace || 'http://www.w3.org/1999/xhtml';
         this.children = [];
         this._class = '';
         this._text = '';
@@ -66,7 +71,15 @@ class Element {
     }
     replaceChildren(...nodes) { this.children = []; this.append(...nodes); }
     addEventListener() {}
-    setAttribute(name, value) { this.attributes[name] = String(value); }
+    setAttribute(name, value) {
+        this.attributes[name] = String(value);
+        /* A real DOM reflects the class ATTRIBUTE into classList, and SVG
+         * elements are created that way because they have no className setter
+         * that behaves like an HTML one. Without this the shim reports every SVG
+         * node as class-less, and a check for "the flow paths are marked
+         * inactive" passes by finding nothing at all. */
+        if (name === 'class') this._class = String(value);
+    }
     set title(value) { this.attributes.title = String(value); }
     get title() { return this.attributes.title; }
     set scope(value) { this.attributes.scope = String(value); }
@@ -114,6 +127,11 @@ class TextNode {
 function makeSandbox() {
     const document = {
         createElement: (tag) => new Element(tag),
+        /* The flow diagram builds real SVG. Namespaced creation is a different
+         * call and a renderer that used createElement for it would produce
+         * elements the browser lays out as unknown inline boxes -- which draws
+         * nothing, silently. */
+        createElementNS: (ns, tag) => new Element(tag, ns),
         createTextNode: (text) => new TextNode(text),
         getElementById: () => null,
         querySelector: () => null,
@@ -346,6 +364,191 @@ check('the journal starts collapsed and explains itself', () => {
     assert.ok(!text.includes('Reading'), 'a collapsed journal must not be loading');
     assert.ok(text.includes('nobody was watching'),
         'the journal must say what it is for');
+});
+
+/* ------------------------------------------------------------- energy flow */
+
+/* operator-view.js is a large module with dependencies. Only energyFlow is under
+ * test here, so it is loaded with the collaborators it actually calls stubbed to
+ * the real thing where that is cheap (AutomatrixCards) and to a marker where it
+ * is not (icons). */
+function flowSandbox() {
+    const sandbox = makeSandbox();
+    load(sandbox, 'operator-proof.js');   /* AutomatrixCards: measured(), icon() */
+    /* Namespaced, like the real icon builder. A stub that produced a plain
+     * element would fail the namespace assertion for a reason that lives in this
+     * file rather than in the product -- which is a test reporting its own bug
+     * as a defect in the code under test. */
+    sandbox.window.AutomatrixIcons = new Proxy({}, {
+        get: () => () => new Element('svg', 'http://www.w3.org/2000/svg')
+    });
+    return sandbox;
+}
+
+/* energyFlow lives inside an IIFE, so it is reached the way the page reaches it:
+ * by rendering the dashboard. Rather than run the whole module, the function is
+ * extracted and evaluated against the same sandbox -- which still executes the
+ * REAL source text, so a change to it changes what is tested. */
+function loadEnergyFlow(sandbox) {
+    /* Line endings normalised first. This repository is edited on Windows and
+     * checked out with autocrlf, so a marker written with \n never matches the
+     * file's \r\n -- and the failure looks like "the block could not be located",
+     * which reads as a missing feature rather than as a newline. */
+    const source = fs.readFileSync(path.join(WEB, 'operator-view.js'), 'utf8')
+        .replace(/\r\n/g, '\n');
+    const start = source.indexOf('    const FLOW_GEOMETRY = {');
+    const end = source.indexOf('    /*\n     * THE PLANT OVERVIEW.');
+    assert.ok(start > 0 && end > start, 'the energy flow block could not be located');
+    const block = source.slice(start, end);
+    /* The helpers energyFlow uses from its module scope. */
+    const preamble = `
+        function node(tag, className, text) {
+            const element = document.createElement(tag);
+            if (className) element.className = className;
+            if (text !== undefined && text !== null) element.textContent = text;
+            return element;
+        }
+        function finite(value) { return typeof value === 'number' && Number.isFinite(value); }
+    `;
+    vm.runInContext(`${preamble}\n${block}\nwindow.__energyFlow = energyFlow;`,
+                    sandbox, { filename: 'operator-view.js#energyFlow' });
+    return sandbox.window.__energyFlow;
+}
+
+const PLANT = {
+    status: {
+        meter_online: true, meter_stale: false,
+        grid_power_kw: 216.5, generator_power_kw: null
+    },
+    inverterTelemetry: { summary: { measured_total_kw: 81.4 } }
+};
+
+check('the flow diagram draws four nodes, a junction and both path sets', () => {
+    const sandbox = flowSandbox();
+    const energyFlow = loadEnergyFlow(sandbox);
+    const rendered = energyFlow(PLANT);
+
+    const nodes = rendered.withClass('amx-flow-node');
+    assert.strictEqual(nodes.length, 4, `expected solar, grid, load and generator, got ${nodes.length}`);
+    ['is-solar', 'is-grid', 'is-load', 'is-generator'].forEach((kind) => {
+        assert.ok(nodes.some((n) => n.classList.contains(kind)), `no ${kind} node`);
+    });
+
+    assert.strictEqual(rendered.withClass('amx-flow-junction').length, 1,
+        'the junction is missing or duplicated');
+
+    /* Both path sets are always emitted; CSS decides which is visible. Building
+     * only one and switching it in JavaScript would mean a rotated phone shows
+     * connectors drawn for the other layout until the next render. */
+    assert.strictEqual(rendered.withClass('amx-flow-lines-desktop').length, 1);
+    assert.strictEqual(rendered.withClass('amx-flow-lines-mobile').length, 1);
+
+    /* NAMESPACED SVG, not HTML elements that happen to be named after SVG tags.
+     * The browser lays the latter out as unknown inline boxes and draws nothing,
+     * which is a blank diagram with no error anywhere. */
+    const paths = rendered.findAll((n) => n.tagName === 'PATH');
+    assert.ok(paths.length >= 16, `expected base and flow paths for both sets, got ${paths.length}`);
+    paths.forEach((path) => {
+        assert.strictEqual(path.namespaceURI, 'http://www.w3.org/2000/svg',
+            'an SVG path built outside the SVG namespace draws nothing');
+    });
+    rendered.findAll((n) => n.tagName === 'SVG').forEach((svg) => {
+        assert.strictEqual(svg.namespaceURI, 'http://www.w3.org/2000/svg');
+    });
+
+    /* THE JUNCTION CARRIES NO NUMBER. The moment it shows one, the reader has to
+     * work out whether it is a fifth measurement or the sum of the other four --
+     * and on a diagram whose whole job is to be read at a glance, that question
+     * costs more than the number is worth. */
+    const junction = rendered.withClass('amx-flow-junction')[0];
+    assert.strictEqual(junction.textContent, '',
+        `the junction shows "${junction.textContent}"; it must carry no value`);
+});
+
+/*
+ * THE MISTAKE THE MOCKUP WOULD HAVE INTRODUCED.
+ *
+ * The supplied design computed `grid = load - solar - generator` from an
+ * invented load. This product is the other way round: the grid is MEASURED by
+ * the instrument the control loop regulates against, and the load is DERIVED.
+ *
+ * Adopting the mockup's direction would put a grid figure this file calculated
+ * on the same screen as a controller acting on a different one -- and the screen
+ * would be the more convincing of the two. So the fixture is arranged so the two
+ * directions give different answers, and the measured value is asserted.
+ */
+check('the grid is the measured value and the load is derived from it', () => {
+    const sandbox = flowSandbox();
+    const energyFlow = loadEnergyFlow(sandbox);
+    const rendered = energyFlow(PLANT);
+
+    const nodeFor = (kind) =>
+        rendered.withClass('amx-flow-node').find((n) => n.classList.contains(kind));
+
+    const grid = nodeFor('is-grid');
+    assert.ok(grid.textContent.includes('216.5'),
+        `the grid node shows "${grid.textContent}", not the measured 216.5 kW`);
+
+    /* 216.5 + 81.4 = 297.9. If the page had derived the grid instead, the two
+     * figures would swap and this would fail. */
+    const load = nodeFor('is-load');
+    assert.ok(load.textContent.includes('297.9'),
+        `the load node shows "${load.textContent}", not grid + solar = 297.9 kW`);
+    assert.ok(load.textContent.includes('derived, not metered'),
+        'the derived load must say it is derived');
+});
+
+check('a stale meter is not drawn as a live flow', () => {
+    const sandbox = flowSandbox();
+    const energyFlow = loadEnergyFlow(sandbox);
+    const rendered = energyFlow({
+        status: { meter_online: true, meter_stale: true, grid_power_kw: 216.5 },
+        inverterTelemetry: { summary: { measured_total_kw: 81.4 } }
+    });
+    const grid = rendered.withClass('amx-flow-node')
+        .find((n) => n.classList.contains('is-grid'));
+    assert.ok(grid.textContent.includes('—'),
+        'a retained grid value drawn as a live flow shows a plant importing from '
+        + 'a meter that stopped answering');
+    assert.ok(grid.classList.contains('is-absent'));
+});
+
+check('export reverses the grid dashes and says so in words', () => {
+    const sandbox = flowSandbox();
+    const energyFlow = loadEnergyFlow(sandbox);
+    const rendered = energyFlow({
+        status: { meter_online: true, meter_stale: false, grid_power_kw: -18.2 },
+        inverterTelemetry: { summary: { measured_total_kw: 120.0 } }
+    });
+
+    const grid = rendered.withClass('amx-flow-node')
+        .find((n) => n.classList.contains('is-grid'));
+    /* Magnitude on the face, direction in the word: a minus sign in a large
+     * figure is easy to miss and reading it backwards inverts the plant. */
+    assert.ok(grid.textContent.includes('18.2'));
+    assert.ok(grid.textContent.includes('exporting'),
+        'export must be stated in words, not only by the arrow direction');
+
+    const gridPaths = rendered.findAll(
+        (n) => n.tagName === 'ANIMATE' && n.attributes.to === '28');
+    assert.ok(gridPaths.length >= 2,
+        'the grid dashes must run the other way on export, in both path sets');
+});
+
+check('a flow that carries nothing is not animated', () => {
+    const sandbox = flowSandbox();
+    const energyFlow = loadEnergyFlow(sandbox);
+    const rendered = energyFlow({
+        status: { meter_online: true, meter_stale: false, grid_power_kw: 216.5 },
+        inverterTelemetry: { summary: { measured_total_kw: 0 } }
+    });
+    const solarPaths = rendered.findAll(
+        (n) => n.classList.contains('amx-flow-path') && n.classList.contains('is-solar'));
+    assert.ok(solarPaths.length >= 2);
+    solarPaths.forEach((path) => {
+        assert.ok(path.classList.contains('is-inactive'),
+            'a flow at zero must be still -- a moving line means power is flowing now');
+    });
 });
 
 /* --------------------------------------------------------------------- run */

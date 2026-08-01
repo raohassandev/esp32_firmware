@@ -49,6 +49,20 @@
     --fs-5: 1.75rem;    /* 28px - page headings */
     --fs-6: 2.5rem;     /* 40px - the one number a screen is about */
 
+    /* ONE FLUID STEP, for the figures on the power-flow diagram.
+     *
+     * The fixed steps above are right for text, which is read at a fixed
+     * distance from a fixed device. The flow diagram is not: it is read on a
+     * phone held in a corridor and on a panel across a plant room, and a size
+     * chosen for one is wrong on the other. clamp() lets a single declaration
+     * serve both, with hard floors and ceilings so it can never become unreadably
+     * small or absurdly large.
+     *
+     * Deliberately ONE step, not a fluid parallel scale. Two scales would leave
+     * the next person guessing which to reach for, which is the fragmentation
+     * this block replaced. */
+    --fs-fluid: clamp(1.25rem, 2.2vw, 2rem);
+
     /* SPACE. A 4px base, because every control height and border radius in this
      * interface is already a multiple of it. Seven steps is enough for a dense
      * industrial screen and few enough to hold in your head. */
@@ -60,10 +74,15 @@
     --sp-6: 32px;
     --sp-7: 48px;
 
-    /* RADII, three steps: control, panel, page-level surface. */
+    /* RADII, three steps: control, panel, page-level surface. Plus the two
+     * shapes that are not steps at all -- a pill and a circle are geometry, not
+     * a size, and expressing them as a large number in each file that wants one
+     * is how "999px" ends up meaning three different things. */
     --r-1: 8px;
     --r-2: 12px;
     --r-3: 16px;
+    --r-pill: 999px;
+    --r-round: 50%;
 
     /* The minimum comfortable touch target. This is a control screen operated
      * with gloves on a tablet mounted in a cabinet, so it is a floor for every

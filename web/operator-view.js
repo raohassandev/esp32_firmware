@@ -627,30 +627,137 @@
      * came from an instrument is a number they will trust further than it
      * deserves.
      */
-    function flowNode(kind, iconName, name, kw, note) {
+    /* ------------------------------------------------------------- energy flow
+     *
+     * The picture every solar platform opens on -- FusionSolar, SolarEdge,
+     * iSolarCloud, Fronius and SMA all draw the same thing -- and the one this
+     * product did not have.
+     *
+     * THE GEOMETRY IS THE PRODUCT OWNER'S, supplied as a working mockup: sources
+     * on the outside, a junction in the middle, load to the right, animated
+     * dashes along SVG paths, and a genuinely different arrangement on a phone.
+     * That is kept exactly. What is NOT kept is the mockup's data model, and the
+     * difference is the whole point of this comment.
+     *
+     * THE MOCKUP DERIVED THE GRID. It computed `grid = load - solar - generator`
+     * from a load it invented with a sine wave. This product is the other way
+     * round and must stay that way: GRID IS MEASURED, by the instrument the
+     * entire control loop regulates against, and LOAD IS DERIVED from it. Adopt
+     * the mockup's direction and the diagram would show a grid figure this file
+     * calculated, on the same screen as a controller acting on a different one --
+     * and the screen would be the more convincing of the two.
+     *
+     * WHAT IT IS ALLOWED TO SAY. Quantity and direction, nothing else. No status,
+     * no verdict, no alarm; those live in the control strip above, which stays
+     * neutral until something is wrong. Keeping them apart is what lets this
+     * block use colour to tell one flow from another.
+     *
+     * WHAT IS MEASURED AND WHAT IS NOT. Grid and solar are measured. The
+     * generator is measured when a generator-role meter exists. LOAD IS NOT --
+     * it is grid + generator + solar, the site's own definition -- and it is
+     * labelled as derived on screen, because a number a reader assumes came from
+     * an instrument is one they will trust further than it deserves.
+     */
+    const FLOW_GEOMETRY = {
+        desktop: [
+            { flow: 'solar', d: 'M50 24 V50' },
+            { flow: 'grid', d: 'M42 50 H50' },
+            { flow: 'load', d: 'M50 50 H58' },
+            { flow: 'generator', d: 'M50 76 V50' }
+        ],
+        /* Curved, because the stacked phone layout puts the two sources side by
+         * side above the junction: straight connectors there would cross the
+         * cards rather than run between them. */
+        mobile: [
+            { flow: 'solar', d: 'M25 25 C25 43 38 48 50 62' },
+            { flow: 'grid', d: 'M75 25 C75 43 62 48 50 62' },
+            { flow: 'generator', d: 'M50 53 V62' },
+            { flow: 'load', d: 'M50 68 V76' }
+        ]
+    };
+
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+
+    function svgNode(tag, attributes) {
+        const element = document.createElementNS(SVG_NS, tag);
+        Object.entries(attributes || {}).forEach(([name, value]) => {
+            element.setAttribute(name, String(value));
+        });
+        return element;
+    }
+
+    /*
+     * One path set. `active` decides which flows are drawn over their base
+     * lines, and `reversed` runs the dashes the other way.
+     *
+     * DIRECTION IS NOT DECORATION on the grid link: import and export are the
+     * same magnitude with opposite meaning, and a number alone does not say
+     * which. The node's own note says it in words as well, because a moving line
+     * is a convention and the reader may not share it.
+     */
+    function flowLines(variant, active, reversed) {
+        const svg = svgNode('svg', {
+            class: `amx-flow-lines amx-flow-lines-${variant}`,
+            viewBox: '0 0 100 100',
+            preserveAspectRatio: 'none',
+            'aria-hidden': 'true'
+        });
+
+        FLOW_GEOMETRY[variant].forEach(({ d }) => {
+            svg.append(svgNode('path', { class: 'amx-flow-base', d }));
+        });
+
+        FLOW_GEOMETRY[variant].forEach(({ flow, d }) => {
+            const path = svgNode('path', {
+                class: `amx-flow-path is-${flow}${active[flow] ? '' : ' is-inactive'}`,
+                d
+            });
+            /* SMIL rather than a CSS animation: the dash offset has to travel
+             * along the path itself, and only the path knows its own length.
+             * The animation is created regardless and simply invisible on an
+             * inactive path, so a flow that starts moving does not have to wait
+             * for an element to be built. */
+            path.append(svgNode('animate', {
+                attributeName: 'stroke-dashoffset',
+                from: '0',
+                to: reversed[flow] ? '28' : '-28',
+                dur: '0.75s',
+                repeatCount: 'indefinite'
+            }));
+            svg.append(path);
+        });
+        return svg;
+    }
+
+    function flowNode(kind, area, iconName, name, kw, note) {
         const cards = window.AutomatrixCards;
         const value = cards.measured(kw);
         const absent = value === null;
-        const element = node('div', `amx-flow-node is-${kind}${absent ? ' is-absent' : ''}`);
+        const element = node('article',
+            `amx-flow-node is-${kind} amx-flow-${area}${absent ? ' is-absent' : ''}`);
         element.append(cards.icon(iconName));
         element.append(node('span', 'amx-flow-name', name));
+
         const figure = node('span', 'amx-flow-value');
         /* An em dash, never a zero. "0.0 kW" says the instrument measured
          * nothing; "—" says nothing was measured, and on a power screen those
-         * are different plants. */
+         * are different plants. Magnitude only -- the sign is carried by the
+         * arrow direction and by the note, where it can be read. */
         figure.append(document.createTextNode(absent ? '—' : Math.abs(value).toFixed(1)));
         if (!absent) figure.append(node('span', 'amx-flow-unit', 'kW'));
         element.append(figure);
+
         if (note) element.append(node('span', 'amx-flow-note', note));
         return element;
     }
 
-    function flowLink(kind, active, reversed, vertical) {
-        const classes = ['amx-flow-link', `is-${kind}`];
-        if (vertical) classes.push('vertical');
-        if (active) classes.push('is-active');
-        if (reversed) classes.push('is-reversed');
-        return node('div', classes.join(' '));
+    function flowChip(kind, label) {
+        const chip = node('span', 'amx-flow-chip');
+        const dot = node('span', `amx-flow-dot is-${kind}`);
+        dot.style.background = `var(--${kind === 'solar' ? 'yellow'
+            : kind === 'grid' ? 'blue' : 'orange'})`;
+        chip.append(dot, document.createTextNode(label));
+        return chip;
     }
 
     function energyFlow(payload) {
@@ -660,44 +767,72 @@
 
         const card = node('article', 'amx-card amx-wide');
         card.append(node('span', 'amx-card-label', 'Power flow'));
-        const flow = node('div', 'amx-flow');
 
+        /* MEASURED. The grid figure is only used when the meter is online and
+         * not stale: a retained value drawn as a live flow is how a diagram
+         * shows a plant importing from a meter that stopped answering. */
         const gridFresh = Boolean(status.meter_online) && !Boolean(status.meter_stale);
         const gridKw = gridFresh && finite(status.grid_power_kw) ? Number(status.grid_power_kw) : null;
         const solarKw = cards.measured(telemetry?.summary?.measured_total_kw);
         const generatorKw = cards.measured(status.generator_power_kw);
 
-        /* Import-positive: above zero the utility is supplying the site, below it
-         * the site is pushing power back. The arrow direction carries that, and
-         * the note says it in words as well -- a moving line is a convention and
-         * the reader may not share it. */
+        /* Import-positive: above zero the utility supplies the site, below it the
+         * site pushes power back. */
         const importing = gridKw !== null && gridKw > 0.01;
         const exporting = gridKw !== null && gridKw < -0.01;
 
-        /* Derived, and said so. */
+        /* DERIVED, and said so on screen. */
         const parts = [gridKw, generatorKw, solarKw].filter((v) => v !== null);
         const loadKw = parts.length ? parts.reduce((sum, v) => sum + v, 0) : null;
 
-        flow.append(Object.assign(
-            flowNode('solar', 'solar', 'Solar', solarKw,
-                solarKw === null ? 'not measured' : 'generating'),
-            { className: 'amx-flow-node is-solar amx-flow-solar' + (solarKw === null ? ' is-absent' : '') }
-        ));
-        const solarLink = flowLink('solar', solarKw !== null && solarKw > 0.01, false, true);
-        solarLink.classList.add('amx-flow-solar-link');
-        flow.append(solarLink);
+        /* A flow is drawn only when it is both measured and actually carrying
+         * something. 0.05 kW rather than zero: a meter's own noise floor should
+         * not animate a line on an idle plant. */
+        const moving = (value) => value !== null && Math.abs(value) > 0.05;
+        const active = {
+            solar: moving(solarKw),
+            grid: moving(gridKw),
+            generator: moving(generatorKw),
+            load: moving(loadKw)
+        };
+        const reversed = { solar: false, grid: exporting, generator: false, load: false };
 
-        const row = node('div', 'amx-flow-row');
-        row.append(flowNode('grid', 'grid', 'Grid', gridKw,
-            gridKw === null ? 'no measurement' : importing ? 'importing' : exporting ? 'exporting' : 'balanced'));
-        row.append(flowLink('grid', importing || exporting, exporting, false));
-        row.append(flowNode('load', 'home', 'Site load', loadKw, 'derived, not metered'));
-        row.append(flowLink('generator', generatorKw !== null && generatorKw > 0.01, true, false));
-        row.append(flowNode('generator', 'generator', 'Generator', generatorKw,
-            generatorKw === null ? 'not running' : 'supplying'));
-        flow.append(row);
+        const stage = node('div', 'amx-flow-stage');
+        stage.append(flowLines('desktop', active, reversed));
+        stage.append(flowLines('mobile', active, reversed));
 
-        card.append(flow);
+        stage.append(flowNode('solar', 'solar', 'solar', 'Solar', solarKw,
+            solarKw === null ? 'not measured' : active.solar ? 'generating' : 'idle'));
+
+        stage.append(flowNode('grid', 'grid', 'grid', 'Grid', gridKw,
+            gridKw === null ? 'no measurement'
+                : importing ? 'importing'
+                : exporting ? 'exporting' : 'balanced'));
+
+        const hub = node('div', 'amx-flow-hub');
+        /* The junction carries no number on purpose: the moment it shows one,
+         * the reader has to work out whether it is a fifth measurement or the
+         * sum of the other four. */
+        const junction = node('div', 'amx-flow-junction');
+        junction.setAttribute('aria-label', 'Power junction');
+        hub.append(junction);
+        stage.append(hub);
+
+        stage.append(flowNode('load', 'load', 'home', 'Site load', loadKw,
+            'derived, not metered'));
+
+        stage.append(flowNode('generator', 'generator', 'generator', 'Generator', generatorKw,
+            generatorKw === null ? 'not running'
+                : active.generator ? 'supplying' : 'running, no load'));
+
+        card.append(stage);
+
+        const legend = node('div', 'amx-flow-legend');
+        legend.setAttribute('aria-label', 'Power source legend');
+        legend.append(flowChip('grid', 'Grid flow'),
+                      flowChip('solar', 'Solar flow'),
+                      flowChip('generator', 'Generator flow'));
+        card.append(legend);
         return card;
     }
 
