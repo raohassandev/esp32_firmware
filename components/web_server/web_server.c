@@ -116,6 +116,7 @@ static esp_err_t js_handler(httpd_req_t *request)
         /* Before devices.js: its meter card calls
          * AutomatrixMeterDetail while rendering. */
         web_assets_meter_detail_js,
+        web_assets_inverter_detail_js,
         web_assets_devices_js,
         web_assets_devices_refresh_js,
         web_assets_inverter_profiles_js,

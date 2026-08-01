@@ -173,3 +173,39 @@
     color: var(--muted);
     font-size: var(--fs-2);
 }
+
+/* ------------------------------------------------------- inverter additions */
+
+/* A note under a counter. Used on the inverter page to say, in words, which
+ * numbers are the machine's and which are this controller's own instruction --
+ * because the two look identical as figures and mistaking one for the other is
+ * how a screen reports a curtailment that never happened. */
+.amx-counter-note {
+    font-size: var(--fs-1);
+    color: var(--muted);
+    line-height: 1.35;
+}
+
+/* AN INSTRUCTION, NOT A READING.
+ *
+ * Deliberately quieter than the measurement beside it: dashed border, muted
+ * figure. The visual weight follows the evidential weight, so a glance lands on
+ * what the machine said rather than on what we told it. */
+.amx-counter.is-instruction {
+    border-style: dashed;
+    background: transparent;
+}
+
+.amx-counter.is-instruction .amx-counter-value { color: var(--muted); }
+
+/* ABNORMAL, and only abnormal.
+ *
+ * The one place colour is spent on this page, per ISA-101: output above the
+ * limit we sent means the limit is not in force, and a non-zero fault code is
+ * the machine reporting a fault. Both are actionable. Nothing healthy is
+ * coloured, so colour still means something when it appears. */
+.amx-counter.is-attention {
+    border-color: var(--warning, var(--orange));
+}
+
+.amx-counter.is-attention .amx-counter-value { color: var(--warning, var(--orange)); }

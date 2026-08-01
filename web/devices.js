@@ -202,7 +202,16 @@
         const monitoring = availability.monitoring_ready ? 'Monitoring path ready' : 'Monitoring path not ready';
         const commandPath = availability.command_path_ready ? 'command path initialized' : 'command path unavailable';
         const auto = availability.automatic_control_active ? 'automatic control active' : 'automatic control disabled';
-        setText('operationalReadinessNote', `${monitoring}; ${commandPath}; ${auto}. Measured inverter production, generator power and facility-load telemetry are not configured and remain unavailable.`);
+        /* This asserted flatly that measured inverter production is not
+         * configured, which stopped being true when the telemetry block
+         * landed -- so the dashboard told an operator no such reading existed
+         * while the inverter page was showing it. The claim is now derived
+         * from what the API actually reports rather than restated. */
+        const measuredInverters = Number(state.inverters?.summary?.measured_power_supported ?? 0);
+        const productionNote = measuredInverters > 0
+            ? `${measuredInverters} inverter${measuredInverters === 1 ? '' : 's'} report measured production`
+            : 'Measured inverter production is not configured';
+        setText('operationalReadinessNote', `${monitoring}; ${commandPath}; ${auto}. ${productionNote}. Generator power and facility-load telemetry remain unavailable.`);
     }
 
     function meterCard(meter) {
@@ -295,9 +304,21 @@
             element('div', 'device-reading-label', 'Measured production'),
             element('strong', 'device-reading-value', 'Unavailable')
         );
+        /* This said "the current firmware has no inverter telemetry register
+         * mapping" long after the mapping existed, so a machine reporting its
+         * own output was shown as Unavailable and the page insisted no such
+         * reading was possible. The note now describes what is actually there. */
+        const measuredKw = inverter.measured_power_kw;
+        const hasMeasured = typeof measuredKw === 'number' && Number.isFinite(measuredKw);
+        valueBlock.querySelector('.device-reading-value').textContent =
+            hasMeasured ? utils.formatPower(measuredKw) : 'Unavailable';
         reading.append(
             valueBlock,
-            element('div', 'device-reading-note', 'The current firmware has no inverter telemetry register mapping. Command results must not be treated as measured power or inverter availability.')
+            element('div', 'device-reading-note', hasMeasured
+                ? `Reported by the inverter · ${utils.formatAge(inverter.measured_age_ms)}. The commanded setpoint below is an instruction this controller sent, not a reading.`
+                : inverter.telemetry_supported
+                    ? 'This inverter has not reported a measurement. The commanded setpoint below is an instruction this controller sent, and is not evidence that it was applied.'
+                    : 'This profile does not describe a measurement register, so the machine is never asked. The commanded setpoint below is an instruction, not a reading.')
         );
 
         const meta = element('div', 'device-meta-grid');
@@ -317,6 +338,12 @@
             metaItem('Last write error', errorLabel)
         );
         card.append(top, reading, meta);
+
+        /* And everything the machine measures, when the profile describes it.
+         * Null means this family was never asked, not that it answered with
+         * nothing. */
+        const detail = window.AutomatrixInverterDetail?.render(inverter);
+        if (detail) card.append(detail);
         return card;
     }
 

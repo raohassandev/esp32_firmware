@@ -50,13 +50,52 @@ assert INVERTER_MANAGER.index("inverter_write_confirmation_evaluate(&evidence)")
 assert "note_write_issued" in INVERTER_MANAGER, \
     "an issued but unconfirmed write must be recorded separately from a commanded value"
 
+# THE INVARIANT, RESTATED FOR A PAGE THAT NOW HAS BOTH NUMBERS.
+#
+# This used to require the words "Command results must not be treated as
+# measured power", which was the honest thing to say when the firmware acquired
+# no inverter telemetry at all. It now does, so that sentence became false and
+# the page had to change -- but the DANGER it guarded got larger, not smaller:
+# there are now two figures on the screen, one the machine's and one this
+# controller's own instruction, and they look alike.
+#
+# So the contract is stronger than before. The page must say in words that the
+# commanded setpoint is an instruction rather than a reading, every time it
+# shows one, and it must take the measured figure from the measured field.
 required_ui_fragments = [
     "Measured production",
-    "Command results must not be treated as measured power",
-    "measured inverter production, generator power and facility-load telemetry are not configured",
+    # Said in words, so a reader cannot mistake an instruction for evidence.
+    "an instruction this controller sent, not a reading",
+    "is an instruction, not a reading",
+    # The measured value comes from the measurement, never from the command.
+    "inverter.measured_power_kw",
 ]
 for fragment in required_ui_fragments:
     assert fragment.lower() in UI.lower(), f"missing truthful UI wording: {fragment}"
+
+# And the commanded value must never be rendered into the inverter's reading
+# slot. The reading is the machine's; the command is ours.
+#
+# Scoped to inverterCard's own body, not to the first "device-reading-value" in
+# the file -- that one belongs to the METER card, so a window anchored on it
+# examined the wrong function and let the substitution through. The failure this
+# guards against is precisely a two-line edit inside inverterCard.
+_inverter_card = UI[UI.index("function inverterCard("):]
+_inverter_card = _inverter_card[:_inverter_card.index("\n    function ")]
+_reading_slot = _inverter_card[
+    _inverter_card.index("device-reading-value"):_inverter_card.index("device-meta-grid")]
+# On the FIELD NAMES, not on the word "commanded" -- the note in this very slot
+# says "the commanded setpoint below is an instruction", which is the sentence
+# that makes the page honest. Banning the word would forbid the fix.
+for _field in ("commanded_power_kw", "commanded_percent"):
+    assert _field not in _reading_slot, (
+        f"{_field} is rendered as the inverter's measured reading. It is an "
+        f"instruction this controller issued, not evidence that the machine "
+        f"acted on it.")
+
+# The dashboard must not assert that measured production is unconfigured when
+# the API reports otherwise. A flat claim there contradicted the inverter page.
+assert "measured_power_supported" in UI,     "the readiness note must derive the production claim from the API, not restate it"
 
 assert "method: 'POST'" not in UI and 'method: "POST"' not in UI, \
     "device diagnostics UI must not issue POST requests"

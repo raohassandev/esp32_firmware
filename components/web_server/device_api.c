@@ -6,6 +6,7 @@
 #include "control_engine.h"
 #include "esp_check.h"
 #include "esp_timer.h"
+#include "inverter_json.h"
 #include "inverter_manager.h"
 #include "meter_json.h"
 #include "meter_manager.h"
@@ -249,7 +250,12 @@ static esp_err_t inverters_get(httpd_req_t *request)
 
     cJSON_AddNumberToObject(root, "generated_ms", current_ms);
     cJSON_AddNumberToObject(root, "configured_count", config->inverter_count);
-    cJSON_AddBoolToObject(root, "measured_power_supported", false);
+    /* Was hardcoded false while the runtime already carried a measured value,
+     * so no screen could show what the machine reported and every inverter page
+     * showed only what this firmware had COMMANDED -- which is the firmware's own
+     * belief, not evidence. Reported per inverter below; true here when any
+     * inverter has a profile that describes the measurement. */
+    uint8_t measured_supported_count = 0;
     cJSON *inverters = cJSON_AddArrayToObject(root, "inverters");
 
     for (uint8_t index = 0; index < config->inverter_count; ++index) {
@@ -273,8 +279,18 @@ static esp_err_t inverters_get(httpd_req_t *request)
         cJSON_AddStringToObject(item, "name", inverter->name);
         cJSON_AddBoolToObject(item, "enabled", inverter->enabled);
         cJSON_AddNumberToObject(item, "rated_kw", inverter->rated_power_kw);
-        cJSON_AddBoolToObject(item, "telemetry_supported", false);
-        cJSON_AddNullToObject(item, "measured_power_kw");
+        cJSON_AddBoolToObject(item, "telemetry_supported", data.telemetry_supported);
+        if (data.telemetry_supported) measured_supported_count++;
+        /* MEASURED, not commanded. Null unless a real sample exists and is not
+         * stale: a retained figure presented as current is how a page reports
+         * production from a plant that stopped answering. */
+        if (data.telemetry_valid && !data.telemetry_stale) {
+            cJSON_AddNumberToObject(item, "measured_power_kw", data.measured_power_kw);
+        } else {
+            cJSON_AddNullToObject(item, "measured_power_kw");
+        }
+        add_age(item, "measured_age_ms", data.last_telemetry_ms != 0,
+                current_ms, data.last_telemetry_ms);
         add_endpoint(item, &inverter->endpoint);
 
         cJSON *command = cJSON_AddObjectToObject(item, "command");
@@ -305,11 +321,15 @@ static esp_err_t inverters_get(httpd_req_t *request)
         cJSON_AddNumberToObject(runtime, "last_error", data.last_error);
         cJSON_AddStringToObject(runtime, "last_error_name", esp_err_to_name(data.last_error));
         cJSON_AddStringToObject(runtime, "state", health.state);
+        inverter_json_add_measurements(item, &data, current_ms);
         cJSON_AddItemToArray(inverters, item);
     }
 
+    cJSON_AddBoolToObject(root, "measured_power_supported", measured_supported_count > 0);
+
     cJSON *summary = cJSON_AddObjectToObject(root, "summary");
     cJSON_AddNumberToObject(summary, "enabled", enabled_count);
+    cJSON_AddNumberToObject(summary, "measured_power_supported", measured_supported_count);
     cJSON_AddNumberToObject(summary, "configured_rated_kw", configured_rated_kw);
     cJSON_AddNumberToObject(summary, "enabled_rated_kw", enabled_rated_kw);
     cJSON_AddNumberToObject(summary, "commandable_rated_kw", inverter_manager_get_total_rated_kw());

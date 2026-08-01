@@ -28,6 +28,22 @@ typedef enum {
     INVERTER_PROFILE_CONNECTION_LOGGER_GATEWAY
 } inverter_profile_connection_t;
 
+/*
+ * Which manufacturer's telemetry table a profile's block carries.
+ *
+ * An enum rather than a function pointer so the catalogue stays a table of data
+ * that can be inspected, diffed and asserted about by a source contract -- the
+ * same reason every other field here is data.
+ */
+typedef enum {
+    /* No transcribed block. The family has no measurement page at all, which is
+     * the honest state and is different from having one that reads zeros. */
+    INVERTER_TELEMETRY_LAYOUT_NONE = 0,
+    /* "Solar Inverter Modbus Interface Definitions (V3.0)", Huawei, Issue 01
+     * (2023-01-17), section 3. See inverter_telemetry_block.h. */
+    INVERTER_TELEMETRY_LAYOUT_HUAWEI_V3 = 1,
+} inverter_telemetry_layout_t;
+
 typedef struct {
     const char *id;
     const char *manufacturer;
@@ -87,6 +103,32 @@ typedef struct {
     uint8_t identity_words;
     uint32_t identity_expected;
     uint32_t identity_mask;
+
+    /*
+     * THE FULL TELEMETRY BLOCK: everything the machine measures, in one read.
+     *
+     * Separate from has_active_power above, and deliberately. That one register
+     * is a CONTROL input -- the confirmation evaluator uses it, the fleet cap
+     * uses it -- and it is read at the control rate on its own. This block is
+     * what a PERSON needs: DC strings, AC per phase, yield, temperature, device
+     * status. It is polled on a slower cadence, and its failure never touches a
+     * control decision.
+     *
+     * READING GRANTS NOTHING. Every register in the block is RO in the manual.
+     * Declaring it does not make a profile commandable, does not promote it out
+     * of LAB_ONLY and is not evidence about physical equipment; the write gates
+     * are unchanged and independent. A brand this firmware may not command can
+     * still be SHOWN, which is precisely what a controller that refuses to
+     * command it owes the person standing in front of it.
+     *
+     * The layout names which manufacturer's table the block carries. Zero means
+     * the family has no transcribed block and simply has no such page -- not a
+     * page of registers borrowed from a family that does.
+     */
+    inverter_telemetry_layout_t telemetry_layout;
+    uint8_t telemetry_function;
+    uint16_t telemetry_start;
+    uint16_t telemetry_registers;
 
     bool has_active_power;
     uint8_t active_power_function;

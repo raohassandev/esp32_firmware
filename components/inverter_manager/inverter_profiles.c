@@ -1,5 +1,7 @@
 #include "inverter_profiles.h"
 
+#include "inverter_telemetry_block.h"
+
 #include <string.h>
 
 #define LEGACY_SAFE_DEFAULT_PROFILE_ID "custom-advanced-modbus"
@@ -86,6 +88,12 @@ static const inverter_profile_t PROFILES[] = {
         /* First two characters of the model string, "SU". */
         .identity_expected = 0x5355,
         .identity_mask = 0xFFFF,
+        /* The full telemetry block, same manual, section 3. Reading only; see
+         * inverter_telemetry_block.h. This does not affect any write gate. */
+        .telemetry_layout = INVERTER_TELEMETRY_LAYOUT_HUAWEI_V3,
+        .telemetry_function = 3,
+        .telemetry_start = INVERTER_HUAWEI_BLOCK_START,
+        .telemetry_registers = INVERTER_HUAWEI_BLOCK_REGISTERS,
         .has_active_power = true,
         .active_power_function = 3,
         .active_power_address = 32080,
@@ -130,6 +138,12 @@ static const inverter_profile_t PROFILES[] = {
         .identity_words = 1,
         .identity_expected = 0xA021,
         .identity_mask = 0xFFFF,
+        /* The full telemetry block, same manual, section 3. Reading only; see
+         * inverter_telemetry_block.h. This does not affect any write gate. */
+        .telemetry_layout = INVERTER_TELEMETRY_LAYOUT_HUAWEI_V3,
+        .telemetry_function = 3,
+        .telemetry_start = INVERTER_HUAWEI_BLOCK_START,
+        .telemetry_registers = INVERTER_HUAWEI_BLOCK_REGISTERS,
         .has_active_power = true,
         .active_power_function = 3,
         .active_power_address = 40010,
@@ -332,6 +346,12 @@ static const inverter_profile_t PROFILES[] = {
         .identity_words = 1,
         .identity_expected = 0x5355, /* "SU" */
         .identity_mask = 0xFFFF,
+        /* The full telemetry block, same manual, section 3. Reading only; see
+         * inverter_telemetry_block.h. This does not affect any write gate. */
+        .telemetry_layout = INVERTER_TELEMETRY_LAYOUT_HUAWEI_V3,
+        .telemetry_function = 3,
+        .telemetry_start = INVERTER_HUAWEI_BLOCK_START,
+        .telemetry_registers = INVERTER_HUAWEI_BLOCK_REGISTERS,
         .has_active_power = true,
         .active_power_function = 3,
         .active_power_address = 32080,

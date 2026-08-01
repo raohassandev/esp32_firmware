@@ -27,6 +27,7 @@ const char *web_assets_cards_css(size_t *length);
 const char *web_assets_energy_flow_css(size_t *length);
 const char *web_assets_icons_js(size_t *length);
 const char *web_assets_meter_detail_js(size_t *length);
+const char *web_assets_inverter_detail_js(size_t *length);
 const char *web_assets_meter_detail_css(size_t *length);
 const char *web_assets_operator_operations_js(size_t *length);
 const char *web_assets_operator_product_suite_js(size_t *length);

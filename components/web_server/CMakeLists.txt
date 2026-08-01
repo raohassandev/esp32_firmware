@@ -83,6 +83,7 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-network.js" "${CMAK
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-proof.js" "${CMAKE_CURRENT_BINARY_DIR}/operator-proof.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/icons.js" "${CMAKE_CURRENT_BINARY_DIR}/icons.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/meter-detail.js" "${CMAKE_CURRENT_BINARY_DIR}/meter_detail.js" COPYONLY)
+configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/inverter-detail.js" "${CMAKE_CURRENT_BINARY_DIR}/inverter_detail.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/meter-detail.css" "${CMAKE_CURRENT_BINARY_DIR}/meter_detail.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/cards.css" "${CMAKE_CURRENT_BINARY_DIR}/cards.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/energy-flow.css" "${CMAKE_CURRENT_BINARY_DIR}/energy-flow.css" COPYONLY)
@@ -119,6 +120,7 @@ set(WEB_SERVER_C_SOURCES
     "web_api.c"
     "device_api.c"
     "meter_json.c"
+    "inverter_json.c"
     "engineering_auth.c"
     "engineering_guard.c"
     "http_json.c"
@@ -193,6 +195,7 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/operator-proof.js"
         "${CMAKE_CURRENT_BINARY_DIR}/icons.js"
         "${CMAKE_CURRENT_BINARY_DIR}/meter_detail.js"
+        "${CMAKE_CURRENT_BINARY_DIR}/inverter_detail.js"
         "${CMAKE_CURRENT_BINARY_DIR}/meter_detail.css"
         "${CMAKE_CURRENT_BINARY_DIR}/cards.css"
         "${CMAKE_CURRENT_BINARY_DIR}/energy-flow.css"

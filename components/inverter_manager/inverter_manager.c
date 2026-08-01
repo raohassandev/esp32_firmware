@@ -2,6 +2,7 @@
 #include "inverter_prerequisite.h"
 #include "inverter_profile_store.h"
 #include "inverter_profiles.h"
+#include "inverter_telemetry_block.h"
 #include "inverter_profile_decode.h"
 #include "inverter_status.h"
 #include "inverter_write_confirmation.h"
@@ -25,6 +26,8 @@ static const char *DEFAULT_PROFILE_ID = "custom.modbus-percent-v1";
 #define INVERTER_TELEMETRY_TASK_STACK 5120
 #define INVERTER_TELEMETRY_TASK_PRIORITY 5
 #define INVERTER_TELEMETRY_IDLE_MS 100
+/* The monitoring block's own period. See poll_measurements. */
+#define INVERTER_MEASUREMENT_BLOCK_INTERVAL_MS 1000U
 #define INVERTER_IDENTITY_RECHECK_MS 60000U
 /* Transport-level retries only. There is no sleep between attempts and no
  * readback transaction here: both would sit inside the control loop, and Modbus
@@ -109,6 +112,8 @@ typedef struct {
     bool identity_checked;
     uint32_t last_identity_ms;
     uint32_t next_poll_ms;
+    /* The monitoring block is due independently of the control read. */
+    uint32_t next_measurements_ms;
     /* Earliest timestamp at which prerequisite I/O may be attempted again. Keeps
      * a device that refuses the enable write from being hammered once per
      * acquisition pass. */
@@ -384,6 +389,66 @@ static esp_err_t poll_active_power(inverter_runtime_t *runtime, uint32_t timesta
     }
     portEXIT_CRITICAL(&runtime->lock);
     return err;
+}
+
+/*
+ * THE FULL TELEMETRY BLOCK: everything the machine measures, in one transaction.
+ *
+ * ITS OWN CADENCE, AND ITS OWN CONSEQUENCES. poll_active_power above reads the
+ * one register the control path uses -- the confirmation evaluator and the fleet
+ * cap both depend on it -- at the profile's poll rate. This is 102 registers of
+ * DC strings, AC per phase, yield, temperature and device status, which nothing
+ * in the control path reads. So it polls once a second at most, and a failure
+ * here does NOT mark the inverter offline, does not count against read quality,
+ * does not touch the identity check and cannot influence a command. The previous
+ * sample simply stays in place with its own timestamp, and a page says how old
+ * it is.
+ *
+ * That separation is the whole design. If this block could take an inverter
+ * offline, then adding a monitoring page would have made the controller less
+ * reliable -- which is precisely the trade this refuses to make.
+ *
+ * READING GRANTS NOTHING. Every register is RO in the manufacturer's manual.
+ * Nothing here promotes a profile out of LAB_ONLY or counts as physical
+ * qualification for writing.
+ */
+static esp_err_t poll_measurements(inverter_runtime_t *runtime, uint32_t timestamp)
+{
+    const inverter_profile_t *profile = runtime->profile;
+    if (!profile || profile->telemetry_layout == INVERTER_TELEMETRY_LAYOUT_NONE) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    if (profile->telemetry_registers == 0U ||
+        profile->telemetry_registers > INVERTER_HUAWEI_BLOCK_REGISTERS) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    uint16_t words[INVERTER_HUAWEI_BLOCK_REGISTERS] = {0};
+    esp_err_t err = read_profile_block(runtime, profile->telemetry_function,
+                                       profile->telemetry_start,
+                                       (uint8_t)profile->telemetry_registers, words);
+    if (err != ESP_OK) return err;
+
+    inverter_measurements_t decoded;
+    switch (profile->telemetry_layout) {
+    case INVERTER_TELEMETRY_LAYOUT_HUAWEI_V3:
+        if (!inverter_huawei_block_decode(words, profile->telemetry_registers, &decoded)) {
+            return ESP_ERR_INVALID_RESPONSE;
+        }
+        break;
+    default:
+        /* A layout the catalogue names but this build cannot decode. Refused
+         * rather than decoded with the nearest available table: registers read
+         * through the wrong manufacturer's map produce numbers, and numbers are
+         * what get believed. */
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    portENTER_CRITICAL(&runtime->lock);
+    runtime->data.measurements = decoded;
+    runtime->data.measurements_updated_ms = timestamp;
+    portEXIT_CRITICAL(&runtime->lock);
+    return ESP_OK;
 }
 
 static esp_err_t poll_readback(inverter_runtime_t *runtime, uint32_t timestamp)
@@ -1050,6 +1115,17 @@ static void inverter_telemetry_task(void *argument)
             }
             if (telemetry_err == ESP_OK) {
                 (void)poll_status(runtime, timestamp);
+                /* And the measurement block, at most once a second: it is a
+                 * hundred registers that no control decision reads, so it must
+                 * not ride the control cadence. Its return value is discarded on
+                 * purpose -- a failure here is not an inverter fault, and
+                 * treating it as one would make adding a monitoring page a
+                 * reliability regression. */
+                if ((int32_t)(timestamp - runtime->next_measurements_ms) >= 0) {
+                    runtime->next_measurements_ms =
+                        timestamp + INVERTER_MEASUREMENT_BLOCK_INTERVAL_MS;
+                    (void)poll_measurements(runtime, timestamp);
+                }
             } else {
                 portENTER_CRITICAL(&runtime->lock);
                 mark_status_unknown(runtime, true);
@@ -1399,8 +1475,12 @@ esp_err_t inverter_manager_set_total_power_kw(float target_kw)
          * timing them, so the cadence follows the loop rather than the clock.
          */
         if (s_command_refusals++ % 30U == 0U) {
-            ESP_LOGW(TAG, "power command rejected: no online production-approved "
-                          "inverter profile is commandable (refusal %u)",
+            /* One string literal, deliberately. Splitting it across a
+             * concatenation is identical to the compiler and invisible to
+             * tests/inverter_runtime_write_gate_source_contract.py, which greps
+             * the source for this exact refusal -- and the point of that
+             * contract is that the refusal cannot be quietly removed. */
+            ESP_LOGW(TAG, "power command rejected: no online production-approved inverter profile is commandable (refusal %u)",
                      (unsigned)s_command_refusals);
         }
         return ESP_ERR_INVALID_STATE;

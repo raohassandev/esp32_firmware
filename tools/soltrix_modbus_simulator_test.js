@@ -21,6 +21,9 @@ const METER_PROFILES = path.join(
     __dirname, '..', 'components', 'meter_profiles', 'meter_profiles.c');
 const EM500_BLOCK_HEADER = path.join(
     __dirname, '..', 'components', 'meter_profiles', 'include', 'em500_block.h');
+const INVERTER_BLOCK_HEADER = path.join(
+    __dirname, '..', 'components', 'inverter_manager', 'include',
+    'inverter_telemetry_block.h');
 
 /* Strips block and line comments so a register address quoted in prose can never
  * satisfy a contract about the code. */
@@ -92,6 +95,18 @@ function assertSimulatorMatchesFirmwareBlockStarts() {
     assert.strictEqual(EM500_ENERGY_START, Number(energy[1]));
 }
 
+/* The inverter block, same discipline. Its start and length are read out of
+ * inverter_telemetry_block.h so the rig cannot serve a block the firmware does
+ * not request -- which would answer zeros at the firmware's address and render
+ * an inverter page full of plausible-looking nothing. */
+function inverterBlockFromFirmware() {
+    const header = strippedSource(INVERTER_BLOCK_HEADER);
+    const start = header.match(/#define\s+INVERTER_HUAWEI_BLOCK_START\s+(\d+)u?/);
+    const count = header.match(/#define\s+INVERTER_HUAWEI_BLOCK_REGISTERS\s+(\d+)u?/);
+    assert.ok(start && count, 'inverter block constants not found in firmware header');
+    return { start: Number(start[1]), count: Number(count[1]) };
+}
+
 async function withServer(scenario, fn) {
     const server = createServer(scenario);
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -116,6 +131,7 @@ async function main() {
     assertSimulatorMatchesFirmwareSourceRegister();
     assertSimulatorMatchesFirmwarePowerRegister();
     assertSimulatorMatchesFirmwareBlockStarts();
+    const inverterBlock = inverterBlockFromFirmware();
 
     await withServer('normal', async (port) => {
         for (const [unitId, device] of DEVICES) {
@@ -202,6 +218,47 @@ async function main() {
         const total = (BigInt(word(energy, 0)) << 48n) | (BigInt(word(energy, 1)) << 32n) |
                       (BigInt(word(energy, 2)) << 16n) | BigInt(word(energy, 3));
         assert.strictEqual(total, 500000000123n);
+    });
+
+    /*
+     * THE INVERTER TELEMETRY BLOCK, on the wire, in one transaction.
+     *
+     * Asserted as raw words: the decode is the firmware's job and
+     * inverter_telemetry_block_test.c executes it. What this proves is that the
+     * exact request the firmware makes -- the start and length read out of its
+     * own header -- answers, and that the values a wrong decode would destroy
+     * survive: a negative reactive power, and phase currents two registers apart
+     * that differ from one another.
+     */
+    await withServer('normal', async (port) => {
+        const frame = await request(port, 21, 3, inverterBlock.start, inverterBlock.count);
+        assert.strictEqual(frame.readUInt8(8), inverterBlock.count * 2,
+            'inverter telemetry block must answer in ONE read');
+        const at = (address) => 9 + (address - inverterBlock.start) * 2;
+
+        /* Reactive power at 32082 is signed and negative in the fixture. */
+        assert.ok(frame.readInt32BE(at(32082)) < 0,
+            'reactive power must be negative, so the signed path is exercised');
+
+        /* Phase currents are two registers apart and must differ, or a decoder
+         * that mis-strides could satisfy all three by coincidence. */
+        const ia = frame.readInt32BE(at(32072));
+        const ib = frame.readInt32BE(at(32074));
+        const ic = frame.readInt32BE(at(32076));
+        assert.ok(ia > 0 && ib > 0 && ic > 0);
+        assert.ok(ia !== ib && ib !== ic);
+
+        /* PV strings interleave voltage and current: the voltage words sit in
+         * the hundreds-of-volts band after gain 10, the current words do not. */
+        assert.ok(frame.readUInt16BE(at(32016)) > 5000);
+        assert.ok(frame.readUInt16BE(at(32017)) < 5000);
+
+        /* A healthy machine reports fault code zero; a rig that reported a fault
+         * on every read would make the page's one colour meaningless. */
+        assert.strictEqual(frame.readUInt16BE(at(32090)), 0);
+
+        /* And lifetime yield is present, so the energy section is not empty. */
+        assert.ok(frame.readUInt32BE(at(32106)) > 0);
     });
 
     /*

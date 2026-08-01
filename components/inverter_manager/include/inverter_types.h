@@ -4,6 +4,7 @@
 
 #include "inverter_prerequisite.h"
 #include "inverter_status.h"
+#include "inverter_telemetry_block.h"
 #include "inverter_write_confirmation.h"
 
 typedef struct {
@@ -134,4 +135,19 @@ typedef struct {
     uint32_t status_read_successes;
     uint32_t status_read_errors;
     int32_t status_last_error;
+
+    /* Everything the machine measures: DC strings, AC per phase, yield,
+     * temperature, device status.
+     *
+     * NOT a control input. measured_power_kw above is the one number the
+     * confirmation evaluator and the fleet cap use, and it keeps its own
+     * acquisition at the control rate. This block is for a person to look at,
+     * is polled on a slower cadence, and its absence never blocks or biases a
+     * control decision -- so a family with no transcribed block loses a page and
+     * nothing else.
+     *
+     * measurements.valid stays false until a block read succeeds, so a page can
+     * say "not read" rather than draw an inverter at 0 V. */
+    inverter_measurements_t measurements;
+    uint32_t measurements_updated_ms;
 } inverter_data_t;

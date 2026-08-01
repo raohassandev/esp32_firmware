@@ -14,6 +14,7 @@
 #include "config_manager.h"
 #include "esp_timer.h"
 #include "inverter_manager.h"
+#include "inverter_json.h"
 #include "meter_json.h"
 #include "meter_manager.h"
 
@@ -192,7 +193,10 @@ static esp_err_t safe_inverters(httpd_req_t *request)
     }
     cJSON_AddBoolToObject(root, "operator_view", true);
     cJSON_AddNumberToObject(root, "configured_count", config->inverter_count);
-    cJSON_AddBoolToObject(root, "measured_power_supported", true);
+    /* Filled in below from what the profiles actually describe. It was
+     * hardcoded true, which claims a measurement the machine may never
+     * have been asked for. */
+    uint8_t measured_supported = 0;
     cJSON *items = cJSON_AddArrayToObject(root, "inverters");
     for (uint8_t i = 0; i < config->inverter_count; ++i) {
         inverter_data_t data = {0};
@@ -208,6 +212,7 @@ static esp_err_t safe_inverters(httpd_req_t *request)
         cJSON_AddStringToObject(item, "name", config->inverters[i].name);
         cJSON_AddBoolToObject(item, "enabled", config->inverters[i].enabled);
         cJSON_AddNumberToObject(item, "rated_kw", config->inverters[i].rated_power_kw);
+        if (have && data.telemetry_supported) measured_supported++;
         cJSON_AddBoolToObject(item, "telemetry_supported", have && data.telemetry_supported);
         if (have && data.telemetry_valid) cJSON_AddNumberToObject(item, "measured_power_kw", data.measured_power_kw);
         else cJSON_AddNullToObject(item, "measured_power_kw");
@@ -216,8 +221,16 @@ static esp_err_t safe_inverters(httpd_req_t *request)
         cJSON_AddBoolToObject(runtime, "online", have && data.online);
         cJSON_AddBoolToObject(runtime, "telemetry_valid", have && data.telemetry_valid);
         cJSON_AddStringToObject(runtime, "state", have && data.online ? "online" : config->inverters[i].enabled ? "unavailable" : "disabled");
+        /* What the MACHINE reports, in the operator view too. An operator page
+         * that shows only the commanded percentage shows this firmware's own
+         * belief and calls it a plant reading; the measured block is the only
+         * thing on the page that is evidence. Same serializer as the
+         * engineering view -- see inverter_json.h. */
+        inverter_json_add_measurements(item, &data, now_ms());
         cJSON_AddItemToArray(items, item);
     }
+    cJSON_AddBoolToObject(root, "measured_power_supported", measured_supported > 0);
+
     cJSON *summary = cJSON_AddObjectToObject(root, "summary");
     cJSON_AddNumberToObject(summary, "enabled", enabled);
     cJSON_AddNumberToObject(summary, "online", online);

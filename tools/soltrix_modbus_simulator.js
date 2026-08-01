@@ -60,7 +60,7 @@ const EM500_ENERGY_START = 0x1B20;
 
 
 const DEVICES = new Map([
-    [21, { kind: 'inverter', name: 'Huawei SUN2000', identityAddress: 40000, identity: 0xA021, powerAddress: 40010, powerW: 32000, limitAddress: 40125, limitRaw: 620 }],
+    [21, { kind: 'inverter', name: 'Huawei SUN2000', identityAddress: 40000, identity: 0xA021, powerAddress: 40010, powerW: 32000, limitAddress: 40125, limitRaw: 620, telemetryLayout: 'huawei.v3' }],
     [22, { kind: 'inverter', name: 'GoodWe Commercial', identityAddress: 41000, identity: 0xA022, powerAddress: 41010, powerW: 27500, limitAddress: 41125, limitRaw: 550 }],
     [23, { kind: 'inverter', name: 'Solis Commercial', identityAddress: 42000, identity: 0xA023, powerAddress: 42010, powerW: 18500, limitAddress: 42125, limitRaw: 370 }],
 ]);
@@ -194,6 +194,60 @@ function em500ScenarioValues(device, scenario, context) {
     };
 }
 
+/*
+ * THE HUAWEI TELEMETRY BLOCK, 32016..32117.
+ *
+ * The firmware reads this in one FC03 to render the inverter page. Served with a
+ * physically coherent 60 kW machine on a 400 V grid, scaled by the device's own
+ * rating so the three simulated inverters do not all read identically -- a rig
+ * where every machine reports the same numbers cannot show a page that has
+ * mixed two of them up.
+ *
+ * Source for every address, unit and gain: "Solar Inverter Modbus Interface
+ * Definitions (V3.0)", Huawei, Issue 01 (2023-01-17), section 3. Gains are
+ * DIVISORS, so the raw words below are the value times the gain.
+ */
+function huaweiTelemetryWords(words, requestAddress, device) {
+    const ratedW = device.powerW || 32000;
+    const k = ratedW / 60000;   /* against the 60 kW reference machine */
+    const put16 = (address, value) =>
+        writeWords(words, requestAddress, address, [Math.round(value) & 0xFFFF]);
+    const put32 = (address, value) =>
+        writeWords(words, requestAddress, address, signed32Words(Math.round(value)));
+
+    /* PV strings: V gain 10, A gain 100. Four distinct strings. */
+    for (let string = 0; string < 4; string += 1) {
+        put16(32016 + 2 * string, 6000 + string * 40);          /* 600.0..612.0 V */
+        put16(32017 + 2 * string, Math.round(1200 * k) + string * 20);
+    }
+    put32(32064, ratedW * 1.02);          /* DC power, kW gain 1000 => raw W */
+
+    put16(32066, 3987); put16(32067, 3991); put16(32068, 4001);  /* line, V gain 10 */
+    put16(32069, 2301); put16(32070, 2298); put16(32071, 2311);  /* phase, V gain 10 */
+    put32(32072, Math.round(84120 * k));  /* A gain 1000, TWO registers apart */
+    put32(32074, Math.round(83550 * k));
+    put32(32076, Math.round(85010 * k));
+
+    put32(32078, ratedW * 1.04);          /* peak today */
+    put32(32080, ratedW);                 /* active power, matches powerAddress */
+    put32(32082, -1250);                  /* reactive, signed */
+    put16(32084, 998);                    /* power factor, gain 1000 */
+    put16(32085, 4998);                   /* frequency, gain 100 */
+    put16(32086, 9862);                   /* efficiency, gain 100 */
+    put16(32087, 412);                    /* internal temperature, gain 10 */
+    put16(32088, 30000);                  /* insulation, gain 1000 */
+    put16(32089, 512);                    /* device status, raw */
+    put16(32090, 0);                      /* fault code, raw: healthy */
+
+    /* Energy, U32, kWh gain 100. */
+    const put32u = (address, value) =>
+        writeWords(words, requestAddress, address, unsigned32Words(Math.round(value)));
+    put32u(32106, 12345678 * k);          /* lifetime */
+    put32u(32108, 12999999 * k);          /* lifetime DC input */
+    put32u(32114, 24567 * k);             /* today */
+    put32u(32116, 567890 * k);            /* this month */
+}
+
 function wordsFor(device, address, count, scenario = 'normal', context = {}) {
     const words = new Array(count).fill(0);
     if (device.kind === 'em500') {
@@ -214,6 +268,10 @@ function wordsFor(device, address, count, scenario = 'normal', context = {}) {
     }
 
     writeWords(words, address, device.identityAddress, [device.identity]);
+    /* The telemetry block first, then the discrete registers, so a device whose
+     * power address falls inside the block still reports the scenario's own
+     * value there rather than the block's. */
+    if (device.telemetryLayout === 'huawei.v3') huaweiTelemetryWords(words, address, device);
     writeWords(words, address, device.powerAddress, signed32Words(device.powerW));
     writeWords(words, address, device.limitAddress, [device.limitRaw]);
     return words;
