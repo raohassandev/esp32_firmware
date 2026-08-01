@@ -195,13 +195,25 @@ require(".slice(0, 3)" in OPERATOR,
         "the required actions must be bounded; an unbounded list of things to do "
         "is a list nobody does")
 
-# The operator trend is still present on the dashboard, the grid page and the
-# solar page - it is now one shared component rather than a second chart
-# implementation copied into this file.
+# The operator trend is present on the dashboard and the solar page, as ONE
+# shared component rather than a second chart implementation copied into this
+# file.
 require("function sparkline" not in OPERATOR,
         "the operator view must not carry a second chart implementation")
-for token in ["Metered supply trend", "Solar production trend", "Plant power trend"]:
+for token in ["Solar production trend", "Plant power trend"]:
     require(token in OPERATIONS, f"operator trend chart missing {token}")
+
+# NO CHART ON THE SUPPLY PAGES, removed at the owner's request.
+#
+# It plotted grid_kw, which on this product is whichever supply was live at each
+# sample. On a single-meter plant one line crossed between the utility and the
+# generator with nothing on the axis saying where -- and the Grid power and
+# Generator power pages exist precisely to keep those two apart, so a trend that
+# mixes them contradicts the page it sits on.
+require("Metered supply trend" not in OPERATIONS,
+        "the supply-page trend is back. It plots grid_kw, which changes which "
+        "supply it means partway through the window, on a page whose whole "
+        "purpose is to show one supply")
 require("PvdgChart" in OPERATIONS and "create" in CHART,
         "the operator screens must mount the shared chart component")
 

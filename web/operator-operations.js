@@ -1315,13 +1315,19 @@
                 { key: 'solar_kw', label: 'Solar production', meaning: { positive: 'producing', negative: 'consuming' } }
             ]
         },
-        meters: {
-            title: 'Metered supply trend',
-            description: 'What the source meter recorded. On a single-meter plant the supply may have changed within this window.',
-            series: [
-                { key: 'grid_kw', label: 'Metered supply', meaning: { positive: 'supplying the plant', negative: 'flowing back to the supply' } }
-            ]
-        },
+        /*
+         * NO CHART ON THE SUPPLY PAGES.
+         *
+         * Removed at the owner's request. It plotted grid_kw, which on this
+         * product is whichever supply was live at each sample, so on a
+         * single-meter plant one line crossed between the utility and the
+         * generator with nothing on the axis saying where -- and the Grid and
+         * Generator pages now exist precisely to keep those two apart. A trend
+         * that mixes them contradicts the page it sits on.
+         *
+         * The same quantity over time is still on the plant overview, where the
+         * line is not making a claim about one supply.
+         */
         inverters: {
             title: 'Solar production trend',
             description: 'Measured inverter production stored by the controller',
@@ -1408,7 +1414,10 @@
             renderAlarmPage();
             return;
         }
-        const target = current === 'dashboard' ? byId('operatorDashboardView') : current === 'meters' ? byId('operatorMeterView') : current === 'inverters' ? byId('operatorInverterView') : null;
+        /* meters and generator are absent on purpose: neither carries a chart.
+         * See CHART_PAGES. */
+        const target = current === 'dashboard' ? byId('operatorDashboardView')
+            : current === 'inverters' ? byId('operatorInverterView') : null;
         if (!target) return;
         mountChart(target, current);
         /* The band is re-rendered rather than appended once: operator-view.js

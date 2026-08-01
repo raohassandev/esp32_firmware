@@ -1305,7 +1305,7 @@
          * was two screens down while a chart the operator had not asked for held
          * the fold. The chart is unchanged and still on the page; it is simply
          * no longer between the reader and the list. */
-        view.append(overview, meterTable(meters), chartHost());
+        view.append(overview, meterTable(meters));
     }
 
     /* Compact availability table: what is metering this site, is it talking, what
