@@ -90,11 +90,14 @@ permission = re.search(
 require(permission is not None, "inverter_profile_write_permission must exist")
 if permission:
     body = permission.group(1)
-    blocked_at = body.find("inverter_profile_prerequisite_blocks_write")
-    lab_at = body.find("declared_lab_target")
-    require(blocked_at != -1 and lab_at != -1 and blocked_at < lab_at,
-            "the prerequisite must be checked BEFORE lab authority is granted, or a "
-            "declared lab target with an unverifiable prerequisite would be commandable")
+    # The ordering check is gone with the arm it protected: there is no lab
+    # authority to be granted after the prerequisite, because there is no lab
+    # authority at all. What matters is that the prerequisite is still checked,
+    # which is stronger than an ordering against a branch that no longer exists.
+    require(body.find("inverter_profile_prerequisite_blocks_write") != -1,
+            "the write gate no longer consults the prerequisite rule: a device "
+            "whose enable register cannot be read back would accept a setpoint, "
+            "echo it, and ignore it")
 
 # A zero mask must never be used literally: it would make every reading compare
 # equal and confirm the prerequisite unconditionally.

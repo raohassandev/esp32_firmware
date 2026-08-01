@@ -665,65 +665,7 @@ input:disabled, select:disabled, textarea:disabled {
 @media (max-width: 900px) {
     .engineering-session-banner { padding: 12px 18px; }
     .esb-timer { justify-items: start; }
-}
-
-/* ====================================================== lab simulator banner
- *
- * Present on every route while the controller reports lab_simulator_mode. It
- * sits in the shell above the routed content, so there is no page a user can be
- * on where "commands are going to a declared simulator" is not on screen.
- *
- * Every colour resolves through a token declared in BOTH themes. The measured
- * ratios are recorded next to the token declarations in :root and in theme.css.
- * The left rule is 5px rather than the session banner's 4px so the two banners
- * are distinguishable at a glance when both are present. */
-.lab-simulator-banner {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px 18px;
-    align-items: center;
-    padding: 13px 28px;
-    border-bottom: 1px solid var(--lab-line);
-    border-left: 5px solid var(--lab-line);
-    color: var(--lab-text);
-    background: var(--lab-surface);
-}
-.lab-simulator-banner[hidden] { display: none; }
-.lsb-mark { font-size: 22px; line-height: 1; }
-.lsb-copy { display: grid; gap: 4px; min-width: 240px; flex: 1 1 380px; }
-/* 15px and 800 weight: this is the sentence that must not be missed, and it is
- * held to the 4.5:1 body-text threshold rather than the 3:1 large-text one. */
-.lsb-copy strong { color: var(--lab-text); font-size: 15px; font-weight: 800; line-height: 1.35; }
-.lsb-copy span { color: var(--lab-muted); font-size: 12px; line-height: 1.5; }
-/* The controller's own wording. Hidden until it arrives rather than filled with
- * a placeholder, so an empty line never reads as a notice the firmware gave. */
-.lsb-notice { padding-top: 4px; border-top: 1px solid var(--lab-line); }
-.lsb-notice[hidden] { display: none; }
-.lsb-scope { display: grid; gap: 3px; justify-items: end; min-width: 170px; }
-.lsb-scope-label {
-    color: var(--lab-muted);
-    font-size: 12px;
-    font-weight: 800;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-}
-/* The firmware's scope slug, verbatim, in a monospace-ish tabular treatment so
- * it reads as a value the controller published rather than prose. */
-.lsb-scope strong {
-    padding: 4px 10px;
-    border: 1px solid var(--lab-line);
-    border-radius: 999px;
-    color: var(--lab-pill-text);
-    background: var(--lab-pill-surface);
-    font-size: 13px;
-    font-weight: 800;
-    overflow-wrap: anywhere;
-}
-
-@media (max-width: 900px) {
-    .lab-simulator-banner { padding: 13px 18px; }
-    .lsb-scope { justify-items: start; }
-}
+}@media (max-width: 900px) {}
 
 /* ============================================ commissioning gate and confirmation
  *

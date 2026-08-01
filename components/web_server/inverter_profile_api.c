@@ -71,7 +71,7 @@ static esp_err_t profiles_get(httpd_req_t *request)
             cJSON_AddBoolToObject(entry, "lab_target", lab_target);
             cJSON_AddStringToObject(entry, "write_permission",
                                     inverter_write_permission_label(
-                                        inverter_profile_write_permission(assigned, lab_target)));
+                                        inverter_profile_write_permission(assigned)));
 
             /* The field-verification badge, computed from live evidence on every
              * request rather than stored. It is a statement to a human and is
@@ -337,12 +337,8 @@ static esp_err_t profile_assignment_post(httpd_req_t *request)
 
     /* Report the stored declaration, not the requested one, so the response
      * cannot claim a state the controller did not persist. */
-    bool lab_target = false;
-    if (inverter_profile_store_lab_target_get(inverter_index, &lab_target) != ESP_OK) {
-        lab_target = false;
-    }
     const inverter_write_permission_t permission =
-        inverter_profile_write_permission(profile, lab_target);
+        inverter_profile_write_permission(profile);
 
     cJSON *response = cJSON_CreateObject();
     if (!response) return httpd_resp_send_500(request);
@@ -354,15 +350,8 @@ static esp_err_t profile_assignment_post(httpd_req_t *request)
     cJSON_AddBoolToObject(response, "restart_required", true);
     cJSON_AddBoolToObject(response, "write_allowed_after_restart",
                           inverter_profile_allows_write(profile));
-    cJSON_AddBoolToObject(response, "lab_target", lab_target);
     cJSON_AddStringToObject(response, "write_permission_after_restart",
                             inverter_write_permission_label(permission));
-    if (permission == INVERTER_WRITE_LAB_ONLY) {
-        cJSON_AddStringToObject(response, "lab_target_notice",
-                                "This inverter is commandable only because its endpoint is "
-                                "declared a Modbus simulator. Commands are not production "
-                                "control and are not evidence about physical equipment.");
-    }
     return send_json(request, response);
 }
 

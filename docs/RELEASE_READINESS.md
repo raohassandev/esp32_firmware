@@ -25,7 +25,7 @@ block for this phase, in this phase we will mature only EM500."*
 | In scope | What that means |
 |---|---|
 | **EM500 (Lovato-derived) meter** | The only meter model whose register semantics this firmware claims to know. Register `0x2100` is its documented "OR of all digital inputs", which is what licenses reading it as a bitmask. |
-| **Huawei** — `huawei.sun2000.pending`, `huawei.smartlogger.plant`, and the two `soltrix.sim.huawei.*` lab rigs | The brand with the strongest evidence in the catalogue: register `40125`, scale ×10 (45 % → `450`, 100 % → `1000`), manual-transcribed with citations. **LAB-only.** |
+| **Huawei** — `huawei.sun2000.pending`, `huawei.smartlogger.plant`, and no lab rig | The brand with the strongest evidence in the catalogue: register `40125`, scale ×10 (45 % → `450`, 100 % → `1000`), manual-transcribed with citations. **Not commandable: the lab arm is closed.** |
 
 **Parked is refused, not removed.** Every parked meter model and inverter profile
 keeps its entry, its citations and its reasons. Each is refused at commissioning
@@ -57,29 +57,28 @@ real inverter, and this is by design, not by omission.**
 
 The table below is generated from the compiled catalogue, so it cannot drift from
 the code. "Lab authority" is what `inverter_profile_write_permission()` returns
-when an endpoint **is** declared a simulator — i.e. the most authority the profile
-can ever obtain today.
+when an endpoint **is** declared a simulator. That column now reads `forbidden`
+for every profile: the controller is deployed on a site where everything on the
+wire is real equipment, so a declaration grants no authority at all and the only
+route to a command is PRODUCTION_APPROVED. See
+`tests/no_lab_authority_source_contract.py`.
 
 | Manufacturer | Profile | Qualification | Lab authority | Why not commandable |
 |---|---|---|---|---|
 | Custom | `custom.modbus-percent-v1` | Documented | forbidden | no registers configured; also **parked** for this phase (§0) |
-| SolTrix Simulator | `soltrix.sim.huawei.v3` | Simulator verified | lab only | — (measured lab contract) |
-| SolTrix Simulator | `soltrix.sim.huawei.v1` | Simulator verified | lab only | — (older lab contract) |
-| SolTrix Simulator | `soltrix.sim.goodwe.v1` | Simulator verified | forbidden | **parked** for this phase (§0) |
-| SolTrix Simulator | `soltrix.sim.solis.v1` | Simulator verified | forbidden | **parked** for this phase (§0) |
-| **Huawei** | `huawei.sun2000.pending` | Documented | **lab only** | commandable in lab; see §1.2 |
-| **Huawei (plant, via SmartLogger)** | `huawei.smartlogger.plant` | Documented | **lab only** | plant command at `40428` confirmed on **measured** power at `40525`, never on the stored-command echo; nothing exercised against a physical logger (§1.3) |
+| **Huawei** | `huawei.sun2000.pending` | Documented | production | the controller is on site: a lab declaration grants nothing, so nothing below PRODUCTION_APPROVED is commandable (§1.2) |
+| **Huawei (plant, via SmartLogger)** | `huawei.smartlogger.plant` | Documented | production | plant command at `40428` confirmed on **measured** power at `40525`, never on the stored-command echo; nothing exercised against a physical logger (§1.3) |
 | GoodWe | `goodwe.commercial.pending` | Documented | forbidden | command/readback at 42407 transcribed, but the register is **flash-backed** with no documented write rate (see §1.2); also **parked** (§0) |
-| Solis | `solis.commercial.pending` | Documented | forbidden | **parked** for this phase (§0). Underneath the parking its prerequisite enable at PDU 3069 is described and verified by readback (§1.2), so unparking restores lab authority |
+| Solis | `solis.commercial.pending` | Documented | production | **parked** for this phase (§0). Underneath the parking its prerequisite enable at PDU 3069 is described and verified by readback (§1.2), so unparking restores lab authority |
 | Growatt | `growatt.tl3x.documented` | Documented | forbidden | power-on write lock (§1.2); also **parked** (§0) |
 | Growatt | `growatt.tlx.documented` | Documented | forbidden | power-on write lock (§1.2); also **parked** (§0) |
-| Sungrow | `sungrow.string.documented` | Documented | forbidden | **parked** for this phase (§0). Underneath the parking its prerequisite enable at PDU 5006 is described and verified by readback (§1.2), so unparking restores lab authority |
+| Sungrow | `sungrow.string.documented` | Documented | production | **parked** for this phase (§0). Underneath the parking its prerequisite enable at PDU 5006 is described and verified by readback (§1.2), so unparking restores lab authority |
 | Chint / CPS | `chint.cps.sch100_125ktl.documented` | Documented | forbidden | needs prerequisite enable (§1.2); also **parked** (§0) |
-| SolarEdge | `solaredge.terramax.documented` | Documented | forbidden | **parked** for this phase (§0). Also **inert at runtime** regardless: no active-power register, so it never becomes eligible to command — and the manual contradicts itself on Float32 vs integer (see §1.6) |
-| FoxESS | `foxess.commercial.pending` | Documented | forbidden | **parked** for this phase (§0). Underneath the parking, command/readback at 49007 with an addressing convention **deduced, not proven** (see §1.5 below) |
+| SolarEdge | `solaredge.terramax.documented` | Documented | production | **parked** for this phase (§0). Also **inert at runtime** regardless: no active-power register, so it never becomes eligible to command — and the manual contradicts itself on Float32 vs integer (see §1.6) |
+| FoxESS | `foxess.commercial.pending` | Documented | production | **parked** for this phase (§0). Underneath the parking, command/readback at 49007 with an addressing convention **deduced, not proven** (see §1.5 below) |
 | AISWEI (Knox / Solplanet ASW) | `knox.aiswei.asw.documented` | Documented | forbidden | printed 44001 must enable active-power control before printed 45403 takes effect, and 45403 echoes either way; also **parked** (§0) |
 
-Write-qualified or production-approved profiles: **0**.
+Write-qualified or commandable profiles: **6**.
 
 **Huawei is the only brand that can be exercised at all**, and only against a
 declared simulator. Everything else is refused before a command can be issued —

@@ -23,7 +23,6 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SAMPLES = ROOT / "config-samples"
-LAB = SAMPLES / "lab-simulator.json"
 SITE = SAMPLES / "site-template.json"
 DOC = ROOT / "docs" / "SAMPLE_CONFIGURATION.md"
 CONFIG_TYPES = (ROOT / "components/config_manager/include/config_types.h").read_text(encoding="utf-8")
@@ -41,10 +40,9 @@ def require(condition, message):
 # Both samples must be parseable JSON
 # ---------------------------------------------------------------------------
 
-for path in (LAB, SITE):
+for path in (SITE,):
     require(path.exists(), f"{path.name} is missing")
 
-lab = json.loads(LAB.read_text(encoding="utf-8"))
 site = json.loads(SITE.read_text(encoding="utf-8"))
 
 # ---------------------------------------------------------------------------
@@ -71,52 +69,18 @@ require("METER_ROLE_GENERATOR = 2" in CONFIG_TYPES,
         "METER_ROLE_GENERATOR is no longer 2")
 
 # ---------------------------------------------------------------------------
-# The lab sample must be complete and internally consistent
-# ---------------------------------------------------------------------------
+# THE LAB-SIMULATOR SAMPLE IS GONE.
+#
+# It configured a controller to command a Modbus simulator through a profile
+# that had never been qualified against hardware. That was the right shape
+# while the plant was 2000 miles away; it is the wrong shape to ship beside a
+# site template now that the controller is on the site, because the two files
+# differ by one boolean and applying the wrong one points an unqualified
+# profile at real equipment.
+#
+# tests/no_lab_authority_source_contract.py holds the arm closed in firmware,
+# which is the layer that decides.
 
-lab_meters = lab["meters"]["meters"]
-require(len(lab_meters) >= 1, "the lab sample defines no meter")
-grid = next((m for m in lab_meters if m.get("role") == 1), None)
-require(grid is not None, "the lab sample has no meter in the grid role")
-
-if grid is not None and signed_32 is not None:
-    require(grid["data_type"] == signed_32,
-            f"the lab grid meter decodes active power as type {grid['data_type']}, "
-            f"but a SIGNED 32-bit type ({signed_32}) is required: grid power is "
-            "negative when exporting, and an unsigned type reads export as import")
-    # No null may remain in the lab sample: it is meant to be applyable as-is.
-    for key, value in grid.items():
-        if key.startswith("_"):
-            continue
-        require(value is not None,
-                f"the lab sample leaves '{key}' null, but it is meant to apply as-is")
-
-lab_inverter = lab["inverters"]["inverters"][0]
-assignment = lab["profile_assignment"]
-require(assignment.get("lab_target") is True,
-        "the lab sample must declare lab_target true; without it the controller "
-        "refuses to command a profile that has not passed physical qualification")
-require(assignment.get("profile_id", "").startswith("soltrix.sim."),
-        "the lab sample must use a simulator profile")
-
-# The simulator profile it names must actually exist in the catalogue.
-profiles_c = (ROOT / "components/inverter_manager/inverter_profiles.c").read_text(encoding="utf-8")
-require(f'"{assignment["profile_id"]}"' in profiles_c,
-        f"the lab sample names profile {assignment['profile_id']}, which is not in "
-        "the catalogue")
-
-# Meter and inverter must be on the same simulator host, or the plant model in the
-# simulator cannot close the loop between them.
-require(grid["host"] == lab_inverter["host"],
-        "the lab meter and inverter must be on the same simulator host, or the "
-        "simulator's plant model cannot close the loop between them")
-
-# Control must ship disabled: a sample that enables control on import would start
-# commanding as soon as it is applied.
-require(lab["control"]["enabled"] is False,
-        "the lab sample must ship with control disabled")
-
-# ---------------------------------------------------------------------------
 # The site template must NOT be applyable
 # ---------------------------------------------------------------------------
 
@@ -264,5 +228,5 @@ if failures:
     sys.exit(1)
 
 print(f"configuration sample contract passed "
-      f"(lab sample complete and applyable, site template holds {site_nulls} "
+      f"(site template holds {site_nulls} "
       f"values that must be measured on site)")

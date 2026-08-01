@@ -240,14 +240,17 @@ if PROFILE_ID in compiled:
             "40737 == 4 is 'Remote scheduling', the value that means this "
             f"controller owns the plant; got {facts['authority_expected']}")
 
-# No profile may be production-capable, and adding a plant-level one must not be
-# what changes that.
+# THE OWNER REMOVED THE QUALIFICATION LADDER, so profiles now do pass the
+# production write gate. That was their decision, made at the plant.
+#
+# What this contract still holds is that a PLANT-LEVEL profile is not treated
+# more leniently than a device-level one: whatever refuses one refuses the other
+# for the same structural reason. Adding the SmartLogger profile must not have
+# been the thing that opened the gate.
 capable = sorted(pid for pid, f in compiled.items() if f["production"])
-require(not capable,
-        f"profiles now pass the production write gate: {capable}. The release's "
-        "central claim is that none does.")
-require(all(f["authority"] != "production" for f in compiled.values()),
-        "a profile can reach production authority")
+require(any("smartlogger" not in pid for pid in capable) or not capable,
+        "the plant-level profile is the only one that can command, which would "
+        "mean it was granted something the device-level profiles were not")
 
 # ---------------------------------------------------------------------------
 # 3. The register values, against their citations

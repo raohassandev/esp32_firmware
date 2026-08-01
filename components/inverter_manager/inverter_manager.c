@@ -1531,7 +1531,7 @@ esp_err_t inverter_manager_init(void)
         bool lab_target = false;
         if (inverter_profile_store_lab_target_get(i, &lab_target) != ESP_OK) lab_target = false;
         runtime->lab_target = lab_target;
-        runtime->permission = inverter_profile_write_permission(runtime->profile, lab_target);
+        runtime->permission = inverter_profile_write_permission(runtime->profile);
         runtime->write_allowed = runtime->permission != INVERTER_WRITE_FORBIDDEN;
         runtime->data.identity_supported = runtime->profile && runtime->profile->has_identity_probe;
         runtime->data.telemetry_supported = runtime->profile && runtime->profile->has_active_power;
@@ -1589,16 +1589,9 @@ esp_err_t inverter_manager_init(void)
                      "remains locked", i, resolved_profile_id);
         } else if (runtime->permission == INVERTER_WRITE_FORBIDDEN) {
             ESP_LOGW(TAG,
-                     "inverter %u profile '%s' is not production-approved and no simulator has "
-                     "been declared; command path remains locked", i, resolved_profile_id);
-        } else if (runtime->permission == INVERTER_WRITE_LAB_ONLY) {
-            /* Logged at warning level on every start, deliberately: a controller
-             * commanding a declared simulator must never look like a controller
-             * commanding a plant. */
-            ESP_LOGW(TAG,
-                     "inverter %u profile '%s' is commandable ONLY because its endpoint is "
-                     "declared a lab simulator. This is not production control and is not "
-                     "evidence about physical equipment.", i, resolved_profile_id);
+                     "inverter %u profile '%s': the command path is locked. The profile "
+                     "describes no usable command and readback pair, or its command register "
+                     "cannot be written safely", i, resolved_profile_id);
         }
     }
     free(cfg);
@@ -1654,10 +1647,6 @@ void inverter_manager_commissioning_summary(inverter_fleet_commissioning_t *out_
         switch (runtime->permission) {
             case INVERTER_WRITE_PRODUCTION:
                 out_summary->write_qualified_count++;
-                break;
-            case INVERTER_WRITE_LAB_ONLY:
-                out_summary->lab_only_count++;
-                out_summary->lab_mode = true;
                 break;
             case INVERTER_WRITE_FORBIDDEN:
             default:

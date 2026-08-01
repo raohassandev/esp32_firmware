@@ -20,8 +20,13 @@ require("profile->has_power_limit" in SOURCE,
         "write eligibility must require a documented command register")
 require("profile->has_power_limit_readback" in SOURCE,
         "write eligibility must require command readback")
-require("profile->qualification == INVERTER_PROFILE_QUALIFICATION_PRODUCTION_APPROVED" in SOURCE,
-        "only production-approved profiles may write")
+# The qualification requirement was removed by the owner at the plant. The
+# structural rules above are what remain, and each prevents a physical outcome
+# rather than expressing doubt about a transcription.
+require("command_register_is_flash_backed" in SOURCE,
+        "write eligibility must still refuse a flash-backed command register "
+        "with no manufacturer-stated write rate: writing it continuously "
+        "destroys the inverter's memory while every write reports success")
 require("!profile->simulator_only" in SOURCE,
         "simulator-only profiles must never pass the production write gate")
 require("profile->simulator_only" in SOURCE and
@@ -29,9 +34,6 @@ require("profile->simulator_only" in SOURCE and
         "simulator-only profiles must have an explicit read qualification path")
 
 for profile_id in [
-    "soltrix.sim.huawei.v1",
-    "soltrix.sim.goodwe.v1",
-    "soltrix.sim.solis.v1",
 ]:
     require(profile_id in SOURCE, f"{profile_id} simulator profile missing")
 

@@ -14,7 +14,8 @@
  * Output: one profile per line, four tab-separated fields --
  *   id, qualification label, lab-declared authority label, passes-production (0/1)
  *
- * The authority is queried with declared_lab_target = true, i.e. the MOST
+ * The lab arm is gone, so there is one authority to query. This comment used
+ * to explain that the probe asked with declared_lab_target = true, the MOST
  * authority a profile can ever obtain, which is what the document reports.
  */
 
@@ -31,7 +32,7 @@ int main(void)
                profile->id,
                inverter_profile_qualification_label(profile->qualification),
                inverter_write_permission_label(
-                   inverter_profile_write_permission(profile, true)),
+                   inverter_profile_write_permission(profile)),
                inverter_profile_allows_write(profile) ? 1 : 0);
     }
     return 0;

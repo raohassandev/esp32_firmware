@@ -87,7 +87,7 @@ int main(void)
         printf("PROFILE\t%s\t%s\t%s\t%d\t%s\t%d\t%.3f\t%.3f\t%d\t%u\t%u\t%u\t%u\t%u\n",
                p->id,
                inverter_profile_qualification_label(p->qualification),
-               inverter_write_permission_label(inverter_profile_write_permission(p, true)),
+               inverter_write_permission_label(inverter_profile_write_permission(p)),
                inverter_profile_allows_write(p) ? 1 : 0,
                measured_mode_name(p->measured_power_confirm),
                inverter_profile_measured_confirmation_described(p) ? 1 : 0,

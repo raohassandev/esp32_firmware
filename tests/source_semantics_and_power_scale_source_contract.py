@@ -212,10 +212,17 @@ for profile_id in ("huawei.sun2000.pending", "solis.commercial.pending"):
 
 # The gate that enforces it must still be present and still keyed on the same
 # qualification, or the assertions above would be describing a dead field.
-require("profile->qualification == INVERTER_PROFILE_QUALIFICATION_PRODUCTION_APPROVED"
-        in squeeze(PROFILES),
-        "the production write permission must remain keyed on the profile's "
-        "qualification")
+# THE WRITE PERMISSION IS NO LONGER KEYED ON QUALIFICATION.
+#
+# The owner removed that ladder while standing at the plant. The qualification
+# field is still carried and still reported -- it records what evidence exists
+# for a profile -- but it no longer decides whether a command may be issued.
+# What decides is the set of structural rules: a command register with a
+# readback, a readable prerequisite where one is needed, and a stated write rate
+# for a flash-backed register.
+require("qualification" in squeeze(PROFILES),
+        "the qualification field has been dropped entirely; it is the only "
+        "record of what evidence exists for each profile")
 
 # ---------------------------------------------------------------------------
 # 5. The lab rig must serve the tariff where the firmware polls for it.

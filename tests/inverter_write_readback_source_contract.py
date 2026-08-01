@@ -134,7 +134,7 @@ if MANAGER.count("!runtime->data.confirmation_fault") < 2:
 
 # The write gate already requires a readback register, so no production-approved
 # profile can exist without one.
-if "profile->has_power_limit_readback &&" not in PROFILES:
+if "profile->has_power_limit && profile->has_power_limit_readback" not in PROFILES:
     raise SystemExit("production write approval must require a readback register")
 
 # ------------------------------------------------------------------- reporting

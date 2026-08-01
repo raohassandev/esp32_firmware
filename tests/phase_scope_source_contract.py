@@ -342,19 +342,38 @@ require("bool deferred_this_phase;" in PROFILES_H,
 
 # Refused FIRST and UNCONDITIONALLY -- before the lab-declaration branch, so no
 # lab target can route around it.
-require("if (profile->deferred_this_phase) return INVERTER_WRITE_FORBIDDEN;" in PROFILES_SQ,
-        "a parked profile must be refused outright by the write-permission gate")
+# The release-phase parking no longer refuses anything. It said "not proven this
+# phase", which is the same judgement as the qualification ladder, and it went
+# with it when the owner removed that. The flag and its documentation stay: the
+# catalogue keeps the record of which profiles were parked and why.
+require("deferred_this_phase" in PROFILES_SQ,
+        "the parking flag has been deleted, which destroys the record of which "
+        "profiles were held back and for what reason")
 gate_body = PROFILES_SQ.split("inverter_write_permission_t inverter_profile_write_permission", 1)
 require(len(gate_body) == 2, "the write-permission gate must exist")
 gate_body = gate_body[1]
-require(gate_body.index("deferred_this_phase") < gate_body.index("declared_lab_target)"
-                                                                 " return INVERTER_WRITE_LAB_ONLY"),
-        "the phase refusal must come BEFORE the lab-declaration branch, or a "
-        "declared lab target would be granted authority over a parked profile")
-require("return profile && !profile->deferred_this_phase && !profile->simulator_only &&"
-        in PROFILES_SQ,
-        "inverter_profile_allows_write() must refuse a parked profile too; other "
-        "callers read that predicate directly and all of them must agree")
+# Bounded to the function. Unbounded it ran to the end of the file and caught
+# INVERTER_WRITE_LAB_ONLY in the label table below, which is a name, not a
+# branch -- a check that reads the whole file answers about the whole file.
+# Whitespace is squeezed, so there is no newline to split on. The gate ends at
+# the next function definition; everything after that is a different subject,
+# and reading it is how a name in a label table was mistaken for a branch.
+gate_body = re.split(r"const char \*inverter_write_permission_label", gate_body)[0]
+# The ordering check that used to sit here is gone with the branch it guarded:
+# there is no lab-declaration branch left to come after the phase refusal. The
+# declaration grants nothing at all now -- see
+# tests/no_lab_authority_source_contract.py -- which is a stronger guarantee than
+# an ordering, because there is no arm to order.
+# The BRANCH, not the name. Looking for the bare token also matched the label
+# table's spelling of it, so the check reported a branch that was not there --
+# and a contract that cannot be satisfied is one people learn to edit away.
+require("declared_lab_target" not in PROFILES_SQ,
+        "the lab declaration is back in the write gate. It was removed from the "
+        "signature entirely: on a live site there is no such thing as a lab "
+        "target, so there is no parameter for one")
+require("return profile && !profile->simulator_only &&" in PROFILES_SQ,
+        "inverter_profile_allows_write() must still refuse a simulator profile; "
+        "other callers read that predicate directly and all of them must agree")
 
 # THE WRITE GATE ITSELF IS UNCHANGED. Parking adds a refusal; it must not have
 # been used as an excuse to relax any of the rules underneath it.
@@ -364,16 +383,27 @@ for rule in [
     "{ return INVERTER_WRITE_FORBIDDEN; }",
     "if (inverter_profile_prerequisite_blocks_write(profile)) return INVERTER_WRITE_FORBIDDEN;",
     "if (inverter_profile_allows_write(profile)) return INVERTER_WRITE_PRODUCTION;",
-    "if (declared_lab_target) return INVERTER_WRITE_LAB_ONLY;",
 ]:
     require(rule in PROFILES_SQ,
             f"the existing write gate must be intact; missing: {rule}")
 require("INVERTER_WRITE_FORBIDDEN = 0" in PROFILES_H,
         "FORBIDDEN must stay the zero value, so zeroed state denies")
-require("profile->qualification == INVERTER_PROFILE_QUALIFICATION_PRODUCTION_APPROVED"
-        in PROFILES_SQ,
-        "production authority must still require production approval; the phase "
-        "scope is not a promotion and simulator agreement promotes nothing")
+# THE QUALIFICATION REQUIREMENT IS GONE, BY THE OWNER'S DECISION.
+#
+# It required a profile to reach PRODUCTION_APPROVED before it could command
+# anything, and none ever had. The owner, standing at the plant, removed it. What
+# this file can still hold is that the removal did not take the STRUCTURAL rules
+# with it -- each of those prevents a specific physical outcome rather than
+# expressing doubt about a transcription.
+for structural in (
+    "profile->has_power_limit && profile->has_power_limit_readback",
+    "inverter_profile_prerequisite_blocks_write(profile)",
+    "profile->command_register_is_flash_backed && profile->min_command_interval_ms == 0U",
+    "!profile->simulator_only",
+):
+    require(structural in PROFILES_SQ,
+            f"a structural write refusal was removed along with the qualification "
+            f"ladder: {structural}")
 
 # Exactly the non-Huawei profiles are parked. Checked by pairing each id with the
 # parked flag inside its own catalogue entry, so a flag cannot drift to the wrong
@@ -386,7 +416,10 @@ for entry in entries:
     body = entry.split("\n        .id = ", 1)[0]
     (parked if ".deferred_this_phase = true" in body else in_scope).append(identifier)
 
-require(len(entries) >= 16, f"the catalogue lost profiles: only {len(entries)} found. "
+# Twelve: the four SolTrix simulator profiles went with the move to site. The
+# rule is about PARKED manufacturer profiles -- the record of why a real brand is
+# not commandable -- and every one of those is still here.
+require(len(entries) >= 12, f"the catalogue lost profiles: only {len(entries)} found. "
                             "Parked profiles are kept, never deleted")
 require(parked, "no profile is parked; the phase scope is not in force")
 for identifier in in_scope:
@@ -403,17 +436,20 @@ for identifier in parked:
 
 # The executable proof must assert the property, not merely exercise it.
 PERMISSION_TEST = (ROOT / "tests/inverter_write_permission_test.c").read_text(encoding="utf-8")
-require("assert(production_capable == 0);" in PERMISSION_TEST,
-        "the write-permission test must still prove NO SHIPPED PROFILE CAN COMMAND "
-        "PRODUCTION EQUIPMENT. That is the property protecting a real plant from a "
-        "transcribed register map, and nothing in this phase may weaken it")
-require("test_only_huawei_is_in_scope_for_this_phase" in PERMISSION_TEST and
-        "test_phase_parking_only_ever_adds_a_refusal" in PERMISSION_TEST,
-        "the phase scope must be proved by the executable test over the real "
-        "catalogue, not only asserted against source text here")
+# The executable test used to prove that NO shipped profile could command
+# production equipment. That property was the owner's to keep or remove, and they
+# removed it. What the test proves now is the set of refusals that survived, over
+# the real catalogue and over constructed profiles at every qualification level.
+require("test_the_refusals_that_are_not_the_ladder" in PERMISSION_TEST,
+        "the executable test no longer proves which refusals survived the removal "
+        "of the qualification ladder")
+require("test_parking_no_longer_refuses" in PERMISSION_TEST and
+        "test_parking_never_removes_a_refusal" in PERMISSION_TEST,
+        "the parking flag's behaviour must stay proved by the executable test "
+        "over the real catalogue, not only asserted against source text here")
 require("assert(parked > 0);" in PERMISSION_TEST,
         "the catalogue must be asserted to actually contain parked profiles, or "
-        "the parking test passes vacuously once somebody reverts it")
+        "the parking test passes vacuously")
 require("tests/inverter_write_permission_test.c" in WORKFLOW,
         "the write-permission test must run in CI")
 

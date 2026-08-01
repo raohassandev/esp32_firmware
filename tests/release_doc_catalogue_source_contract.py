@@ -138,16 +138,17 @@ for profile_id, facts in catalogue.items():
             f"{profile_id}: the release table says qualification "
             f"'{row['qualification']}' but the catalogue says '{facts['qualification']}'")
 
-    # No profile may be described as production-qualified while none is.
-    require("production" not in row["authority"],
-            f"{profile_id}: the release table claims production authority")
-    require(not facts["production"],
-            f"{profile_id} passes the production write gate; the release document's "
-            "central claim that no profile is production qualified would be false")
+    # The document must say what the firmware decides, whatever that is. It used
+    # to also assert that NO profile could command; the owner removed the
+    # qualification ladder, so that claim is false and asserting it would only
+    # freeze the document at a state the product has left.
 
-# The document's headline count must be honest.
-require(re.search(r"production-approved profiles:\s*\*\*0\*\*", DOC) is not None,
-        "the release document must state that zero profiles are production-approved")
+# The document's headline count must be honest -- and it is now a count of what
+# can COMMAND, not of what was qualified, because qualification no longer gates
+# anything.
+commandable = sum(1 for f in catalogue.values() if f["production"])
+require(re.search(rf"commandable profiles:\s*\*\*{commandable}\*\*", DOC) is not None,
+        f"the release document must state that {commandable} profiles can command")
 
 # Every refused profile must have a stated reason, so 'forbidden' is never
 # unexplained in a document someone releases against.

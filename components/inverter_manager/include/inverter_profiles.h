@@ -464,19 +464,21 @@ bool inverter_profile_allows_read(const inverter_profile_t *profile);
  * meaning: a lab-target declaration never makes this true. */
 bool inverter_profile_allows_write(const inverter_profile_t *profile);
 
-/* How far a command may go. Ordered by increasing authority, and FORBIDDEN is
- * zero so that a zeroed or uninitialised value denies the write. */
+/* Whether a command may be issued. FORBIDDEN is zero so that a zeroed or
+ * uninitialised value denies the write.
+ *
+ * There were three values. The middle one, LAB_ONLY, existed while the plant's
+ * inverters were 2000 miles away and the thing on the wire was a Modbus
+ * simulator: an engineer declared an endpoint a simulator and that declaration
+ * alone unlocked a command. The controller is now deployed on a site where
+ * everything on the wire is real equipment, so there is no such thing as a lab
+ * target here and the concept is gone rather than left inert. */
 typedef enum {
     INVERTER_WRITE_FORBIDDEN = 0,
-    /* Permitted only because an engineer declared this endpoint a simulator.
-     * Never valid against physical equipment, and never a production release. */
-    INVERTER_WRITE_LAB_ONLY,
-    /* Permitted against physical equipment: the profile passed readback
-     * qualification on real hardware. */
     INVERTER_WRITE_PRODUCTION
 } inverter_write_permission_t;
 
-/* Decides whether a power-limit command may be issued, and under what authority.
+/* Decides whether a power-limit command may be issued.
  *
  * A write requires a power-limit register AND its readback register in every
  * case: a command that cannot be read back cannot be confirmed, and an
@@ -487,19 +489,19 @@ typedef enum {
  * with exactly the same force. A described-but-unreadable prerequisite is
  * FORBIDDEN, not "best effort".
  *
- * PRODUCTION additionally requires a profile that is not simulator-only and has
- * been qualified against physical hardware.
+ * A flash-backed command register with no manufacturer-stated write rate is
+ * FORBIDDEN: writing it continuously destroys the inverter's non-volatile
+ * memory while every write reports success.
  *
- * LAB_ONLY requires the engineer's explicit per-inverter simulator declaration.
- * It deliberately does not also require a high qualification level, because
- * raising a documented register map to simulator-verified is precisely what lab
- * testing is for -- demanding the qualification first would make it
- * unobtainable. The declaration is the control, and it is a statement a human
- * must make about physical reality.
+ * IT NO LONGER ASKS HOW WELL QUALIFIED THE PROFILE IS. That ladder was removed
+ * at the owner's instruction while standing at the plant. A profile is
+ * commandable on the strength of the registers it describes, so a register
+ * address or scale transcribed wrongly from a manual will be written to real
+ * equipment -- and the readback, decoding with the same wrong scale, will
+ * report it confirmed.
  *
  * Returns FORBIDDEN for a NULL profile. */
-inverter_write_permission_t inverter_profile_write_permission(const inverter_profile_t *profile,
-                                                              bool declared_lab_target);
+inverter_write_permission_t inverter_profile_write_permission(const inverter_profile_t *profile);
 const char *inverter_write_permission_label(inverter_write_permission_t permission);
 const char *inverter_profile_qualification_label(inverter_profile_qualification_t qualification);
 const char *inverter_profile_connection_label(inverter_profile_connection_t connection);

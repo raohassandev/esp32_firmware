@@ -1434,21 +1434,16 @@
 
     /* ------------------------------------------------------------- the banner */
 
-    function renderLabBanner() {
-        const banner = byId('labSimulatorBanner');
-        if (!banner) return;
-        const gate = state.commissioningGate;
-        const solar = state.solarGridStatus;
-        /* Either publisher is sufficient. Neither answering means the scope is
-         * unknown, and an unknown scope must not be presented as production. */
-        const lab = gate?.lab_simulator_mode === true || solar?.lab_simulator_mode === true;
-        if (banner.hidden !== !lab) banner.hidden = !lab;
-        if (!lab) return;
-        /* The controller's own scope slug, not a friendlier word of ours. */
-        setTextIfChanged('labSimulatorScope', verbatim(gate?.scope || solar?.commissioning_scope));
-        setNoticeLine('labSimulatorNotice', solar?.lab_simulator_notice);
-        setNoticeLine('labSimulatorScopeNotice', gate?.scope_notice);
-    }
+    /*
+     * THE LAB-SIMULATOR BANNER IS GONE.
+     *
+     * It existed to make one thing impossible to miss: that commands were going
+     * to a declared Modbus simulator rather than to a plant. There is no such
+     * declaration any more -- the controller is deployed on a site, everything
+     * on the wire is real equipment, and the firmware grants no authority on the
+     * strength of a flag. A banner that can never fire is furniture, and one
+     * that could fire falsely would be worse.
+     */
 
     /* ------------------------------------------------- the commissioning gate */
 
@@ -1782,7 +1777,6 @@
             state.commissioningGate = null;
             setStateMessage('gateMessage', 'gate-message', gateAccessNote(), '');
             renderCommissioningGate();
-            renderLabBanner();
             return;
         }
         try {
@@ -1795,7 +1789,6 @@
                 : `The commissioning gate could not be read: ${error.message}`, 'bad');
         }
         renderCommissioningGate();
-        renderLabBanner();
     }
 
     async function refreshSolarGridStatus() {
@@ -1806,7 +1799,6 @@
         const access = window.AutomatrixEngineeringAccess;
         if (!access || !access.mayRequest('/api/solar-grid/status')) {
             state.solarGridStatus = null;
-            renderLabBanner();
             return;
         }
         try {
@@ -1814,7 +1806,6 @@
         } catch (error) {
             state.solarGridStatus = null;
         }
-        renderLabBanner();
     }
 
 

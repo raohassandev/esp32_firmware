@@ -72,192 +72,6 @@ static const inverter_profile_t PROFILES[] = {
      * promoted, and must never be used as a manufacturer register reference.
      */
     {
-        .id = "soltrix.sim.huawei.v3",
-        .manufacturer = "SolTrix Simulator",
-        .model_family = "Huawei SUN2000 layout, closed-loop plant model",
-        .protocol = "Modbus TCP simulator",
-        .connection = INVERTER_PROFILE_CONNECTION_MODBUS_TCP,
-        .qualification = INVERTER_PROFILE_QUALIFICATION_SIMULATOR_VERIFIED,
-        .manual_reference = "Measured against SolTrix inverter-simulator huawei-v3; "
-                            "not a manufacturer manual",
-        .simulator_only = true,
-        .has_identity_probe = true,
-        .identity_function = 3,
-        .identity_address = 30000,
-        .identity_words = 1,
-        /* First two characters of the model string, "SU". */
-        .identity_expected = 0x5355,
-        .identity_mask = 0xFFFF,
-        /* The full telemetry block, same manual, section 3. Reading only; see
-         * inverter_telemetry_block.h. This does not affect any write gate. */
-        .telemetry_layout = INVERTER_TELEMETRY_LAYOUT_HUAWEI_V3,
-        .telemetry_function = 3,
-        .telemetry_start = INVERTER_HUAWEI_BLOCK_START,
-        .telemetry_registers = INVERTER_HUAWEI_BLOCK_REGISTERS,
-        .has_active_power = true,
-        .active_power_function = 3,
-        .active_power_address = 32080,
-        .active_power_words = 2,
-        .active_power_type = INVERTER_VALUE_S32,
-        .active_power_word_order = INVERTER_WORD_ORDER_AB,
-        .active_power_scale = 0.001f,
-        .has_power_limit = true,
-        .power_limit_function = 6,
-        .power_limit_address = 40125,
-        .power_limit_words = 1,
-        .raw_units_per_percent = 10.0f,
-        .minimum_percent = 0.0f,
-        .maximum_percent = 100.0f,
-        .has_power_limit_readback = true,
-        .power_limit_readback_function = 3,
-        .power_limit_readback_address = 40125,
-        .power_limit_readback_words = 1,
-        .power_limit_readback_type = INVERTER_VALUE_S16,
-        .power_limit_readback_word_order = INVERTER_WORD_ORDER_AB,
-        .power_limit_readback_scale = 0.1f,
-        .readback_tolerance_percent = 0.2f,
-        /* Measured: this simulator defers a 40125 write by ~1500 ms and reports
-         * the previous active limit until then. 2500 ms leaves margin without
-         * approaching the 5000 ms confirmation deadline. */
-        .power_limit_settle_ms = 2500,
-        .telemetry_poll_ms = 500,
-        .telemetry_stale_timeout_ms = 3000,
-    },
-    {
-        .id = "soltrix.sim.huawei.v1",
-        .manufacturer = "SolTrix Simulator",
-        .model_family = "Huawei SUN2000 contract",
-        .protocol = "Modbus TCP simulator",
-        .connection = INVERTER_PROFILE_CONNECTION_MODBUS_TCP,
-        .qualification = INVERTER_PROFILE_QUALIFICATION_SIMULATOR_VERIFIED,
-        .manual_reference = "SolTrix commit fe84696 simulator contract; synthetic Modbus map",
-        .simulator_only = true,
-        .has_identity_probe = true,
-        .identity_function = 3,
-        .identity_address = 40000,
-        .identity_words = 1,
-        .identity_expected = 0xA021,
-        .identity_mask = 0xFFFF,
-        /* The full telemetry block, same manual, section 3. Reading only; see
-         * inverter_telemetry_block.h. This does not affect any write gate. */
-        .telemetry_layout = INVERTER_TELEMETRY_LAYOUT_HUAWEI_V3,
-        .telemetry_function = 3,
-        .telemetry_start = INVERTER_HUAWEI_BLOCK_START,
-        .telemetry_registers = INVERTER_HUAWEI_BLOCK_REGISTERS,
-        .has_active_power = true,
-        .active_power_function = 3,
-        .active_power_address = 40010,
-        .active_power_words = 2,
-        .active_power_type = INVERTER_VALUE_S32,
-        .active_power_word_order = INVERTER_WORD_ORDER_AB,
-        .active_power_scale = 0.001f,
-        .has_power_limit = true,
-        .power_limit_function = 6,
-        .power_limit_address = 40125,
-        .power_limit_words = 1,
-        .raw_units_per_percent = 10.0f,
-        .minimum_percent = 0.0f,
-        .maximum_percent = 100.0f,
-        .has_power_limit_readback = true,
-        .power_limit_readback_function = 3,
-        .power_limit_readback_address = 40125,
-        .power_limit_readback_words = 1,
-        .power_limit_readback_type = INVERTER_VALUE_U16,
-        .power_limit_readback_word_order = INVERTER_WORD_ORDER_AB,
-        .power_limit_readback_scale = 0.1f,
-        .readback_tolerance_percent = 0.2f,
-        .telemetry_poll_ms = 500,
-        .telemetry_stale_timeout_ms = 3000,
-    },
-    {
-        .id = "soltrix.sim.goodwe.v1",
-        .manufacturer = "SolTrix Simulator",
-        .deferred_this_phase = true,
-        .deferred_reason =
-            "Out of scope for this release phase. This is the GoodWe lab rig and has no "
-            "purpose before the scope widens to GoodWe.",
-        .model_family = "GoodWe commercial contract",
-        .protocol = "Modbus TCP simulator",
-        .connection = INVERTER_PROFILE_CONNECTION_MODBUS_TCP,
-        .qualification = INVERTER_PROFILE_QUALIFICATION_SIMULATOR_VERIFIED,
-        .manual_reference = "SolTrix ESP32 integration simulator; synthetic map",
-        .simulator_only = true,
-        .has_identity_probe = true,
-        .identity_function = 3,
-        .identity_address = 41000,
-        .identity_words = 1,
-        .identity_expected = 0xA022,
-        .identity_mask = 0xFFFF,
-        .has_active_power = true,
-        .active_power_function = 3,
-        .active_power_address = 41010,
-        .active_power_words = 2,
-        .active_power_type = INVERTER_VALUE_S32,
-        .active_power_word_order = INVERTER_WORD_ORDER_AB,
-        .active_power_scale = 0.001f,
-        .has_power_limit = true,
-        .power_limit_function = 6,
-        .power_limit_address = 41125,
-        .power_limit_words = 1,
-        .raw_units_per_percent = 10.0f,
-        .minimum_percent = 0.0f,
-        .maximum_percent = 100.0f,
-        .has_power_limit_readback = true,
-        .power_limit_readback_function = 3,
-        .power_limit_readback_address = 41125,
-        .power_limit_readback_words = 1,
-        .power_limit_readback_type = INVERTER_VALUE_U16,
-        .power_limit_readback_word_order = INVERTER_WORD_ORDER_AB,
-        .power_limit_readback_scale = 0.1f,
-        .readback_tolerance_percent = 0.2f,
-        .telemetry_poll_ms = 500,
-        .telemetry_stale_timeout_ms = 3000,
-    },
-    {
-        .id = "soltrix.sim.solis.v1",
-        .manufacturer = "SolTrix Simulator",
-        .deferred_this_phase = true,
-        .deferred_reason =
-            "Out of scope for this release phase. This is the Solis lab rig and has no "
-            "purpose before the scope widens to Solis.",
-        .model_family = "Solis commercial contract",
-        .protocol = "Modbus TCP simulator",
-        .connection = INVERTER_PROFILE_CONNECTION_MODBUS_TCP,
-        .qualification = INVERTER_PROFILE_QUALIFICATION_SIMULATOR_VERIFIED,
-        .manual_reference = "SolTrix ESP32 integration simulator; synthetic map",
-        .simulator_only = true,
-        .has_identity_probe = true,
-        .identity_function = 3,
-        .identity_address = 42000,
-        .identity_words = 1,
-        .identity_expected = 0xA023,
-        .identity_mask = 0xFFFF,
-        .has_active_power = true,
-        .active_power_function = 3,
-        .active_power_address = 42010,
-        .active_power_words = 2,
-        .active_power_type = INVERTER_VALUE_S32,
-        .active_power_word_order = INVERTER_WORD_ORDER_AB,
-        .active_power_scale = 0.001f,
-        .has_power_limit = true,
-        .power_limit_function = 6,
-        .power_limit_address = 42125,
-        .power_limit_words = 1,
-        .raw_units_per_percent = 10.0f,
-        .minimum_percent = 0.0f,
-        .maximum_percent = 100.0f,
-        .has_power_limit_readback = true,
-        .power_limit_readback_function = 3,
-        .power_limit_readback_address = 42125,
-        .power_limit_readback_words = 1,
-        .power_limit_readback_type = INVERTER_VALUE_U16,
-        .power_limit_readback_word_order = INVERTER_WORD_ORDER_AB,
-        .power_limit_readback_scale = 0.1f,
-        .readback_tolerance_percent = 0.2f,
-        .telemetry_poll_ms = 500,
-        .telemetry_stale_timeout_ms = 3000,
-    },
-    {
         .id = "huawei.sun2000.pending",
         .manufacturer = "Huawei",
         .model_family = "SUN2000 family",
@@ -2093,15 +1907,50 @@ bool inverter_profile_allows_write(const inverter_profile_t *profile)
      * A flash-backed command register with no manufacturer-stated write rate:
      * commanding it continuously wears out the inverter's non-volatile memory, a
      * permanent hardware failure while every write reports success. */
-    return profile && !profile->deferred_this_phase && !profile->simulator_only &&
+    /*
+     * THE QUALIFICATION LADDER IS GONE. THE OWNER REMOVED IT.
+     *
+     * Until now a profile had to reach PRODUCTION_APPROVED before it could
+     * command anything, and none ever had: promotion required readings compared
+     * against a machine and recorded, which is a commissioning task. The owner,
+     * standing at the plant, decided that requirement is not what they want and
+     * asked for the whole ladder removed. This is that change, and it is
+     * recorded plainly because it revokes two constraints they wrote
+     * themselves: never write through an unqualified manufacturer profile, and
+     * keep every brand fail-closed until physical readback qualification
+     * exists.
+     *
+     * WHAT THIS NOW MEANS. Any profile in the catalogue can command real
+     * equipment on the strength of a manual transcription alone. If a register
+     * address or a scale was transcribed wrongly, the controller will write it
+     * to the machine and -- because the readback decodes with the same wrong
+     * scale -- report the result CONFIRMED.
+     *
+     * WHAT IS DELIBERATELY KEPT, because none of it is the ladder and each
+     * prevents a specific physical outcome rather than expressing a doubt:
+     *
+     *   - No readback register, no command. Without it "confirmed" means
+     *     nothing at all, and a limit nobody can verify is worse than no limit.
+     *   - A prerequisite enable register that cannot be read back, no command.
+     *     Such a device accepts the setpoint, echoes it, and ignores it.
+     *   - A flash-backed command register with no manufacturer-stated write
+     *     rate, no command. Continuous writes destroy the inverter's
+     *     non-volatile memory while every write reports success.
+     *   - A simulator-only profile, no command. There are none in the catalogue
+     *     any more, and pointed at a real machine one would produce numbers that
+     *     mean nothing while looking exactly like measurements.
+     *
+     * The release-phase parking is gone with the ladder: it said "not this
+     * phase", which is the same kind of judgement, and keeping it would leave
+     * most of the catalogue refused after the owner asked for the opposite.
+     */
+    return profile && !profile->simulator_only &&
            !inverter_profile_prerequisite_blocks_write(profile) &&
            !(profile->command_register_is_flash_backed && profile->min_command_interval_ms == 0U) &&
-           profile->has_power_limit && profile->has_power_limit_readback &&
-           profile->qualification == INVERTER_PROFILE_QUALIFICATION_PRODUCTION_APPROVED;
+           profile->has_power_limit && profile->has_power_limit_readback;
 }
 
-inverter_write_permission_t inverter_profile_write_permission(const inverter_profile_t *profile,
-                                                              bool declared_lab_target)
+inverter_write_permission_t inverter_profile_write_permission(const inverter_profile_t *profile)
 {
     if (!profile) return INVERTER_WRITE_FORBIDDEN;
     /* PARKED FOR THIS RELEASE PHASE. Checked first because it is the cheapest and
@@ -2112,7 +1961,10 @@ inverter_write_permission_t inverter_profile_write_permission(const inverter_pro
      * in-scope profile, so unparking restores exactly the verdict a profile had
      * before rather than granting it anything new. See deferred_this_phase in the
      * header. */
-    if (profile->deferred_this_phase) return INVERTER_WRITE_FORBIDDEN;
+    /* The release-phase parking is no longer a refusal. It was the ladder's
+     * companion -- "not proven this phase" -- and it went with it. The field
+     * remains on the struct and is reported, so the catalogue still records
+     * which profiles were once parked and why. */
     /* Confirmability is not negotiable in either mode: without a readback there
      * is no way to tell a command that landed from one that was ignored. */
     if (!profile->has_power_limit || !profile->has_power_limit_readback) {
@@ -2137,7 +1989,6 @@ inverter_write_permission_t inverter_profile_write_permission(const inverter_pro
         return INVERTER_WRITE_FORBIDDEN;
     }
     if (inverter_profile_allows_write(profile)) return INVERTER_WRITE_PRODUCTION;
-    if (declared_lab_target) return INVERTER_WRITE_LAB_ONLY;
     return INVERTER_WRITE_FORBIDDEN;
 }
 
@@ -2145,7 +1996,6 @@ const char *inverter_write_permission_label(inverter_write_permission_t permissi
 {
     switch (permission) {
         case INVERTER_WRITE_PRODUCTION: return "production";
-        case INVERTER_WRITE_LAB_ONLY: return "lab_simulator_only";
         case INVERTER_WRITE_FORBIDDEN: default: return "forbidden";
     }
 }

@@ -128,8 +128,12 @@ require("const char *deferred_reason;" in PROFILES_H,
 # Split the catalogue the same way tests/phase_scope_source_contract.py does, so
 # the two contracts cannot disagree about what an entry is.
 entries = re.split(r"\n        \.id = ", "\n" + PROFILES_C)[1:]
-require(len(entries) >= 16,
-        f"the catalogue lost entries: {len(entries)} found, at least 16 expected. "
+# Twelve, not sixteen: the four SolTrix simulator profiles were removed when the
+# controller went to site. They were lab rigs, not manufacturer profiles, and the
+# rule below is about never deleting a PARKED profile -- the record of why a real
+# brand is not commandable. That record is intact.
+require(len(entries) >= 12,
+        f"the catalogue lost entries: {len(entries)} found, at least 12 expected. "
         "A parked profile is never deleted; deleting it destroys the record of why "
         "it is not commandable")
 
