@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 from pathlib import Path
+import sys as _sys, pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
+import bundle_membership as bundle
 
 root = Path(__file__).resolve().parents[1]
 js = (root / 'web' / 'commissioning-wizard-v2.js').read_text(encoding='utf-8')
@@ -29,12 +32,7 @@ for token in ('@media (max-width: 650px)', '@media (max-width: 360px)', 'min-hei
               'env(safe-area-inset-bottom)', '.cw-communication-layout', '.cw-actions'):
     assert token in css, f'missing mobile commissioning safeguard: {token}'
 
-assert 'commissioning-wizard-v2.js' in cmake and 'commissioning-wizard-v2.css' in cmake
-assert 'web_assets_commissioning_wizard_v2_js' in assets_h
-assert 'web_assets_commissioning_wizard_v2_css' in assets_h
-assert 'commissioning_wizard_v2_js_start' in assets_c
-assert 'commissioning_wizard_v2_css_start' in assets_c
-assert 'web_assets_commissioning_wizard_v2_js' in server
-assert 'web_assets_commissioning_wizard_v2_css' in server
+bundle.require_delivered("commissioning-wizard-v2.js", "commissioning-wizard-v2.css")
+# Delivery is asserted above, once; see the bundle order files.
 
 print('commissioning wizard V2 source contract: PASS')

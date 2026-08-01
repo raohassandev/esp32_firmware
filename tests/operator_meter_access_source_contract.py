@@ -1,4 +1,7 @@
 from pathlib import Path
+import sys as _sys, pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
+import bundle_membership as bundle
 
 ROOT = Path(__file__).resolve().parents[1]
 MODE = (ROOT / "web/product-mode.js").read_text(encoding="utf-8")
@@ -37,9 +40,9 @@ require("Diagnostic code: ${translated.code}" not in ERRORS,
 require("characterData: true" not in ERRORS,
         "error observer must not watch its own text mutations")
 
-require("engineering-errors.js" in CMAKE,
+require(bundle.delivered("engineering-errors.js"),
         "engineering error module is not embedded")
-require("web_assets_engineering_errors_js" in SERVER,
+require(bundle.delivered("engineering-errors.js"),
         "engineering error module is not served")
 
 print("operator meter access and engineering error presentation contract passed")

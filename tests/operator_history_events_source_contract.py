@@ -1,4 +1,7 @@
 from pathlib import Path
+import sys as _sys, pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
+import bundle_membership as bundle
 
 ROOT = Path(__file__).resolve().parents[1]
 API = (ROOT / "components/web_server/operational_api.c").read_text(encoding="utf-8")
@@ -64,10 +67,10 @@ require("operational_api_register(s_server)" in SERVER,
         "operator history/event API is not registered")
 require('"operational_api.c"' in CMAKE,
         "operator history/event API is not compiled")
-require("operator-operations.js" in CMAKE and "operator-operations.css" in CMAKE,
+require(bundle.delivered("operator-operations.js") and bundle.delivered("operator-operations.css"),
         "operator history/event assets are not embedded")
-require("web_assets_operator_operations_js" in SERVER and
-        "web_assets_operator_operations_css" in SERVER,
+require(bundle.delivered("operator-operations.js") and
+        bundle.delivered("operator-operations.css"),
         "operator history/event assets are not served")
 require("operator_operations_js_start" in ASSETS and "operator_operations_css_start" in ASSETS,
         "operator history/event embedded symbols are missing")
@@ -128,9 +131,9 @@ require("PvdgChart" in UI and "mountChart" in UI,
         "the operator screens must draw the shared chart component")
 require("root.PvdgChart = api" in CHART,
         "the chart component must publish itself as the shared PvdgChart module")
-require("pvdg-chart.js" in CMAKE and "pvdg-chart.css" in CMAKE,
+require(bundle.delivered("pvdg-chart.js") and bundle.delivered("pvdg-chart.css"),
         "the chart component is not embedded")
-require("web_assets_pvdg_chart_js" in SERVER and "web_assets_pvdg_chart_css" in SERVER,
+require(bundle.delivered("pvdg-chart.js") and bundle.delivered("pvdg-chart.css"),
         "the chart component is not served")
 require("pvdg_chart_js_start" in ASSETS and "pvdg_chart_css_start" in ASSETS,
         "the chart component embedded symbols are missing")

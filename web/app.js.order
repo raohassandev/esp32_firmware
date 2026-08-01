@@ -1,0 +1,54 @@
+# JavaScript bundle, in serve order. THIS FILE IS THE SOURCE OF TRUTH.
+#
+# The browser receives ONE js file, concatenated from these in this order.
+# The order is load-bearing twice: a module that calls another while rendering
+# must come after it, and the card layer must come last in the CSS or the
+# per-module panels win at equal specificity.
+#
+# It used to live in the assets[] arrays in web_server.c, with CMakeLists.txt
+# listing the same files in a DIFFERENT order and tools/ui_preview_order.json
+# holding a third copy. Three lists meant three chances to disagree, and a
+# disagreement is invisible until a page silently stops working. Now the build
+# reads this file, the firmware serves what the build produced, and the preview
+# reads the same file -- so there is nothing left to keep in step.
+#
+# Blank lines and # comments are ignored. Paths are relative to web/.
+
+
+theme.js
+icons.js
+operator-proof.js
+product-mode.js
+app.js
+wifi-utils.js
+wifi-guard.js
+wifi.js
+network-commissioning-fix.js
+devices-utils.js
+pvdg-chart.js
+meter-detail.js
+inverter-detail.js
+devices.js
+devices-refresh.js
+inverter-profiles.js
+inverter-config.js
+inverter-telemetry.js
+em500-utils.js
+em500-core.js
+em500-quality.js
+em500-profiles.js
+em500-plan.js
+source-detection.js
+solar-grid.js
+operator-view.js
+operator-network.js
+alarm-journal.js
+operator-operations.js
+operator-product-suite.js
+prelab-readiness.js
+commissioning-wizard-v2.js
+engineering-errors.js
+ui-enhancements.js
+product-shell-v2.js
+product-experience-v2.js
+commissioning-release-v3.js

@@ -1,4 +1,7 @@
 from pathlib import Path
+import sys as _sys, pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
+import bundle_membership as bundle
 
 root = Path(__file__).resolve().parents[1]
 css = (root / 'web' / 'mobile-prelab-fixes.css').read_text(encoding='utf-8')
@@ -20,8 +23,8 @@ required = [
 for token in required:
     assert token in css, f'missing mobile safeguard: {token}'
 
-assert 'web_assets_mobile_prelab_fixes_css' in server
+bundle.require_delivered("mobile-prelab-fixes.css")
 assert 'mobile_prelab_fixes_css_start' in assets
-assert 'mobile-prelab-fixes.css' in cmake
+# Delivery is asserted above, against the bundle order file.
 
 print('mobile pre-lab layout contract: PASS')

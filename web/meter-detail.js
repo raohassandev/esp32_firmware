@@ -68,6 +68,23 @@
         return td;
     }
 
+    /*
+     * THE LAST COLUMN IS THE METER'S OWN WHOLE-INSTALLATION FIGURE -- AND IT IS
+     * NOT THE SAME KIND OF NUMBER IN EVERY ROW.
+     *
+     * Measured on the installed EM-500 on 2026-08-01, against a real 216 kW
+     * load:
+     *
+     *   voltage  phases 249.7 / 249.3 / 248.8  ->  meter reports 249.25 = the AVERAGE
+     *   current  phases 307.4 / 309.4 / 312.6  ->  meter reports 929.4  = the SUM
+     *
+     * A single column headed "Total" therefore tells the reader that 249 V is a
+     * total of three 249 V phases, which is nonsense, and invites them to read
+     * the current the same way. The manual calls all of these "Eqv." and leaves
+     * the distinction to the reader; a screen cannot.
+     *
+     * So the semantics travel with the ROW, in words, next to the unit.
+     */
     function matrixRow(label, unit, values, kind, options) {
         const settings = options || {};
         const tr = node('tr');
@@ -75,6 +92,9 @@
         th.scope = 'row';
         th.append(document.createTextNode(label));
         if (unit) th.append(node('span', 'amx-matrix-unit', unit));
+        if (settings.totalMeans) {
+            th.append(node('span', 'amx-matrix-unit', `meter total: ${settings.totalMeans}`));
+        }
         tr.append(th);
         const list = Array.isArray(values) ? values : [];
         for (let phase = 0; phase < 3; phase += 1) {
@@ -104,7 +124,7 @@
 
         const head = node('thead');
         const headRow = node('tr');
-        ['Quantity', 'L1', 'L2', 'L3', 'Total'].forEach((title, index) => {
+        ['Quantity', 'L1', 'L2', 'L3', 'Meter'].forEach((title, index) => {
             const th = node('th', index === 4 ? 'amx-matrix-total' : '', title);
             th.scope = 'col';
             headRow.append(th);
@@ -115,19 +135,19 @@
         const body = node('tbody');
         body.append(
             matrixRow('Voltage', 'V phase-neutral', m.phase_voltage_v, 'v',
-                { total: m.equivalent_phase_voltage_v }),
+                { total: m.equivalent_phase_voltage_v, totalMeans: 'average' }),
             matrixRow('Line voltage', 'V L1-L2, L2-L3, L3-L1', m.line_voltage_v, 'v',
-                { total: m.equivalent_line_voltage_v }),
+                { total: m.equivalent_line_voltage_v, totalMeans: 'average' }),
             matrixRow('Current', 'A', m.current_a, 'a',
-                { total: m.equivalent_current_a }),
+                { total: m.equivalent_current_a, totalMeans: 'sum of the three' }),
             matrixRow('Active power', 'kW, negative = exporting', m.active_power_kw, 'kw',
-                { total: m.total_active_power_kw, signed: true }),
+                { total: m.total_active_power_kw, totalMeans: 'whole installation', signed: true }),
             matrixRow('Reactive power', 'kvar', m.reactive_power_kvar, 'kw',
-                { total: m.total_reactive_power_kvar, signed: true }),
+                { total: m.total_reactive_power_kvar, totalMeans: 'whole installation', signed: true }),
             matrixRow('Apparent power', 'kVA', m.apparent_power_kva, 'kw',
-                { total: m.total_apparent_power_kva }),
+                { total: m.total_apparent_power_kva, totalMeans: 'whole installation' }),
             matrixRow('Power factor', 'negative = leading', m.power_factor, 'pf',
-                { total: m.total_power_factor, signed: true })
+                { total: m.total_power_factor, totalMeans: 'whole installation', signed: true })
         );
         table.append(body);
 
@@ -158,8 +178,8 @@
     }
 
     /*
-     * SYSTEM QUANTITIES. Frequency, neutral current and the meter's own asymmetry
-     * figures -- the ones that have no per-phase form.
+     * SYSTEM QUANTITIES. Frequency and the meter's own asymmetry figures -- the
+     * ones that have no per-phase form.
      *
      * Asymmetry earns its place next to the phase matrix rather than being an
      * afterthought: an unbalanced three-phase load is precisely why an export
@@ -170,11 +190,26 @@
         const grid = node('div', 'amx-counters');
         grid.append(
             counter('Frequency', m.frequency_hz, 'Hz', 'hz'),
-            counter('Neutral current', m.neutral_current_a, 'A', 'a'),
             counter('Voltage asymmetry L-L', m.voltage_asymmetry_line_percent, '%', 'pct'),
             counter('Voltage asymmetry L-N', m.voltage_asymmetry_phase_percent, '%', 'pct'),
             counter('Current asymmetry', m.current_asymmetry_percent, '%', 'pct')
         );
+        /*
+         * NEUTRAL CURRENT IS DELIBERATELY ABSENT.
+         *
+         * The manual names 0048H "Neutral Current" and this firmware reads it,
+         * but on the installed meter, measured 2026-08-01, it reported 930.8 A
+         * while the three phases carried 307-313 A each and disagreed by 0.4%.
+         * A balanced load like that puts a few amps in the neutral, not three
+         * times the phase current -- and 930.8 is 98.8% of the arithmetic sum of
+         * the phases, which is what the register actually appears to track.
+         *
+         * So the register is not understood. The value is still acquired and
+         * still published in the API, because an engineer chasing this needs it.
+         * It is not drawn on a page under the name "Neutral current", because a
+         * wrong label on a plausible number is worse than no number: somebody
+         * sizes a neutral conductor from it.
+         */
         return grid;
     }
 

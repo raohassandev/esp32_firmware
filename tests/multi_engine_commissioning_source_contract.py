@@ -31,6 +31,9 @@ survive any future edit to it:
 import re
 import sys
 from pathlib import Path
+import sys as _sys, pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
+import bundle_membership as bundle
 
 ROOT = Path(__file__).resolve().parents[1]
 API = (ROOT / "components/web_server/solar_grid_api.c").read_text(encoding="utf-8")
@@ -438,7 +441,7 @@ require("commissioning fault" in JS,
         "loading is a commissioning fault, not something the controller works around")
 
 # The Control route asset already ships; the panel adds no new asset and no new route.
-require("solar-grid.js" in CMAKE,
+require(bundle.delivered("solar-grid.js"),
         "the generator commissioning form must live in an already-embedded asset")
 require(".uri = " not in section(API, "esp_err_t solar_grid_api_register(",
                                  "\n}\n", "register").replace(

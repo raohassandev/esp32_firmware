@@ -1,4 +1,7 @@
 from pathlib import Path
+import sys as _sys, pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
+import bundle_membership as bundle
 
 ROOT = Path(__file__).resolve().parents[1]
 API = (ROOT / "components/web_server/inverter_config_api.c").read_text(encoding="utf-8")
@@ -31,7 +34,7 @@ require("command_registers_changed" in API,
         "response must disclose that command mappings are untouched")
 require("modbus_tcp_write" not in API and "modbus_write" not in API,
         "configuration endpoint must never write an inverter")
-require("inverter_config_api.c" in CMAKE and "inverter-config.js" in CMAKE,
+require("inverter_config_api.c" in CMAKE and bundle.delivered("inverter-config.js"),
         "firmware must compile and embed inverter configuration modules")
 require("/api/inverters/config" in UI, "browser editor must use dedicated endpoint")
 require("Automatic control will be disabled" in UI,

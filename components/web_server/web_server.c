@@ -1,4 +1,6 @@
 #include "web_server.h"
+
+#include <string.h>
 #include "commissioning_gate_api.h"
 #include "device_api.h"
 #include "em500_api.h"
@@ -67,85 +69,77 @@ static esp_err_t favicon_handler(httpd_req_t *request)
     return httpd_resp_send(request, NULL, 0);
 }
 
+/*
+ * THE TWO BUNDLES, PRE-BUILT AND PRE-COMPRESSED.
+ *
+ * These handlers used to concatenate thirty-seven embedded blobs at request
+ * time and send 873 KB of JavaScript uncompressed over Wi-Fi. Measured from the
+ * board that is roughly 27 seconds before the interface appears -- long enough
+ * that people conclude the controller has crashed, reload, and make it worse.
+ *
+ * The bundle is fixed the moment the firmware is built, so it is built and
+ * gzipped then: see tools/build_bundle.py and the order files web/app.js.order
+ * and web/app.css.order. Compressing on the device would spend CPU the control
+ * loop needs, every page load, recomputing an answer that cannot change.
+ *
+ * BOTH FORMS ARE KEPT. Every browser sends Accept-Encoding: gzip, but a
+ * commissioning script written with plain curl does not, and answering that
+ * with gzip bytes it never asked for hands somebody a file of binary garbage
+ * during a site visit. The uncompressed copy costs flash and removes the whole
+ * class of surprise.
+ */
+static bool client_accepts_gzip(httpd_req_t *request)
+{
+    /* Long enough for the header real clients send; a value longer than this is
+     * treated as "not offered" rather than truncated and guessed at, because a
+     * truncated match could claim gzip support the client does not have. */
+    char encodings[96] = {0};
+    if (httpd_req_get_hdr_value_str(request, "Accept-Encoding",
+                                    encodings, sizeof(encodings)) != ESP_OK) {
+        return false;
+    }
+    /* A substring match is enough here. The formally correct parse would honour
+     * "gzip;q=0" -- a client explicitly refusing gzip while listing it -- which
+     * no browser sends and which would only ever cost this device a needless
+     * decompression on the client side. */
+    return strstr(encodings, "gzip") != NULL;
+}
+
+static esp_err_t send_bundle(httpd_req_t *request, const char *content_type,
+                             const char *plain, size_t plain_length,
+                             const char *compressed, size_t compressed_length)
+{
+    const bool gzip = client_accepts_gzip(request) && compressed_length > 0;
+    set_asset_headers(request, content_type);
+    if (gzip) {
+        httpd_resp_set_hdr(request, "Content-Encoding", "gzip");
+        /* Caches and proxies must not serve the compressed body to a client
+         * that asked for the plain one, and vice versa. */
+        httpd_resp_set_hdr(request, "Vary", "Accept-Encoding");
+        return httpd_resp_send(request, compressed, compressed_length);
+    }
+    httpd_resp_set_hdr(request, "Vary", "Accept-Encoding");
+    return httpd_resp_send(request, plain, plain_length);
+}
+
 static esp_err_t css_handler(httpd_req_t *request)
 {
-    static const asset_getter_t assets[] = {
-        web_assets_css,
-        web_assets_wifi_css,
-        web_assets_devices_css,
-        web_assets_em500_css,
-        web_assets_theme_css,
-        web_assets_product_mode_css,
-        web_assets_operator_operations_css,
-        web_assets_operator_product_suite_css,
-        web_assets_prelab_readiness_css,
-        web_assets_mobile_prelab_fixes_css,
-        web_assets_product_shell_v2_css,
-        web_assets_product_experience_v2_css,
-        web_assets_commissioning_wizard_v2_css,
-        web_assets_commissioning_release_v3_css,
-        web_assets_pvdg_chart_css,
-        /* LAST on purpose. The card layer is the shared answer the
-         * per-module stylesheets above are being converted to; while
-         * both exist it has to win. Its ceiling comes down as files
-         * are converted -- see tests/design_scale_source_contract.py. */
-        web_assets_cards_css,
-        web_assets_energy_flow_css,
-        web_assets_meter_detail_css,
-        web_assets_alarm_journal_css
-    };
-    return send_asset_parts(request, "text/css; charset=utf-8", assets, sizeof(assets) / sizeof(assets[0]));
+    size_t plain_length = 0;
+    size_t gz_length = 0;
+    const char *plain = web_assets_bundle_css(&plain_length);
+    const char *compressed = web_assets_bundle_css_gz(&gz_length);
+    return send_bundle(request, "text/css; charset=utf-8",
+                       plain, plain_length, compressed, gz_length);
 }
 
 static esp_err_t js_handler(httpd_req_t *request)
 {
-    static const asset_getter_t assets[] = {
-        web_assets_theme_js,
-        /* Before any renderer: modules call AutomatrixIcons the first
-         * time they draw, which can be during DOMContentLoaded. */
-        web_assets_icons_js,
-        /* The card builders, before every page renderer that uses them. */
-        web_assets_operator_proof_js,
-        web_assets_product_mode_js,
-        web_assets_js,
-        web_assets_wifi_utils_js,
-        web_assets_wifi_guard_js,
-        web_assets_wifi_js,
-        web_assets_network_commissioning_fix_js,
-        web_assets_devices_utils_js,
-        web_assets_pvdg_chart_js,
-        /* Before devices.js: its meter card calls
-         * AutomatrixMeterDetail while rendering. */
-        web_assets_meter_detail_js,
-        web_assets_inverter_detail_js,
-        web_assets_devices_js,
-        web_assets_devices_refresh_js,
-        web_assets_inverter_profiles_js,
-        web_assets_inverter_config_js,
-        web_assets_inverter_telemetry_js,
-        web_assets_em500_utils_js,
-        web_assets_em500_core_js,
-        web_assets_em500_quality_js,
-        web_assets_em500_profiles_js,
-        web_assets_em500_plan_js,
-        web_assets_source_detection_js,
-        web_assets_solar_grid_js,
-        web_assets_operator_view_js,
-        web_assets_operator_network_js,
-        /* Before operator-operations.js: its alarm console calls
-         * AutomatrixAlarmJournal while rendering. */
-        web_assets_alarm_journal_js,
-        web_assets_operator_operations_js,
-        web_assets_operator_product_suite_js,
-        web_assets_prelab_readiness_js,
-        web_assets_commissioning_wizard_v2_js,
-        web_assets_engineering_errors_js,
-        web_assets_ui_enhancements_js,
-        web_assets_product_shell_v2_js,
-        web_assets_product_experience_v2_js,
-        web_assets_commissioning_release_v3_js
-    };
-    return send_asset_parts(request, "application/javascript; charset=utf-8", assets, sizeof(assets) / sizeof(assets[0]));
+    size_t plain_length = 0;
+    size_t gz_length = 0;
+    const char *plain = web_assets_bundle_js(&plain_length);
+    const char *compressed = web_assets_bundle_js_gz(&gz_length);
+    return send_bundle(request, "application/javascript; charset=utf-8",
+                       plain, plain_length, compressed, gz_length);
 }
 
 esp_err_t web_server_start(void)

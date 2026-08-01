@@ -2,7 +2,7 @@
 #include <stdint.h>
 
 /* Literal linker symbols retained for source-contract compatibility:
-_binary_index_html_start _binary_app_css_start _binary_theme_css_start
+_binary_app_bundle_js_start _binary_app_bundle_js_gz_start _binary_app_bundle_css_start _binary_app_bundle_css_gz_start _binary_index_html_start _binary_app_css_start _binary_theme_css_start
 _binary_product_mode_css_start _binary_operator_operations_css_start
 _binary_operator_product_suite_css_start _binary_prelab_readiness_css_start
 _binary_mobile_prelab_fixes_css_start _binary_product_shell_v2_css_start
@@ -31,63 +31,17 @@ _binary_source_detection_js_start _binary_solar_grid_js_start
     extern const uint8_t name##_start[] asm("_binary_" #name "_start"); \
     extern const uint8_t name##_end[] asm("_binary_" #name "_end")
 
+/* The two bundles the browser actually receives, each in both forms. The
+ * per-module assets below are still embedded and still served individually in
+ * the preview and by the source contracts; what changed is that /app.js and
+ * /app.css now come from ONE pre-built blob instead of being concatenated from
+ * thirty-seven at request time. */
+DECLARE_ASSET(app_bundle_js);
+DECLARE_ASSET(app_bundle_js_gz);
+DECLARE_ASSET(app_bundle_css);
+DECLARE_ASSET(app_bundle_css_gz);
+
 DECLARE_ASSET(index_html);
-DECLARE_ASSET(app_css);
-DECLARE_ASSET(theme_css);
-DECLARE_ASSET(product_mode_css);
-DECLARE_ASSET(operator_operations_css);
-DECLARE_ASSET(operator_product_suite_css);
-DECLARE_ASSET(prelab_readiness_css);
-DECLARE_ASSET(mobile_prelab_fixes_css);
-DECLARE_ASSET(product_shell_v2_css);
-DECLARE_ASSET(product_experience_v2_css);
-DECLARE_ASSET(commissioning_wizard_v2_css);
-DECLARE_ASSET(commissioning_release_v3_css);
-DECLARE_ASSET(wifi_css);
-DECLARE_ASSET(devices_css);
-DECLARE_ASSET(em500_css);
-DECLARE_ASSET(pvdg_chart_css);
-DECLARE_ASSET(app_js);
-DECLARE_ASSET(theme_js);
-DECLARE_ASSET(product_mode_js);
-DECLARE_ASSET(operator_view_js);
-DECLARE_ASSET(operator_network_js);
-DECLARE_ASSET(operator_proof_js);
-DECLARE_ASSET(cards_css);
-DECLARE_ASSET(energy_flow_css);
-DECLARE_ASSET(icons_js);
-DECLARE_ASSET(meter_detail_js);
-DECLARE_ASSET(inverter_detail_js);
-DECLARE_ASSET(alarm_journal_js);
-DECLARE_ASSET(alarm_journal_css);
-DECLARE_ASSET(meter_detail_css);
-DECLARE_ASSET(operator_operations_js);
-DECLARE_ASSET(operator_product_suite_js);
-DECLARE_ASSET(prelab_readiness_js);
-DECLARE_ASSET(product_shell_v2_js);
-DECLARE_ASSET(product_experience_v2_js);
-DECLARE_ASSET(commissioning_wizard_v2_js);
-DECLARE_ASSET(commissioning_release_v3_js);
-DECLARE_ASSET(engineering_errors_js);
-DECLARE_ASSET(ui_enhancements_js);
-DECLARE_ASSET(wifi_utils_js);
-DECLARE_ASSET(wifi_guard_js);
-DECLARE_ASSET(wifi_js);
-DECLARE_ASSET(network_commissioning_fix_js);
-DECLARE_ASSET(devices_utils_js);
-DECLARE_ASSET(pvdg_chart_js);
-DECLARE_ASSET(devices_js);
-DECLARE_ASSET(devices_refresh_js);
-DECLARE_ASSET(inverter_profiles_js);
-DECLARE_ASSET(inverter_config_js);
-DECLARE_ASSET(inverter_telemetry_js);
-DECLARE_ASSET(em500_utils_js);
-DECLARE_ASSET(em500_core_js);
-DECLARE_ASSET(em500_quality_js);
-DECLARE_ASSET(em500_profiles_js);
-DECLARE_ASSET(em500_plan_js);
-DECLARE_ASSET(source_detection_js);
-DECLARE_ASSET(solar_grid_js);
 
 static const char *asset(const uint8_t *start, const uint8_t *end, size_t *length)
 {
@@ -100,60 +54,9 @@ static const char *asset(const uint8_t *start, const uint8_t *end, size_t *lengt
 #define ASSET_GETTER(function_name, asset_name) \
     const char *function_name(size_t *length) { return asset(asset_name##_start, asset_name##_end, length); }
 
+ASSET_GETTER(web_assets_bundle_js, app_bundle_js)
+ASSET_GETTER(web_assets_bundle_js_gz, app_bundle_js_gz)
+ASSET_GETTER(web_assets_bundle_css, app_bundle_css)
+ASSET_GETTER(web_assets_bundle_css_gz, app_bundle_css_gz)
+
 ASSET_GETTER(web_assets_index, index_html)
-ASSET_GETTER(web_assets_css, app_css)
-ASSET_GETTER(web_assets_theme_css, theme_css)
-ASSET_GETTER(web_assets_product_mode_css, product_mode_css)
-ASSET_GETTER(web_assets_operator_operations_css, operator_operations_css)
-ASSET_GETTER(web_assets_operator_product_suite_css, operator_product_suite_css)
-ASSET_GETTER(web_assets_prelab_readiness_css, prelab_readiness_css)
-ASSET_GETTER(web_assets_mobile_prelab_fixes_css, mobile_prelab_fixes_css)
-ASSET_GETTER(web_assets_product_shell_v2_css, product_shell_v2_css)
-ASSET_GETTER(web_assets_product_experience_v2_css, product_experience_v2_css)
-ASSET_GETTER(web_assets_commissioning_wizard_v2_css, commissioning_wizard_v2_css)
-ASSET_GETTER(web_assets_commissioning_release_v3_css, commissioning_release_v3_css)
-ASSET_GETTER(web_assets_wifi_css, wifi_css)
-ASSET_GETTER(web_assets_devices_css, devices_css)
-ASSET_GETTER(web_assets_em500_css, em500_css)
-ASSET_GETTER(web_assets_pvdg_chart_css, pvdg_chart_css)
-ASSET_GETTER(web_assets_js, app_js)
-ASSET_GETTER(web_assets_theme_js, theme_js)
-ASSET_GETTER(web_assets_product_mode_js, product_mode_js)
-ASSET_GETTER(web_assets_operator_view_js, operator_view_js)
-ASSET_GETTER(web_assets_operator_network_js, operator_network_js)
-ASSET_GETTER(web_assets_operator_proof_js, operator_proof_js)
-ASSET_GETTER(web_assets_cards_css, cards_css)
-ASSET_GETTER(web_assets_energy_flow_css, energy_flow_css)
-ASSET_GETTER(web_assets_icons_js, icons_js)
-ASSET_GETTER(web_assets_meter_detail_js, meter_detail_js)
-ASSET_GETTER(web_assets_inverter_detail_js, inverter_detail_js)
-ASSET_GETTER(web_assets_alarm_journal_js, alarm_journal_js)
-ASSET_GETTER(web_assets_alarm_journal_css, alarm_journal_css)
-ASSET_GETTER(web_assets_meter_detail_css, meter_detail_css)
-ASSET_GETTER(web_assets_operator_operations_js, operator_operations_js)
-ASSET_GETTER(web_assets_operator_product_suite_js, operator_product_suite_js)
-ASSET_GETTER(web_assets_prelab_readiness_js, prelab_readiness_js)
-ASSET_GETTER(web_assets_product_shell_v2_js, product_shell_v2_js)
-ASSET_GETTER(web_assets_product_experience_v2_js, product_experience_v2_js)
-ASSET_GETTER(web_assets_commissioning_wizard_v2_js, commissioning_wizard_v2_js)
-ASSET_GETTER(web_assets_commissioning_release_v3_js, commissioning_release_v3_js)
-ASSET_GETTER(web_assets_engineering_errors_js, engineering_errors_js)
-ASSET_GETTER(web_assets_ui_enhancements_js, ui_enhancements_js)
-ASSET_GETTER(web_assets_wifi_utils_js, wifi_utils_js)
-ASSET_GETTER(web_assets_wifi_guard_js, wifi_guard_js)
-ASSET_GETTER(web_assets_wifi_js, wifi_js)
-ASSET_GETTER(web_assets_network_commissioning_fix_js, network_commissioning_fix_js)
-ASSET_GETTER(web_assets_devices_utils_js, devices_utils_js)
-ASSET_GETTER(web_assets_pvdg_chart_js, pvdg_chart_js)
-ASSET_GETTER(web_assets_devices_js, devices_js)
-ASSET_GETTER(web_assets_devices_refresh_js, devices_refresh_js)
-ASSET_GETTER(web_assets_inverter_profiles_js, inverter_profiles_js)
-ASSET_GETTER(web_assets_inverter_config_js, inverter_config_js)
-ASSET_GETTER(web_assets_inverter_telemetry_js, inverter_telemetry_js)
-ASSET_GETTER(web_assets_em500_utils_js, em500_utils_js)
-ASSET_GETTER(web_assets_em500_core_js, em500_core_js)
-ASSET_GETTER(web_assets_em500_quality_js, em500_quality_js)
-ASSET_GETTER(web_assets_em500_profiles_js, em500_profiles_js)
-ASSET_GETTER(web_assets_em500_plan_js, em500_plan_js)
-ASSET_GETTER(web_assets_source_detection_js, source_detection_js)
-ASSET_GETTER(web_assets_solar_grid_js, solar_grid_js)

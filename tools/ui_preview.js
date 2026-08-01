@@ -31,7 +31,18 @@ const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
 const WEB = path.join(ROOT, 'web');
-const ORDER = JSON.parse(fs.readFileSync(path.join(__dirname, 'ui_preview_order.json'), 'utf8'));
+/* The SAME lists the firmware bundles from, read directly. The preview used to
+ * keep its own JSON copy extracted from web_server.c, which is one more thing
+ * that could fall out of step -- and a preview that renders a different cascade
+ * from the product is worse than no preview, because it is a preview that
+ * lies. */
+function readOrder(kind) {
+    return fs.readFileSync(path.join(WEB, `app.${kind}.order`), 'utf8')
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line && !line.startsWith('#'));
+}
+const ORDER = { js: readOrder('js'), css: readOrder('css') };
 
 const args = process.argv.slice(2);
 const arg = (name, fallback) => {

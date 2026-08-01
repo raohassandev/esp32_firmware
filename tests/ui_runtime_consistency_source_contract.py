@@ -1,5 +1,8 @@
 import re
 from pathlib import Path
+import sys as _sys, pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
+import bundle_membership as bundle
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -31,11 +34,16 @@ require("sample_is_fresh" in METER and "METER_FRESH_GRACE_MS" in METER,
 require("next.online = sample_is_fresh" in METER,
         "poll failures still force an immediate contradictory offline state")
 
-component_pos = max(SERVER.index("web_assets_devices_css"), SERVER.index("web_assets_em500_css"))
-theme_pos = SERVER.index("web_assets_theme_css")
-require(theme_pos > component_pos, "theme overrides must load after component CSS")
-require("web_assets_ui_enhancements_js" in SERVER and "ui-enhancements.js" in CMAKE,
-        "commissioning enhancement module is not embedded and served")
+# THE CASCADE, asserted where it is now decided: the bundle order file.
+# theme.css carries the light-theme token overrides, so it has to come after the
+# component sheets it corrects -- otherwise light theme renders with the dark
+# values and the contrast failures this contract was written for come back.
+component_pos = max(bundle.position("devices.css"), bundle.position("em500.css"))
+require(bundle.position("theme.css") > component_pos,
+        "theme overrides must be bundled after the component CSS they correct")
+require(bundle.delivered("ui-enhancements.js"),
+        "the commissioning enhancement module is not bundled, so the browser "
+        "never receives it")
 
 for token in [
     'html[data-theme="light"] .device-runtime-card',

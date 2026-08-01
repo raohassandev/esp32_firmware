@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 import re
 from pathlib import Path
+import sys as _sys, pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
+import bundle_membership as bundle
 
 
 def code(text: str) -> str:
@@ -38,12 +41,5 @@ assert 'pageTitle' not in code(js) and 'breadcrumbCurrent' not in code(js), 'rou
 assert 'experience-legacy-intro' in js and 'display: none' in css
 assert '@media (max-width: 650px)' in css
 assert 'grid-template-columns: minmax(0, 1fr) !important' in css
-for name in ('product-experience-v2.js','product-experience-v2.css'):
-    assert name in cmake
-assert 'web_assets_product_experience_v2_js' in header
-assert 'web_assets_product_experience_v2_css' in header
-assert 'product_experience_v2_js' in assets
-assert 'product_experience_v2_css' in assets
-assert 'web_assets_product_experience_v2_js' in server
-assert 'web_assets_product_experience_v2_css' in server
+bundle.require_delivered('product-experience-v2.js', 'product-experience-v2.css')
 print('product experience v2 source contract: PASS')

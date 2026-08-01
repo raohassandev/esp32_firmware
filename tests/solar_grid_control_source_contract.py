@@ -1,5 +1,8 @@
 import re
 from pathlib import Path
+import sys as _sys, pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
+import bundle_membership as bundle
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_H = (ROOT / "components/solar_grid_config/include/solar_grid_config.h").read_text(encoding="utf-8")
@@ -112,24 +115,25 @@ require("meter_manager_read_registers" not in STATUS_API,
         "Solar-Grid status HTTP handler must return cache only")
 
 for token in [
-    "web_assets_solar_grid_js",
     "solar_grid_api_register(s_server)",
     "solar_grid_status_api_register(s_server)",
 ]:
     require(token in SERVER, f"Solar-Grid server integration missing: {token}")
+require(bundle.delivered("solar-grid.js"),
+        "the Solar-Grid browser module is not bundled, so the page never loads")
 # Handler capacity is asserted against the actual route count in
 # tests/uri_handler_capacity_source_contract.py. Pinning the literal here only
 # broke when someone edited that one line, and stayed silent when a route was
 # added -- which is the change that can actually take the web server down.
 require(re.search(r"config\.max_uri_handlers\s*=\s*\d+", SERVER) is not None,
         "web server must set an explicit URI handler capacity")
-require("DECLARE_ASSET(solar_grid_js)" in ASSETS,
-        "Solar-Grid browser asset is not exported")
+# Delivery is asserted above, against the bundle order file.
 for token in [
-    'configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/solar-grid.js"',
+    # The browser module's delivery is asserted against the bundle order file
+    # above; what still belongs here is the FIRMWARE side of the feature, which
+    # the build must compile and depend on.
     '"solar_grid_api.c"',
     '"solar_grid_status_api.c"',
-    '"${CMAKE_CURRENT_BINARY_DIR}/solar-grid.js"',
     "solar_grid_config",
 ]:
     require(token in CMAKE, f"Solar-Grid build integration missing: {token}")

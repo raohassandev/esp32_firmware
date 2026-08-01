@@ -39,6 +39,9 @@ typedef struct {
      * for one tick, which costs one sample and keeps the rest of the product
      * alive. */
     volatile uint8_t io_waiters;
+    /* Consecutive energy-read failures, and the verdict they reach. */
+    uint32_t energy_failures;
+    bool energy_unsupported;
 } meter_runtime_t;
 
 static meter_runtime_t s_meters[APP_MAX_METERS];
@@ -330,20 +333,108 @@ static void poll_measurement_block(meter_runtime_t *meter, const meter_profile_t
     store_data(meter, &next);
 }
 
+/*
+ * THE ENERGY COUNTERS, READ ONE AT A TIME.
+ *
+ * This began as a single 40-register read, matching the instantaneous block.
+ * On the installed EM-500 that never once succeeded, while the 72-register
+ * instantaneous read at 0x0002 works perfectly -- so the meter answers a long
+ * read in one part of its map and refuses the same length in another. Direct
+ * probing of the instrument returned MODBUS exception 0x02, illegal data
+ * address, for the longer counts at 0x1B20.
+ *
+ * The probe could not be made conclusive: the meter serves one connection and
+ * the controller is polling it continuously on a live 216 kW plant, so the
+ * probe was contending with the product for the instrument and its answers were
+ * not trustworthy. Rather than guess at the true limit, this reads each counter
+ * on its own -- four registers, the same shape the existing EM500 snapshot path
+ * has always used against these addresses.
+ *
+ * Ten small reads every thirty seconds is nothing on this bus, and it removes
+ * the guess entirely.
+ */
+static const uint16_t ENERGY_COUNTER_ADDRESSES[] = {
+    0x1B20, 0x1B24, 0x1B28, 0x1B2C, 0x1B30,   /* totals */
+    0x1B34, 0x1B38, 0x1B3C, 0x1B40, 0x1B44,   /* partials, the resettable ones */
+};
+#define ENERGY_COUNTER_COUNT (sizeof(ENERGY_COUNTER_ADDRESSES) / sizeof(ENERGY_COUNTER_ADDRESSES[0]))
+#define ENERGY_COUNTER_WORDS 4U
+/* Three rounds is enough to tell a refusal from a lost packet, and short
+ * enough that a meter which does not implement these is left alone within
+ * two minutes of starting. */
+#define ENERGY_ATTEMPTS_BEFORE_GIVING_UP 3U
+
 static void poll_energy_block(meter_runtime_t *meter, const meter_profile_t *profile,
                               uint32_t *next_due_ms, uint32_t timestamp)
 {
     if (!profile || !profile->has_energy_block) return;
+    /* Asked and answered: this instrument does not implement them. */
+    if (meter->energy_unsupported) return;
     if (timestamp < *next_due_ms) return;
     *next_due_ms = timestamp + METER_ENERGY_BLOCK_INTERVAL_MS;
 
+    /* Assembled into the block layout the decoder expects, so the decode stays
+     * one function with one set of tests rather than growing a second path. */
     uint16_t registers[EM500_ENERGY_REGISTERS] = {0};
-    em500_energy_t decoded;
-    if (serialized_read_announced(meter, meter->config.function_code,
-                                  EM500_ENERGY_START, EM500_ENERGY_REGISTERS,
-                                  registers, false) != ESP_OK) {
-        return;
+    for (size_t index = 0; index < ENERGY_COUNTER_COUNT; ++index) {
+        const uint16_t address = ENERGY_COUNTER_ADDRESSES[index];
+        const uint16_t offset = (uint16_t)(address - EM500_ENERGY_START);
+        esp_err_t err = serialized_read_announced(meter, meter->config.function_code,
+                                                  address, ENERGY_COUNTER_WORDS,
+                                                  &registers[offset], false);
+        if (err != ESP_OK) {
+            /*
+             * SAID ONCE IN A WHILE, NOT NEVER.
+             *
+             * The first version returned silently here, on the correct principle
+             * that an energy read must not disturb control. But silence also
+             * meant that when the counters never appeared there was nothing
+             * anywhere to say why -- the page simply showed nothing and the log
+             * was clean. A failure nobody can see is not a safe failure, it is an
+             * invisible one.
+             *
+             * Throttled hard, because this is a standing condition when it
+             * happens at all: at the 30 s cadence, one line roughly every ten
+             * minutes.
+             */
+            meter->energy_failures++;
+            /*
+             * AND AFTER A FEW ATTEMPTS, STOP ASKING.
+             *
+             * The manual documents these counters and the installed EM-500 does
+             * not answer them: measured 2026-08-01, a four-register read at
+             * 0x1B20 returns a Modbus exception (illegal data address) while the
+             * 72-register instantaneous read at 0x0002 works perfectly. So the
+             * addresses in Table 3 are not implemented by this instrument, or
+             * live somewhere else on it.
+             *
+             * Guessing another address is exactly what this codebase refuses. A
+             * meter that will not answer is instead left alone: ten failing
+             * transactions every thirty seconds, for ever, on a bus the control
+             * loop shares, buys nothing. It stops after three rounds, says so
+             * once, and the page simply has no energy section -- which is the
+             * truth.
+             *
+             * A restart retries, so a different meter, a firmware update or a
+             * corrected address is picked up without anyone remembering a flag.
+             */
+            if (meter->energy_failures >= ENERGY_ATTEMPTS_BEFORE_GIVING_UP) {
+                meter->energy_unsupported = true;
+                ESP_LOGW(TAG, "%s: energy counters at %#06x are not answered by this "
+                              "meter (%s) after %u attempts; no longer polled. The "
+                              "counters are monitoring only -- control is unaffected.",
+                         meter->config.name, address, esp_err_to_name(err),
+                         (unsigned)meter->energy_failures);
+            } else {
+                ESP_LOGW(TAG, "%s: energy counter %#06x unreadable (%s)",
+                         meter->config.name, address, esp_err_to_name(err));
+            }
+            return;
+        }
     }
+    meter->energy_failures = 0;
+
+    em500_energy_t decoded;
     if (!em500_energy_decode(registers, EM500_ENERGY_REGISTERS, &decoded)) return;
 
     meter_data_t next = data_snapshot(meter);

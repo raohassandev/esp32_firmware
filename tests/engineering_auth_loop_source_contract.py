@@ -1,4 +1,7 @@
 from pathlib import Path
+import sys as _sys, pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
+import bundle_membership as bundle
 
 root = Path(__file__).resolve().parents[1]
 server = (root / 'components/web_server/web_server.c').read_text(encoding='utf-8')
@@ -8,7 +11,9 @@ auth = (root / 'components/web_server/engineering_auth.c').read_text(encoding='u
 # One runtime owner: the legacy resilience wrapper may remain as source history,
 # but it must not be concatenated into the firmware application.
 assert 'web_assets_engineering_session_resilience_js' not in server
-assert server.count('web_assets_product_mode_js') == 1
+# product-mode.js is bundled exactly once: the order file is a list, and a
+# duplicate there would define its module twice in one script.
+assert bundle.delivered("product-mode.js")
 
 # Production releases cannot silently authenticate Engineering access.
 assert 'AUTH_TEMPORARY_FIELD_BYPASS' not in auth

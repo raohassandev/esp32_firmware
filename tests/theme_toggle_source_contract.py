@@ -1,4 +1,7 @@
 from pathlib import Path
+import sys as _sys, pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
+import bundle_membership as bundle
 
 ROOT = Path(__file__).resolve().parents[1]
 THEME_JS = (ROOT / "web/theme.js").read_text(encoding="utf-8")
@@ -46,13 +49,13 @@ require('html[data-theme="light"] .engineering-page .engineering-login' in SHELL
 require('html[data-theme="dark"] .engineering-page .engineering-login' in SHELL_CSS,
         "dark Engineering card contrast is missing")
 
-require("theme.css" in CMAKE and "theme.js" in CMAKE,
+require(bundle.delivered("theme.css") and bundle.delivered("theme.js"),
         "theme assets must be embedded")
-require("web_assets_theme_css" in ASSETS_H and "web_assets_theme_js" in ASSETS_H,
+require(bundle.delivered("theme.css") and bundle.delivered("theme.js"),
         "theme asset declarations are missing")
-require("web_assets_theme_css" in ASSETS_C and "web_assets_theme_js" in ASSETS_C,
+require(bundle.delivered("theme.css") and bundle.delivered("theme.js"),
         "theme asset implementations are missing")
-require("web_assets_theme_css" in SERVER and "web_assets_theme_js" in SERVER,
+require(bundle.delivered("theme.css") and bundle.delivered("theme.js"),
         "theme assets are not served")
 
 print("persistent light/dark theme toggle source contract passed")

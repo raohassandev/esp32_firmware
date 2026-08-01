@@ -23,6 +23,12 @@ extern "C" {
  * gap at 0x002C..0x0031 is not described there and is read as part of the block
  * and ignored, never interpreted.
  *
+ * WHAT "EQV." MEANS IS NOT UNIFORM, AND THE MANUAL DOES NOT SAY SO. Measured on
+ * the installed meter 2026-08-01: the equivalent VOLTAGE is the average of the
+ * three phases (249.7/249.3/248.8 -> 249.25) while the equivalent CURRENT is
+ * their sum (307.4/309.4/312.6 -> 929.4). Anything that presents both under one
+ * heading tells the reader that 249 V is a total of three 249 V phases.
+ *
  * SIGNEDNESS IS NOT COSMETIC. The manual gives active and reactive power and
  * power factor as "Signed long" and voltages, currents and apparent power as
  * "Unsigned long". Reading active power unsigned turns a modest export into
@@ -61,6 +67,24 @@ typedef struct {
     float voltage_asymmetry_line_percent;
     float voltage_asymmetry_phase_percent;
     float current_asymmetry_percent;
+    /*
+     * 0048H, WHICH THE MANUAL CALLS "NEUTRAL CURRENT" AND WHICH THIS INSTRUMENT
+     * DOES NOT APPEAR TO USE THAT WAY.
+     *
+     * Measured on the installed EM-500 on 2026-08-01, against a real 216 kW
+     * load: the three phases carried 307.4 / 309.4 / 312.6 A, disagreeing by
+     * 0.4%, and this register reported 930.8 A. A load that balanced puts a few
+     * amps in the neutral, not three times the phase current. 930.8 is 98.8% of
+     * the arithmetic sum of the phases -- which is what 0038H ("Eqv. Current")
+     * reports exactly, so this looks like a second aggregate rather than a
+     * neutral measurement.
+     *
+     * It is decoded and published because an engineer chasing it needs the
+     * number. It is NOT rendered on any page under that name: a plausible value
+     * with a confident label is how somebody sizes a neutral conductor wrongly.
+     * Give it a meaning only when the manufacturer or a clamp meter says what it
+     * is.
+     */
     float neutral_current_a;
     /* False when the block could not be decoded at all. Individual fields are
      * never marked invalid separately: they arrive in one transaction, so they

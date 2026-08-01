@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 import re
 from pathlib import Path
+import sys as _sys, pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
+import bundle_membership as bundle
 
 ROOT = Path(__file__).resolve().parents[1]
 js = (ROOT / "web/prelab-readiness.js").read_text(encoding="utf-8")
@@ -51,13 +54,13 @@ assert '"temporary_field_bypass", false' in auth, "session API must report that 
 assert "One-time Engineering setup code" in auth, "secure first-password setup must use a serial-only code"
 assert "AUTH_SESSION_TIMEOUT_MS" in auth and "AUTH_LOCKOUT_MS" in auth
 
-assert "prelab-readiness.js" in cmake and "prelab-readiness.css" in cmake
-assert "web_assets_prelab_readiness_js" in assets_h
-assert "web_assets_prelab_readiness_css" in assets_h
+assert bundle.delivered("prelab-readiness.js") and bundle.delivered("prelab-readiness.css")
+assert bundle.delivered("prelab-readiness.js")
+assert bundle.delivered("prelab-readiness.css")
 assert "prelab_readiness_js_start" in assets_c
 assert "prelab_readiness_css_start" in assets_c
-assert "web_assets_prelab_readiness_js" in server
-assert "web_assets_prelab_readiness_css" in server
+assert bundle.delivered("prelab-readiness.js")
+assert bundle.delivered("prelab-readiness.css")
 assert ".prelab-grid" in css and ".prelab-check" in css
 
 # Safety: the readiness workspace is observational and must never invoke a write API.

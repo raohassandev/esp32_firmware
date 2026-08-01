@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 import re
 from pathlib import Path
+import sys as _sys, pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
+import bundle_membership as bundle
 
 
 def code(text: str) -> str:
@@ -64,14 +67,8 @@ assert "statusController" not in code(js) and "status-strip" not in code(js), \
     "shell must not scrape rendered status text"
 assert "characterData" not in code(js), "shell must not observe rendered text"
 
-for name in ("product-shell-v2.css", "product-shell-v2.js"):
-    assert name in cmake, f"{name} must be embedded"
-assert "web_assets_product_shell_v2_css" in assets_h
-assert "web_assets_product_shell_v2_js" in assets_h
-assert "product_shell_v2_css" in assets_c
-assert "product_shell_v2_js" in assets_c
-assert "web_assets_product_shell_v2_css" in server
-assert "web_assets_product_shell_v2_js" in server
+bundle.require_delivered("product-shell-v2.css", "product-shell-v2.js")
+assert bundle.delivered("product-shell-v2.js")
 
 for forbidden in ("/api/control", "/api/inverter-command", "method: 'POST'", 'method: "POST"'):
     assert forbidden not in js, f"product shell must remain navigation/presentation only: {forbidden}"

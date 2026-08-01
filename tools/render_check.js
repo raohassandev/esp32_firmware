@@ -278,6 +278,56 @@ check('an unread meter block shows dashes, never zeros', () => {
     });
 });
 
+/*
+ * THE COLUMN THAT MEANT TWO THINGS.
+ *
+ * Measured on the installed EM-500, 2026-08-01: the meter's whole-installation
+ * voltage is the AVERAGE of the three phases (249.7/249.3/248.8 -> 249.25) while
+ * its whole-installation current is their SUM (307.4/309.4/312.6 -> 929.4).
+ * Under one column headed "Total" that told the reader 249 V was the total of
+ * three 249 V phases, and invited them to read the current the same way.
+ */
+check('the meter column says which kind of total each row carries', () => {
+    const sandbox = makeSandbox();
+    load(sandbox, 'meter-detail.js');
+    const rendered = sandbox.window.AutomatrixMeterDetail.render(METER);
+    const text = rendered.textContent;
+
+    assert.ok(!text.includes('Total'),
+        '"Total" is wrong for the voltage rows, where the meter reports an average');
+    assert.ok(text.includes('average'),
+        'the voltage rows must say their meter figure is an average');
+    assert.ok(text.includes('sum of the three'),
+        'the current row must say its meter figure is a sum');
+});
+
+/*
+ * A REGISTER THIS FIRMWARE DOES NOT UNDERSTAND IS NOT GIVEN A NAME.
+ *
+ * The manual calls 0048H "Neutral Current". On the installed meter it reported
+ * 930.8 A while the three phases carried 307-313 A and disagreed by 0.4% -- a
+ * balanced load puts a few amps in the neutral, not three times the phase
+ * current. It is 98.8% of the arithmetic sum of the phases.
+ *
+ * It is still acquired and still published, because an engineer chasing it needs
+ * it. It must not appear on a page under that name: somebody sizes a neutral
+ * conductor from a plausible number with a confident label.
+ */
+check('the unverified neutral register is not drawn as a measurement', () => {
+    const sandbox = makeSandbox();
+    load(sandbox, 'meter-detail.js');
+    const withNeutral = JSON.parse(JSON.stringify(METER));
+    withNeutral.measurements.neutral_current_a = 930.8;
+    const text = sandbox.window.AutomatrixMeterDetail.render(withNeutral).textContent;
+
+    /* On the LABEL, not on the word. "V phase-neutral" is the unit of the
+     * voltage row and is exactly right; banning the word would forbid it. */
+    assert.ok(!/neutral current/i.test(text),
+        'the page names a register whose meaning contradicts the instrument');
+    assert.ok(!text.includes('930.8'),
+        'the unverified value is drawn, which is the same claim by another route');
+});
+
 check('a family with no block renders nothing at all', () => {
     const sandbox = makeSandbox();
     load(sandbox, 'meter-detail.js');

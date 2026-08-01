@@ -1,5 +1,8 @@
 import re
 from pathlib import Path
+import sys as _sys, pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
+import bundle_membership as bundle
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -96,14 +99,8 @@ for token in [
 ]:
     require(token in CSS, f"operator product styling missing: {token}")
 
-for asset in [
-    "operator-product-suite.css",
-    "operator-product-suite.js",
-]:
-    require(asset in CMAKE, f"{asset} is not embedded")
-
-require("web_assets_operator_product_suite_css" in SERVER, "operator suite CSS is not served")
-require("web_assets_operator_product_suite_js" in SERVER, "operator suite JS is not served")
+require(bundle.delivered("operator-product-suite.css"), "operator suite CSS is not served")
+require(bundle.delivered("operator-product-suite.js"), "operator suite JS is not served")
 # The deleted module must be gone from all three registration points, not just
 # from the source tree; a stale getter or EMBED_FILES entry breaks the build.
 for stale in ("commissioning-route.js", "commissioning_route_js"):

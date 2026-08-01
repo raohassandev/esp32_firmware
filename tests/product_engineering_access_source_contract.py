@@ -1,4 +1,7 @@
 from pathlib import Path
+import sys as _sys, pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
+import bundle_membership as bundle
 
 ROOT = Path(__file__).resolve().parents[1]
 AUTH = (ROOT / "components/web_server/engineering_auth.c").read_text(encoding="utf-8")
@@ -51,9 +54,9 @@ require("httpd_register_uri_handler=engineering_register_uri_handler" not in CMA
         "fragile component-wide command-line URI replacement must not return")
 require("engineering_auth_register" in SERVER and "engineering_auth_init" in SERVER,
         "Engineering auth is not initialized and registered")
-require("web_assets_product_mode_js" in SERVER and "web_assets_product_mode_css" in SERVER,
+require(bundle.delivered("product-mode.js") and bundle.delivered("product-mode.css"),
         "product-mode assets are not served")
-require("web_assets_operator_view_js" in SERVER and "operator-view.js" in CMAKE,
+require(bundle.delivered("operator-view.js") and bundle.delivered("operator-view.js"),
         "dedicated operator product view is not embedded and served")
 
 for token in [

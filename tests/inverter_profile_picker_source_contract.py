@@ -1,4 +1,7 @@
 from pathlib import Path
+import sys as _sys, pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
+import bundle_membership as bundle
 
 root = Path(__file__).resolve().parents[1]
 js = (root / "web/inverter-profiles.js").read_text(encoding="utf-8")
@@ -23,10 +26,7 @@ for token in required_js:
 
 assert "method: 'POST'" in js
 assert "automatic control is disabled" in js.lower()
-assert 'configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/inverter-profiles.js"' in cmake
-assert '"${CMAKE_CURRENT_BINARY_DIR}/inverter-profiles.js"' in cmake
-assert "web_assets_inverter_profiles_js" in assets_h
-assert "_binary_inverter_profiles_js_start" in assets_c
-assert "web_assets_inverter_profiles_js," in server
+bundle.require_delivered("inverter-profiles.js")
+# Delivery is asserted above, once; see the bundle order files.
 
 print("inverter profile picker source contract: PASS")

@@ -1,6 +1,9 @@
 from pathlib import Path
 import subprocess
 import tempfile
+import sys as _sys, pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
+import bundle_membership as bundle
 
 root = Path(__file__).resolve().parents[1]
 js = (root / 'web' / 'network-commissioning-fix.js').read_text(encoding='utf-8')
@@ -31,9 +34,8 @@ for token in required:
 
 assert js.count('await ensureEngineeringSession()') >= 3, 'session must be established before save, baseline load and after restart'
 assert 'credentials: \'same-origin\'' in js, 'session cookie must be included'
-assert 'web_assets_network_commissioning_fix_js' in server
-assert 'network_commissioning_fix_js_start' in assets
-assert 'network-commissioning-fix.js' in cmake
+bundle.require_delivered("network-commissioning-fix.js")
+# Delivery is asserted above, once; see the bundle order files.
 
 for token in [
     'network_wifi_copy.c',

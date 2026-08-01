@@ -1,4 +1,7 @@
 from pathlib import Path
+import sys as _sys, pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
+import bundle_membership as bundle
 
 root = Path(__file__).resolve().parents[1]
 js = (root / 'web/commissioning-release-v3.js').read_text(encoding='utf-8')
@@ -25,13 +28,11 @@ for forbidden in ['/api/control', '/api/inverter-command']:
 for token in ['@media(max-width:600px)', 'min-height:48px', '.cr-progress', '.cr-health-grid']:
     assert token in css, f'missing responsive commissioning style: {token}'
 
-assert 'commissioning-release-v3.js' in cmake
-assert 'commissioning-release-v3.css' in cmake
-assert 'web_assets_commissioning_release_v3_js' in assets_h
-assert 'web_assets_commissioning_release_v3_css' in assets_h
-assert 'commissioning_release_v3_js_start' in assets_c
-assert 'commissioning_release_v3_css_start' in assets_c
-assert 'web_assets_commissioning_release_v3_js' in server
-assert 'web_assets_commissioning_release_v3_css' in server
+bundle.require_delivered("commissioning-release-v3.js")
+bundle.require_delivered("commissioning-release-v3.css")
+# Delivery is asserted above, once. It used to be asserted six times -- a
+# getter in the header, a linker symbol in the source, a name in the server, for
+# each of two files -- because under the old architecture all six had to line up.
+# The bundle needs one fact, and six copies of a fact is six chances to disagree.
 
 print('commissioning release V3 source contract: PASS')

@@ -1,44 +1,25 @@
 # ---------------------------------------------------------------------------
-# Web assets and the CSS cascade
+# Web assets
 #
 # index.html links exactly one stylesheet, /app.css, and one script, /app.js.
-# Every other file below is bundled at request time: `css_handler` in
-# web_server.c concatenates the embedded CSS blobs and serves them as /app.css.
+# Both are built and gzipped by tools/build_bundle.py further down this file,
+# from the lists in web/app.css.order and web/app.js.order.
 #
-# IMPORTANT: the order of the lists in THIS file does NOT determine the
-# cascade. Only the `assets[]` array in `css_handler` (web_server.c) does.
-# The two orders are deliberately different - do not "align" them, and do not
-# assume that moving a line here changes what the browser sees.
+# THOSE TWO FILES ARE THE ONLY PLACE THE ORDER LIVES. It used to live here as
+# well, in a deliberately different order from the assets[] arrays in
+# web_server.c, with a third copy in a JSON file for the preview -- and a long
+# comment in this position explaining that moving a line here changed nothing.
+# Three lists meant three chances to disagree, and a disagreement is invisible
+# until a page silently stops working.
 #
-# Cascade order as served (later layers win at equal specificity):
+# The cascade rules that comment described have not changed and still matter;
+# they are recorded where the order now is, in web/app.css.order:
 #
-#   1  app.css                     Base design system: :root tokens (dark is the
-#                                  default theme), reset, shell, panels, buttons,
-#                                  forms. Also holds the compatibility aliases
-#                                  (--panel-bg, --surface, --border, --input-bg,
-#                                  --good/--warning/--bad ...) that make legacy
-#                                  `var(--x, <literal>)` call sites theme-aware.
-#   2  wifi.css                    \
-#   3  devices.css                  } Per-feature component styles. These sit
-#   4  em500.css                   /  BEFORE theme.css on purpose.
-#   5  theme.css                   Light-theme token overrides
-#                                  (html[data-theme="light"]) plus desktop
-#                                  density and the shared responsive
-#                                  breakpoints. MUST stay after the feature
-#                                  sheets above so light theme can correct them;
-#                                  tests/ui_runtime_consistency_source_contract.py
-#                                  asserts this ordering in web_server.c.
-#   6  product-mode.css            Operator vs engineering mode gating.
-#   7  operator-operations.css     Alarms, events, history/trend widgets.
-#   8  operator-product-suite.css  Operator product surfaces (--product-touch).
-#   9  prelab-readiness.css        Pre-Lab Readiness page (minified, one line).
-#  10  mobile-prelab-fixes.css     Touch/mobile hardening, incl. the S6 44x44
-#                                  `pointer: coarse` hit-target block.
-#  11  product-shell-v2.css        Shell V2 chrome (topbar, popovers, nav).
-#  12  product-experience-v2.css   Experience V2 page composition.
-#  13  commissioning-wizard-v2.css Commissioning wizard.
-#  14  commissioning-release-v3.css Commissioning release flow (minified, one
-#                                  line). Last layer, so it wins everything.
+#   - Per-feature sheets come BEFORE theme.css, so the light-theme token
+#     overrides can correct them. tests/ui_runtime_consistency_source_contract.py
+#     asserts that, now against the order file.
+#   - cards.css is the shared layer the per-module panels are being converted to,
+#     so nothing it replaces may follow it.
 #
 # Where to put a new rule:
 #   - Restyling an existing component        -> edit that component's sheet.
@@ -50,72 +31,15 @@
 #   - Undefined token names                  -> add the token, don't add a
 #     `var(--x, #fff)` literal fallback; that fallback fires in both themes and
 #     is what made the readiness page white-on-white (S5a).
-#   - Layout/responsive tweak                -> theme.css or mobile-prelab-fixes.css.
 #
-# Do NOT create product-experience-v3.css. Adding a new sheet also requires
-# edits to web_assets.c, include/web_assets.h and web_server.c, and every extra
-# layer makes the !important arms race worse. Fix the rule where it lives.
+# Adding a module is now ONE edit: append it to the right .order file. It used to
+# take four -- this file, web_assets.c, include/web_assets.h and web_server.c --
+# and forgetting any one of them produced a page that loaded and did nothing.
 # ---------------------------------------------------------------------------
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/index.html" "${CMAKE_CURRENT_BINARY_DIR}/index.html" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/app.css" "${CMAKE_CURRENT_BINARY_DIR}/app.css" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/theme.css" "${CMAKE_CURRENT_BINARY_DIR}/theme.css" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/product-mode.css" "${CMAKE_CURRENT_BINARY_DIR}/product-mode.css" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-operations.css" "${CMAKE_CURRENT_BINARY_DIR}/operator-operations.css" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-product-suite.css" "${CMAKE_CURRENT_BINARY_DIR}/operator-product-suite.css" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/prelab-readiness.css" "${CMAKE_CURRENT_BINARY_DIR}/prelab-readiness.css" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/mobile-prelab-fixes.css" "${CMAKE_CURRENT_BINARY_DIR}/mobile-prelab-fixes.css" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/product-shell-v2.css" "${CMAKE_CURRENT_BINARY_DIR}/product-shell-v2.css" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/product-experience-v2.css" "${CMAKE_CURRENT_BINARY_DIR}/product-experience-v2.css" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/commissioning-wizard-v2.css" "${CMAKE_CURRENT_BINARY_DIR}/commissioning-wizard-v2.css" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/commissioning-release-v3.css" "${CMAKE_CURRENT_BINARY_DIR}/commissioning-release-v3.css" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/wifi.css" "${CMAKE_CURRENT_BINARY_DIR}/wifi.css" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/devices.css" "${CMAKE_CURRENT_BINARY_DIR}/devices.css" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500.css" "${CMAKE_CURRENT_BINARY_DIR}/em500.css" COPYONLY)
 # The one time-series chart component. Its sheet is concatenated last (see
 # css_handler in web_server.c) so it can retire the superseded sparkline
 # geometry without editing the sheets that declared it.
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/pvdg-chart.css" "${CMAKE_CURRENT_BINARY_DIR}/pvdg-chart.css" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/app.js" "${CMAKE_CURRENT_BINARY_DIR}/app.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/theme.js" "${CMAKE_CURRENT_BINARY_DIR}/theme.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/product-mode.js" "${CMAKE_CURRENT_BINARY_DIR}/product-mode.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-view.js" "${CMAKE_CURRENT_BINARY_DIR}/operator-view.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-network.js" "${CMAKE_CURRENT_BINARY_DIR}/operator-network.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-proof.js" "${CMAKE_CURRENT_BINARY_DIR}/operator-proof.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/icons.js" "${CMAKE_CURRENT_BINARY_DIR}/icons.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/meter-detail.js" "${CMAKE_CURRENT_BINARY_DIR}/meter_detail.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/inverter-detail.js" "${CMAKE_CURRENT_BINARY_DIR}/inverter_detail.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/alarm-journal.js" "${CMAKE_CURRENT_BINARY_DIR}/alarm_journal.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/alarm-journal.css" "${CMAKE_CURRENT_BINARY_DIR}/alarm_journal.css" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/meter-detail.css" "${CMAKE_CURRENT_BINARY_DIR}/meter_detail.css" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/cards.css" "${CMAKE_CURRENT_BINARY_DIR}/cards.css" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/energy-flow.css" "${CMAKE_CURRENT_BINARY_DIR}/energy-flow.css" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-operations.js" "${CMAKE_CURRENT_BINARY_DIR}/operator-operations.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-product-suite.js" "${CMAKE_CURRENT_BINARY_DIR}/operator-product-suite.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/prelab-readiness.js" "${CMAKE_CURRENT_BINARY_DIR}/prelab-readiness.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/product-shell-v2.js" "${CMAKE_CURRENT_BINARY_DIR}/product-shell-v2.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/product-experience-v2.js" "${CMAKE_CURRENT_BINARY_DIR}/product-experience-v2.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/commissioning-wizard-v2.js" "${CMAKE_CURRENT_BINARY_DIR}/commissioning-wizard-v2.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/commissioning-release-v3.js" "${CMAKE_CURRENT_BINARY_DIR}/commissioning-release-v3.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/engineering-errors.js" "${CMAKE_CURRENT_BINARY_DIR}/engineering-errors.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/ui-enhancements.js" "${CMAKE_CURRENT_BINARY_DIR}/ui-enhancements.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/wifi-utils.js" "${CMAKE_CURRENT_BINARY_DIR}/wifi-utils.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/wifi-guard.js" "${CMAKE_CURRENT_BINARY_DIR}/wifi-guard.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/wifi.js" "${CMAKE_CURRENT_BINARY_DIR}/wifi.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/network-commissioning-fix.js" "${CMAKE_CURRENT_BINARY_DIR}/network-commissioning-fix.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/devices-utils.js" "${CMAKE_CURRENT_BINARY_DIR}/devices-utils.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/pvdg-chart.js" "${CMAKE_CURRENT_BINARY_DIR}/pvdg-chart.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/devices.js" "${CMAKE_CURRENT_BINARY_DIR}/devices.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/devices-refresh.js" "${CMAKE_CURRENT_BINARY_DIR}/devices-refresh.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/inverter-profiles.js" "${CMAKE_CURRENT_BINARY_DIR}/inverter-profiles.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/inverter-config.js" "${CMAKE_CURRENT_BINARY_DIR}/inverter-config.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/inverter-telemetry.js" "${CMAKE_CURRENT_BINARY_DIR}/inverter-telemetry.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500-utils.js" "${CMAKE_CURRENT_BINARY_DIR}/em500-utils.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500-core.js" "${CMAKE_CURRENT_BINARY_DIR}/em500-core.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500-quality.js" "${CMAKE_CURRENT_BINARY_DIR}/em500-quality.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500-profiles.js" "${CMAKE_CURRENT_BINARY_DIR}/em500-profiles.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500-plan.js" "${CMAKE_CURRENT_BINARY_DIR}/em500-plan.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/source-detection.js" "${CMAKE_CURRENT_BINARY_DIR}/source-detection.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/solar-grid.js" "${CMAKE_CURRENT_BINARY_DIR}/solar-grid.js" COPYONLY)
 
 set(WEB_SERVER_C_SOURCES
     "web_server.c"
@@ -168,68 +92,84 @@ set(AUDIT_PERSISTENCE_SOURCES
     "solar_grid_api.c"
 )
 
+
+# ---------------------------------------------------------------------------
+# The bundles the browser actually receives, built and COMPRESSED here.
+#
+# The controller served 873 KB of JavaScript uncompressed over Wi-Fi from an
+# ESP32 -- about 27 seconds from the board before the interface appeared, which
+# is long enough that people conclude it has crashed and reload, making it worse.
+# The same bytes gzipped are a quarter of that.
+#
+# Compressed at BUILD time, not on the device: an ESP32 compressing 873 KB on
+# every page load would spend CPU the control loop needs, on work whose answer
+# cannot change between builds.
+#
+# Order comes from web/app.js.order and web/app.css.order, which are the source
+# of truth. It used to live in three places -- the assets[] arrays in
+# web_server.c, this file in a different order, and a JSON copy for the preview
+# -- and three lists mean three chances to disagree, with the disagreement
+# invisible until a page silently stops working.
+#
+# Configure-time rather than a build rule, because EMBED_FILES needs the outputs
+# to exist when idf_component_register runs. The order files and every web
+# source are registered below as configure dependencies, so editing any of them
+# regenerates the bundle.
+set(WEB_SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/../../web")
+
+# Skipped during ESP-IDF's early-expansion pass, which re-reads every component
+# file only to collect requirements. Most build properties -- the Python
+# interpreter among them -- are not set there, so running the generator would
+# invoke an empty command and fail the build for a reason unrelated to the code.
+if(NOT CMAKE_BUILD_EARLY_EXPANSION)
+    file(GLOB WEB_BUNDLE_INPUTS
+        "${WEB_SOURCE_DIR}/*.js" "${WEB_SOURCE_DIR}/*.css" "${WEB_SOURCE_DIR}/*.order")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${WEB_BUNDLE_INPUTS})
+    # Editing any web module or either order file re-runs the generator above.
+
+    # The interpreter the build itself uses, not whatever "python" happens to
+    # resolve to on the developer's PATH -- which on Windows is frequently
+    # nothing at all, and the resulting failure names the bundle rather than the
+    # missing interpreter.
+    idf_build_get_property(bundle_python PYTHON)
+    if(NOT bundle_python)
+        set(bundle_python "python")
+    endif()
+
+    execute_process(
+        COMMAND "${bundle_python}"
+                "${CMAKE_CURRENT_LIST_DIR}/../../tools/build_bundle.py"
+                "${CMAKE_CURRENT_BINARY_DIR}"
+        RESULT_VARIABLE WEB_BUNDLE_RESULT
+        OUTPUT_VARIABLE WEB_BUNDLE_OUTPUT
+        ERROR_VARIABLE WEB_BUNDLE_ERROR
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_STRIP_TRAILING_WHITESPACE)
+    if(NOT WEB_BUNDLE_RESULT EQUAL 0)
+        # Fatal. A build that shrugs this off links a firmware whose interface is
+        # an empty page, and nothing else in the build would report it.
+        message(FATAL_ERROR
+            "web bundle build failed (${WEB_BUNDLE_RESULT}): "
+            "${WEB_BUNDLE_OUTPUT} ${WEB_BUNDLE_ERROR}")
+    endif()
+    message(STATUS "web bundle: ${WEB_BUNDLE_OUTPUT}")
+endif()
+
 idf_component_register(
     SRCS ${WEB_SERVER_C_SOURCES}
     INCLUDE_DIRS "include"
     REQUIRES commissioning_gate meter_profiles esp_http_server esp_system esp_timer esp_hw_support esp_app_format esp_partition app_update spi_flash spiffs cjson nvs_flash mbedtls config_manager solar_grid_config source_detection network_manager meter_manager modbus_tcp inverter_manager control_engine safety_manager
+    EMBED_FILES
+        # The two bundles, each in both forms. Both are kept because every
+        # browser sends Accept-Encoding: gzip but a commissioning script written
+        # with plain curl does not, and handing that script gzip bytes it never
+        # asked for produces a file of binary garbage during a site visit.
+        "${CMAKE_CURRENT_BINARY_DIR}/app_bundle.js"
+        "${CMAKE_CURRENT_BINARY_DIR}/app_bundle.js.gz"
+        "${CMAKE_CURRENT_BINARY_DIR}/app_bundle.css"
+        "${CMAKE_CURRENT_BINARY_DIR}/app_bundle.css.gz"
     EMBED_TXTFILES
         "${CMAKE_CURRENT_BINARY_DIR}/index.html"
-        "${CMAKE_CURRENT_BINARY_DIR}/app.css"
-        "${CMAKE_CURRENT_BINARY_DIR}/theme.css"
-        "${CMAKE_CURRENT_BINARY_DIR}/product-mode.css"
-        "${CMAKE_CURRENT_BINARY_DIR}/operator-operations.css"
-        "${CMAKE_CURRENT_BINARY_DIR}/operator-product-suite.css"
-        "${CMAKE_CURRENT_BINARY_DIR}/prelab-readiness.css"
-        "${CMAKE_CURRENT_BINARY_DIR}/mobile-prelab-fixes.css"
-        "${CMAKE_CURRENT_BINARY_DIR}/product-shell-v2.css"
-        "${CMAKE_CURRENT_BINARY_DIR}/product-experience-v2.css"
-        "${CMAKE_CURRENT_BINARY_DIR}/commissioning-wizard-v2.css"
-        "${CMAKE_CURRENT_BINARY_DIR}/commissioning-release-v3.css"
-        "${CMAKE_CURRENT_BINARY_DIR}/wifi.css"
-        "${CMAKE_CURRENT_BINARY_DIR}/devices.css"
-        "${CMAKE_CURRENT_BINARY_DIR}/em500.css"
-        "${CMAKE_CURRENT_BINARY_DIR}/pvdg-chart.css"
-        "${CMAKE_CURRENT_BINARY_DIR}/app.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/theme.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/product-mode.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/operator-view.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/operator-network.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/operator-proof.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/icons.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/meter_detail.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/inverter_detail.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/alarm_journal.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/alarm_journal.css"
-        "${CMAKE_CURRENT_BINARY_DIR}/meter_detail.css"
-        "${CMAKE_CURRENT_BINARY_DIR}/cards.css"
-        "${CMAKE_CURRENT_BINARY_DIR}/energy-flow.css"
-        "${CMAKE_CURRENT_BINARY_DIR}/operator-operations.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/operator-product-suite.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/prelab-readiness.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/product-shell-v2.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/product-experience-v2.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/commissioning-wizard-v2.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/commissioning-release-v3.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/engineering-errors.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/ui-enhancements.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/wifi-utils.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/wifi-guard.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/wifi.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/network-commissioning-fix.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/devices-utils.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/pvdg-chart.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/devices.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/devices-refresh.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/inverter-profiles.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/inverter-config.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/inverter-telemetry.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/em500-utils.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/em500-core.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/em500-quality.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/em500-profiles.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/em500-plan.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/source-detection.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/solar-grid.js"
 )
 
 foreach(source IN LISTS WEB_SERVER_C_SOURCES)

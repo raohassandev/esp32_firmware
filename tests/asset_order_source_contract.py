@@ -1,25 +1,21 @@
 #!/usr/bin/env python3
-"""The preview must serve the assets in the order the firmware does.
+"""The bundle order is coherent, and it is the ONLY copy of that order.
 
-The browser gets ONE app.js and ONE app.css, concatenated by the firmware in the
-order of the asset arrays in components/web_server/web_server.c. That order is
-load-bearing twice: a module that calls another while rendering must come after
-it, and the card layer must come last in the CSS or the per-module panels win.
+The browser receives ONE app.js and ONE app.css, concatenated at BUILD time from
+web/app.js.order and web/app.css.order. That order is load-bearing twice: a
+module that calls another while rendering must come after it, and the card layer
+must come last in the CSS or the per-module panels win at equal specificity.
 
-CMakeLists.txt lists the same files in a DIFFERENT order. A preview built from
-that one renders a cascade the product does not have -- so it shows a layout
-nobody will ever see and hides the one they will, which is worse than having no
-preview, because it is a preview that lies. The list was kept in step by hand,
-which lasted exactly as long as somebody remembered.
+WHAT THIS USED TO GUARD, AND WHY IT CHANGED. The order lived in three places at
+once -- the assets[] arrays in web_server.c, CMakeLists.txt in a different order,
+and a JSON copy for the preview. This contract existed to keep them in step,
+which is a thing you only need to do when you have decided to have three copies.
+They are now one, so the contract asserts the harder property instead: that no
+second copy has grown back.
 
-Three things are pinned here:
-
-  1. tools/ui_preview_order.json is what the firmware actually serves.
-  2. Every .js and .css in web/ is served by something. A file that is not is
-     either dead weight or a module somebody forgot to register, and the second
-     is invisible until a page quietly stops working.
-  3. The card layer is last in the CSS. It is the shared answer the per-module
-     stylesheets are being converted to, and while both exist it has to win.
+Nothing here re-implements the checks in tools/check_asset_order.js. It runs
+them, because a second implementation of a consistency rule is exactly the
+duplication this file is about.
 """
 import pathlib
 import re
@@ -27,72 +23,71 @@ import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-EXTRACTOR = ROOT / "tools" / "extract_asset_order.js"
-ORDER = ROOT / "tools" / "ui_preview_order.json"
+CHECKER = ROOT / "tools" / "check_asset_order.js"
 WEB = ROOT / "web"
+WEB_SERVER = ROOT / "components" / "web_server" / "web_server.c"
+CMAKELISTS = ROOT / "components" / "web_server" / "CMakeLists.txt"
+
+
+def strip_c_comments(text):
+    text = re.sub(r"/\*.*?\*/", " ", text, flags=re.S)
+    return re.sub(r"//[^\n]*", " ", text)
 
 
 def main():
     failures = []
 
-    if not EXTRACTOR.exists():
-        print("Asset order contract FAILED: tools/extract_asset_order.js is missing")
-        return 1
+    for kind in ("js", "css"):
+        if not (WEB / f"app.{kind}.order").exists():
+            failures.append(f"web/app.{kind}.order is missing; it is the source of truth "
+                            f"for the {kind} bundle order")
 
-    # The extractor reads web_server.c and compares. Running it rather than
-    # reimplementing it is the point: a second copy of the parsing rule would be
-    # one more thing to drift.
-    result = subprocess.run(
-        ["node", str(EXTRACTOR), "--check"],
-        capture_output=True, text=True, cwd=str(ROOT))
-    if result.returncode != 0:
+    if CHECKER.exists():
+        result = subprocess.run(["node", str(CHECKER)], capture_output=True,
+                                text=True, cwd=str(ROOT))
+        if result.returncode != 0:
+            failures.append(result.stderr.strip() or "the bundle order is not coherent")
+    else:
+        failures.append("tools/check_asset_order.js is missing")
+
+    # NO SECOND COPY. web_server.c serves one pre-built blob; if an assets[]
+    # array of per-file getters reappears there, the order has been forked again
+    # and the two will drift.
+    server = strip_c_comments(WEB_SERVER.read_text(encoding="utf-8", errors="replace"))
+    per_file_getters = re.findall(r"web_assets_[a-z0-9_]+_(?:js|css)", server)
+    stray = [name for name in per_file_getters if not name.startswith("web_assets_bundle_")]
+    if stray:
         failures.append(
-            (result.stderr.strip() or result.stdout.strip()
-             or "the preview asset order does not match the firmware"))
+            f"web_server.c names per-file assets again ({', '.join(sorted(set(stray))[:4])}"
+            f"{'...' if len(set(stray)) > 4 else ''}). The bundle order lives in "
+            f"web/app.*.order; a second list here is the fork this was consolidated "
+            f"to remove.")
 
-    # Nothing in web/ may be orphaned. The extractor reports this on stderr even
-    # when it otherwise succeeds, so it is checked explicitly.
-    if "never served" in (result.stderr or ""):
-        failures.append(result.stderr.strip())
+    # And the build must not embed the individual files alongside the bundle:
+    # that is the same 1 MB stored twice, in a partition that cannot spare it.
+    cmake = CMAKELISTS.read_text(encoding="utf-8", errors="replace")
+    embedded = re.findall(r"\$\{CMAKE_CURRENT_BINARY_DIR\}/([A-Za-z0-9_.-]+\.(?:js|css))",
+                          cmake)
+    unexpected = [name for name in embedded if not name.startswith("app_bundle.")]
+    if unexpected:
+        failures.append(
+            f"CMakeLists.txt still embeds per-file web assets ({', '.join(sorted(set(unexpected))[:4])}). "
+            f"With the bundle these are the same bytes stored twice.")
 
-    if ORDER.exists():
-        import json
-        order = json.loads(ORDER.read_text(encoding="utf-8"))
+    # The compressed form must be embedded, or the whole point is lost.
+    if "app_bundle.js.gz" not in cmake or "app_bundle.css.gz" not in cmake:
+        failures.append(
+            "the pre-compressed bundles are not embedded. Uncompressed, the "
+            "interface is about 1 MB over Wi-Fi from an ESP32 -- roughly 27 "
+            "seconds before anything appears, which is long enough that people "
+            "conclude the controller has crashed and reload.")
 
-        css = order.get("css", [])
-        if css and "cards.css" in css:
-            # Everything after cards.css must be a deliberate later layer. The
-            # rule is not "cards.css is last" -- files that extend the card
-            # vocabulary legitimately follow it -- but nothing that predates it
-            # may, because those are exactly the panels it is replacing.
-            tail = css[css.index("cards.css") + 1:]
-            legacy = [name for name in tail
-                      if name in {"app.css", "devices.css", "em500.css", "wifi.css",
-                                  "theme.css", "product-mode.css"}]
-            if legacy:
-                failures.append(
-                    f"{', '.join(legacy)} is served AFTER cards.css, so the "
-                    f"per-module panels the card layer replaces would win the "
-                    f"cascade")
-        elif css:
-            failures.append("cards.css is not served at all")
-
-        # A module that another calls while rendering must be loaded first.
-        # These are the pairs that exist today; each was a real ordering the
-        # firmware arrays encode and the preview must reproduce.
-        js = order.get("js", [])
-        precedence = [
-            ("icons.js", "operator-view.js"),
-            ("operator-proof.js", "operator-view.js"),
-            ("meter-detail.js", "devices.js"),
-            ("inverter-detail.js", "devices.js"),
-            ("alarm-journal.js", "operator-operations.js"),
-        ]
-        for earlier, later in precedence:
-            if earlier in js and later in js and js.index(earlier) > js.index(later):
-                failures.append(
-                    f"{later} calls into {earlier} while rendering, but {earlier} "
-                    f"is served after it, so the call would find nothing defined")
+    # And the firmware must only send it to a client that asked for it.
+    if "Accept-Encoding" not in server or "Content-Encoding" not in server:
+        failures.append(
+            "the server does not negotiate encoding. Sending gzip to a client "
+            "that did not offer it hands a commissioning script a file of binary "
+            "garbage.")
 
     if failures:
         print("Asset order contract FAILED:")
@@ -100,8 +95,8 @@ def main():
             print(f"  - {failure}")
         return 1
 
-    print("Asset order contract passed (preview serves what the firmware serves, "
-          "nothing in web/ is orphaned, and load order is respected)")
+    print("Asset order contract passed (one order, coherent, pre-compressed, "
+          "and negotiated)")
     return 0
 
 
