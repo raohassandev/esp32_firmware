@@ -684,6 +684,36 @@
          * controller has actually reported the fault.
          */
         const notice = byId('generatorBaseLoadNotice');
+        /*
+         * A CARD PER ENGINE THE PLANT HAS, NOT PER SLOT THE FIRMWARE ALLOWS.
+         *
+         * The firmware carries three engine slots, so three full cards -- six
+         * fields each -- stood on the page whatever the site had. On a one-
+         * generator plant two of them were empty forms asking for a rating, a
+         * minimum loading and a reverse-power margin for machines that do not
+         * exist.
+         *
+         * Every card is still BUILT, because renderConfig() and collectConfig()
+         * address their fields by id and a missing input would silently drop a
+         * commissioned value on the next save. An uncommissioned slot is hidden
+         * instead, and one spare is left visible so a second engine can be
+         * added without hunting for a control.
+         */
+        const engineCards = byId('generatorFleetEngines');
+        if (engineCards) {
+            let firstSpareShown = false;
+            Array.from(engineCards.children).forEach((card, slot) => {
+                const engine = engines.find((entry) => Number(entry?.slot) === slot) || {};
+                const commissioned = engine.in_service === true
+                    || (Number(engine.rated_kw) || 0) > 0;
+                if (commissioned) { card.hidden = false; return; }
+                /* Exactly one empty slot, so adding an engine is possible and
+                 * the page does not fill with forms nobody asked for. */
+                card.hidden = firstSpareShown;
+                firstSpareShown = true;
+            });
+        }
+
         const detail = notice?.querySelector('.notice-detail');
         /* The commissioning gate's own sentence, verbatim. Nothing is composed here. */
         const reason = verbatimText(config?.base_load_below_minimum_reason);
