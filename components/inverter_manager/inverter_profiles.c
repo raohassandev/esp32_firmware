@@ -469,6 +469,43 @@ static const inverter_profile_t PROFILES[] = {
         .qualification = INVERTER_PROFILE_QUALIFICATION_DOCUMENTED,
         .manual_reference = "Solis RS485_MODBUS Communication Protocol (translated 2021-05-06) "
                             "sections 5.2/5.3/5.6; not qualified on hardware",
+        /*
+         * IS THIS ACTUALLY A SOLIS?
+         *
+         * Without this the controller cannot tell. A Modbus profile chooses
+         * REGISTERS, not machines; the machine is chosen by IP, port and unit
+         * id. Point a Solis profile at another manufacturer's endpoint and it
+         * reads whatever lives at those addresses and reports it as production.
+         *
+         * That is not hypothetical. On this plant a Solis was given slave id 21
+         * on the endpoint where a Huawei already answered to 21. The controller
+         * read 7.78 kW, showed it as the configured inverter's output, and only
+         * the enable write failing revealed that the machine on the other end
+         * was not the one the profile described. The owner's objection was
+         * exactly right: it should have known.
+         *
+         * Section 5.2, p.10 gives the means, and is unusually explicit about the
+         * addressing: "Inverter type information parameter address, corresponding
+         * function code is 0x04. The following table has the same address with
+         * the actual address of the message frame. No need extra offset or
+         * transform."
+         *
+         * So 35000 EXACTLY -- no -1, unlike every other address in this profile.
+         * That is not an inconsistency to be tidied away: sections 5.3 and 5.6
+         * state the offset, 5.2 states its absence, and each is followed here.
+         *
+         * 1020 is "3 phase inverter", which is what this profile describes. A
+         * single-phase Solis (1010), a storage model (2030..2060), an EPM (1070)
+         * or an off-grid unit (3010) is a DIFFERENT machine with a different
+         * document, and must not be commanded by this map. The mask is full
+         * width because the whole word carries the type; no bit of it is spare.
+         */
+        .has_identity_probe = true,
+        .identity_function = 4,
+        .identity_address = 35000, /* manual s5.2: no offset, unlike 5.3 and 5.6 */
+        .identity_words = 1,
+        .identity_expected = 1020, /* "3 phase inverter" */
+        .identity_mask = 0xFFFF,
         .has_active_power = true,
         .active_power_function = 4,
         .active_power_address = 3004, /* manual tag 3005-3006, section 5.3 offset -1 */
