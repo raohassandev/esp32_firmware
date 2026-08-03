@@ -304,7 +304,38 @@ typedef struct {
      * by a different door.
      *
      * Being unable to command is recoverable. Being told a plant is limited when
-     * it is not is not. */
+     * it is not is not.
+     *
+     * ---------------------------------------------------------------------
+     * FALSE ON SOLIS ALONE, BY THE OWNER'S DECISION. Every other profile keeps
+     * the gate.
+     *
+     * The reasoning above still describes what the register does. What changed
+     * for that one profile is who is responsible for it. As a gate it made the
+     * inverter uncommandable until the controller could both write and verify
+     * the enable, and on the plant's own Solis that never happened: FC 03 and
+     * FC 04 reads succeed on that endpoint while every FC 06 write is refused,
+     * so the enable stood at 0 and a normally producing machine was held out of
+     * the fleet indefinitely.
+     *
+     * The owner's instruction: "is layer ko khatm kr do, inverter pr write hona
+     * hi hona chahiye" -- the enable is a commissioning setting, made once from
+     * the manufacturer's own app, not a thing the controller should re-prove
+     * before every command. Asked whether to apply it to the rest, the answer
+     * was Solis only.
+     *
+     * WHAT THAT COSTS, STATED PLAINLY. With the switch off, this class of
+     * inverter accepts a setpoint, echoes it, and ignores it -- it stays at
+     * 100 %. The readback then CONFIRMS a limit that is not in force. On a
+     * generator that is the dangerous direction: the controller believes it has
+     * curtailed and the engine is loaded as if it had not. For Solis that risk
+     * has moved from the firmware to commissioning, where the switch must now be
+     * verified by hand.
+     *
+     * The description is deliberately left in the profile -- addresses, values
+     * and readback -- so the register stays documented and the gate is one word
+     * away from being restored.
+     * --------------------------------------------------------------------- */
     bool requires_prerequisite_enable;
 
     /* True when the manual says the command register is stored in non-volatile

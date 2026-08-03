@@ -369,7 +369,13 @@ static const inverter_profile_t PROFILES[] = {
          * the value back regardless, so commanding it would report CONFIRMED
          * for a limit the inverter ignores. Refused until the prerequisite can
          * be written and verified. */
-        .requires_prerequisite_enable = true,
+        /* SOLIS ONLY. See the field in inverter_profiles.h: on this plant's
+         * endpoint every FC 06 write is refused while FC 03/04 reads succeed, so
+         * the enable stood at 0 and a normally producing machine was held out of
+         * the fleet for good. The owner sets it from the Solis app instead. The
+         * description below stays, so the register remains documented and the
+         * gate is one word away from being restored. */
+        .requires_prerequisite_enable = false,
         .manufacturer = "Solis",
         .deferred_this_phase = true,
         .deferred_reason =
