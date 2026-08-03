@@ -1459,8 +1459,33 @@ static void inverter_telemetry_task(void *argument)
                 runtime->telemetry_failures = 0U;
             }
 
-            /* Only when there is a setpoint to confirm. */
-            if (runtime->profile->has_power_limit_readback && runtime->data.has_command) {
+            /*
+             * WHENEVER THERE IS A SETPOINT TO CONFIRM -- INCLUDING THE FIRST.
+             *
+             * This asked only for has_command, which is set in exactly one
+             * place: the branch where a write has ALREADY been confirmed. So
+             * the readback that produces a confirmation was polled only after
+             * one had happened, and the first write on a machine could never
+             * be confirmed:
+             *
+             *   write issued -> readback never polled -> no evidence ->
+             *   confirmation_fault latches -> the inverter is dropped from the
+             *   commandable fleet -> no further write is issued -> nothing ever
+             *   clears the fault.
+             *
+             * Found on the plant, not reasoned about. The Huawei reported
+             * command_tested 0, last_write_ok 0 and commandable_rated_kw 0 with
+             * a 120 kW machine enabled and 100 kW of load on the grid, while a
+             * direct read-only probe of 40125 showed the controller's own safe
+             * zero sitting in the register: the write had reached the inverter
+             * and the controller could not see it.
+             *
+             * write_issued is set on every write attempt, so a setpoint is now
+             * verified from the first one. It costs one extra transaction only
+             * while a write is outstanding.
+             */
+            if (runtime->profile->has_power_limit_readback &&
+                (runtime->data.has_command || runtime->data.write_issued)) {
                 (void)poll_readback(runtime, timestamp);
             }
 
