@@ -331,6 +331,25 @@ static bool read_limit(cJSON *object, const char *key, float maximum,
 
 static bool parse_signal(cJSON *object, solar_grid_signal_config_t *signal)
 {
+    /*
+     * ABSENT MEANS UNCHANGED, like every other key this handler reads.
+     *
+     * It did not. A missing object was rejected, and the generator-policy form
+     * posts only {load_sharing_mode, engines} -- it has no evidence fields to
+     * send and never did. So every attempt to change a generator rating,
+     * minimum loading, reserve or margin came back "Solar-Grid configuration
+     * validation failed", with no field named, and the fleet editor could not
+     * save at all.
+     *
+     * The handler's own comment states the contract: "Every key here is
+     * optional and absent means unchanged". This is the one reader that broke
+     * it.
+     *
+     * A key that is PRESENT but not an object is still refused: that is a
+     * malformed request rather than an omission, and silently ignoring it would
+     * discard grid evidence somebody meant to write.
+     */
+    if (!object) return true;
     if (!cJSON_IsObject(object)) return false;
     uint32_t value = 0U;
     if (!read_bool(object, "enabled", &signal->enabled)) return false;

@@ -104,6 +104,10 @@ typedef struct {
     bool initialization_failed;
     bool has_command;
     bool last_write_ok;
+    /* Whether this inverter is answering. The row states it through `state`;
+     * the fleet summary needs it as a boolean to count, and counting it from
+     * the same verdict is what stops the headline and the row disagreeing. */
+    bool online;
     const char *state;
 } inverter_health_t;
 
@@ -117,6 +121,7 @@ static inverter_health_t inverter_health(const inverter_config_t *inverter,
     health.initialization_failed = inverter->enabled && !health.connection_initialized;
     health.has_command = runtime_available && data->has_command;
     health.last_write_ok = health.has_command && data->online;
+    health.online = runtime_available && inverter->enabled && data->online;
     health.state = !inverter->enabled ? "disabled" :
                    health.initialization_failed ? "initialization_failed" :
                    !health.has_command ? "not_tested" :
@@ -256,6 +261,7 @@ static esp_err_t inverters_get(httpd_req_t *request)
     }
 
     uint32_t current_ms = now_ms();
+    uint8_t online_count = 0;
     uint8_t enabled_count = 0;
     uint8_t command_tested_count = 0;
     uint8_t last_write_ok_count = 0;
@@ -291,6 +297,20 @@ static esp_err_t inverters_get(httpd_req_t *request)
             enabled_count++;
             enabled_rated_kw += inverter->rated_power_kw;
         }
+        /*
+         * HOW MANY ARE ANSWERING.
+         *
+         * The operator response has always published this; the engineering one
+         * never did. So signing in made the fleet card read summary.online as
+         * undefined -- zero -- and report "0 of 1 answering, Offline" beside a
+         * table on the same screen listing that inverter as Online and
+         * producing 81 kW. Two answers to one question, and the wrong one was
+         * in the headline.
+         *
+         * Counted from the same health verdict the per-inverter row below uses,
+         * so the two cannot drift apart again.
+         */
+        if (health.online) online_count++;
         if (health.has_command) command_tested_count++;
         if (health.last_write_ok) last_write_ok_count++;
         if (health.initialization_failed) initialization_failed_count++;
@@ -391,6 +411,7 @@ static esp_err_t inverters_get(httpd_req_t *request)
 
     cJSON *summary = cJSON_AddObjectToObject(root, "summary");
     cJSON_AddNumberToObject(summary, "enabled", enabled_count);
+    cJSON_AddNumberToObject(summary, "online", online_count);
     cJSON_AddNumberToObject(summary, "measured_power_supported", measured_supported_count);
     cJSON_AddNumberToObject(summary, "configured_rated_kw", configured_rated_kw);
     cJSON_AddNumberToObject(summary, "enabled_rated_kw", enabled_rated_kw);
