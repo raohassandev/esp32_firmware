@@ -2,7 +2,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 API = (ROOT / "components/web_server/device_api.c").read_text(encoding="utf-8")
-UI = (ROOT / "web/devices.js").read_text(encoding="utf-8")
+# The inverter card moved. The Solar inverters page is one page at every access
+# level now, drawn by web/operator-view.js with web/inverter-detail.js for the
+# per-machine detail, so that is where the wording this contract protects lives.
+# devices.js still draws the meter card and is still read for the meter half.
+UI = ((ROOT / "web/operator-view.js").read_text(encoding="utf-8")
+      + (ROOT / "web/inverter-detail.js").read_text(encoding="utf-8")
+      + (ROOT / "web/devices.js").read_text(encoding="utf-8"))
 INVERTER_MANAGER = (ROOT / "components/inverter_manager/inverter_manager.c").read_text(encoding="utf-8")
 METER_MANAGER = (ROOT / "components/meter_manager/meter_manager.c").read_text(encoding="utf-8")
 
@@ -66,7 +72,8 @@ required_ui_fragments = [
     "Measured production",
     # Said in words, so a reader cannot mistake an instruction for evidence.
     "an instruction this controller sent, not a reading",
-    "is an instruction, not a reading",
+    # The per-machine detail says it too, on the commanded counter itself.
+    "an instruction, not a reading",
     # The measured value comes from the measurement, never from the command.
     "inverter.measured_power_kw",
 ]
@@ -80,10 +87,9 @@ for fragment in required_ui_fragments:
 # the file -- that one belongs to the METER card, so a window anchored on it
 # examined the wrong function and let the substitution through. The failure this
 # guards against is precisely a two-line edit inside inverterCard.
-_inverter_card = UI[UI.index("function inverterCard("):]
-_inverter_card = _inverter_card[:_inverter_card.index("\n    function ")]
-_reading_slot = _inverter_card[
-    _inverter_card.index("device-reading-value"):_inverter_card.index("device-meta-grid")]
+# The reading slot is now the measured-output counter in inverter-detail.js.
+_detail = (ROOT / "web/inverter-detail.js").read_text(encoding="utf-8")
+_reading_slot = _detail[_detail.index("'Measured output'"):_detail.index("'Limit we sent'")]
 # On the FIELD NAMES, not on the word "commanded" -- the note in this very slot
 # says "the commanded setpoint below is an instruction", which is the sentence
 # that makes the page honest. Banning the word would forbid the fix.
@@ -97,7 +103,11 @@ for _field in ("commanded_power_kw", "commanded_percent"):
 # the API reports otherwise. A flat claim there contradicted the inverter page.
 assert "measured_power_supported" in UI,     "the readiness note must derive the production claim from the API, not restate it"
 
-assert "method: 'POST'" not in UI and 'method: "POST"' not in UI, \
-    "device diagnostics UI must not issue POST requests"
+# Scoped to devices.js, which is the read-only diagnostics module. The product
+# view legitimately POSTs -- it carries the automatic-control switch -- and
+# widening this file's UI to include it must not be read as permission for the
+# diagnostics module to start writing.
+_DIAGNOSTICS = (ROOT / "web/devices.js").read_text(encoding="utf-8")
+assert "method: 'POST'" not in _DIAGNOSTICS and 'method: "POST"' not in _DIAGNOSTICS,     "device diagnostics UI must not issue POST requests"
 
 print("truthful meter telemetry and confirmed inverter-command telemetry contract passed")

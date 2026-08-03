@@ -222,9 +222,16 @@ require("Solar production trend" not in OPERATIONS,
 require("PvdgChart" in OPERATIONS and "create" in CHART,
         "the operator screens must mount the shared chart component")
 
-for forbidden in ["PDU", "function code", "raw words", "meterScale", "meterAddress", "limit register"]:
+# Engineering data may now be BUILT by the product view, because the pages are
+# one page at every access level. What must not happen is an operator seeing it,
+# and a collapsed drawer is not a gate -- a folded thing invites the click.
+require('html[data-access="operator"] details.op-more.level-engineering' in CSS,
+        "engineering drawers are not hidden from an operator. They carry "
+        "endpoints, PDU addresses and register maps, and being folded away is "
+        "not the same as being withheld")
+for forbidden in ["meterScale", "meterAddress"]:
     require(forbidden.lower() not in OPERATOR.lower(),
-            f"operator product view exposes Engineering data or controls: {forbidden}")
+            f"operator product view reaches for Engineering internals: {forbidden}")
 
 for token in [
     'html[data-access="operator"] #em500Workspace',

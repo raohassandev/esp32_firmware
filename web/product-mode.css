@@ -52,10 +52,22 @@ html[data-access="engineering"] #engineeringLoginPanel { display: none !importan
  * loses to it, and the page then had the legacy content hidden and nothing to
  * replace it. Checked on the board, not reasoned about.
  */
-html[data-access="engineering"] [data-page="dashboard"] .operator-product-view {
+/*
+ * AN ENGINEERING DRAWER IS ENGINEERING-GATED, NOT MERELY COLLAPSED.
+ *
+ * These drawers carry endpoints, PDU addresses and register maps. They were
+ * only folded away, so an operator was one click from them -- and a folded
+ * thing invites the click. Access decides, not the fold.
+ */
+html[data-access="operator"] details.op-more.level-engineering,
+html[data-access="pending"] details.op-more.level-engineering { display: none !important; }
+
+html[data-access="engineering"] [data-page="dashboard"] .operator-product-view,
+html[data-access="engineering"] [data-page="inverters"] .operator-product-view {
     display: grid !important;
 }
-[data-page="dashboard"] .operator-legacy-hidden { display: none !important; }
+[data-page="dashboard"] .operator-legacy-hidden,
+[data-page="inverters"] .operator-legacy-hidden { display: none !important; }
 html[data-access="operator"] #engineeringLoginPanel { display: grid; }
 html[data-access="engineering"] #engineeringConsole { display: grid; }
 

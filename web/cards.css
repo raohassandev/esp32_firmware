@@ -243,3 +243,12 @@
 .op-card-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; margin-top: var(--space-3); }
 .op-card-actions .action-message { color: var(--muted); }
 .op-card-actions .action-message.bad { color: var(--red); }
+
+/* A machine's name inside the folded engineering block, so several inverters
+ * do not run together into one list of unattributed addresses. */
+.op-more-heading { margin-top: var(--space-3); font-weight: 700; }
+.op-more-heading:first-child { margin-top: 0; }
+
+/* Under the inverter table: which column is a reading and which is an
+ * instruction. They sit one apart and look alike, and only one is evidence. */
+.op-table-note { margin: var(--space-2) 0 0; color: var(--muted); }

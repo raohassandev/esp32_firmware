@@ -49,7 +49,8 @@ else:
     # keeps the second page. Locating it by the guard rather than by a comment:
     # a comment can say the right thing while the code does the opposite.
     guard = body.find('if (!isOperator()) return;')
-    dashboard = body.find("[data-page=\"dashboard\"]")
+    # The sweep now names several pages in one list rather than one by hand.
+    dashboard = body.find("'dashboard'")
     if dashboard < 0:
         failures.append('the plant overview is no longer hidden by name; if it '
                         'is back in the scope-gated list, engineering sees two '
@@ -58,7 +59,8 @@ else:
         failures.append('the plant overview is hidden only after the operator '
                         'guard, so unlocking Engineering reveals the old '
                         'dashboard underneath the product view again')
-    if re.search(r"\[\s*'dashboard'", body):
+    # It must not appear in the SECOND list, the one behind the operator guard.
+    if guard >= 0 and "'dashboard'" in body[guard:]:
         failures.append("'dashboard' is back in the scope-gated page list")
 
 # ------------------------------------------------- 2. the detail is not lost
@@ -125,15 +127,15 @@ else:
 CSS = ROOT / 'web' / 'product-mode.css'
 css = read(CSS)
 
-if not re.search(r'\[data-page="dashboard"\]\s+\.operator-legacy-hidden\s*\{[^}]*display:\s*none',
-                 css):
+_hide = re.search(r'\[data-page="dashboard"\][^{}]*\.operator-legacy-hidden[^{}]*\{[^{}]*display:\s*none', css)
+if not _hide:
     failures.append('nothing hides .operator-legacy-hidden on the plant '
                     'overview at every access level; if the only rule is the '
                     'operator-scoped one, an engineer sees the old dashboard '
                     'occupying the page again')
 
-if not re.search(r'html\[data-access="engineering"\]\s+\[data-page="dashboard"\]\s+'
-                 r'\.operator-product-view\s*\{[^}]*display:\s*grid\s*!important', css):
+_show = re.search(r'html\[data-access="engineering"\][^{}]*\[data-page="dashboard"\][^{}]*\.operator-product-view[^{}]*\{[^{}]*display:\s*grid\s*!important', css)
+if not _show:
     failures.append('the product view is not restored on the plant overview '
                     'under engineering, so signing in leaves the page with the '
                     'legacy content hidden and nothing to replace it')

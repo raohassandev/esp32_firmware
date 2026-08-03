@@ -1399,7 +1399,62 @@
         top.append(productionCard, fleetCard(summary, inverters));
         /* Same ordering as Grid power, for the same reason: "is anything down"
          * is answered by the table, and it was below a 500px chart. */
-        view.append(armCard(payload), top, inverterTable(inverters, telemetryMap));
+        const table = inverterTable(inverters, telemetryMap);
+        /* Said in words under the table, every time a commanded figure is on it.
+         * "Now" and "Commanded" are one column apart and look alike, and only
+         * one of them is evidence about the machine. */
+        table.append(node('p', 'op-table-note',
+            'Commanded is an instruction this controller sent, not a reading. '
+            + 'Now is what the machine reported.'));
+        view.append(armCard(payload), top, table,
+                    inverterEngineeringDetail(inverters));
+    }
+
+    /*
+     * WHAT THE OLD ENGINEERING PAGE SHOWED, FOLDED INTO THIS ONE.
+     *
+     * Unlocking Engineering used to replace this page with an older one. It is
+     * one page now, as the plant overview already was, and these are the facts
+     * that lived only on the old one: how the controller reaches each machine,
+     * which register it would write, and what the last reads did. An engineer
+     * needs MORE detail than an operator, not a different page.
+     *
+     * Folded away, because an operator is not made to read a PDU address to
+     * find out whether the plant is producing.
+     */
+    function inverterEngineeringDetail(inverters) {
+        if (!Array.isArray(inverters) || !inverters.length) return null;
+        const body = node('div', 'op-more-body');
+        inverters.forEach((inverter, index) => {
+            const live = (window.AutomatrixInverterTelemetryCache || {})[Number(inverter.index ?? index)] || null;
+            const command = inverter.command || {};
+            const endpoint = inverter.endpoint || {};
+            body.append(node('div', 'op-more-heading',
+                inverter.name || `Inverter ${index + 1}`));
+            [['Endpoint', endpoint.host
+                ? `${endpoint.host}:${endpoint.port ?? '--'} · unit ${endpoint.unit_id ?? '--'}`
+                : 'Not available'],
+             ['Limit register', command.limit_pdu_address != null
+                ? `FC${command.function ?? '--'} · PDU ${command.limit_pdu_address}`
+                : 'Not available'],
+             ['Allowed range', command.minimum_percent != null
+                ? `${command.minimum_percent}–${command.maximum_percent}%` : 'Not available'],
+             /* From the telemetry read, which is the only place these exist. */
+             ['Identity', !live ? 'Not read yet'
+                : live.identity_supported === true
+                    ? (live.identity_verified === true ? 'Verified' : 'Mismatch / unavailable')
+                    : 'Not supported'],
+             ['Readback', !live ? 'Not read yet'
+                : live.has_readback === true
+                    ? `${formatPercent(live.readback_percent)} · ${formatAge(live.readback_age_ms)}`
+                    : 'Unavailable'],
+             ['Reads', !live ? 'Not read yet'
+                : `${live.read_successes ?? 0} ok · ${live.read_errors ?? 0} err`
+                  + ` · ${live.consecutive_read_failures ?? 0} consec`],
+             ['Last error', live?.last_error_name || live?.last_error || 'None']
+            ].forEach(([label, value]) => body.append(detailLine(label, value)));
+        });
+        return details('engineering', 'How the controller reaches these machines', body);
     }
 
     /*
@@ -1791,17 +1846,18 @@
          * been given an engineering block to move their detail into, and hiding
          * them first would delete it.
          */
-        const dashboard = document.querySelector('[data-page="dashboard"]');
-        if (dashboard) {
-            Array.from(dashboard.children).forEach((child) => {
+        ['dashboard', 'inverters'].forEach((name) => {
+            const page = document.querySelector(`[data-page="${name}"]`);
+            if (!page) return;
+            Array.from(page.children).forEach((child) => {
                 if (!child.classList.contains('operator-product-view')
                     && !child.classList.contains('page-intro')) {
                     child.classList.add('operator-legacy-hidden');
                 }
             });
-        }
+        });
         if (!isOperator()) return;
-        ['meters', 'inverters', 'control', 'system'].forEach((name) => {
+        ['meters', 'control', 'system'].forEach((name) => {
             const page = document.querySelector(`[data-page="${name}"]`);
             if (!page) return;
             Array.from(page.children).forEach((child) => {

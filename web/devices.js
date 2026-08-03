@@ -26,10 +26,6 @@
         if (node) node.textContent = value == null || value === '' ? '--' : String(value);
     }
 
-    function setBadge(node, label, tone) {
-        node.textContent = label;
-        node.className = `subtle-badge${tone ? ` ${tone}` : ''}`;
-    }
 
     function summaryCard(id, label, detailId = '') {
         const card = element('div', 'device-summary-card');
@@ -106,43 +102,103 @@
         intro.after(bar, summary, list);
     }
 
-    function ensureInverterScaffold() {
-        const page = document.querySelector('[data-page="inverters"]');
-        if (!page || byId('inverterTelemetrySummary')) return;
-        const notice = page.querySelector('.notice');
-        const intro = page.querySelector('.page-intro');
-        const anchor = notice || intro;
-        if (!anchor) return;
-
-        const bar = toolbar('inverterTelemetryMessage', 'inverterTelemetryRefresh');
-        const summary = element('div', 'device-summary');
-        summary.id = 'inverterTelemetrySummary';
-        /* THE ONE FLEET ROLL-UP ON THIS PAGE.
-         *
-         * The live telemetry panel below used to carry a second one, and two of
-         * its cards -- how many are answering, and how much capacity is
-         * commandable -- were the same facts drawn from a different poll. Two
-         * numbers for one fact is worse than one, because they are read at
-         * different instants and nothing on the screen says which to believe.
-         * Both now come from /api/inverters, which is the endpoint that carries
-         * the configured side as well. */
-        summary.append(
-            summaryCard('inverterConfiguredCount', 'Configured'),
-            summaryCard('inverterEnabledCount', 'Enabled'),
-            summaryCard('inverterOnlineCount', 'Answering'),
-            summaryCard('inverterRatedTotal', 'Enabled rating'),
-            summaryCard('inverterCommandable', 'Commandable'),
-            summaryCard('inverterCommandTested', 'Command-tested')
-        );
-        const runtimeList = element('div', 'device-list');
-        runtimeList.id = 'inverterRuntimeList';
-        anchor.after(bar, summary, runtimeList);
-    }
-
+    /*
+     * THE OLD INVERTER BLOCKS ARE GONE.
+     *
+     * The Solar inverters page is one page at every access level now, drawn by
+     * web/operator-view.js, and everything these built -- the toolbar, the fleet
+     * roll-up and the per-inverter runtime cards -- is on it: the fleet card,
+     * the table with its Commanded column, and a folded engineering drawer
+     * carrying the endpoint, the limit register and the last reads.
+     *
+     * Recorded as a note rather than left as code rendering into a page nobody
+     * can see, which is what it had become.
+     */
     function ensureScaffold() {
         ensureDashboardScaffold();
         ensureMeterScaffold();
-        ensureInverterScaffold();
+    }
+
+
+
+    function modeLabel(mode) {
+        const labels = ['Disabled', 'Grid', 'Generator', 'Manual', 'Failsafe', 'Emergency'];
+        const index = Number(mode);
+        return Number.isInteger(index) && labels[index] ? labels[index] : 'Unavailable';
+    }
+
+    function renderDashboard() {
+        const data = state.telemetry;
+        if (!byId('operationalTelemetrySummary')) return;
+        if (!data || !data.network || !data.grid_meter || !data.inverters || !data.control) {
+            setText('operationalNetwork', 'Unavailable');
+            setText('operationalGrid', 'Unavailable');
+            setText('operationalCapacity', 'Unavailable');
+            setText('operationalControl', 'Unavailable');
+            setText('operationalReadinessNote', 'Operational telemetry is unavailable. Existing dashboard values remain authoritative only where they have valid source data.');
+            ['operationalNetwork', 'operationalGrid', 'operationalCapacity', 'operationalControl']
+                .forEach((id) => setSummaryTone(id, 'bad'));
+            return;
+        }
+
+        const networkOnline = data.network.online === true;
+        setText('operationalNetwork', networkOnline ? 'Online' : 'Offline');
+        setText('operationalNetworkDetail', networkOnline
+            ? `${data.network.ssid || '--'} · ${data.network.ip || '--'}`
+            : data.network.recovery_ap_active ? 'Recovery AP active' : 'Station unavailable');
+        setSummaryTone('operationalNetwork', networkOnline ? 'good' : 'bad');
+
+        const gridFresh = data.grid_meter.fresh === true;
+        /* Named by the controller: on a tariff plant this meter measures the
+         * generator whenever the generator carries the site. */
+        const supply = window.AutomatrixSource?.attribution(state.telemetry?.status || {})
+            || { node: 'grid', label: 'Grid', known: true };
+        const card = document.getElementById('operationalGrid')?.closest('.device-summary-card');
+        const title = card?.querySelector('span');
+        if (title) {
+            title.textContent = supply.node === 'generator' ? 'Fresh generator power'
+                : supply.known ? 'Fresh grid power' : 'Fresh source power';
+        }
+        setText('operationalGrid', utils.formatPower(data.grid_meter.active_power_kw));
+        let gridDetail = data.grid_meter.state || 'unavailable';
+        if (!gridFresh && data.grid_meter.retained_active_power_kw != null) {
+            gridDetail = `Retained ${utils.formatPower(data.grid_meter.retained_active_power_kw)} · ${utils.formatAge(data.grid_meter.data_age_ms)}`;
+        } else if (gridFresh) {
+            gridDetail = `Fresh · ${utils.formatAge(data.grid_meter.data_age_ms)}`;
+        }
+        setText('operationalGridDetail', gridDetail);
+        setSummaryTone('operationalGrid', gridFresh ? 'good' : data.grid_meter.retained_active_power_kw != null ? 'warning' : 'bad');
+
+        const commandable = utils.finite(data.inverters.commandable_rated_kw);
+        setText('operationalCapacity', utils.formatPower(commandable));
+        setText('operationalCapacityDetail', `${data.inverters.enabled ?? 0} enabled · ${data.inverters.initialization_failed ?? 0} init failed`);
+        setSummaryTone('operationalCapacity', commandable != null && commandable > 0 ? 'good' : 'warning');
+
+        const controlActive = data.control.enabled === true;
+        setText('operationalControl', controlActive ? 'Active' : 'Disabled');
+        setText('operationalControlDetail', `${modeLabel(data.control.mode)} · cycle ${utils.formatAge(data.control.last_cycle_age_ms)}`);
+        setSummaryTone('operationalControl', controlActive ? 'good' : 'neutral');
+
+        const availability = data.availability || {};
+        const monitoring = availability.monitoring_ready ? 'Monitoring path ready' : 'Monitoring path not ready';
+        const commandPath = availability.command_path_ready ? 'command path initialized' : 'command path unavailable';
+        const auto = availability.automatic_control_active ? 'automatic control active' : 'automatic control disabled';
+        /* This asserted flatly that measured inverter production is not
+         * configured, which stopped being true when the telemetry block
+         * landed -- so the dashboard told an operator no such reading existed
+         * while the inverter page was showing it. The claim is now derived
+         * from what the API actually reports rather than restated. */
+        const measuredInverters = Number(state.inverters?.summary?.measured_power_supported ?? 0);
+        const productionNote = measuredInverters > 0
+            ? `${measuredInverters} inverter${measuredInverters === 1 ? '' : 's'} report measured production`
+            : 'Measured inverter production is not configured';
+        setText('operationalReadinessNote', `${monitoring}; ${commandPath}; ${auto}. ${productionNote}. Generator power and facility-load telemetry remain unavailable.`);
+    }
+
+
+    function setBadge(node, label, tone) {
+        node.textContent = label;
+        node.className = `subtle-badge${tone ? ` ${tone}` : ''}`;
     }
 
     function metaItem(label, value) {
@@ -314,117 +370,6 @@
         return card;
     }
 
-    function inverterCard(inverter) {
-        const runtime = inverter.runtime || {};
-        const command = inverter.command || {};
-        const status = utils.inverterState(inverter);
-        const card = element('article', 'device-runtime-card');
-        const top = element('div', 'device-card-top');
-        const heading = element('div');
-        heading.append(
-            element('div', 'device-card-index', `Inverter ${Number(inverter.index) + 1}`),
-            element('h3', '', inverter.name || `Inverter ${Number(inverter.index) + 1}`),
-            element('p', 'device-state-detail', status.detail)
-        );
-        const badge = element('span');
-        setBadge(badge, status.label, status.tone);
-        top.append(heading, badge);
-
-        const reading = element('div', 'device-reading');
-        const valueBlock = element('div');
-        valueBlock.append(
-            element('div', 'device-reading-label', 'Measured production'),
-            element('strong', 'device-reading-value', 'Unavailable')
-        );
-        /* This said "the current firmware has no inverter telemetry register
-         * mapping" long after the mapping existed, so a machine reporting its
-         * own output was shown as Unavailable and the page insisted no such
-         * reading was possible. The note now describes what is actually there. */
-        const measuredKw = inverter.measured_power_kw;
-        const hasMeasured = typeof measuredKw === 'number' && Number.isFinite(measuredKw);
-        valueBlock.querySelector('.device-reading-value').textContent =
-            hasMeasured ? utils.formatPower(measuredKw) : 'Unavailable';
-        reading.append(
-            valueBlock,
-            element('div', 'device-reading-note', hasMeasured
-                ? `Reported by the inverter · ${utils.formatAge(inverter.measured_age_ms)}. The commanded setpoint below is an instruction this controller sent, not a reading.`
-                : inverter.telemetry_supported
-                    ? 'This inverter has not reported a measurement. The commanded setpoint below is an instruction this controller sent, and is not evidence that it was applied.'
-                    : 'This profile does not describe a measurement register, so the machine is never asked. The commanded setpoint below is an instruction, not a reading.')
-        );
-
-        const meta = element('div', 'device-meta-grid');
-        const errorLabel = !runtime.has_command || Number(runtime.last_error) === 0
-            ? 'None'
-            : runtime.last_error_name || `Error ${runtime.last_error}`;
-        /*
-         * THE SETUP, which is true whether or not anything was ever commanded.
-         */
-        meta.append(
-            metaItem('Endpoint', `${utils.endpointLabel(inverter.endpoint)} · Unit ${inverter.endpoint?.unit_id ?? '--'}`),
-            metaItem('Rated power', utils.formatPower(inverter.rated_kw)),
-            metaItem('Limit register', `FC${command.function ?? '--'} · PDU ${command.limit_pdu_address ?? '--'}`),
-            metaItem('Allowed range', `${command.minimum_percent ?? '--'}–${command.maximum_percent ?? '--'}%`)
-        );
-        /*
-         * THE COMMAND HISTORY, and only when there is one.
-         *
-         * This card used to say that nothing had ever been commanded FIVE
-         * times: in the state line, in "Last command", twice inside "Commanded
-         * setpoint" (once for the power and once for the percent), and again in
-         * the output section below. A fact stated five times is not emphasis; it
-         * fills the card so that the one line carrying a real finding has to
-         * compete with four restatements of nothing.
-         */
-        if (runtime.has_command) {
-            meta.append(
-                metaItem('Last command', utils.formatAge(runtime.last_command_age_ms)),
-                metaItem('Commanded setpoint',
-                    `${utils.formatPower(runtime.commanded_power_kw)} · ${utils.formatPercent(runtime.commanded_percent)}`),
-                metaItem('Write results', `${runtime.write_successes ?? 0} OK · ${runtime.write_errors ?? 0} failed`),
-                metaItem('Last write error', errorLabel));
-        }
-
-        /*
-         * WHAT ONLY THE TELEMETRY READ KNOWS.
-         *
-         * These four were the entire justification for a second per-inverter
-         * table further down the page; everything else in that table -- state,
-         * measured power, last error -- this card already carried. They are here
-         * now and the table is gone.
-         */
-        /* Read from the telemetry module's published cache, not fetched again.
-         * These four live only on /api/inverter-telemetry, which that module
-         * already polls; a second request for data on the wire is the load that
-         * once made the operator dashboard unreachable. Absent cache means the
-         * read has not landed yet, which is not the same as a machine that
-         * answered with nothing -- so the fields say so. */
-        const live = (window.AutomatrixInverterTelemetryCache || {})[Number(inverter.index)] || null;
-        meta.append(
-            metaItem('Sample age', !live ? 'Not read yet'
-                : live.telemetry_valid === true ? utils.formatAge(live.telemetry_age_ms)
-                : 'No valid sample'),
-            metaItem('Identity', !live ? 'Not read yet'
-                : live.identity_supported === true
-                    ? (live.identity_verified === true ? 'Verified' : 'Mismatch / unavailable')
-                    : 'Not supported'),
-            metaItem('Readback', !live ? 'Not read yet'
-                : live.has_readback === true
-                    ? `${utils.formatPercent(live.readback_percent)} · ${utils.formatAge(live.readback_age_ms)}`
-                    : 'Unavailable'),
-            metaItem('Reads', !live ? 'Not read yet'
-                : `${live.read_successes ?? 0} ok · ${live.read_errors ?? 0} err`
-                  + ` · ${live.consecutive_read_failures ?? 0} consec`));
-        card.append(top, reading, meta);
-
-        /* And everything the machine measures, when the profile describes it.
-         * Null means this family was never asked, not that it answered with
-         * nothing. */
-        const detail = window.AutomatrixInverterDetail?.render(inverter);
-        if (detail) card.append(detail);
-        return card;
-    }
-
     function renderMeters() {
         const data = state.meters;
         const list = byId('meterRuntimeList');
@@ -442,41 +387,8 @@
         else data.meters.forEach((meter) => list.append(meterCard(meter)));
     }
 
-    function renderInverters() {
-        const data = state.inverters;
-        const list = byId('inverterRuntimeList');
-        if (!list) return;
-        list.replaceChildren();
-        if (!data || !Array.isArray(data.inverters)) {
-            list.append(emptyState('Inverter runtime diagnostics are unavailable.', true));
-            return;
-        }
-        /*
-         * A ROLL-UP OF ONE IS THE ROW BELOW IT.
-         *
-         * "Configured 1 · Enabled 1 · Answering 0" above a single card that says
-         * the same thing is not a summary; it is the card again in smaller type.
-         * The roll-up earns its place when there are several machines and the
-         * question becomes "how many", which cannot be answered by reading down
-         * a list.
-         */
-        const summaryBar = byId('inverterTelemetrySummary');
-        if (summaryBar) summaryBar.hidden = data.inverters.length < 2;
-        setText('inverterConfiguredCount', data.configured_count ?? data.inverters.length);
-        setText('inverterEnabledCount', data.summary?.enabled ?? 0);
-        setText('inverterOnlineCount', data.summary?.online ?? 0);
-        setText('inverterRatedTotal', utils.formatPower(data.summary?.enabled_rated_kw));
-        /* Zero commandable capacity is almost always an unmet condition rather
-         * than a fleet at rest, so it is never left as a bare number to be read
-         * as "the plant can move nothing because it is idle". */
-        setText('inverterCommandable', utils.formatPower(data.summary?.commandable_rated_kw));
-        setText('inverterCommandTested', data.summary?.command_tested ?? 0);
-        if (!data.inverters.length) list.append(emptyState('No inverter profiles are configured.'));
-        else data.inverters.forEach((inverter) => list.append(inverterCard(inverter)));
-    }
-
     function setLoading(loading) {
-        ['meterTelemetryRefresh', 'inverterTelemetryRefresh'].forEach((id) => {
+        ['meterTelemetryRefresh'].forEach((id) => {
             const button = byId(id);
             if (button) {
                 button.disabled = loading;
@@ -513,7 +425,7 @@
 
     async function refresh(force = false) {
         const route = currentRoute();
-        if (state.loading || (!force && !['dashboard', 'meters', 'inverters'].includes(route))) return;
+        if (state.loading || (!force && !['dashboard', 'meters'].includes(route))) return;
         state.loading = true;
         setLoading(true);
 
@@ -529,12 +441,6 @@
                 state.lastUpdated = new Date();
                 renderMeters();
                 setText('meterTelemetryMessage', `Runtime diagnostics updated ${state.lastUpdated.toLocaleTimeString()}`);
-            } else if (route === 'inverters') {
-                setText('inverterTelemetryMessage', 'Refreshing inverter diagnostics…');
-                state.inverters = await api('/api/inverters');
-                state.lastUpdated = new Date();
-                renderInverters();
-                setText('inverterTelemetryMessage', `Runtime diagnostics updated ${state.lastUpdated.toLocaleTimeString()}`);
             }
         } catch (error) {
             if (route === 'dashboard') {
@@ -545,10 +451,6 @@
                 state.meters = null;
                 renderMeters();
                 setText('meterTelemetryMessage', `Meter diagnostics failed: ${errorMessage(error)}`);
-            } else if (route === 'inverters') {
-                state.inverters = null;
-                renderInverters();
-                setText('inverterTelemetryMessage', `Inverter diagnostics failed: ${errorMessage(error)}`);
             }
         } finally {
             state.loading = false;
@@ -558,15 +460,7 @@
 
     function bind() {
         byId('meterTelemetryRefresh')?.addEventListener('click', () => refresh(true));
-        byId('inverterTelemetryRefresh')?.addEventListener('click', () => refresh(true));
         window.addEventListener('hashchange', () => refresh(false));
-        /* The telemetry read lands on its own schedule and carries four fields
-         * the cards show. Redrawing when it arrives is what stops those fields
-         * appearing a poll late; without it the card would show "Not read yet"
-         * for up to a full cycle after the data was already in the browser. */
-        window.addEventListener('amx-inverter-telemetry', () => {
-            if (currentRoute() === 'inverters') renderInverters();
-        });
         window.setInterval(() => refresh(false), 5000);
     }
 
