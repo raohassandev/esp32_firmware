@@ -1907,11 +1907,17 @@
          * engineering block above, which is where the rest of the engineering
          * detail already was.
          *
-         * The other four pages keep the old behaviour for now; they have not
-         * been given an engineering block to move their detail into, and hiding
-         * them first would delete it.
+         * The generator page joins them for a different reason: it has no legacy
+         * content at all, so the swap left an engineer with a title and an empty
+         * page while the overview beside it read GENERATOR 91.0 kW. Nothing here
+         * to hide -- it is listed so that anything added later is hidden too,
+         * rather than appearing beside the product view as a second opinion.
+         *
+         * The remaining pages keep the old behaviour; they have not been given
+         * an engineering block to move their detail into, and hiding them first
+         * would delete it.
          */
-        ['dashboard', 'inverters'].forEach((name) => {
+        ['dashboard', 'inverters', 'generator'].forEach((name) => {
             const page = document.querySelector(`[data-page="${name}"]`);
             if (!page) return;
             Array.from(page.children).forEach((child) => {
@@ -1922,7 +1928,9 @@
             });
         });
         if (!isOperator()) return;
-        ['meters', 'control', 'system'].forEach((name) => {
+        /* 'control' is gone with its page; naming a page that no longer exists
+         * reads as coverage this function does not have. */
+        ['meters', 'system'].forEach((name) => {
             const page = document.querySelector(`[data-page="${name}"]`);
             if (!page) return;
             Array.from(page.children).forEach((child) => {

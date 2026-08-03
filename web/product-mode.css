@@ -62,12 +62,29 @@ html[data-access="engineering"] #engineeringLoginPanel { display: none !importan
 html[data-access="operator"] details.op-more.level-engineering,
 html[data-access="pending"] details.op-more.level-engineering { display: none !important; }
 
+/*
+ * THE GENERATOR PAGE HAS NOTHING ELSE TO SHOW.
+ *
+ * The swap above hides the product view at engineering level and lets each
+ * page's older detailed content take its place. The generator page never had
+ * any: its section is a heading and the product view, nothing more. So signing
+ * in emptied it completely -- the plant overview read GENERATOR 91.0 kW while
+ * the generator page was blank below its own title. Observed on the board.
+ *
+ * There is no legacy content to duplicate here, so restoring the product view
+ * restores the whole page. Deliberately NOT extended to the grid page, which
+ * does have its own engineering content (the acquisition form and a live-status
+ * panel); showing both there would put grid power on the screen twice, which is
+ * what the owner asked to have removed.
+ */
 html[data-access="engineering"] [data-page="dashboard"] .operator-product-view,
-html[data-access="engineering"] [data-page="inverters"] .operator-product-view {
+html[data-access="engineering"] [data-page="inverters"] .operator-product-view,
+html[data-access="engineering"] [data-page="generator"] .operator-product-view {
     display: grid !important;
 }
 [data-page="dashboard"] .operator-legacy-hidden,
-[data-page="inverters"] .operator-legacy-hidden { display: none !important; }
+[data-page="inverters"] .operator-legacy-hidden,
+[data-page="generator"] .operator-legacy-hidden { display: none !important; }
 html[data-access="operator"] #engineeringLoginPanel { display: grid; }
 html[data-access="engineering"] #engineeringConsole { display: grid; }
 
