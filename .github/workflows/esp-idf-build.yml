@@ -344,12 +344,8 @@ jobs:
           /tmp/inverter_write_permission_test
       - name: Check complete operator product suite
         run: python3 tests/operator_product_suite_source_contract.py
-      - name: Check pre-lab readiness workspace
-        run: python3 tests/prelab_readiness_source_contract.py
       - name: Check resilient network commissioning
         run: python3 tests/network_commissioning_flow_source_contract.py
-      - name: Check mobile pre-lab layout
-        run: python3 tests/mobile_prelab_source_contract.py
       - name: Check product shell V2
         run: python3 tests/product_shell_v2_source_contract.py
       - name: Check unified product experience V2
@@ -368,8 +364,6 @@ jobs:
         run: python3 tests/release_access_policy_source_contract.py
       - name: Check operator endpoint scope and ramp commissioning UI
         run: python3 tests/operator_endpoint_scope_source_contract.py
-      - name: Check alarm management UI
-        run: python3 tests/alarm_ui_source_contract.py
       - name: Check site power-flow model
         run: python3 tests/power_flow_model_source_contract.py
       - name: Check information architecture, state taxonomy and trends

@@ -23,8 +23,6 @@ theme.css
 product-mode.css
 operator-operations.css
 operator-product-suite.css
-prelab-readiness.css
-mobile-prelab-fixes.css
 product-shell-v2.css
 product-experience-v2.css
 commissioning-wizard-v2.css
@@ -33,4 +31,3 @@ pvdg-chart.css
 cards.css
 energy-flow.css
 meter-detail.css
-alarm-journal.css

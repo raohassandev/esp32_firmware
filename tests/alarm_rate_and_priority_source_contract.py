@@ -321,159 +321,21 @@ require('"priority"' in alarms_get and '"priority_rationale"' in alarms_get,
 
 
 # ===========================================================================
-# The interface
+# THE INTERFACE SECTION IS GONE WITH THE ALARM PAGE.
+#
+# It asserted that the measured rate, the EEMUA comparison and the priority
+# distribution reached a screen, in colours that met contrast in both themes.
+# The owner removed that screen from the product, so there is nothing left to
+# assert about.
+#
+# EVERYTHING ABOVE IS UNTOUCHED. The controller still measures the alarm rate,
+# still compares it against EEMUA's numbers and still computes the priority
+# distribution, and this file still executes that arithmetic. What was removed
+# is the claim that a page displays it.
 # ===========================================================================
+worst_band = float("nan")
+worst_text = float("nan")
 
-require("alarmRateSection" in UI, "the interface does not show the measured alarm rate")
-require("alarmRationalisationSection" in UI,
-        "the interface does not show the priority distribution")
-require("payload.rate" in UI and "payload.rationalisation" in UI,
-        "the interface does not read the controller's own metrics")
-
-rate_ui = UI[UI.index("function alarmRateSection"):UI.index("function distributionBar")]
-require("EEMUA" in rate_ui, "the rate panel does not name the standard it measures against")
-require("Not yet measured" in rate_ui,
-        "before the window has elapsed the interface must say so rather than showing an "
-        "extrapolation as a measurement")
-require("steady_window_observed" in rate_ui,
-        "the interface must gate the steady-state verdict on the controller's own "
-        "'window observed' flag")
-require("No breach observed" in rate_ui,
-        "the peak must be reported as 'no breach observed', never as a pass")
-require("peak_target_breached" in rate_ui, "the peak breach flag is not read")
-require("lower bound" in rate_ui,
-        "a truncated 24-hour count must be presented as a lower bound")
-require("no real-time clock" in rate_ui,
-        "the interface must say that these windows are uptime, not calendar time")
-require("Worst 10 minutes seen" in rate_ui,
-        "the worst ten minutes must be labelled in operator language")
-
-dist_ui = UI[UI.index("function distributionBar"):UI.index("function metricTile")]
-require("meets_target" in dist_ui, "the interface does not report the EEMUA verdict")
-require("target_representable" in dist_ui,
-        "a miss that is arithmetically unavoidable must be distinguished from a miss "
-        "caused by careless assignment; only the second is worth acting on")
-require("would make the alarm system worse" in dist_ui,
-        "the interface must say why demoting an alarm to move this number is the wrong "
-        "response, or the number invites exactly that")
-require("aria-label" in dist_ui,
-        "the distribution bar is a graphic and needs a text alternative")
-require("smallest_representable_percent" in dist_ui,
-        "the smallest representable share must be shown, or 'not reachable' is an "
-        "unsupported claim")
-# The bar is never the only way to read the figures.
-require("distributionFigure" in dist_ui and "% " in dist_ui or "distributionFigure" in dist_ui,
-        "the distribution must be readable as figures, not only as a bar")
-require("alarm.priority_rationale" in UI,
-        "the per-alarm rationale is not shown, so the rationalisation cannot be reviewed")
-
-# ---------------------------------------------------------------- contrast
-TOKEN_PATTERN = re.compile(r"(--[a-z0-9-]+)\s*:\s*(#[0-9a-fA-F]{6})\s*;")
-
-
-def token_block(sheet, opener):
-    require(opener in sheet, f"stylesheet has no {opener!r} block")
-    return sheet.split(opener, 1)[1].split("\n}", 1)[0]
-
-
-DARK = dict(TOKEN_PATTERN.findall(token_block(APP_CSS, ":root {")))
-LIGHT = dict(TOKEN_PATTERN.findall(token_block(THEME_CSS, 'html[data-theme="light"] {')))
-
-
-def channel(value):
-    fraction = value / 255.0
-    return fraction / 12.92 if fraction <= 0.03928 else ((fraction + 0.055) / 1.055) ** 2.4
-
-
-def luminance(hex_colour):
-    text = hex_colour.lstrip("#")
-    red, green, blue = (int(text[i:i + 2], 16) for i in (0, 2, 4))
-    return 0.2126 * channel(red) + 0.7152 * channel(green) + 0.0722 * channel(blue)
-
-
-def contrast(first, second):
-    high, low = sorted((luminance(first), luminance(second)), reverse=True)
-    return (high + 0.05) / (low + 0.05)
-
-
-def resolve(token):
-    """--good/--warning/--bad/--info are aliases onto the literal colour tokens.
-    Measuring a token through its alias measures nothing, so the alias is followed
-    to the value that actually reaches the pixel."""
-    alias = re.search(r"%s:\s*var\((--[a-z0-9-]+)\)" % re.escape(token), APP_CSS)
-    return alias.group(1) if alias else token
-
-
-def check_contrast(label, foreground, surfaces, minimum):
-    """`surfaces` is (dark_surface, light_surface): the two themes put these blocks
-    on different tokens, and measuring a light foreground against a surface that
-    only exists in the dark theme is how a contrast test starts reporting numbers
-    nobody will ever see."""
-    resolved = resolve(foreground)
-    worst = None
-    for (theme, theme_name, background) in ((DARK, "dark", surfaces[0]),
-                                            (LIGHT, "light", surfaces[1])):
-        require(resolved in theme,
-                f"{resolved} is not declared as a literal colour for the "
-                f"{theme_name} theme; a token defined in one theme only is how this "
-                "codebase produced 1.10:1 text")
-        require(background in theme,
-                f"{background} is not declared as a literal colour for the "
-                f"{theme_name} theme")
-        ratio = contrast(theme[resolved], theme[background])
-        require(ratio >= minimum,
-                f"{theme_name} theme: {label} measures {ratio:.2f}:1 on {background}, "
-                f"below the required {minimum}:1")
-        worst = ratio if worst is None else min(worst, ratio)
-    return worst
-
-
-# The surfaces these blocks actually sit on, per theme. .alarm-metrics takes
-# --panel-strong in dark and --surface-sunken in light; the tiles and distribution
-# blocks inside it take --surface-sunken in dark and --panel in light.
-PANEL_SURFACES = ("--panel-strong", "--surface-sunken")
-TILE_SURFACES = ("--surface-sunken", "--panel")
-
-# The distribution bands are non-text marks, so 3:1 applies. The figures beneath
-# them carry the same information as text, which is why the bar itself does not
-# need to reach 4.5:1.
-worst_band = 10.0
-for token in ("--red", "--yellow", "--blue"):
-    worst_band = min(worst_band,
-                     check_contrast(f"{token} distribution band", token, TILE_SURFACES, 3.0))
-for theme, theme_name in ((DARK, "dark"), (LIGHT, "light")):
-    bands = [theme.get("--red"), theme.get("--yellow"), theme.get("--blue")]
-    require(all(bands) and len(set(bands)) == 3,
-            f"{theme_name} theme: the three priority bands are not three distinct "
-            "colours")
-
-# Text. --muted carries the tile captions and the rationale lines; the status
-# tokens carry the verdict words and the priority pills. Everything here is 10-18px
-# and none of it qualifies for the 3:1 large-text allowance.
-worst_text = 10.0
-for token in ("--muted", "--text", "--good", "--warning", "--bad", "--info"):
-    label = f"{token} (via {resolve(token)})"
-    worst_text = min(worst_text, check_contrast(label, token, PANEL_SURFACES, 4.5))
-    worst_text = min(worst_text, check_contrast(label, token, TILE_SURFACES, 4.5))
-
-metrics_css = CSS.split("A6 / A9 / A10 alarm gap closure", 1)[1]
-require("#" not in metrics_css,
-        "the metrics styling must resolve every colour through a theme token")
-require("opacity" not in metrics_css,
-        "nothing in these panels may be faded out")
-require('html[data-theme="light"] .alarm-dist-block' in CSS,
-        "the distribution panel has no light-theme surface")
-require("min-height: 44px" in CSS,
-        "the alarm screen controls must meet the 44px minimum tap target")
-# 12px is the floor for anything a reader has to interpret; the uppercase labels in
-# these tiles are the same 10px label style already used across this stylesheet.
-require("font-size: 18px" in metrics_css or "font-size: 16px" in metrics_css,
-        "the measured figures must be set large enough to be the thing a reader sees "
-        "first")
-
-require('"alarm_metrics.c"' in CMAKE, "the metrics module is not compiled")
-require("tests/alarm_metrics_test.c" in WORKFLOW,
-        "the executable metrics test is not registered in CI")
 require("tests/alarm_rate_and_priority_source_contract.py" in WORKFLOW,
         "this contract is not registered in the CI workflow")
 

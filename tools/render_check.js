@@ -406,22 +406,9 @@ check('an inverter with no block renders nothing', () => {
         null);
 });
 
-check('the journal starts collapsed and explains itself', () => {
-    const sandbox = makeSandbox();
-    const host = new Element('div');
-    sandbox.document.getElementById = (id) => (id === 'alarmJournal' ? host : null);
-    load(sandbox, 'alarm-journal.js');
-    sandbox.window.AutomatrixAlarmJournal.render();
+/* The alarm journal check went with the alarm page. The controller still keeps
+ * the journal in flash and still serves it; nothing renders it now. */
 
-    const text = host.textContent;
-    assert.ok(text.includes('What happened'), 'the journal section has no heading');
-    assert.ok(text.includes('Show history'), 'the journal does not offer to open');
-    /* Collapsed means no request has been made: this is a paged read over flash
-     * and the alarm console re-renders every ten seconds. */
-    assert.ok(!text.includes('Reading'), 'a collapsed journal must not be loading');
-    assert.ok(text.includes('nobody was watching'),
-        'the journal must say what it is for');
-});
 
 /* ------------------------------------------------------------- energy flow */
 

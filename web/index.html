@@ -40,7 +40,6 @@
                 <p class="nav-group-title" data-nav-group="commission" title="Bringing the site into service">Commission</p>
                 <a class="nav-link" href="#/wifi" data-route="wifi" aria-label="Network setup"><span aria-hidden="true">⌁</span><span>Network setup</span></a>
                 <p class="nav-group-title" data-nav-group="maintain" title="Servicing an installed controller">Maintain</p>
-                <a class="nav-link" href="#/control" data-route="control" aria-label="PV-DG control"><span aria-hidden="true">⇄</span><span>PV-DG control</span></a>
                 <a class="nav-link" href="#/system" data-route="system" aria-label="Controller"><span aria-hidden="true">⚙</span><span>Controller</span></a>
                 <p class="nav-group-title" data-nav-group="access" title="Engineering session">Access</p>
             </nav>
@@ -181,46 +180,7 @@
                     
                     </section>
 
-                <section class="page" data-page="control" aria-labelledby="controlTitle"><div class="page-intro"><div><p class="eyebrow">Safe commissioning</p><h2 id="controlTitle">PV-DG control</h2><p>Review control targets and timing without enabling automatic inverter commands.</p></div></div><div class="notice danger"><strong id="controlSafetyTitle">Automatic control disabled</strong><span id="controlSafetyDetail">No inverter commands are issued while control is disabled.</span></div>
-                    <!-- Commissioning gate. The nine prerequisites come from
-                         GET /api/commissioning/gate, each with the firmware's own
-                         title, reason code and explanatory sentence, so an
-                         engineer can see WHICH one is unmet and WHY without
-                         reading a serial log. control_authority.mode_label and
-                         inhibit_reason are shown exactly as the controller
-                         publishes them; this interface does not paraphrase a
-                         safety decision it did not make. -->
-                    <article class="panel gate-panel" id="commissioningGatePanel">
-                        <div class="panel-header"><div><p class="eyebrow">Commissioning gate</p><h3>Prerequisites for automatic control</h3></div><span class="subtle-badge" id="gateScopeBadge">Unavailable</span></div>
-                        <div class="gate-authority">
-                            <div class="gate-authority-row"><span>Control authority</span><strong id="gateModeLabel">Unavailable</strong></div>
-                            <div class="gate-authority-row"><span>Inhibit reason</span><strong id="gateInhibitReason">Unavailable</strong></div>
-                            <div class="gate-authority-row"><span>Commissioning scope</span><strong id="gateScope">Unavailable</strong></div>
-                            <div class="gate-authority-row"><span>Prerequisites satisfied</span><strong id="gateSatisfied">Unavailable</strong></div>
-                            <div class="gate-authority-row"><span>Setpoint confirmation</span><strong id="gateWriteConfirmation">Unavailable</strong></div>
-                            <!-- Two rows, not one. "No setpoint fault latched" says
-                                 nothing could be read back wrong; it does not say a
-                                 limit was demonstrated. -->
-                            <div class="gate-authority-row"><span>Limit evidence</span><strong id="gateLimitEvidence">Unavailable</strong></div>
-                            <div class="gate-authority-row"><span>Enable register (prerequisite)</span><strong id="gatePrerequisite">Unavailable</strong></div>
-                        </div>
-                        <!-- The two faults are reported as two rows deliberately.
-                             Both end with an inverter out of the commandable
-                             fleet, so they look identical from outside, and the
-                             enable-register one is the more dangerous because the
-                             setpoint readback looks perfect while the limit is
-                             ignored. -->
-                        <div class="prereq-notice" id="gatePrereqNotice">
-                            <strong>An unconfirmed enable register is not a setpoint fault.</strong>
-                            <span>A setpoint that read back wrong is reported as a setpoint fault. An enable register that is not confirmed produces no setpoint fault at all: the setpoint is accepted, echoed back and ignored, so it reads as confirmed while the inverter runs unlimited. Unconfirmed is transient and the controller keeps retrying it. Unverifiable is permanent, means no writable and readable register can be described for that model, and needs a manual citation rather than more time.</span>
-                            <span id="gatePrereqCounts" role="status">Reading the enable-register state…</span>
-                            <span id="gatePrereqDetail" hidden></span>
-                        </div>
-                        <p class="gate-summary" id="gateSummary" role="status">Reading the commissioning gate…</p>
-                        <ol class="gate-checklist" id="gateChecklist"></ol>
-                        <p class="gate-message" id="gateMessage" role="status"></p>
-                    </article>
-                    <div class="dashboard-grid"><article class="panel"><div class="panel-header"><div><p class="eyebrow">Runtime</p><h3>Control status</h3></div></div><div class="health-list"><div class="health-row"><span>Mode</span><strong id="controlPageMode">Unavailable</strong></div><div class="health-row"><span>Requested PV</span><strong id="controlPageRequested">Unavailable</strong></div><div class="health-row"><span>Applied PV</span><strong id="controlPageApplied">Unavailable</strong></div><div class="health-row"><span>Meter interlock</span><strong id="controlPageMeter">Checking</strong></div></div></article><article class="panel form-panel"><div class="panel-header"><div><p class="eyebrow">Parameters</p><h3>Control configuration</h3></div></div><div class="field-grid"><label class="field"><span>Grid import target (kW)</span><input id="controlTarget" type="number" step="0.1"></label><label class="field"><span>Deadband (kW)</span><input id="controlDeadband" type="number" step="0.1" min="0"></label><label class="field"><span>Control interval (ms)</span><input id="controlInterval" type="number" min="100"></label><label class="field"><span>Meter stale timeout (ms)</span><input id="controlStaleTimeout" type="number" min="500" disabled title="Read-only in this milestone"></label></div><div class="panel-actions"><button class="button primary" id="controlSaveButton" type="button">Save parameters</button><span id="controlMessage" class="action-message" role="status"></span></div></article></div></section>
+                
 
                 <section class="page" data-page="system" aria-labelledby="systemTitle"><div class="page-intro"><div><p class="eyebrow">Maintenance</p><h2 id="systemTitle">System</h2><p>Controller identity, configuration backup and controlled restart.</p></div></div><div class="dashboard-grid"><article class="panel"><div class="panel-header"><div><p class="eyebrow">Controller</p><h3>System information</h3></div></div><div class="health-list"><div class="health-row"><span>Device name</span><strong id="systemDeviceName">--</strong></div><div class="health-row"><span>Configuration schema</span><strong id="systemSchema">--</strong></div><div class="health-row"><span>Current IP</span><strong id="systemIp">--</strong></div><div class="health-row"><span>Connected SSID</span><strong id="systemSsid">--</strong></div></div><div class="panel-actions"><button class="button secondary" id="exportButton" type="button">Export configuration</button><button class="button danger-button" id="restartButton" type="button">Restart controller</button></div></article><article class="panel"><div class="panel-header"><div><p class="eyebrow">Advanced</p><h3>Configuration JSON</h3></div><span class="subtle-badge">Passwords masked</span></div><textarea id="advancedJson" class="json-editor" spellcheck="false" aria-label="Advanced configuration JSON" readonly></textarea><div class="panel-actions"><button class="button secondary" id="reloadConfigButton" type="button">Reload</button><button class="button primary" id="saveJsonButton" type="button" disabled title="Advanced JSON write support is scheduled for a later milestone">Read-only</button><span id="systemMessage" class="action-message" role="status">Advanced JSON is read-only in this milestone.</span></div></article></div></section>
             </main>

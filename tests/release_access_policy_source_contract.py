@@ -65,7 +65,6 @@ operator_files = [
     ROOT / "web/operator-view.js",
     ROOT / "web/operator-operations.js",
     ROOT / "web/operator-product-suite.js",
-    ROOT / "web/prelab-readiness.js",
     ROOT / "web/product-shell-v2.js",
     ROOT / "web/product-experience-v2.js",
 ]

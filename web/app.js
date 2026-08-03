@@ -73,7 +73,6 @@
          * web/meter-source-routing.js. */
         generator: { name: 'Generator power', short: 'Generator', group: 'operate', icon: '◉' },
         inverters: { name: 'Solar inverters', short: 'Solar', group: 'operate', icon: '◇' },
-        alarms: { name: 'Alarms and events', short: 'Alarms', group: 'operate', icon: '△' },
         /* The site owner's own Wi-Fi page, in Operate rather than Commission.
          * Changing the router is something the person who runs the plant does,
          * not a commissioning step -- and putting it in Commission would file it
@@ -82,9 +81,7 @@
          * that can strand a controller. */
         network: { name: 'Wi-Fi network', short: 'Wi-Fi', group: 'operate', icon: '≈' },
         commissioning: { name: 'Commissioning', group: 'commission', icon: '✓' },
-        readiness: { name: 'Pre-lab readiness', short: 'Readiness', group: 'commission', icon: '⌾' },
         wifi: { name: 'Network setup', short: 'Network', group: 'commission', icon: '⌁' },
-        control: { name: 'PV-DG control', short: 'Control', group: 'maintain', icon: '⇄' },
         system: { name: 'Controller', group: 'maintain', icon: '⚙' },
         engineering: { name: 'Engineering access', short: 'Engineering', group: 'access', icon: '▣' }
     };
@@ -97,9 +94,8 @@
     const PAGE_TYPES = {
         dashboard: 'operational', meters: 'operational', generator: 'operational',
         inverters: 'operational',
-        alarms: 'operational',
-        network: 'form', wifi: 'form', control: 'form', system: 'form',
-        commissioning: 'guided', readiness: 'guided', engineering: 'guided'
+        network: 'form', wifi: 'form', system: 'form',
+        commissioning: 'guided', engineering: 'guided'
     };
 
     const ROUTE_ORDER = Object.keys(ROUTES);

@@ -45,11 +45,9 @@ source-detection.js
 solar-grid.js
 operator-view.js
 operator-network.js
-alarm-journal.js
 service-page.js
 operator-operations.js
 operator-product-suite.js
-prelab-readiness.js
 commissioning-wizard-v2.js
 engineering-errors.js
 ui-enhancements.js

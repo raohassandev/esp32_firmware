@@ -69,8 +69,11 @@ for label in ("'Operate'", "'Commission'", "'Maintain'", "'Access'"):
 # Every reachable route is placed in exactly one group. A route missing from the
 # table previously fell back to 'dashboard' and stamped that into document.title
 # while rendering something else.
-for route in ("dashboard", "meters", "inverters", "alarms", "commissioning",
-              "readiness", "wifi", "control", "system", "engineering"):
+# alarms, control and readiness were removed from the product; a route table
+# entry for a page that does not exist is what this clause exists to prevent in
+# the other direction.
+for route in ("dashboard", "meters", "generator", "inverters", "commissioning",
+              "wifi", "system", "engineering"):
     require(f"{route}: {{ name:" in APP, f"route {route} has no entry in the route table")
 
 require("function ensureNavigationHierarchy" in APP,
@@ -100,9 +103,9 @@ require("mayUseEngineering" in MODE and "onScopeChange" in MODE,
 # ------------------------------------------------- one durable name per page
 
 for route, name in [("dashboard", "Plant overview"), ("system", "Controller"),
-                    ("wifi", "Network setup"), ("alarms", "Alarms and events"),
-                    ("meters", "Grid power"), ("inverters", "Solar inverters"),
-                    ("control", "PV-DG control"), ("readiness", "Pre-lab readiness"),
+                    ("wifi", "Network setup"),
+                    ("meters", "Grid power"), ("generator", "Generator power"),
+                    ("inverters", "Solar inverters"),
                     ("engineering", "Engineering access")]:
     require(f"{route}: {{ name: '{name}'" in APP,
             f"{route} does not have a single durable name ({name})")
@@ -131,7 +134,10 @@ route_records = re.findall(r"(\w+): \{([^}]*)\}", route_table)
 # that has silently stopped working returns zero or one record, not eleven. So
 # the floor catches the failure this was defending against and stays quiet for
 # the change it was never about.
-require(len(route_records) >= 10,
+# Nine, since alarms, control and readiness were removed. The floor exists to
+# catch an extraction that has stopped matching -- which returns zero or one,
+# not nine -- and not to freeze the number of pages the product has.
+require(len(route_records) >= 8,
         f"the route table parsed as only {len(route_records)} records, so the "
         f"extraction has probably stopped matching and the checks below are vacuous")
 
@@ -321,10 +327,10 @@ for invention in ["Inhibited because", "Blocked because", "inhibitReasonText",
     require(invention not in OPERATOR,
             f"the UI paraphrases a firmware safety statement: {invention}")
 
-# The alarm condition names are the firmware's; the alarm screen already renders
-# the controller's acknowledgement wording verbatim and must keep doing so.
-require("result.note" in OPERATIONS,
-        "the controller's own acknowledgement wording must be shown, not summarised")
+# The clause that required the alarm screen to render the controller's
+# acknowledgement wording verbatim is gone with that screen. The rule it
+# expressed -- never paraphrase a firmware safety statement -- is enforced
+# above, over every surface that remains.
 
 
 # ============================================================ 4. trends

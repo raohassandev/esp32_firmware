@@ -388,173 +388,18 @@ require("tests/alarm_suppression_states_source_contract.py" in WORKFLOW,
         "this contract is not registered in the CI workflow")
 
 # ---------------------------------------------------------------------------
-# 8. The interface: three states, who decided, and what ends them
+# SECTIONS 8 AND 9 ARE GONE WITH THE ALARM PAGE.
+#
+# They asserted that the three suppression states appeared on screen with
+# distinct labels, that the row named which authority decided each one and what
+# ends it, and that all of it met contrast in both themes. The owner removed
+# that screen from the product.
+#
+# EVERY FIRMWARE PROPERTY ABOVE AND BELOW IS UNTOUCHED, including the executed
+# state machine: shelving expires and out-of-service does not, suppression never
+# reaches condition detection, suppressed-by-design is the system's decision
+# alone, and the three facts are never collapsed into one flag.
 # ---------------------------------------------------------------------------
-
-require("SUPPRESSION_STATES" in UI, "the interface has no suppression state model")
-states_block = UI[UI.index("const SUPPRESSION_STATES"):UI.index("const SHELF_DURATIONS")]
-for key in ["none", "shelved", "suppressed_by_design", "out_of_service"]:
-    require(f"{key}:" in states_block, f"the interface does not describe {key}")
-require("expires by itself" in states_block,
-        "the interface must say that a shelf ends on its own")
-require("does not expire" in states_block,
-        "the interface must say plainly that out-of-service does not expire; that is "
-        "the whole difference between it and a shelf")
-require("cannot be lifted by hand" in states_block,
-        "the interface must say that a design suppression is not the operator's to lift")
-# Three different labels, or the states are collapsed on screen even if the
-# firmware keeps them apart.
-labels = re.findall(r"label:\s*'([^']+)'", states_block)
-require(len(set(labels)) == 4, f"the four suppression labels are not distinct: {labels}")
-
-require("suppressionBlock" in UI and "suppression_authority" in UI,
-        "the row must show which authority decided the suppression")
-require("suppression_expires" in UI,
-        "the row must show whether the suppression ends by itself")
-require("Decided by" in UI, "the row must label the deciding authority")
-require("out_of_service_reason_text" in UI,
-        "the recorded out-of-service reason must be shown, not just the state")
-require("Suppressions in force" in UI,
-        "an alarm in more than one suppression state at once must say so; that is the "
-        "case a single badge hides")
-
-# Suppression is a review filter, never a hiding one.
-require("alarmFilterSuppression" in UI,
-        "there is no way to review what is currently suppressed, which is how a "
-        "suppression list turns into a graveyard")
-suppression_filter = UI[UI.index("function filteredAlarms"):UI.index("function selectControl")]
-require("state.filterSuppression === 'suppressed'" in suppression_filter,
-        "the suppression filter must be able to show only suppressed conditions")
-require("isSuppressed" in suppression_filter,
-        "the suppression filter must key on the reported suppression state")
-
-# Actions exist for the two states an operator or a technician owns, and not for
-# the one the controller owns.
-for path in ["'/api/operator/alarms/shelve'", "'/api/operator/alarms/unshelve'",
-             "'/api/operator/alarms/out-of-service'"]:
-    require(path in UI, f"the interface offers no way to reach {path}")
-require("duration_ms: Number(state.shelfDuration)" in UI,
-        "a shelf must carry an explicit expiry from the interface; the controller "
-        "rejects a request without one")
-require("if (wanted) body.reason" in UI,
-        "the interface must send a reason when taking an alarm out of service")
-require("engineeringAuthorized()" in UI and
-        "engineering actions and need a session" in UI,
-        "an unauthenticated operator must be told why, not given a dead button")
-require("error.status === 401" in UI,
-        "the suppression POSTs must handle 401 explicitly")
-require("Nothing was changed." in UI,
-        "a refused suppression change must say the condition is unchanged")
-require("result.note" in UI,
-        "the controller's own wording must be shown; paraphrasing a suppression "
-        "decision is how an interface starts lying about what is being watched")
-
-# ---------------------------------------------------------------------------
-# 9. Contrast, computed from the tokens, in both themes
-# ---------------------------------------------------------------------------
-
-TOKEN_PATTERN = re.compile(r"(--[a-z0-9-]+)\s*:\s*(#[0-9a-fA-F]{6})\s*;")
-
-
-def token_block(sheet, opener):
-    require(opener in sheet, f"stylesheet has no {opener!r} block")
-    return sheet.split(opener, 1)[1].split("\n}", 1)[0]
-
-
-DARK = dict(TOKEN_PATTERN.findall(token_block(APP_CSS, ":root {")))
-LIGHT = dict(TOKEN_PATTERN.findall(token_block(THEME_CSS, 'html[data-theme="light"] {')))
-
-
-def channel(value):
-    fraction = value / 255.0
-    return fraction / 12.92 if fraction <= 0.03928 else ((fraction + 0.055) / 1.055) ** 2.4
-
-
-def luminance(hex_colour):
-    text = hex_colour.lstrip("#")
-    red, green, blue = (int(text[i:i + 2], 16) for i in (0, 2, 4))
-    return 0.2126 * channel(red) + 0.7152 * channel(green) + 0.0722 * channel(blue)
-
-
-def contrast(first, second):
-    high, low = sorted((luminance(first), luminance(second)), reverse=True)
-    return (high + 0.05) / (low + 0.05)
-
-
-def check_contrast(label, foreground, surfaces, minimum):
-    """`surfaces` is (dark_surface, light_surface). The two themes put the alarm row
-    on different tokens, so measuring a light foreground against a surface that only
-    exists in the dark theme would report a ratio nobody will ever see."""
-    worst = None
-    for (theme, theme_name, background) in ((DARK, "dark", surfaces[0]),
-                                            (LIGHT, "light", surfaces[1])):
-        require(foreground in theme,
-                f"{foreground} is not declared as a literal colour for the "
-                f"{theme_name} theme; a token defined in one theme only is how this "
-                "codebase produced 1.10:1 text")
-        require(background in theme,
-                f"{background} is not declared as a literal colour for the "
-                f"{theme_name} theme")
-        ratio = contrast(theme[foreground], theme[background])
-        require(ratio >= minimum,
-                f"{theme_name} theme: {label} measures {ratio:.2f}:1 on {background}, "
-                f"below the required {minimum}:1")
-        worst = ratio if worst is None else min(worst, ratio)
-    return worst
-
-SUPPRESSION_TOKENS = ("--suppress-shelved", "--suppress-design",
-                      "--suppress-out-of-service")
-
-# The pill text is 11px, so the 4.5:1 body threshold applies; none of it qualifies
-# for the 3:1 large-text allowance. The pill sits on the alarm row, which is
-# --panel-strong in dark and --surface-sunken in light, and the fact rows nested
-# inside it are --surface-sunken in dark and --panel in light. Both pairs measured,
-# because the right-edge suppression marker touches both.
-ROW_SURFACES = ("--panel-strong", "--surface-sunken")
-NESTED_SURFACES = ("--surface-sunken", "--panel")
-worst_ratio = 10.0
-for token in SUPPRESSION_TOKENS:
-    for surfaces in (ROW_SURFACES, NESTED_SURFACES):
-        worst_ratio = min(worst_ratio,
-                          check_contrast(f"{token} pill text", token, surfaces, 4.5))
-
-for theme, theme_name in ((DARK, "dark"), (LIGHT, "light")):
-    values = [theme.get(token) for token in SUPPRESSION_TOKENS]
-    require(all(values) and len(set(values)) == 3,
-            f"{theme_name} theme: the three suppression states do not have three "
-            "distinct colours; an operator cannot separate states painted alike")
-    # The two that matter most: an expiring shelf must never look like an
-    # instrument that has been taken out of service indefinitely.
-    require(theme.get("--suppress-shelved") != theme.get("--suppress-out-of-service"),
-            f"{theme_name} theme: a time-limited shelf is painted like a non-expiring "
-            "out-of-service")
-    # And neither may borrow the severity vocabulary: a suppressed alarm is not a
-    # severity, and an operator reads the severity colours as faults to clear.
-    for token in SUPPRESSION_TOKENS:
-        for severity in ("--red", "--yellow", "--green"):
-            require(theme.get(token) != theme.get(severity),
-                    f"{theme_name} theme: {token} reuses {severity}; a suppression "
-                    "state must not be drawn in the severity vocabulary")
-
-# Styling resolves through tokens, and nothing fades a suppressed row.
-console_css = CSS.split("A6 / A9 / A10 alarm gap closure", 1)[1]
-require("#" not in console_css,
-        "the suppression styling must resolve every colour through a theme token, not "
-        "a hardcoded hex")
-require("opacity" not in console_css,
-        "a suppressed alarm must never be faded out: it is still a real condition and "
-        "still has to be readable")
-for token in SUPPRESSION_TOKENS:
-    require(f"var({token})" in console_css, f"{token} is declared but never used")
-require("min-height: 44px" in CSS,
-        "the suppression controls must meet the 44px minimum tap target")
-require('html[data-theme="light"] .alarm-metric' in CSS,
-        "the new panels have no light-theme surface, which is how S5 produced "
-        "unreadable text")
-
-# State is carried by a word as well as by a colour.
-for word in ["Shelved by an operator", "Suppressed by design", "Out of service"]:
-    require(word in UI, f"the suppression state {word!r} is not named in words")
 
 # ---------------------------------------------------------------------------
 # 10. The state machine is executed, not just described
@@ -572,4 +417,4 @@ require("assert(" in UNIT and UNIT.count("assert(") > 40,
 print("ISA-18.2 suppression states source contract passed "
       f"(shelved/suppressed-by-design/out-of-service kept distinct, {len(reason_names)} "
       f"recorded reasons, journal transitions 6-9 appended, worst suppression pill "
-      f"contrast {worst_ratio:.2f}:1 across both themes)")
+      "no interface remains to render them)")
