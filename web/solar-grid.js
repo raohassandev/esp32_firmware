@@ -671,9 +671,28 @@
             byId(`engine${slot}Role`).value = String(Number(engine.role) || 0);
             byId(`engine${slot}BaseLoad`).value = Number(engine.base_load_kw) || 0;
         }
-        const detail = byId('generatorBaseLoadNotice')?.querySelector('.notice-detail');
+        /*
+         * THE BASE-LOAD WARNING, ONLY WHEN THERE IS A BASE-LOADED ENGINE.
+         *
+         * It described a fault that cannot occur on a plant with no engine held
+         * at a fixed kW -- and it was drawn in the fault colour, permanently,
+         * on exactly such a plant. A warning that is always on screen is one a
+         * reader learns to look past, which is the opposite of what a warning
+         * in that colour is for.
+         *
+         * Shown when an engine carries the base-load role, or whenever the
+         * controller has actually reported the fault.
+         */
+        const notice = byId('generatorBaseLoadNotice');
+        const detail = notice?.querySelector('.notice-detail');
         /* The commissioning gate's own sentence, verbatim. Nothing is composed here. */
-        if (detail) detail.textContent = verbatimText(config?.base_load_below_minimum_reason);
+        const reason = verbatimText(config?.base_load_below_minimum_reason);
+        if (detail) detail.textContent = reason;
+        if (notice) {
+            const anyBaseLoad = (config?.engines || []).some(
+                (engine) => Number(engine?.role) === 2);
+            notice.hidden = !anyBaseLoad && !reason;
+        }
         fleetAdvisory();
     }
 
@@ -946,8 +965,8 @@
             '<div class="health-list">',
             '<div class="health-row"><span>Policy</span><strong id="solarGridRuntimePolicy">--</strong></div>',
             '<div class="health-row"><span>Source mode</span><strong id="solarGridSourceMode">--</strong></div>',
-            '<div class="health-row"><span>Grid evidence</span><strong id="solarGridEvidenceState">--</strong></div>',
-            '<div class="health-row"><span>Availability / breaker</span><strong id="solarGridContactState">--</strong></div>',
+            '<div class="health-row" id="solarGridEvidenceStateRow"><span>Grid evidence</span><strong id="solarGridEvidenceState">--</strong></div>',
+            '<div class="health-row" id="solarGridContactStateRow"><span>Availability / breaker</span><strong id="solarGridContactState">--</strong></div>',
             '<div class="health-row"><span id="solarGridPowerLabel">Oriented source power</span><strong id="solarGridPower">--</strong></div>',
             /* THE CONTROL DECISION, not just its inputs.
              *
@@ -966,7 +985,7 @@
              * the readiness page, after the gate has been read.
              * tests/solar_grid_control_source_contract.py holds this. */
             '<div class="health-row"><span>Grid target</span><strong id="solarGridTarget">--</strong></div>',
-            '<div class="health-row"><span>Evidence reads</span><strong id="solarGridEvidenceReads">--</strong></div>',
+            '<div class="health-row" id="solarGridEvidenceReadsRow"><span>Evidence reads</span><strong id="solarGridEvidenceReads">--</strong></div>',
             '</div>'
         ].join('');
 
@@ -977,10 +996,15 @@
         header.append(copy);
         configPanel.append(header);
 
+        /* The warning that used to stand here said explicit source evidence was
+         * MANDATORY. It is not: the controller accepts source detection
+         * instead, which is what this plant uses, so the sentence contradicted
+         * the commissioning gate. What survives is the part that is true of
+         * every save on this page. */
         const notice = node('div', 'notice warning');
         notice.append(
-            node('strong', '', 'Explicit source evidence is mandatory.'),
-            node('span', '', 'A fresh power meter alone never proves that the grid breaker is closed. Saving any setting forces automatic control disabled and requires restart.')
+            node('strong', '', 'Saving any setting here disables automatic control.'),
+            node('span', '', 'It must be started again deliberately afterwards, and the controller requires a restart before the new settings take effect.')
         );
         configPanel.append(notice);
 
@@ -1159,6 +1183,22 @@
             ? status.grid_evidence_fresh ? `Fresh · ${age(status.grid_evidence_age_ms)}` : 'Configured but stale/unavailable'
             : 'Not wired · source detection is used instead';
         byId('solarGridContactState').textContent = `Available ${status.grid_available ? 'YES' : 'NO'} · Breaker ${status.grid_breaker_closed ? 'CLOSED' : 'OPEN'}`;
+        /*
+         * THREE ROWS THAT DESCRIBE A PATH THIS PLANT DOES NOT USE.
+         *
+         * All three read from the grid-evidence contacts. When those are not
+         * wired the controller has nothing to report and the rows say so in the
+         * most alarming way available: "Available NO - Breaker OPEN", which on a
+         * running plant reads as the grid being down, and "0 OK - 0 errors",
+         * which reads as a dead poll. Neither is true; there is simply no
+         * contact to read.
+         *
+         * Shown when they are wired, and not otherwise. Which supply is live is
+         * answered by source detection, on the row above.
+         */
+        const evidenceWired = status.grid_evidence_configured === true;
+        ['solarGridEvidenceStateRow', 'solarGridContactStateRow', 'solarGridEvidenceReadsRow']
+            .forEach((id) => { const row = byId(id); if (row) row.hidden = !evidenceWired; });
         /* Named from the source the controller resolved, shown on the row above.
          * This is the oriented CONTROL input: on a tariff plant it is the
          * generator's power whenever the generator carries the site. */
