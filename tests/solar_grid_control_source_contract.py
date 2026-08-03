@@ -144,10 +144,13 @@ for token in [
     "Minimum grid import",
     "Positive = grid import",
     "Positive = grid export",
-    "Grid available evidence",
-    "Grid breaker closed evidence",
-    "Evidence stale timeout",
-    "Recovery stable time",
+    # The Modbus grid-evidence FORM is gone -- nine register fields and two
+    # cards for the wiring alternative to source detection, on every visit, for
+    # a choice most sites never make. The firmware still supports the path and
+    # still reports it; what was removed is the permanent form. Held values are
+    # sent back unchanged on save, which is what these two tokens now check.
+    "state.heldEvidence",
+    "grid_breaker_closed: held.grid_breaker_closed",
     "restart is required",
     "AbortController",
     "document.hidden",
