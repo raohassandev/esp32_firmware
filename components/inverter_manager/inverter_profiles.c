@@ -470,42 +470,43 @@ static const inverter_profile_t PROFILES[] = {
         .manual_reference = "Solis RS485_MODBUS Communication Protocol (translated 2021-05-06) "
                             "sections 5.2/5.3/5.6; not qualified on hardware",
         /*
-         * IS THIS ACTUALLY A SOLIS?
+         * IS THIS ACTUALLY A SOLIS? THE MANUAL OFFERS A WAY, AND IT DOES NOT WORK.
          *
-         * Without this the controller cannot tell. A Modbus profile chooses
-         * REGISTERS, not machines; the machine is chosen by IP, port and unit
-         * id. Point a Solis profile at another manufacturer's endpoint and it
-         * reads whatever lives at those addresses and reports it as production.
+         * A Modbus profile chooses REGISTERS, not machines. The machine is chosen
+         * by IP, port and unit id, so a profile pointed at another
+         * manufacturer's endpoint reads whatever lives at those addresses and
+         * reports it as production. The owner asked for exactly the right thing:
+         * select a profile, and have the controller work out whether the machine
+         * on the other end matches it.
          *
-         * That is not hypothetical. On this plant a Solis was given slave id 21
-         * on the endpoint where a Huawei already answered to 21. The controller
-         * read 7.78 kW, showed it as the configured inverter's output, and only
-         * the enable write failing revealed that the machine on the other end
-         * was not the one the profile described. The owner's objection was
-         * exactly right: it should have known.
+         * Section 5.2, p.10 appears to give the means, and is unusually explicit
+         * about addressing: "Inverter type information parameter address,
+         * corresponding function code is 0x04. The following table has the same
+         * address with the actual address of the message frame. No need extra
+         * offset or transform." So 35000 EXACTLY -- no -1, unlike every other
+         * address in this profile, because 5.3 and 5.6 state the offset and 5.2
+         * states its absence.
          *
-         * Section 5.2, p.10 gives the means, and is unusually explicit about the
-         * addressing: "Inverter type information parameter address, corresponding
-         * function code is 0x04. The following table has the same address with
-         * the actual address of the message frame. No need extra offset or
-         * transform."
+         *   35000  1010 1-phase, 1020 3-phase, 2030..2060 storage,
+         *          1070 EPM, 3010 off-grid, 0000 "no definition"
          *
-         * So 35000 EXACTLY -- no -1, unlike every other address in this profile.
-         * That is not an inconsistency to be tidied away: sections 5.3 and 5.6
-         * state the offset, 5.2 states its absence, and each is followed here.
+         * MEASURED ON THE PLANT'S OWN SOLIS: 35000 returns 0. The same table
+         * defines 0 as "no definition", and its note 2 spells out that a 0000H
+         * model is a legitimate answer, not an error. The machine reporting it
+         * was delivering 7.817 kW at FC04/3004 and answering FC03/3051 at the
+         * same moment.
          *
-         * 1020 is "3 phase inverter", which is what this profile describes. A
-         * single-phase Solis (1010), a storage model (2030..2060), an EPM (1070)
-         * or an off-grid unit (3010) is a DIFFERENT machine with a different
-         * document, and must not be commanded by this map. The mask is full
-         * width because the whole word carries the type; no bit of it is spare.
+         * So the register exists, is readable, and does not identify this
+         * machine. Requiring 1020 would refuse a real, producing inverter --
+         * a gate that blocks the equipment it was meant to protect, failing
+         * silently and completely and looking like a comms fault.
+         *
+         * Left OFF with the measurement recorded, so the next reader does not
+         * re-derive it from the manual and re-introduce it. If a Solis is ever
+         * seen reporting a real type, this becomes usable -- but as a check that
+         * refuses a positively WRONG type, never one that reports none.
          */
-        .has_identity_probe = true,
-        .identity_function = 4,
-        .identity_address = 35000, /* manual s5.2: no offset, unlike 5.3 and 5.6 */
-        .identity_words = 1,
-        .identity_expected = 1020, /* "3 phase inverter" */
-        .identity_mask = 0xFFFF,
+        .has_identity_probe = false,
         .has_active_power = true,
         .active_power_function = 4,
         .active_power_address = 3004, /* manual tag 3005-3006, section 5.3 offset -1 */
