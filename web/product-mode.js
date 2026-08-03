@@ -369,18 +369,26 @@
             </div>
             <div class="engineering-console" id="engineeringConsole">
                 <div class="engineering-actions"><span>Engineering access is active. Automatic control remains locked during commissioning.</span><button class="button secondary" id="engineeringLogout" type="button">Lock engineering</button></div>
-                <div class="engineering-grid">
-                    <a class="panel engineering-tile primary-workflow" href="#/commissioning"><span>Guided commissioning</span><strong>Commission a site and its devices</strong><small>Site details, devices, channels, Modbus tuning, connection qualification, controller health and report.</small></a>
-                    <a class="panel engineering-tile" href="#/wifi"><span>Network</span><strong>Wi-Fi and addressing</strong><small>Primary/fallback networks, recovery AP and static IP settings.</small></a>
-                    <a class="panel engineering-tile" href="#/meters"><span>Meters</span><strong>Meter profiles and diagnostics</strong><small>Endpoints, scaling, register maps, raw data and advanced diagnostics.</small></a>
-                    <!-- Inverter setup is on THIS page, below these tiles: a
-                         tile pointing at #/inverters for it would send the
-                         engineer to the monitoring screen and back. The tile
-                         now describes what that page actually is. -->
-                    <a class="panel engineering-tile" href="#/inverters"><span>Inverters</span><strong>Live inverter status</strong><small>Availability, production and command-safety state. Model and endpoint setup are below.</small></a>
-                    <a class="panel engineering-tile" href="#/control"><span>Control</span><strong>PV-DG parameters</strong><small>Targets, deadband, timing and safety interlocks.</small></a>
-                    <a class="panel engineering-tile" href="#/system"><span>Service</span><strong>Backup and controller service</strong><small>Configuration export, advanced JSON, password management and restart.</small></a>
-                </div>
+                <!--
+                    THE TILE GRID IS GONE, AND NOTHING REPLACES IT.
+
+                    Six tiles opened commissioning, Wi-Fi, meters, inverters,
+                    control and service -- every one of them already a sidebar
+                    entry, one click away from anywhere in the product. It was a
+                    second menu for the same destinations, and it drifted from
+                    the first: the Control tile pointed at #/control, a page
+                    deleted with the PV-DG control screen, so an engineer
+                    following it landed on nothing.
+
+                    That is the argument against a duplicate menu generally. The
+                    sidebar is derived from PROTECTED_ROUTES and cannot disagree
+                    with what the router will serve; hand-written tiles can, and
+                    did.
+
+                    What stays is what exists ONLY here: signing in, which is
+                    the sole way to unlock engineering anywhere in the firmware,
+                    and changing the password.
+                -->
                 <article class="panel password-panel"><div><p class="eyebrow">Security</p><h3>Change engineering password</h3></div><form id="engineeringPasswordForm" class="password-form"><label class="field"><span>Current password</span><input id="engineeringCurrentPassword" type="password" required></label><label class="field"><span>New password</span><input id="engineeringNewPassword" type="password" minlength="10" maxlength="64" required></label><button class="button primary" type="submit">Change password</button></form><div id="engineeringPasswordMessage" class="action-message"></div></article>
             </div>`;
         main.append(page);

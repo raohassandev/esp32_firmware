@@ -95,12 +95,6 @@ html[data-access="engineering"] #engineeringConsole { display: grid; }
 .engineering-login form { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 12px; }
 .engineering-console { display: none; gap: 18px; }
 .engineering-actions { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 14px 16px; border: 1px solid rgba(65, 211, 155, .3); border-radius: 14px; background: rgba(65, 211, 155, .06); color: var(--muted); }
-.engineering-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-.engineering-tile { display: grid; gap: 8px; min-height: 150px; padding: 20px; color: inherit; text-decoration: none; transition: transform 140ms ease, border-color 140ms ease; }
-.engineering-tile:hover { transform: translateY(-2px); border-color: rgba(242,138,43,.45); }
-.engineering-tile span { color: var(--accent-text); font-size: 10px; font-weight: 850; text-transform: uppercase; letter-spacing: .09em; }
-.engineering-tile strong { font-size: 18px; }
-.engineering-tile small { color: var(--muted); line-height: 1.55; }
 .password-panel { display: grid; gap: 16px; }
 .password-form { display: grid; grid-template-columns: 1fr 1fr auto; gap: 12px; align-items: end; }
 
@@ -340,7 +334,7 @@ html[data-theme="light"] .op-flow-controller { background: var(--surface-raised)
 }
 
 @media (max-width: 900px) {
-    .engineering-grid, .op-two-column, .op-three-column, .op-hero-grid, .op-meter-overview, .op-inverter-overview { grid-template-columns: 1fr; }
+    .op-two-column, .op-three-column, .op-hero-grid, .op-meter-overview, .op-inverter-overview { grid-template-columns: 1fr; }
     .engineering-login form, .password-form { grid-template-columns: 1fr; }
     .engineering-actions, .op-section-head { align-items: stretch; flex-direction: column; }
     .engineering-actions .button, .op-section-head .button { width: 100%; }

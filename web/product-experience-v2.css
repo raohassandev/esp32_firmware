@@ -25,8 +25,7 @@ body.product-experience-v2 .form-layout,
 body.product-experience-v2 .asset-grid,
 body.product-experience-v2 .op-dashboard-grid,
 body.product-experience-v2 .op-summary-grid,
-body.product-experience-v2 .prelab-grid,
-body.product-experience-v2 .engineering-grid { gap: var(--experience-gap); }
+body.product-experience-v2 .prelab-grid { gap: var(--experience-gap); }
 body.product-experience-v2 .panel,
 body.product-experience-v2 .metric-card,
 body.product-experience-v2 .asset-card,
@@ -65,9 +64,6 @@ body.product-experience-v2 select { min-height: 44px; }
 .engineering-login { max-width: 760px; padding: 26px; }
 .engineering-login form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: end; }
 .engineering-console { display: grid; gap: 18px; }
-.engineering-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
-.engineering-tile { min-height: 154px; display: flex; flex-direction: column; gap: 8px; justify-content: flex-start; text-decoration: none; }
-.engineering-tile.primary-workflow { grid-column: span 2; border-color: rgba(255,143,32,.7); background: linear-gradient(135deg, rgba(255,143,32,.13), rgba(16,36,58,.96)); }
 
 @media (min-width: 1100px) {
   body.product-experience-v2 .experience-operator-page .metric-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -77,8 +73,6 @@ body.product-experience-v2 select { min-height: 44px; }
   body.product-experience-v2 .content { padding: 20px 18px 44px; }
   .experience-masthead { grid-template-columns: 1fr; gap: 12px; }
   .experience-scope { justify-self: start; }
-  .engineering-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .engineering-tile.primary-workflow { grid-column: 1 / -1; }
 }
 @media (max-width: 650px) {
   body.product-experience-v2 { --experience-gap: 12px; --experience-section-gap: 16px; }
@@ -96,7 +90,6 @@ body.product-experience-v2 select { min-height: 44px; }
   body.product-experience-v2 .form-layout,
   body.product-experience-v2 .field-grid,
   body.product-experience-v2 .asset-grid,
-  body.product-experience-v2 .engineering-grid,
   body.product-experience-v2 .prelab-grid { grid-template-columns: minmax(0, 1fr) !important; }
   body.product-experience-v2 .panel-header { display: grid; grid-template-columns: 1fr; gap: 8px; }
   body.product-experience-v2 .action-bar,
@@ -107,7 +100,7 @@ body.product-experience-v2 select { min-height: 44px; }
   body.product-experience-v2 select,
   body.product-experience-v2 textarea { font-size: 16px; }
   .engineering-login { padding: 20px; }
-  .engineering-login form, .engineering-grid { grid-template-columns: 1fr; }
+  .engineering-login form { grid-template-columns: 1fr; }
   .engineering-login .button, .engineering-actions .button { width: 100%; }
 }
 
