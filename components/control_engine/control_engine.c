@@ -218,6 +218,26 @@ _Static_assert((int)SOLAR_GRID_ENGINE_ROLE_COUNT == (int)GENERATOR_ENGINE_ROLE_C
  * one-second minimum between adjustments. */
 #define CONTROL_COMMAND_KEEPALIVE_MS 2000U
 
+/*
+ * THE SHORTEST GAP BETWEEN TWO CONTROL DECISIONS.
+ *
+ * Not a measurement rate and not a tick: the interval within which the plant is
+ * given a chance to answer the previous decision before another is made. An
+ * inverter takes time to reach a new setpoint and the meter cannot show the
+ * result until it has, so deciding sooner means correcting twice for a state
+ * that has only moved once -- which is the overshoot, and then the oscillation.
+ *
+ * Measured on the plant with no such floor: PV commanded 0 to 100 % and back
+ * several times a second, grid swinging +50 to -50 kW, setpoint writes every 38
+ * to 281 ms at a 100 kW machine. Gating on a new meter sample alone did not fix
+ * it, because that meter answers three to ten times a second.
+ *
+ * One second, which is also the documented minimum between adjustments for the
+ * equipment this controls. A site whose plant genuinely settles faster is a
+ * reason to make this configurable, not a reason to lower it here.
+ */
+#define CONTROL_MIN_DECISION_INTERVAL_MS 1000U
+
 /* Converts a ramp profile into the kW/s the policy layer expects.
  *
  * A disabled ramp must let the command step straight to the allowed target in a
@@ -547,13 +567,36 @@ static void control_task(void *argument)
         const meter_role_assignment_t roles = current_role_assignment();
         bool have_grid = roles.valid && roles.grid_index != METER_ROLE_INDEX_NONE &&
                          meter_manager_get_data(roles.grid_index, &grid);
-        /* A reading this loop has not decided on before. meter_manager stamps
-         * last_update_ms only on a SUCCESSFUL poll, so a repeated value from a
-         * meter that is answering still counts as new -- what is excluded is the
-         * same poll being seen again, not an unchanging measurement. */
+        /*
+         * A READING NOT DECIDED ON BEFORE, AND NOT SOONER THAN THE PLANT CAN
+         * ANSWER.
+         *
+         * "New measurement" alone was not enough, and the board said so. The
+         * meter is not polled once a second: measured on the plant, its data was
+         * never older than 300 ms, so it produces a new sample three to ten
+         * times a second. Gating on newness took the loop from 50 Hz to about
+         * 5 Hz and it still oscillated -- PV 0 to 100 %, grid +50 to -50 kW,
+         * writes every 38 to 281 ms.
+         *
+         * The rate that matters is not how fast the meter can be read. It is how
+         * fast the PLANT can answer: an inverter takes time to move to a new
+         * setpoint, and the meter cannot show the result until it has. Deciding
+         * again before the previous decision has taken effect means measuring
+         * the old state and correcting for it twice, which is the overshoot
+         * itself.
+         *
+         * One second, per the owner's instruction and the manufacturer's own
+         * minimum between adjustments. Both conditions are required: the gap
+         * bounds how often, the new sample means each decision rests on
+         * something the loop has not already used.
+         */
+        const bool decision_due =
+            !processed_any ||
+            (uint32_t)(timestamp - previous_ms) >= CONTROL_MIN_DECISION_INTERVAL_MS;
         const bool new_measurement = have_grid && grid.last_update_ms != 0U &&
                                      (!processed_any ||
-                                      grid.last_update_ms != processed_sample_ms);
+                                      grid.last_update_ms != processed_sample_ms) &&
+                                     decision_due;
         if (new_measurement) {
             interval_seconds = safe_interval_seconds(timestamp, &previous_ms);
             processed_sample_ms = grid.last_update_ms;
@@ -975,7 +1018,25 @@ static void control_task(void *argument)
             last_seen_rejoins = rejoins;
 
             esp_err_t write_result = ESP_OK;
+            /*
+             * WHETHER ANYTHING WAS ACTUALLY SENT THIS CYCLE.
+             *
+             * write_result starts as ESP_OK and is only assigned inside the
+             * branch below, so a cycle that issued NO command fell through to
+             * the success path and stamped last_command_ms anyway. The reported
+             * "last command age" was therefore the age of the last control
+             * CYCLE -- 20 ms -- and never the age of a command.
+             *
+             * That is not a cosmetic error. It is the number an engineer reads
+             * to answer "how often is this controller writing to my inverter",
+             * and it answered with the loop period. It cost real diagnostic
+             * time: an oscillation was investigated as a write-rate problem on
+             * the strength of this field reading 5 to 224 ms, when what it was
+             * reporting was that the loop had ticked.
+             */
+            bool command_issued = false;
             if (first_command || changed || keepalive_due || fleet_rejoined) {
+                command_issued = true;
                 write_result = inverter_manager_set_total_power_kw(applied_kw);
                 if (write_result == ESP_OK) {
                     last_commanded_kw = applied_kw;
@@ -994,7 +1055,9 @@ static void control_task(void *argument)
                 mode = APP_MODE_FAILSAFE;
             } else {
                 current_target_kw = applied_kw;
-                command_accepted = true;
+                /* Only a cycle that actually sent something may claim to have
+                 * commanded. A held setpoint is not a new command. */
+                command_accepted = command_issued;
             }
         } else if (safe_zero_pending) {
             /* The HTTP/configuration path only sets this latch. The control task
