@@ -556,35 +556,18 @@
         header.append(copy);
         panel.append(header);
 
-        const notice = node('div', 'notice warning');
-        notice.append(
-            node('strong', '', 'Every number here is a nameplate or measured quantity.'),
-            node('span', '', 'None of them has a default and none is guessed. A rating left at zero means the engine is not commissioned and PV stays at zero while a generator carries the plant, which is the safe state rather than an error.')
-        );
-        panel.append(notice);
+        /* The standing "every number here is a nameplate or measured quantity"
+         * note is gone too. It was true and it was permanent, and a sentence
+         * that never changes is one a reader stops seeing. Each field's own
+         * label already says what it wants. */
 
         /* The consequence of base load, stated before the fields that produce it and
          * in the firmware's own sentence once the configuration has been read. */
-        /*
-         * BUILT HIDDEN, SHOWN ON EVIDENCE.
-         *
-         * These were built visible and hidden later, once a successful read had
-         * told renderEngines() there was no base-loaded engine. Until that read
-         * landed -- and on any plant where it never lands, because the session
-         * expired or the endpoint refused -- the page showed a fault warning
-         * about a condition it had no reason to believe in.
-         *
-         * The safe default for "is something wrong here" is to say nothing
-         * until the controller has answered.
-         */
-        const baseLoadNotice = node('div', 'notice bad');
-        baseLoadNotice.hidden = true;
-        baseLoadNotice.id = 'generatorBaseLoadNotice';
-        baseLoadNotice.append(
-            node('strong', '', 'A base-loaded engine held below its own minimum loading is a commissioning fault.'),
-            node('span', 'notice-detail', '')
-        );
-        panel.append(baseLoadNotice);
+        /* The base-load fault warning is gone at the owner's request. It
+         * described a condition that cannot arise without a base-loaded engine,
+         * and this plant has none. The controller still detects it and still
+         * reports it through the commissioning gate, which is where a
+         * commissioning fault belongs. */
 
         const modeGrid = node('div', 'field-grid');
         const mode = node('select');
@@ -692,19 +675,6 @@
             byId(`engine${slot}BaseLoad`).value = Number(engine.base_load_kw) || 0;
         }
         /*
-         * THE BASE-LOAD WARNING, ONLY WHEN THERE IS A BASE-LOADED ENGINE.
-         *
-         * It described a fault that cannot occur on a plant with no engine held
-         * at a fixed kW -- and it was drawn in the fault colour, permanently,
-         * on exactly such a plant. A warning that is always on screen is one a
-         * reader learns to look past, which is the opposite of what a warning
-         * in that colour is for.
-         *
-         * Shown when an engine carries the base-load role, or whenever the
-         * controller has actually reported the fault.
-         */
-        const notice = byId('generatorBaseLoadNotice');
-        /*
          * A CARD PER ENGINE THE PLANT HAS, NOT PER SLOT THE FIRMWARE ALLOWS.
          *
          * The firmware carries three engine slots, so three full cards -- six
@@ -716,33 +686,27 @@
          * Every card is still BUILT, because renderConfig() and collectConfig()
          * address their fields by id and a missing input would silently drop a
          * commissioned value on the next save. An uncommissioned slot is hidden
-         * instead, and one spare is left visible so a second engine can be
-         * added without hunting for a control.
+         * instead: one card per engine the plant has. The first stays when
+         * nothing is commissioned, so a new site has somewhere to begin.
          */
         const engineCards = byId('generatorFleetEngines');
         if (engineCards) {
-            let firstSpareShown = false;
+            let shown = 0;
             Array.from(engineCards.children).forEach((card, slot) => {
                 const engine = engines.find((entry) => Number(entry?.slot) === slot) || {};
                 const commissioned = engine.in_service === true
                     || (Number(engine.rated_kw) || 0) > 0;
-                if (commissioned) { card.hidden = false; return; }
-                /* Exactly one empty slot, so adding an engine is possible and
-                 * the page does not fill with forms nobody asked for. */
-                card.hidden = firstSpareShown;
-                firstSpareShown = true;
+                card.hidden = !commissioned;
+                if (commissioned) shown += 1;
             });
+            /* A plant with nothing configured still needs somewhere to enter its
+             * first engine, so the first card stays when none is commissioned.
+             * Otherwise: one card per engine the plant has, and no empty forms. */
+            if (shown === 0 && engineCards.firstElementChild) {
+                engineCards.firstElementChild.hidden = false;
+            }
         }
 
-        const detail = notice?.querySelector('.notice-detail');
-        /* The commissioning gate's own sentence, verbatim. Nothing is composed here. */
-        const reason = verbatimText(config?.base_load_below_minimum_reason);
-        if (detail) detail.textContent = reason;
-        if (notice) {
-            const anyBaseLoad = (config?.engines || []).some(
-                (engine) => Number(engine?.role) === 2);
-            notice.hidden = !anyBaseLoad && !reason;
-        }
         fleetAdvisory();
     }
 
