@@ -212,6 +212,8 @@ jobs:
         run: python3 tests/meter_startup_alarm_source_contract.py
       - name: Check a first inverter setpoint can be confirmed
         run: python3 tests/first_write_confirmation_source_contract.py
+      - name: Check the control loop steps on measurements, not on a timer
+        run: python3 tests/control_cadence_source_contract.py
       - name: Check source semantics and power-limit scale contract
         run: python3 tests/source_semantics_and_power_scale_source_contract.py
       - name: Check release phase scope contract

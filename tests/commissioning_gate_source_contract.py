@@ -108,8 +108,14 @@ if "!commissioning.commissioned ? commissioning_gate_summary(&commissioning)" no
 
 # The gate is evaluated before the policy is stepped, so an uncommissioned
 # controller never produces a command to clamp in the first place.
+#
+# Anchored on the CALL rather than on the whole guard around it. The guard now
+# also asks whether the measurement is new -- the loop steps on data instead of
+# on a timer -- and pinning the old wording made this contract fail for a change
+# that did not touch commissioning at all. What it exists to check is the
+# ORDERING, and the call is the stable landmark for that.
 if CONTROL.index("if (!commissioning.commissioned) control_enabled = false;") > \
-        CONTROL.index("if (control_enabled) policy = power_control_step(&input);"):
+        CONTROL.index("policy = power_control_step(&input);"):
     raise SystemExit("the commissioning gate must be applied before the control policy is stepped")
 
 # Collected from real state, with each `known` flag set only after the read.

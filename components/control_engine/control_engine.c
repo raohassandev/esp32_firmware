@@ -353,9 +353,27 @@ static float safe_interval_seconds(uint32_t timestamp, uint32_t *previous_timest
     *previous_timestamp = timestamp;
     float configured = s_config.interval_ms / 1000.0f;
     if (!isfinite(configured) || configured <= 0.0f) configured = 0.5f;
-    if (!isfinite(interval) || interval <= 0.0f || interval > configured * 4.0f) {
-        interval = configured;
-    }
+    /*
+     * THE GAP BETWEEN THE SAMPLES ACTED ON, NOT THE CONFIGURED TICK.
+     *
+     * This is called once per new measurement now, so the elapsed time it
+     * measures is roughly the meter's cadence -- about a second -- while the
+     * configured tick is 20 ms. The old guard rejected anything longer than four
+     * ticks and substituted the tick itself, which would report 0.02 s for a gap
+     * that was really 1 s: the integral would accumulate fifty times too little
+     * and the per-second ramp limits would be fifty times too tight, so PV could
+     * not move at anything like the commissioned rate.
+     *
+     * The stale timeout is the honest ceiling. A sample older than that is not
+     * usable for control at all, so a gap beyond it cannot describe two readings
+     * this loop acted on in sequence -- it means an outage, and the freshness
+     * gate has already invalidated the cycle by the time it matters.
+     */
+    float ceiling = safety_manager_meter_stale_timeout_ms() / 1000.0f;
+    if (!isfinite(ceiling) || ceiling < configured) ceiling = configured;
+    if (!isfinite(interval) || interval <= 0.0f) return configured;
+    if (interval < configured) return configured;
+    if (interval > ceiling) return ceiling;
     return interval;
 }
 
@@ -473,6 +491,36 @@ static void control_task(void *argument)
     float current_target_kw = 0.0f;
     uint32_t previous_ms = now_ms();
     bool previous_cycle_valid = false;
+    /*
+     * ONE SAMPLE, ONE DECISION, ONE COMMAND.
+     *
+     * The loop ticks every interval_ms -- 20 ms by default -- but the meter
+     * produces a new reading about once a second. Nothing here asked whether the
+     * reading was NEW, only whether it was younger than the stale timeout, so the
+     * same sample was decided on up to fifty times and the integral term
+     * accumulated the same error fifty times over. It wound to the rail, the next
+     * reading showed a large error the other way, and it wound to the other rail.
+     *
+     * Observed on the plant: PV commanded 0 % to 100 % and back several times a
+     * second, grid power swinging +50 to -50 kW, and setpoint writes reaching a
+     * 100 kW inverter every 5 to 224 ms. With automatic control switched off the
+     * same meter read a steady 50.0 kW at 231 V and 77.4 A, which is what proved
+     * the swing was the controller's and not the plant's.
+     *
+     * So the decision is now driven by the DATA rather than by a timer: the
+     * policy runs when a reading the controller has not seen before arrives, and
+     * holds its previous output until the next one. The command site below writes
+     * on change plus keepalive, so one new reading yields at most one write.
+     *
+     * This also makes the integral's time base true. It was told the configured
+     * tick; it is now told the measured gap between the samples it actually
+     * acted on.
+     */
+    uint32_t processed_sample_ms = 0U;
+    bool processed_any = false;
+    /* Held across ticks, for the same reason: a cycle with nothing new to say
+     * must repeat the last decision, not fall back to zero. */
+    power_control_output_t policy = {0};
     grid_gate_memory_t gate_memory = {0};
     /* Command-issue bookkeeping. The loop recomputes every cycle but only writes
      * on a change or when the keepalive falls due; see the write site below. */
@@ -484,7 +532,9 @@ static void control_task(void *argument)
 
     while (true) {
         uint32_t timestamp = now_ms();
-        float interval_seconds = safe_interval_seconds(timestamp, &previous_ms);
+        /* Measured between the samples actually acted on, once one is known to
+         * be new. See processed_sample_ms above. */
+        float interval_seconds = 0.0f;
         bool control_enabled = false;
         bool safe_zero_pending = false;
         runtime_control_snapshot(&control_enabled, &safe_zero_pending);
@@ -497,6 +547,18 @@ static void control_task(void *argument)
         const meter_role_assignment_t roles = current_role_assignment();
         bool have_grid = roles.valid && roles.grid_index != METER_ROLE_INDEX_NONE &&
                          meter_manager_get_data(roles.grid_index, &grid);
+        /* A reading this loop has not decided on before. meter_manager stamps
+         * last_update_ms only on a SUCCESSFUL poll, so a repeated value from a
+         * meter that is answering still counts as new -- what is excluded is the
+         * same poll being seen again, not an unchanging measurement. */
+        const bool new_measurement = have_grid && grid.last_update_ms != 0U &&
+                                     (!processed_any ||
+                                      grid.last_update_ms != processed_sample_ms);
+        if (new_measurement) {
+            interval_seconds = safe_interval_seconds(timestamp, &previous_ms);
+            processed_sample_ms = grid.last_update_ms;
+            processed_any = true;
+        }
         float fleet_capacity_kw = inverter_manager_get_total_rated_kw();
         bool measurement_fresh = have_grid && meter_sample_fresh(&grid, timestamp);
         bool fleet_valid = isfinite(fleet_capacity_kw) && fleet_capacity_kw > 0.0f;
@@ -841,8 +903,10 @@ static void control_task(void *argument)
             .generator_safe_limit_kw = generator_safe_limit_kw,
         };
 
-        power_control_output_t policy = {0};
-        if (control_enabled) policy = power_control_step(&input);
+        /* Stepped on a new reading, held otherwise. Disabling control clears it
+         * outright: a held decision must not survive being switched off. */
+        if (!control_enabled) policy = (power_control_output_t){0};
+        else if (new_measurement) policy = power_control_step(&input);
 
         if (!control_enabled || !policy.valid) {
             integral_kw = 0.0f;
