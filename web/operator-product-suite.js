@@ -20,6 +20,11 @@
     }
 
     async function api(path) {
+        /* Through the shared reader: several modules poll these same paths on
+         * their own timers, and the controller has very few client sockets. A
+         * GET already in flight or answered a moment ago is reused instead of
+         * asked again. See web/shared-fetch.js. */
+        if (window.AutomatrixFetch) return window.AutomatrixFetch.get(path);
         const response = await fetch(path, { cache: 'no-store', credentials: 'same-origin' });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
@@ -421,6 +426,10 @@
     }
 
     function handleRoute() {
+        /* Arriving on the page reads immediately; waiting for the next ten
+         * second tick would show a commissioning report up to ten seconds
+         * older than the moment it was opened. */
+        if (currentRoute() === 'commissioning') refreshPayload().catch(() => {});
         normalizeNavigation();
         updateMobileNavigation();
         ensureCommissioningPage();
@@ -435,7 +444,9 @@
         ensureCommissioningPage();
         normalizeNavigation();
         attachEquipmentDrilldown();
-        refreshPayload().catch((error) => console.warn('Product suite refresh failed:', error));
+        if (currentRoute() === 'commissioning') {
+            refreshPayload().catch((error) => console.warn('Product suite refresh failed:', error));
+        }
         window.addEventListener('hashchange', handleRoute);
         document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeModal(); });
         document.addEventListener('fullscreenchange', () => {
@@ -449,7 +460,19 @@
             ensureCommissioningPage();
             renderCommissioning();
         }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-access'] });
-        state.timer = window.setInterval(() => refreshPayload().catch(() => {}), 10000);
+        /*
+         * POLLED ONLY WHERE IT IS READ.
+         *
+         * This payload feeds renderCommissioning() and nothing else, yet it was
+         * fetched every ten seconds on every page: four endpoints -- status,
+         * meters, inverters and inverter-telemetry -- that another module was
+         * already asking for, on a controller with very few client sockets. The
+         * duplicates the owner found in the network tab were largely these.
+         */
+        state.timer = window.setInterval(() => {
+            if (currentRoute() !== 'commissioning') return;
+            refreshPayload().catch(() => {});
+        }, 10000);
     }
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });

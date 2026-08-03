@@ -177,6 +177,14 @@
      * succeeded and changed nothing, which on an arming control would report a
      * plant armed that was never asked to arm. */
     async function api(path, options) {
+        /* Through the shared reader: several modules poll these same paths on
+         * their own timers, and the controller has very few client sockets. A
+         * GET already in flight or answered a moment ago is reused instead of
+         * asked again. See web/shared-fetch.js. */
+        const method = (options && options.method) || 'GET';
+        if (method === 'GET' && window.AutomatrixFetch) {
+            return window.AutomatrixFetch.get(path);
+        }
         const response = await fetch(path, {
             cache: 'no-store', credentials: 'same-origin', ...(options || {})
         });
@@ -1399,13 +1407,18 @@
         top.append(productionCard, fleetCard(summary, inverters));
         /* Same ordering as Grid power, for the same reason: "is anything down"
          * is answered by the table, and it was below a 500px chart. */
-        const table = inverterTable(inverters, telemetryMap);
+        const table = inverterTable(inverters, telemetryMap, payload.status);
         /* Said in words under the table, every time a commanded figure is on it.
          * "Now" and "Commanded" are one column apart and look alike, and only
          * one of them is evidence about the machine. */
         table.append(node('p', 'op-table-note',
-            'Commanded is an instruction this controller sent, not a reading. '
-            + 'Now is what the machine reported.'));
+            'Requested is what the controller wants; Commanded is what the ramp '
+            + 'rate allows it to send now. Each is '
+            /* Kept on one line: the phrase is asserted verbatim by
+             * tests/telemetry_source_contract.py, and a line break inside it
+             * hides it from the check while the page still reads correctly. */
+            + 'an instruction this controller sent, not a reading'
+            + '. Now is what the machine reported.'));
         view.append(armCard(payload), top, table,
                     inverterEngineeringDetail(inverters));
     }
@@ -1505,12 +1518,29 @@
                 : 'No inverter is eligible to be commanded, so starting it would '
                   + 'change nothing. The table below says why for each machine.'));
 
+        /*
+         * SAY THE PREREQUISITE BEFORE THE PRESS, NOT AFTER IT.
+         *
+         * Arming is an engineering write. Without a session the controller
+         * answers "Engineering authentication is required", which the operator
+         * only discovered by pressing the button and reading a refusal -- and a
+         * refusal after the act reads as a fault rather than as a step missed.
+         */
+        const unlocked = window.AutomatrixEngineeringAccess?.isAuthenticated() === true;
+        if (!unlocked) {
+            card.append(node('p', 'op-card-note',
+                'Starting and stopping it is an engineering action. Unlock '
+                + 'Engineering access first — the link is at the foot of the menu.'));
+        }
+
         const actions = node('div', 'op-card-actions');
         const button = node('button', enabled ? 'button secondary' : 'button primary',
             enabled ? 'Stop automatic control' : 'Start automatic control');
         button.type = 'button';
-        /* Never disabled while armed: see above. */
-        button.disabled = !enabled && commandable <= 0;
+        /* Never disabled while armed: being unable to stop is the one failure
+         * that is not recoverable, so a locked session must not take the stop
+         * away either. */
+        button.disabled = enabled ? false : (commandable <= 0 || !unlocked);
         const message = node('span', 'action-message');
         message.setAttribute('role', 'status');
 
@@ -1523,13 +1553,16 @@
             message.className = 'action-message';
             message.textContent = enabled ? 'Stopping…' : 'Starting…';
             try {
+                window.AutomatrixFetch?.invalidate();
                 await api('/api/control/enable', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ enabled: !enabled })
                 });
-                /* Re-read. The controller may have refused, and it is the only
-                 * honest source for what actually happened. */
+                /* Re-read, and from the controller rather than from anything
+                 * held: it may have refused, and it is the only honest source
+                 * for what actually happened. */
+                window.AutomatrixFetch?.invalidate();
                 await refreshAll();
             } catch (error) {
                 message.textContent = `Refused: ${error.message}`;
@@ -1635,7 +1668,23 @@
         return card;
     }
 
-    function inverterTable(inverters, telemetryMap) {
+    /*
+     * TWO COMMANDS, BECAUSE THE CONTROLLER MAKES TWO.
+     *
+     * "Requested" is the fleet target the control loop computed from the grid
+     * or generator reading. "Commanded" is what is actually sent after the ramp
+     * rate has limited how fast that target may be approached.
+     *
+     * They are equal at rest and differ during a ramp, and the difference is
+     * the ramp doing its job -- which was visible nowhere. An engineer watching
+     * only the commanded figure sees the plant move slowly and cannot tell
+     * whether the controller asked for slow or the ramp made it slow.
+     */
+    function inverterTable(inverters, telemetryMap, status) {
+        /* Shared out across the machines that carry a rating, the same basis
+         * the controller uses. */
+        const fleetRatedKw = (Array.isArray(inverters) ? inverters : [])
+            .reduce((sum, item) => sum + (Number(item.rated_kw) || 0), 0);
         const card = node('article', 'op-card');
         card.append(node('div', 'op-card-headline', 'Inverters'));
         if (!inverters.length) {
@@ -1669,7 +1718,8 @@
         /* "Commanded" is the controller's own decision for this machine; "Now"
          * is what the machine reports. Adjacent on purpose, and never merged:
          * one is an instruction and the other is a measurement. */
-        ['Inverter', 'State', 'Now', 'Commanded', 'Rated', 'Use', 'Last update'].forEach((label) => headRow.append(node('th', '', label)));
+        ['Inverter', 'State', 'Now', 'Requested', 'Commanded', 'Rated', 'Use', 'Last update']
+            .forEach((label) => headRow.append(node('th', '', label)));
         const thead = node('thead');
         thead.append(headRow);
         table.append(thead);
@@ -1689,6 +1739,21 @@
             /* The percentage the controller would send, and whether it will
              * actually go. An em dash when the profile describes no command, so
              * "not commandable" and "commanded to zero" stay distinguishable. */
+            /* The fleet's requested target, shared out the same way the command
+             * is: proportional to this machine's rating. Before the ramp. */
+            const requestedFleetKw = finite(status?.requested_pv_kw)
+                ? Number(status.requested_pv_kw) : null;
+            const requested = node('td', 'op-num');
+            if (requestedFleetKw !== null && fleetRatedKw > 0 && entry.rated > 0) {
+                const shareKw = requestedFleetKw * entry.rated / fleetRatedKw;
+                requested.textContent = `${Math.round(100 * shareKw / entry.rated)} %`;
+                requested.title = `${shareKw.toFixed(2)} kW of this machine's share, `
+                    + 'before the ramp rate limits how fast it may be approached';
+            } else {
+                requested.textContent = '—';
+            }
+            row.append(requested);
+
             const commanded = node('td', 'op-num');
             const preview = entry.preview;
             if (preview && preview.available && finite(Number(preview.percent))) {
@@ -1917,8 +1982,33 @@
         const shellRefresh = byId('refreshButton');
         if (shellRefresh) shellRefresh.disabled = true;
         try {
+            /*
+             * THREE REQUESTS, NOT FOUR.
+             *
+             * web/inverter-telemetry.js already reads /api/inverter-telemetry
+             * every two seconds and publishes what it got. Asking for it again
+             * here every five seconds was a second request for a fact already
+             * in the browser -- and on a controller with very few client
+             * sockets, a duplicate does not waste its own socket, it occupies
+             * one another module is waiting for.
+             *
+             * Falls back to fetching it only if that module has not answered
+             * yet, so nothing depends on load order.
+             */
+            const cached = window.AutomatrixInverterTelemetryCache;
+            /* app.js reads /api/status every two seconds. Anything it took
+             * within the last three is newer than this view's own five-second
+             * cadence, so asking again would only cost a socket. Older than
+             * that and it is fetched, so a stalled app.js cannot freeze this
+             * screen on an old reading. */
+            const heldStatus = window.AutomatrixStatusCache;
+            const statusIsFresh = heldStatus && Date.now() - heldStatus.at <= 3000;
             const [status, meters, inverters, inverterTelemetry] = await Promise.all([
-                api('/api/status'), api('/api/meters'), api('/api/inverters'), api('/api/inverter-telemetry')
+                statusIsFresh ? Promise.resolve(heldStatus.payload) : api('/api/status'),
+                api('/api/meters'), api('/api/inverters'),
+                cached ? Promise.resolve({ inverters: Object.values(cached),
+                                           summary: window.AutomatrixInverterTelemetrySummary || {} })
+                       : api('/api/inverter-telemetry')
             ]);
             state.lastPayload = { status, meters, inverters, inverterTelemetry, telemetry: state.siteTelemetry };
             renderCurrent();
@@ -1978,6 +2068,11 @@
         bindShellRefresh();
         onRoute();
         window.addEventListener('hashchange', onRoute);
+        /* Unlocking Engineering changes what this view may offer -- the
+         * automatic-control button among it -- so redraw when the scope
+         * changes. Without this an engineer signs in and the button stays
+         * disabled until the next poll, which reads as a broken control. */
+        window.AutomatrixEngineeringAccess?.onScopeChange(() => renderCurrent());
         /* The measurement bars quote the same window the trend chart draws, and
          * that window is owned by operator-operations.js. Redraw when it lands
          * so the bar and the chart under it never disagree. The event is fired

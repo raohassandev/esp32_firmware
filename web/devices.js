@@ -398,6 +398,11 @@
     }
 
     async function api(path) {
+        /* Through the shared reader: several modules poll these same paths on
+         * their own timers, and the controller has very few client sockets. A
+         * GET already in flight or answered a moment ago is reused instead of
+         * asked again. See web/shared-fetch.js. */
+        if (window.AutomatrixFetch) return window.AutomatrixFetch.get(path);
         const response = await fetch(path, { cache: 'no-store' });
         const text = await response.text();
         if (!response.ok) throw new Error(text || `${response.status} ${response.statusText}`);

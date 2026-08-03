@@ -94,6 +94,9 @@
             byIndex[Number(item.index)] = item;
         });
         window.AutomatrixInverterTelemetryCache = byIndex;
+        /* The fleet roll-up travels with the per-machine rows: a consumer that
+         * had one and fetched the other would be back to two requests. */
+        window.AutomatrixInverterTelemetrySummary = data?.summary || {};
         /* The cards are drawn by web/devices.js on its own poll, which may have
          * run before this read answered. Telling it rather than waiting for its
          * next cycle is what stops the four fields sitting at "Not read yet"
@@ -120,9 +123,17 @@
          * A failed read reports into the findings block below, which is where a
          * reader is already looking for why capacity is what it is. */
         try {
-            const response = await fetch('/api/inverter-telemetry', { cache: 'no-store' });
-            if (!response.ok) throw new Error(await response.text() || `HTTP ${response.status}`);
-            const payload = await response.json();
+            /* Through the shared reader: operator-view.js and
+             * operator-product-suite.js poll this same path on their own
+             * timers, and the controller has very few client sockets. See
+             * web/shared-fetch.js. */
+            const payload = window.AutomatrixFetch
+                ? await window.AutomatrixFetch.get('/api/inverter-telemetry')
+                : await (async () => {
+                    const response = await fetch('/api/inverter-telemetry', { cache: 'no-store' });
+                    if (!response.ok) throw new Error(await response.text() || `HTTP ${response.status}`);
+                    return response.json();
+                })();
             if (payload.writes_issued !== false || payload.read_only_endpoint !== true) {
                 throw new Error('Telemetry endpoint safety declaration is missing');
             }

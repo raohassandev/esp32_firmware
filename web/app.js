@@ -862,6 +862,12 @@
         state.refreshing = true;
         try {
             state.status = await api('/api/status');
+            /* Published for the product view, which renders from the same
+             * payload on its own timer. It was fetching /api/status again --
+             * a second request for a fact already in the browser, on a
+             * controller with very few client sockets. A CACHE with the instant
+             * it was taken, so a reader can refuse a stale one. */
+            window.AutomatrixStatusCache = { at: Date.now(), payload: state.status };
             state.lastUpdatedAt = new Date();
             renderStatus();
             window.dispatchEvent(new CustomEvent('amx-controller-status', { detail: state.status }));

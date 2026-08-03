@@ -15,6 +15,7 @@
 # Blank lines and # comments are ignored. Paths are relative to web/.
 
 
+shared-fetch.js
 theme.js
 icons.js
 operator-proof.js
