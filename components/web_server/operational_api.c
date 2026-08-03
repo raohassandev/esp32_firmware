@@ -136,6 +136,10 @@ typedef struct {
     bool initialized;
     bool network_online;
     bool meter_online;
+    /* True once a poll has COMPLETED, either way, since the controller last had
+     * a network to reach the meter over. Until then nothing has been learned
+     * about the meter and no verdict on it can be honest. */
+    bool meter_verdict_ready;
     bool control_enabled;
     uint8_t inverter_online;
     uint8_t inverter_enabled;
@@ -154,6 +158,10 @@ static uint16_t s_event_count;
 static uint32_t s_event_sequence;
 static uint32_t s_last_minute_ms;
 static observed_state_t s_observed;
+/* When the controller last acquired a network, and 0 while it has none. The
+ * meter can only be judged on polls attempted after this instant; see
+ * meter_verdict_unavailable(). */
+static uint32_t s_network_online_since_ms;
 static TaskHandle_t s_task;
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 
@@ -691,6 +699,31 @@ static void collect_sample(operational_sample_t *sample, observed_state_t *state
     state->network_online = network.network_ready;
     state->meter_online = meter.online && meter_has_data && meter_age <= safety_manager_meter_stale_timeout_ms() &&
                           isfinite(meter.active_power_kw);
+    /*
+     * WHEN THE METER CAN BE JUDGED: ONE COMPLETED POLL SINCE THE LINK EXISTED.
+     *
+     * Counting attempts alone was not enough, and the plant proved it. While the
+     * controller's Wi-Fi was still connecting, its polls failed and the failure
+     * counters filled -- so at the moment the network came back the meter looked
+     * like an instrument with a history of failures, and both alarms were raised
+     * in the same observation as "Network restored", a full ten seconds before
+     * the meter had any chance to answer. Judging it then was judging it on
+     * evidence gathered while the controller could not reach it.
+     *
+     * So the clock starts when the network does. meter_manager stamps
+     * last_attempt_ms before it branches on the outcome, so this is true after
+     * exactly one completed poll, whether it succeeded or failed -- a dead meter
+     * is still reported one poll after the link comes up.
+     */
+    if (!state->network_online) {
+        s_network_online_since_ms = 0U;
+    } else if (s_network_online_since_ms == 0U) {
+        s_network_online_since_ms = sample->timestamp_ms;
+    }
+    state->meter_verdict_ready =
+        state->network_online && s_network_online_since_ms != 0U &&
+        meter.last_attempt_ms != 0U &&
+        (int32_t)(meter.last_attempt_ms - s_network_online_since_ms) >= 0;
     state->control_enabled = control.enabled;
     state->alarm_flags = safety_manager_get_alarm_flags();
 
@@ -719,6 +752,37 @@ static void collect_sample(operational_sample_t *sample, observed_state_t *state
     sample->inverter_enabled = inverter_enabled;
 }
 
+/*
+ * WHEN THERE IS NO HONEST VERDICT TO GIVE ABOUT THE METER.
+ *
+ * Established from the plant's own event journal, not reasoned about here. A
+ * restart produced, in order: "Controller started" and "Controller network
+ * offline" at 55 s, "Network restored" at 35 s, "Meter offline alarm" and "Grid
+ * measurement unavailable" in that SAME observation, and both cleared by 25 s --
+ * against an EM500 that was answering every second before and after.
+ *
+ * The meter is reached over the controller's own network. While that network is
+ * down every poll fails from the near end and the meter looks dead from here,
+ * but the failure is the controller's and is already reported by its own
+ * critical alarm with the right action. The meter alarms added nothing except an
+ * instruction to inspect intact wiring at the far end of a link the controller
+ * had not yet joined. Reporting a consequence as an independent fault is how an
+ * alarm list becomes something operators scroll past.
+ *
+ * The condition ends at the first completed poll after the link exists, so a
+ * meter that is genuinely absent still alarms -- one poll later, for a reason
+ * that is then true.
+ *
+ * This governs REPORTING only. safety_manager raises both meter flags in every
+ * one of these states and holds PV at zero, because a meter that has not been
+ * read and a meter that cannot be reached are equally unfit to regulate
+ * against. See tests/meter_startup_alarm_source_contract.py.
+ */
+static bool meter_verdict_unavailable(const observed_state_t *state)
+{
+    return !state->meter_verdict_ready;
+}
+
 static void detect_events(const observed_state_t *next, uint32_t timestamp)
 {
     if (!s_observed.initialized) {
@@ -737,23 +801,77 @@ static void detect_events(const observed_state_t *next, uint32_t timestamp)
         if (!next->network_online) {
             append_event_ex(EVENT_NETWORK_STATE, false, 2, 0, timestamp, true);
         }
-        if (!next->meter_online) {
+        /*
+         * A METER THAT HAS NOT BEEN READ YET HAS NOT FAILED.
+         *
+         * The three raises below fire before the first poll has completed, so
+         * every restart produced a critical "the primary grid meter is not
+         * communicating -- check meter power, communication wiring, gateway and
+         * network path", plus a stale-data warning and a measurement-unavailable
+         * critical. They cleared themselves about twenty seconds later when the
+         * first sample landed. Observed on the plant: three criticals standing
+         * on the overview immediately after a flash, against a meter that was
+         * answering every second.
+         *
+         * An alarm that always fires at startup and always clears is worse than
+         * no alarm. It sends an engineer to inspect wiring that is intact, and
+         * it teaches everyone to discount the one class of alarm that means the
+         * controller has lost sight of the plant.
+         *
+         * The condition is not suppressed, only its VERDICT is deferred until
+         * there is evidence for one. Control is untouched: safety_manager still
+         * raises both flags and still holds PV at zero, because an unread meter
+         * and a dead meter are equally unfit to regulate against.
+         */
+        const bool meter_unknown = meter_verdict_unavailable(next);
+        if (!meter_unknown && !next->meter_online) {
             append_event_ex(EVENT_METER_STATE, false, 2, 0, timestamp, true);
         }
-        if ((next->alarm_flags & SAFETY_ALARM_METER_OFFLINE) != 0U) {
+        if (!meter_unknown && (next->alarm_flags & SAFETY_ALARM_METER_OFFLINE) != 0U) {
             append_event_ex(EVENT_METER_OFFLINE_ALARM, true, 2, 0, timestamp, true);
         }
-        if ((next->alarm_flags & SAFETY_ALARM_METER_STALE) != 0U) {
+        if (!meter_unknown && (next->alarm_flags & SAFETY_ALARM_METER_STALE) != 0U) {
             append_event_ex(EVENT_METER_STALE_ALARM, true, 1, 0, timestamp, true);
         }
         s_observed = *next;
+        if (meter_unknown) {
+            /*
+             * Recorded as healthy DELIBERATELY, and this is the load-bearing
+             * half of the change.
+             *
+             * Latching the fault here instead would mean a meter that never
+             * answers produces no transition and therefore no event at all --
+             * the silent-on-a-dead-meter bug the raises above exist to prevent.
+             * Recording the optimistic state means a condition that survives
+             * the first completed attempt transitions 0 -> 1 and is raised by
+             * the normal path below, with its on-delay, one observation
+             * interval later. A meter that is genuinely absent still alarms; it
+             * alarms a few seconds later and for a reason that is now true.
+             */
+            s_observed.meter_online = true;
+            s_observed.alarm_flags &= ~(uint32_t)(SAFETY_ALARM_METER_OFFLINE |
+                                                  SAFETY_ALARM_METER_STALE);
+        }
         s_observed.initialized = true;
         return;
     }
     if (next->network_online != s_observed.network_online) {
         append_event(EVENT_NETWORK_STATE, next->network_online, next->network_online ? 0 : 2, 0, timestamp);
     }
-    if (next->meter_online != s_observed.meter_online) {
+    /*
+     * The same deferral as at the first sample, for as long as it is true.
+     *
+     * Suppressing only the first sample would have moved the false alarm rather
+     * than removed it: the first observation is taken seconds after boot, and if
+     * the meter task has not completed an attempt by the SECOND one the state
+     * recorded as healthy transitions to faulty and raises exactly the alarm
+     * this change exists to stop. The verdict waits for one completed attempt,
+     * however many observations that takes -- and a completed attempt is what
+     * ends it, so a meter that never answers cannot defer its alarm for ever:
+     * the first failed poll ends the unknown state and raises it.
+     */
+    const bool meter_unknown = meter_verdict_unavailable(next);
+    if (!meter_unknown && next->meter_online != s_observed.meter_online) {
         append_event(EVENT_METER_STATE, next->meter_online, next->meter_online ? 0 : 2, 0, timestamp);
     }
     if (next->inverter_online != s_observed.inverter_online || next->inverter_enabled != s_observed.inverter_enabled) {
@@ -765,12 +883,20 @@ static void detect_events(const observed_state_t *next, uint32_t timestamp)
         append_event(EVENT_CONTROL_STATE, next->control_enabled, next->control_enabled ? 1 : 0, 0, timestamp);
     }
     bool previous_offline = (s_observed.alarm_flags & SAFETY_ALARM_METER_OFFLINE) != 0;
-    bool next_offline = (next->alarm_flags & SAFETY_ALARM_METER_OFFLINE) != 0;
+    bool next_offline = !meter_unknown && (next->alarm_flags & SAFETY_ALARM_METER_OFFLINE) != 0;
     if (previous_offline != next_offline) append_event(EVENT_METER_OFFLINE_ALARM, next_offline, next_offline ? 2 : 0, 0, timestamp);
     bool previous_stale = (s_observed.alarm_flags & SAFETY_ALARM_METER_STALE) != 0;
-    bool next_stale = (next->alarm_flags & SAFETY_ALARM_METER_STALE) != 0;
+    bool next_stale = !meter_unknown && (next->alarm_flags & SAFETY_ALARM_METER_STALE) != 0;
     if (previous_stale != next_stale) append_event(EVENT_METER_STALE_ALARM, next_stale, next_stale ? 1 : 0, 0, timestamp);
     s_observed = *next;
+    if (meter_unknown) {
+        /* Hold the recorded state optimistic for the same reason as at the first
+         * sample, so the raise happens once, on the transition that follows the
+         * first completed attempt, rather than on every observation until then. */
+        s_observed.meter_online = true;
+        s_observed.alarm_flags &= ~(uint32_t)(SAFETY_ALARM_METER_OFFLINE |
+                                              SAFETY_ALARM_METER_STALE);
+    }
     s_observed.initialized = true;
 }
 
