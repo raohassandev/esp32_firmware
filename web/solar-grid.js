@@ -565,7 +565,20 @@
 
         /* The consequence of base load, stated before the fields that produce it and
          * in the firmware's own sentence once the configuration has been read. */
+        /*
+         * BUILT HIDDEN, SHOWN ON EVIDENCE.
+         *
+         * These were built visible and hidden later, once a successful read had
+         * told renderEngines() there was no base-loaded engine. Until that read
+         * landed -- and on any plant where it never lands, because the session
+         * expired or the endpoint refused -- the page showed a fault warning
+         * about a condition it had no reason to believe in.
+         *
+         * The safe default for "is something wrong here" is to say nothing
+         * until the controller has answered.
+         */
         const baseLoadNotice = node('div', 'notice bad');
+        baseLoadNotice.hidden = true;
         baseLoadNotice.id = 'generatorBaseLoadNotice';
         baseLoadNotice.append(
             node('strong', '', 'A base-loaded engine held below its own minimum loading is a commissioning fault.'),
@@ -587,7 +600,14 @@
         const engines = node('div', 'dashboard-grid engine-cards');
         engines.id = 'generatorFleetEngines';
         const slots = Number(state.config?.engine_slot_count) || ENGINE_SLOT_FALLBACK;
-        for (let slot = 0; slot < slots; slot += 1) engines.append(engineFields(slot));
+        for (let slot = 0; slot < slots; slot += 1) {
+            const card = engineFields(slot);
+            /* Hidden until the controller says this slot is commissioned. The
+             * first stays visible so a plant with nothing configured yet still
+             * has somewhere to enter its first engine. */
+            if (slot > 0) card.hidden = true;
+            engines.append(card);
+        }
         panel.append(engines);
 
         /* The derived floor, as a statement rather than a number without a subject. */
@@ -995,8 +1015,8 @@
             '<div class="health-list">',
             '<div class="health-row"><span>Policy</span><strong id="solarGridRuntimePolicy">--</strong></div>',
             '<div class="health-row"><span>Source mode</span><strong id="solarGridSourceMode">--</strong></div>',
-            '<div class="health-row" id="solarGridEvidenceStateRow"><span>Grid evidence</span><strong id="solarGridEvidenceState">--</strong></div>',
-            '<div class="health-row" id="solarGridContactStateRow"><span>Availability / breaker</span><strong id="solarGridContactState">--</strong></div>',
+            '<div class="health-row" id="solarGridEvidenceStateRow" hidden><span>Grid evidence</span><strong id="solarGridEvidenceState">--</strong></div>',
+            '<div class="health-row" id="solarGridContactStateRow" hidden><span>Availability / breaker</span><strong id="solarGridContactState">--</strong></div>',
             '<div class="health-row"><span id="solarGridPowerLabel">Oriented source power</span><strong id="solarGridPower">--</strong></div>',
             /* THE CONTROL DECISION, not just its inputs.
              *
@@ -1015,7 +1035,7 @@
              * the readiness page, after the gate has been read.
              * tests/solar_grid_control_source_contract.py holds this. */
             '<div class="health-row"><span>Grid target</span><strong id="solarGridTarget">--</strong></div>',
-            '<div class="health-row" id="solarGridEvidenceReadsRow"><span>Evidence reads</span><strong id="solarGridEvidenceReads">--</strong></div>',
+            '<div class="health-row" id="solarGridEvidenceReadsRow" hidden><span>Evidence reads</span><strong id="solarGridEvidenceReads">--</strong></div>',
             '</div>'
         ].join('');
 
