@@ -138,8 +138,18 @@ function fetchJson(pathname) {
          */
         if (attributed === 'generator' && /Grid power/i.test(text)) {
             const badCard = await page.evaluate(() => {
-                const head = document.querySelector('#gridDot')?.closest('.metric-head');
-                return head ? head.innerText.trim() : null;
+                /* On the ACTIVE page, and visible.
+                 *
+                 * This looked the element up in the whole document, so it found
+                 * the plant overview's card -- hidden, on an inactive page --
+                 * and reported every other route as mislabelling the supply.
+                 * A check that reads a hidden element on a page the reader is
+                 * not on describes nothing anybody can see. */
+                const dot = document.querySelector('.page.active #gridDot');
+                const head = dot?.closest('.metric-head');
+                const card = head?.closest('.metric-card');
+                if (!card || card.getClientRects().length === 0) return null;
+                return head.innerText.trim();
             });
             if (badCard && /grid/i.test(badCard)) {
                 problems.push(`${route}: the plant is on the GENERATOR and a metric card is still headed "${badCard}"`);
