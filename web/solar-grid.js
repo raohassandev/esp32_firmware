@@ -593,24 +593,33 @@
         }
         panel.append(engines);
 
-        /* The derived floor, as a statement rather than a number without a subject. */
-        const derived = node('div', 'engine-floor');
-        derived.innerHTML = [
-            '<h4>Aggregate minimum-loading floor</h4>',
-            '<p class="engine-note" id="generatorFloorBasis">The floor below is computed with every in-service engine treated as on the bus. That is the largest denominator this policy allows, so it is the largest floor and the one commissioning has to satisfy.</p>',
-            '<div class="health-list">',
-            '<div class="health-row"><span>Sharing mode used</span><strong id="generatorFloorMode">--</strong></div>',
-            '<div class="health-row"><span>Engines counted</span><strong id="generatorFloorOnline">--</strong></div>',
-            '<div class="health-row"><span>Aggregate rating</span><strong id="generatorFloorRating">--</strong></div>',
-            '<div class="health-row"><span>Minimum-loading floor</span><strong id="generatorFloorMinimum">--</strong></div>',
-            '<div class="health-row"><span>Held at fixed kW</span><strong id="generatorFloorBaseLoad">--</strong></div>',
-            '<div class="health-row"><span>Load the generators must keep</span><strong id="generatorFloorRequired">--</strong></div>',
-            '</div>',
-            '<p class="engine-fault" id="generatorFloorReason" role="status"></p>',
-            '<p class="engine-fault" id="generatorFleetGateReason" role="status"></p>',
-            '<p class="engine-note" id="generatorFloorRuntime"></p>'
-        ].join('');
-        panel.append(derived);
+        /*
+         * THE COMMISSIONING GATE'S OWN REASON STAYS.
+         *
+         * It stood inside the floor read-out and is not part of it: when the
+         * generator-limits prerequisite is unmet this is the controller's own
+         * sentence saying why, and an engineer reading this page needs it here
+         * rather than on another one. Empty when the prerequisite is satisfied,
+         * so it costs nothing on a commissioned plant.
+         */
+        const gateReason = node('p', 'engine-fault');
+        gateReason.id = 'generatorFleetGateReason';
+        gateReason.setAttribute('role', 'status');
+        panel.append(gateReason);
+
+        /*
+         * THE AGGREGATE MINIMUM-LOADING FLOOR READ-OUT IS GONE FROM THIS PAGE.
+         *
+         * Six derived rows -- sharing mode, engines counted, aggregate rating,
+         * the floor, engines held at fixed kW, and the load the generators must
+         * keep -- every one of them computed from the engine fields directly
+         * above it. Removed at the owner's request, to be designed properly
+         * rather than left as arithmetic printed next to its own inputs.
+         *
+         * The firmware still computes and publishes it on
+         * /api/solar-grid/status, and the control loop still enforces it: this
+         * removes the display, not the floor.
+         */
 
         const actions = node('div', 'panel-actions');
         const save = node('button', 'button primary', 'Save generator policy');
@@ -659,6 +668,22 @@
             select.append(item);
         });
         select.value = String(Number(config?.load_sharing_mode) || 0);
+    }
+
+    /* The commissioning gate's verdict on the generator limits, in its own words.
+     * Read once per load rather than on the status poll: this route already
+     * holds one of very few client sockets open for the status refresh. */
+    async function loadGateReason() {
+        const target = byId('generatorFleetGateReason');
+        if (!target) return;
+        try {
+            const gate = await api('/api/commissioning/gate', { timeoutMs: 4000 });
+            const items = Array.isArray(gate?.prerequisites) ? gate.prerequisites : [];
+            const item = items.find((entry) => String(entry?.id) === 'generator_limits');
+            target.textContent = item && item.satisfied !== true ? verbatimText(item.detail) : '';
+        } catch {
+            target.textContent = '';
+        }
     }
 
     function renderEngines(config) {
@@ -863,70 +888,10 @@
      * running. Verified identical before removal, not assumed.
      */
 
-    function renderFleetStatus(fleet) {
-        if (!byId('generatorFloorMode')) return;
-        const derived = fleet?.derived_floor || null;
-        const unavailable = 'Unavailable';
-        const setRow = (id, text) => { const target = byId(id); if (target) target.textContent = text; };
-        if (!derived) {
-            ['generatorFloorMode', 'generatorFloorOnline', 'generatorFloorRating',
-             'generatorFloorMinimum', 'generatorFloorBaseLoad', 'generatorFloorRequired']
-                .forEach((id) => setRow(id, unavailable));
-            setRow('generatorFloorReason', '');
-            setRow('generatorFloorRuntime', '');
-            return;
-        }
-        const known = derived.known === true;
-        setRow('generatorFloorMode', String(derived.sharing_mode || 'unset').replaceAll('_', ' '));
-        setRow('generatorFloorOnline', known ? `${Number(derived.online_count) || 0} of ${Number(fleet?.engine_slot_count) || 0}` : unavailable);
-        setRow('generatorFloorRating', known ? power(derived.online_rated_kw) : unavailable);
-        setRow('generatorFloorMinimum', known ? power(derived.minimum_loading_kw) : unavailable);
-        setRow('generatorFloorBaseLoad', known
-            ? `${Number(derived.base_loaded_count) || 0} engine(s) · ${power(derived.base_load_total_kw)}`
-            : unavailable);
-        setRow('generatorFloorRequired', known ? power(derived.required_generator_kw) : unavailable);
-        /* The controller's own sentence for the reason it reported, selected by the
-         * slug it reported. Never a sentence composed here. */
-        setRow('generatorFloorReason', known ? '' : (FLEET_REASON_SENTENCES[String(derived.reason || '')] || ''));
-        setRow('generatorFloorRuntime', fleet?.runtime_fleet_limit_published === false
-            ? `The controller's own cycle-by-cycle limit is not published. Its reason is: ${verbatimText(fleet?.runtime_reason) || 'none reported'}`
-            : '');
-    }
-
-    /* The commissioning gate's verdict on the generator limits, in its own words. Read
-     * once per load rather than on the status poll: the Control route already holds
-     * one of very few client sockets open for the status refresh. */
-    async function loadGateReason() {
-        const target = byId('generatorFleetGateReason');
-        if (!target) return;
-        try {
-            const gate = await api('/api/commissioning/gate', { timeoutMs: 4000 });
-            const items = Array.isArray(gate?.prerequisites) ? gate.prerequisites : [];
-            const item = items.find((entry) => String(entry?.id) === 'generator_limits');
-            target.textContent = item && item.satisfied !== true ? verbatimText(item.detail) : '';
-        } catch {
-            target.textContent = '';
-        }
-    }
-
-    /*
-     * WHERE THIS WORKSPACE APPEARS.
-     *
-     * It was built for the Control page and hardcoded to mount there. The plant
-     * owner then asked, rightly, why commissioning walks an engineer through
-     * meter registers and Modbus timing and never once asks for the grid policy,
-     * the generator limits or the ramp rates -- the settings the controller
-     * actually regulates on.
-     *
-     * The answer is NOT a second copy of this form inside the commissioning
-     * module. Every control here is validated, posted and gated by rules that
-     * live in this file; a duplicate would be a second implementation of those
-     * rules, and the two would drift the first time one was corrected.
-     *
-     * So the workspace takes a host. The Control page mounts it where it always
-     * was; commissioning mounts the same thing in its own step. One
-     * implementation, one set of rules, two places it can be reached.
-     */
+    /* renderFleetStatus() went with the read-out it filled. Its six rows were
+     * arithmetic over the engine fields on the same page, and the firmware
+     * still computes and publishes the floor on /api/solar-grid/status for
+     * whatever displays it next. */
     function workspaceHost() {
         const commissioning = byId('crPlantControlHost');
         if (commissioning) return commissioning;
@@ -973,36 +938,20 @@
         const root = node('section', 'solar-grid-workspace');
         root.id = 'solarGridWorkspace';
 
-        const runtime = node('article', 'panel');
-        runtime.innerHTML = [
-            '<div class="panel-header"><div><p class="eyebrow">Source evidence</p><h3>Solar + Grid runtime gate</h3></div><span class="subtle-badge" id="solarGridGateBadge">Checking</span></div>',
-            '<div class="health-list">',
-            '<div class="health-row"><span>Policy</span><strong id="solarGridRuntimePolicy">--</strong></div>',
-            '<div class="health-row"><span>Source mode</span><strong id="solarGridSourceMode">--</strong></div>',
-            '<div class="health-row" id="solarGridEvidenceStateRow" hidden><span>Grid evidence</span><strong id="solarGridEvidenceState">--</strong></div>',
-            '<div class="health-row" id="solarGridContactStateRow" hidden><span>Availability / breaker</span><strong id="solarGridContactState">--</strong></div>',
-            '<div class="health-row"><span id="solarGridPowerLabel">Oriented source power</span><strong id="solarGridPower">--</strong></div>',
-            /* THE CONTROL DECISION, not just its inputs.
-             *
-             * The panel showed the policy, the source and the measured power,
-             * and stopped there -- so an engineer could see everything the loop
-             * reads and nothing about what it CONCLUDED. error_kw is the gap the
-             * loop is closing and safe_pv is the ceiling the generator
-             * protections impose; both are published and neither reached a
-             * screen. Without them "why is PV being held down" has no answer. */
-            '<div class="health-row"><span>Error to target</span><strong id="solarGridError">--</strong></div>',
-            '<div class="health-row"><span>Generator-safe PV ceiling</span><strong id="solarGridSafePv">--</strong></div>',
-            /* ARMING IS DELIBERATELY NOT HERE. Every save on this page forces
-             * automatic control off; an arm button beside it would let a setting
-             * be changed and re-armed without leaving the page, skipping the
-             * re-verification the forced disable exists to require. It lives on
-             * the readiness page, after the gate has been read.
-             * tests/solar_grid_control_source_contract.py holds this. */
-            '<div class="health-row"><span>Grid target</span><strong id="solarGridTarget">--</strong></div>',
-            '<div class="health-row" id="solarGridEvidenceReadsRow" hidden><span>Evidence reads</span><strong id="solarGridEvidenceReads">--</strong></div>',
-            '</div>'
-        ].join('');
-
+        /*
+         * THE RUNTIME GATE PANEL IS GONE FROM THIS PAGE.
+         *
+         * It read "Source evidence" and by the end contained no evidence: the
+         * evidence rows had been hidden as unwired, and what was left was the
+         * control loop's live working -- policy, source mode, oriented power,
+         * error to target, the generator-safe ceiling and the grid target. Two
+         * of those repeated settings that sit in the form directly below it.
+         *
+         * Removed at the owner's request, to be designed properly rather than
+         * left as a read-out with a heading that no longer describes it. The
+         * controller still publishes every one of those values on
+         * /api/solar-grid/status.
+         */
         const configPanel = node('article', 'panel form-panel');
         const header = node('div', 'panel-header');
         const copy = node('div');
@@ -1067,7 +1016,7 @@
         actions.append(save, message);
         configPanel.append(actions);
 
-        root.append(runtime, configPanel);
+        root.append(configPanel);
         ensureFleetEditor(root);
         ensureRampEditor(root);
 
@@ -1242,7 +1191,6 @@
                 : 'Not limiting PV');
         byId('solarGridTarget').textContent = power(status.grid_target_kw);
         byId('solarGridEvidenceReads').textContent = `${Number(status.grid_evidence_success_count) || 0} OK · ${Number(status.grid_evidence_error_count) || 0} errors`;
-        renderFleetStatus(status.generator_fleet);
     }
 
     /*

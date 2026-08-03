@@ -426,14 +426,19 @@ require("item.disabled = !supported" in JS,
         "a refused mode must not be selectable; offering it would let an engineer "
         "commission a mode the controller will not act on")
 
-# The derived floor, stated as a floor with a subject.
-for row in ("generatorFloorMode", "generatorFloorOnline", "generatorFloorRating",
-            "generatorFloorMinimum", "generatorFloorBaseLoad", "generatorFloorRequired",
-            "generatorFloorReason", "generatorFloorRuntime"):
-    require(row in JS, f"the derived-floor statement is missing {row}")
-require("largest denominator" in JS,
-        "the floor must state what it is computed over, or it reads as the "
-        "cycle-by-cycle answer it is not")
+# THE DERIVED-FLOOR READ-OUT IS GONE FROM THIS PAGE, at the owner's request.
+#
+# Six rows of arithmetic printed directly beneath the engine fields they were
+# computed from. The floor itself is untouched: the firmware computes it,
+# publishes it on /api/solar-grid/status and the control loop enforces it --
+# which is what the C tests in this file exercise. What was removed is one
+# display of it, to be designed again rather than left as a table of derivations.
+#
+# What must NOT disappear with it is the gate's own sentence about why the
+# generator limits are unmet. That is a verdict, not a derivation.
+require("generatorFleetGateReason" in JS,
+        "the commissioning gate's reason for the generator-limits prerequisite "
+        "is no longer rendered on this page, so an engineer must go and find it")
 
 # The consequence of base load, made explicit.
 require("commissioning fault" in JS,
