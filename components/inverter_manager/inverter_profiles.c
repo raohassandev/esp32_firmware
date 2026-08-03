@@ -491,6 +491,30 @@ static const inverter_profile_t PROFILES[] = {
         .power_limit_readback_word_order = INVERTER_WORD_ORDER_AB,
         .power_limit_readback_scale = 0.01f,
         .readback_tolerance_percent = 0.2f,
+        /*
+         * THE ONLY INTERVAL THIS MANUAL STATES, AND WHAT IT DOES NOT STATE.
+         *
+         * Section 2.2, p.6: "More than 300ms communications frame interval is
+         * required." That is a BUS requirement -- the gap this inverter needs
+         * between frames of any kind -- and it is the only number the document
+         * gives. It is recorded here because zero was worse: with no value and a
+         * connection that is not a logger gateway, min_command_interval_ms()
+         * returned 0 and nothing in this profile bounded the setpoint rate at
+         * all.
+         *
+         * What the manual does NOT say is how often the ACTIVE POWER LIMIT may
+         * be changed. Huawei's SmartLogger documents one second between
+         * adjustments and that profile carries it; Solis documents no equivalent,
+         * so none is invented here. 300 ms therefore bounds bus traffic and must
+         * not be read as a statement that this machine tolerates a setpoint
+         * change three times a second.
+         *
+         * What actually paces commands on this product is the control loop's own
+         * one-second floor between decisions -- see
+         * CONTROL_MIN_DECISION_INTERVAL_MS. This value is the floor beneath that
+         * floor, and the first thing to revisit when a real Solis is qualified.
+         */
+        .min_command_interval_ms = 300,
         .telemetry_poll_ms = 1000,
         .telemetry_stale_timeout_ms = 5000,
     },
