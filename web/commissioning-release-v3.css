@@ -207,6 +207,11 @@
     accent-color: var(--accent, var(--orange));
 }
 
+/* Where the per-meter role question used to be on a one-meter plant. It states
+ * what the meter measures rather than leaving the space blank: an engineer who
+ * has seen that field on another site would otherwise look for it. */
+.cr-role-fixed { margin: 4px 0 0; color: var(--muted); line-height: 1.45; }
+
 .cr-topology-state { margin: 12px 0 0; color: var(--muted); }
 .cr-topology-state.good { color: var(--green); }
 .cr-topology-state.bad { color: var(--red); }
