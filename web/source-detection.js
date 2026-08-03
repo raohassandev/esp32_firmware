@@ -572,7 +572,18 @@
 
     async function mount(host) {
         const target = host || mountedHost || document.getElementById('crSourceDetectionHost');
-        if (!target) return;
+        /* A silent return here is how this panel came up blank on the plant:
+         * the caller had asked, the host was not there yet, and nothing on the
+         * screen said either. Retried once on the next frame, and after that it
+         * is a fault worth seeing in the console rather than a blank card. */
+        if (!target) {
+            window.requestAnimationFrame(() => {
+                const late = document.getElementById('crSourceDetectionHost');
+                if (late) mount(late);
+                else console.warn('Source detection: no host to mount into');
+            });
+            return;
+        }
         mountedHost = target;
         try {
             const data = await api('/api/source-detection', { timeoutMs: 5000 });

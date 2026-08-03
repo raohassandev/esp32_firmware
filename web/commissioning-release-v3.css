@@ -164,3 +164,53 @@
     color: var(--muted);
     line-height: 1.5;
 }
+
+/* The supply-topology question on the Channel step. Its own card above the
+ * device tabs, because it is a question about the PLANT and the tabs below are
+ * questions about one device at a time. */
+.cr-topology { margin-bottom: 16px; }
+.cr-topology-note { margin: 0 0 12px; color: var(--muted); line-height: 1.5; }
+.cr-topology-choice { display: grid; gap: 8px; }
+
+/* Each choice is one row: the control, then the sentence.
+ *
+ * The row is a GRID rather than a flex line, so the label text wraps under
+ * itself instead of under the radio. On a narrow screen the previous flex
+ * version put the second line beneath the button and the option read as two
+ * separate things. */
+.cr-topology-choice label {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 10px;
+    align-items: start;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface-sunken);
+    line-height: 1.45;
+    cursor: pointer;
+}
+.cr-topology-choice label:hover { border-color: var(--line-strong, var(--line)); }
+
+/* The radio itself.
+ *
+ * This stylesheet's form rules set inputs to fill their column, which turned
+ * these into 40px circles pushed to the middle of the card with the text
+ * stranded to the right. A radio is a fixed-size control and says so here. */
+.cr-topology-choice input[type="radio"] {
+    width: 16px;
+    height: 16px;
+    min-width: 16px;
+    margin: 3px 0 0;
+    padding: 0;
+    flex: none;
+    accent-color: var(--accent, var(--orange));
+}
+
+.cr-topology-state { margin: 12px 0 0; color: var(--muted); }
+.cr-topology-state.good { color: var(--green); }
+.cr-topology-state.bad { color: var(--red); }
+
+@media (max-width: 560px) {
+    .cr-topology-choice label { padding: 10px; }
+}
