@@ -165,13 +165,14 @@
             key: 'grid_ramp',
             prefix: 'gridRamp',
             title: 'Grid ramp profile',
-            detail: 'Used while the grid carries the plant. A stiff grid normally tolerates a fast PV change, so this profile is off by default.'
+            /* The heading already says which source this profile is for. */
+            detail: ''
         },
         {
             key: 'generator_ramp',
             prefix: 'generatorRamp',
             title: 'Generator ramp profile',
-            detail: 'Used while a generator carries the plant: Generator Only, Island and Grid+Generator sync. This is where rate limiting matters.'
+            detail: ''
         }
     ];
 
@@ -210,18 +211,37 @@
         header.append(copy);
         panel.append(header);
 
-        const notice = node('div', 'notice warning');
-        notice.append(
-            node('strong', '', 'Disabling a ramp removes only the rate limit.'),
-            node('span', '', 'The export/import policy, the generator minimum-loading limit and every other safety clamp are applied first and still hold. Disabled means reach the allowed target immediately, never ignore the limits.')
-        );
+        /*
+         * TWO PARAGRAPHS REDUCED TO TWO LINES, at the owner's request.
+         *
+         * Both said something true and neither needed a paragraph to say it.
+         * What is kept is the part that changes what an engineer does:
+         *
+         *   - disabling a ramp removes the RATE limit and nothing else. An
+         *     engineer who reads it as "no limits" would disable it to make a
+         *     plant respond, and get a plant with no rate limiting and every
+         *     clamp still in force -- a different machine from the one they
+         *     intended.
+         *   - the generator down rate must exceed its up rate, because down is
+         *     the direction that protects the engine.
+         *
+         * The reasoning behind both is in this comment and in
+         * docs/PVDG_CONTROL_SCIENCE.md, not on the screen.
+         */
+        const notice = node('p', 'field-note');
+        /* The phrases below are asserted verbatim by
+         * tests/operator_endpoint_scope_source_contract.py, which calls them
+         * semantics rather than decoration. Kept whole, on one line each,
+         * rather than split across concatenations where the check cannot see
+         * them. */
+        notice.textContent = 'Disabling a ramp removes only the rate limit. Policy, the generator '
+            + 'minimum-loading limit and every other safety clamp are applied first and still hold'
+            + ': disabled means reach the allowed target immediately, never ignore the limits.';
         panel.append(notice);
 
-        const guidance = node('div', 'notice safe');
-        guidance.append(
-            node('strong', '', 'Set the generator down rate higher than its up rate.'),
-            node('span', '', 'Reducing PV is the direction that protects a generator from under-loading and reverse power, so it must never be the slower move. An enabled profile with a zero rate is rejected by the controller: a zero rate would freeze the PV command instead of removing the limit.')
-        );
+        const guidance = node('p', 'field-note');
+        guidance.textContent = 'Set the generator down rate higher than its up rate. '
+            + 'Down is the direction that protects against under-loading and reverse power.';
         panel.append(guidance);
 
         const profiles = node('div', 'dashboard-grid solar-grid-ramps');
