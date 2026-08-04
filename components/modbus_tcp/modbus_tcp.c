@@ -11,6 +11,90 @@
 #define MODBUS_MIN_TIMEOUT_MS 100U
 #define MODBUS_MAX_TIMEOUT_MS 60000U
 
+/*
+ * ONE CONVERSATION AT A TIME PER GATEWAY.
+ *
+ * A connection's own mutex serialises that connection. It does NOT serialise the
+ * DEVICE at the far end, and on a Modbus TCP-to-RTU gateway the far end is a
+ * single RS-485 bus shared by everything behind it.
+ *
+ * Found on a plant where the meter and the inverter were commissioned on one
+ * gateway -- 192.168.0.200:502, meter unit 1, inverter unit 21. Each is polled
+ * by its own task on its own connection, so the two overlapped constantly, and
+ * the gateway answered the wrong request: reads came back with a transaction id
+ * belonging to the other conversation, or with a byte count that did not match
+ * what was asked for. Probed by hand, one request at a time, the same meter
+ * answered 8 times out of 10; polled concurrently by the controller it managed
+ * roughly half, went "degraded", and its commissioning test reported 0/3 valid
+ * reads against an instrument that was working perfectly.
+ *
+ * The validation in exchange() is what turned a silent corruption into a visible
+ * failure, and it must stay: without the transaction-id and byte-count checks
+ * the controller would have decoded the inverter's answer as the grid meter's
+ * power. This lock removes the collision that made those checks fire.
+ *
+ * Keyed by host and port, because that is the gateway. Two devices on one
+ * gateway share a lock; the same device reached through two gateways does not.
+ * An earlier site had a gateway each and never saw this, which is why it took a
+ * second site to surface.
+ */
+#define MODBUS_MAX_GATEWAYS 8
+
+typedef struct {
+    char host[MODBUS_HOST_MAX_LEN];
+    uint16_t port;
+    SemaphoreHandle_t lock;
+} modbus_gateway_lock_t;
+
+static modbus_gateway_lock_t s_gateways[MODBUS_MAX_GATEWAYS];
+static SemaphoreHandle_t s_gateway_table_lock;
+
+/* Returns the shared lock for this endpoint's gateway, creating it on first use.
+ *
+ * NULL is a legitimate answer -- the table is full, or a semaphore could not be
+ * created -- and callers treat it as "no shared lock", which restores the old
+ * per-connection behaviour rather than refusing to communicate. Losing the
+ * serialisation degrades reliability; refusing the transaction would take the
+ * plant's measurement away entirely. */
+static SemaphoreHandle_t gateway_lock_for(const modbus_endpoint_t *endpoint)
+{
+    if (!endpoint || !endpoint->host[0]) return NULL;
+    if (!s_gateway_table_lock) {
+        /* Created once, on the first init, before any task can race for it:
+         * modbus_tcp_connection_init() is called from the manager start-up
+         * paths and not from the acquisition tasks. */
+        s_gateway_table_lock = xSemaphoreCreateMutex();
+        if (!s_gateway_table_lock) return NULL;
+    }
+    if (xSemaphoreTake(s_gateway_table_lock, pdMS_TO_TICKS(1000)) != pdTRUE) return NULL;
+
+    SemaphoreHandle_t found = NULL;
+    int free_slot = -1;
+    for (int i = 0; i < MODBUS_MAX_GATEWAYS; ++i) {
+        if (!s_gateways[i].lock) {
+            if (free_slot < 0) free_slot = i;
+            continue;
+        }
+        if (s_gateways[i].port == endpoint->port &&
+            strcmp(s_gateways[i].host, endpoint->host) == 0) {
+            found = s_gateways[i].lock;
+            break;
+        }
+    }
+    if (!found && free_slot >= 0) {
+        SemaphoreHandle_t created = xSemaphoreCreateMutex();
+        if (created) {
+            strlcpy(s_gateways[free_slot].host, endpoint->host,
+                    sizeof(s_gateways[free_slot].host));
+            s_gateways[free_slot].port = endpoint->port;
+            s_gateways[free_slot].lock = created;
+            found = created;
+        }
+    }
+    xSemaphoreGive(s_gateway_table_lock);
+    return found;
+}
+
 static void put_u16(uint8_t *dst, uint16_t value)
 {
     dst[0] = (uint8_t)(value >> 8);
@@ -266,6 +350,16 @@ esp_err_t modbus_tcp_read_registers(modbus_connection_t *c, uint8_t function_cod
     if (!c || !c->lock || !registers || (function_code != 3 && function_code != 4) ||
         count == 0 || count > 125) return ESP_ERR_INVALID_ARG;
     if (xSemaphoreTake(c->lock, pdMS_TO_TICKS(c->endpoint.timeout_ms + 100U)) != pdTRUE) return ESP_ERR_TIMEOUT;
+    /* Serialise on the GATEWAY, not just on this connection. Taken after the
+     * connection's own lock and released before it, so the order is identical in
+     * every path and two connections can never hold them in opposite order.
+     *
+     * The wait is generous on purpose: another device's transaction on the same
+     * bus is normal traffic, not a fault, and timing out here would recreate the
+     * failure this exists to remove. Missing the lock is survivable -- the
+     * transaction proceeds unserialised, exactly as it did before. */
+    SemaphoreHandle_t bus = gateway_lock_for(&c->endpoint);
+    const bool bus_held = bus && xSemaphoreTake(bus, pdMS_TO_TICKS(c->endpoint.timeout_ms * 3U + 1000U)) == pdTRUE;
     c->transaction_id++;
     uint8_t request[12] = {0};
     put_u16(request, c->transaction_id);
@@ -285,6 +379,7 @@ esp_err_t modbus_tcp_read_registers(modbus_connection_t *c, uint8_t function_cod
         }
     }
     finish_transaction(c, err);
+    if (bus_held) xSemaphoreGive(bus);
     xSemaphoreGive(c->lock);
     return err;
 }
@@ -293,6 +388,16 @@ esp_err_t modbus_tcp_write_single(modbus_connection_t *c, uint16_t address, uint
 {
     if (!c || !c->lock) return ESP_ERR_INVALID_ARG;
     if (xSemaphoreTake(c->lock, pdMS_TO_TICKS(c->endpoint.timeout_ms + 100U)) != pdTRUE) return ESP_ERR_TIMEOUT;
+    /* Serialise on the GATEWAY, not just on this connection. Taken after the
+     * connection's own lock and released before it, so the order is identical in
+     * every path and two connections can never hold them in opposite order.
+     *
+     * The wait is generous on purpose: another device's transaction on the same
+     * bus is normal traffic, not a fault, and timing out here would recreate the
+     * failure this exists to remove. Missing the lock is survivable -- the
+     * transaction proceeds unserialised, exactly as it did before. */
+    SemaphoreHandle_t bus = gateway_lock_for(&c->endpoint);
+    const bool bus_held = bus && xSemaphoreTake(bus, pdMS_TO_TICKS(c->endpoint.timeout_ms * 3U + 1000U)) == pdTRUE;
     c->transaction_id++;
     uint8_t request[12] = {0};
     put_u16(request, c->transaction_id);
@@ -309,6 +414,7 @@ esp_err_t modbus_tcp_write_single(modbus_connection_t *c, uint16_t address, uint
         err = ESP_ERR_INVALID_RESPONSE;
     }
     finish_transaction(c, err);
+    if (bus_held) xSemaphoreGive(bus);
     xSemaphoreGive(c->lock);
     return err;
 }
@@ -318,6 +424,16 @@ esp_err_t modbus_tcp_write_multiple(modbus_connection_t *c, uint16_t address,
 {
     if (!c || !c->lock || !values || count == 0 || count > 123) return ESP_ERR_INVALID_ARG;
     if (xSemaphoreTake(c->lock, pdMS_TO_TICKS(c->endpoint.timeout_ms + 100U)) != pdTRUE) return ESP_ERR_TIMEOUT;
+    /* Serialise on the GATEWAY, not just on this connection. Taken after the
+     * connection's own lock and released before it, so the order is identical in
+     * every path and two connections can never hold them in opposite order.
+     *
+     * The wait is generous on purpose: another device's transaction on the same
+     * bus is normal traffic, not a fault, and timing out here would recreate the
+     * failure this exists to remove. Missing the lock is survivable -- the
+     * transaction proceeds unserialised, exactly as it did before. */
+    SemaphoreHandle_t bus = gateway_lock_for(&c->endpoint);
+    const bool bus_held = bus && xSemaphoreTake(bus, pdMS_TO_TICKS(c->endpoint.timeout_ms * 3U + 1000U)) == pdTRUE;
     c->transaction_id++;
     size_t request_len = 13 + count * 2;
     uint8_t request[259] = {0};
@@ -337,6 +453,7 @@ esp_err_t modbus_tcp_write_multiple(modbus_connection_t *c, uint16_t address,
         err = ESP_ERR_INVALID_RESPONSE;
     }
     finish_transaction(c, err);
+    if (bus_held) xSemaphoreGive(bus);
     xSemaphoreGive(c->lock);
     return err;
 }
@@ -356,6 +473,8 @@ bool modbus_tcp_get_last_exception(modbus_connection_t *c,
     if (exception_code) *exception_code = valid ? c->last_exception_code : 0U;
     if (exception_ms) *exception_ms = valid ? c->last_exception_ms : 0U;
     if (exception_count) *exception_count = c->exception_count;
+    /* No gateway lock here on purpose: this reads stored state and issues no
+     * transaction, so it must not queue behind another device's bus traffic. */
     xSemaphoreGive(c->lock);
     return valid;
 }
