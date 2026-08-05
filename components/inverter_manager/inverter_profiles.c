@@ -841,10 +841,27 @@ static const inverter_profile_t PROFILES[] = {
                             "not qualified on hardware",
         .has_active_power = true,
         .active_power_function = 4,
-        .active_power_address = 5030, /* manual tag 5031-5032, minus 1 */
+        /*
+         * MEASURED ON A REAL SG-SERIES INVERTER, because the transcription was
+         * wrong twice over and the plant showed it.
+         *
+         * The address carried the -1 that Solis needs and Sungrow does not: the
+         * manual's tag 5031 IS PDU 5031 on this machine's input registers. Read
+         * at 5030 the pair came back [0, 1] -- constant, whatever the sun did.
+         *
+         * The word order was BA, which turned that constant 1 into 65536 and put
+         * a steady "65.5 kW" of solar on the plant overview while the inverter
+         * was actually delivering 78 to 82 kW. Not a missing reading: a wrong one
+         * that looked entirely plausible.
+         *
+         * At 5031 in AB order, four samples over fifteen seconds gave 80.88,
+         * 78.28, 80.42 and 79.95 kW against an owner who reported 78-82 kW. It
+         * tracks; the old pair never moved.
+         */
+        .active_power_address = 5031, /* manual tag 5031-5032, minus 1 */
         .active_power_words = 2,
         .active_power_type = INVERTER_VALUE_U32,
-        .active_power_word_order = INVERTER_WORD_ORDER_BA, /* documented little-endian words */
+        .active_power_word_order = INVERTER_WORD_ORDER_AB, /* documented little-endian words */
         .active_power_scale = 0.001f,
         .has_power_limit = true,
         .power_limit_function = 6,
