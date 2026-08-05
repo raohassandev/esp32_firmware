@@ -104,7 +104,7 @@ BRANDS = {
     ),
     "sungrow.string.documented": (
         ["V1.1.36", "5008", "5007", "little-endian", "Appendix 6"],
-        5007, 5007, 5030, "10.0f", "0.1f",
+        5007, 5007, 5031, "10.0f", "0.1f",
     ),
     "chint.cps.sch100_125ktl.documented": (
         ["403X", "0x4035", "0x1001", "0x001D", "0x2708"],
@@ -193,16 +193,40 @@ for profile_id in ("growatt.tl3x.documented", "growatt.tlx.documented"):
             "an accepted setpoint that was merely rounded")
 
 # ---------------------------------------------------------------------------
-# Sungrow's word order is the one value in these four maps that a manual states
-# outright and that differs from every other brand. It must not be "corrected"
-# to match the lab simulator.
+# Sungrow's word order was pinned to BA here, from the manual's worked example
+# (0x01020304 transmits as 03,04,01,02), specifically so that a lab SIMULATOR
+# emitting the opposite order could not "correct" it. That guard was right about
+# simulators and wrong about this hardware.
+#
+# A real SG-series inverter, delivering 78-82 kW by its owner's account, reads:
+#
+#     PDU 5030 = 0     PDU 5031 = 1     PDU 5032 = 13930
+#
+# so the value starts at 5031 -- the manual's tag 5031 with NO offset, unlike
+# Solis -- and the high word arrives first. AB gives 79.47 kW and tracks the
+# plant. BA gives 912,916 kW. The same holds for the two neighbouring pairs at
+# 5009 and 5017: every one of them is about a million kilowatts read as BA, and
+# physically ordered as DC > apparent > active read as AB.
+#
+# Read at the old 5030/BA the pair was a constant [0, 1] that never moved, and
+# 0.001 W/unit turned it into a steady 65.5 kW of solar on the operator's main
+# screen while the machine delivered 80. A wrong reading that looked plausible.
+#
+# The clause is kept, inverted, and now cites the instrument rather than the
+# document: a simulator still must not drive this value, and neither must a
+# manual that the hardware contradicts.
 # ---------------------------------------------------------------------------
 sungrow = block_for("sungrow.string.documented")
 if sungrow is not None:
-    require(".active_power_word_order = INVERTER_WORD_ORDER_BA" in sungrow,
-            "Sungrow documents U32 as little-endian for double-word data (worked example: "
-            "0x01020304 transmits as 03,04,01,02). BA is the manual's answer; the lab "
-            "simulator emits the opposite order and must not be allowed to drive this value")
+    require(".active_power_word_order = INVERTER_WORD_ORDER_AB" in sungrow,
+            "Sungrow's active power arrives high word first on real SG hardware: "
+            "PDU 5031-5032 read [1, 13930] against a measured 78-82 kW, which is "
+            "79.47 kW as AB and 912916 kW as BA. Do not restore BA from the manual's "
+            "worked example without a machine that agrees with it")
+    require(".active_power_address = 5031" in sungrow,
+            "Sungrow's input registers take no -1 offset: PDU 5030 reads 0 and the "
+            "value starts at 5031. Reading 5030 gave a constant [0, 1] that showed as "
+            "a steady 65.5 kW while the inverter was delivering 80 kW")
 
 # ---------------------------------------------------------------------------
 # Growatt's documented minimum command period is 850 ms with a 1 s suggestion,
