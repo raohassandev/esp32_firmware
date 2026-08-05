@@ -210,37 +210,29 @@ function channel(){const d=active();if(!d)return devices();const body=d.channel=
  * to what the device list implies, which is right on a plant being configured
  * for the first time and is overridden the moment the engineer answers. */
 function supplyIsDual(){
- if(state.supplyTopology===1||state.supplyTopology===2)return state.supplyTopology===2;
  return state.devices.filter(d=>d.type!=='inverter').length>1;}
 
 function supplyTopology(){
  const meters=state.devices.filter(d=>d.type!=='inverter');
- const dual=supplyIsDual();
- return `<article class="cr-editor cr-topology"><div class="cr-editor-head"><div><p>Grid or generator</p><h3>How many meters measure the supply?</h3></div></div>
-  <p class="cr-topology-note">The controller must know which supply is carrying the plant before it may command anything. With one meter it reads the EM-500 tariff input. With two it compares their measured power, and each meter's role is set below.</p>
-  <div class="cr-topology-choice">
-   <label><input type="radio" name="crSupplyTopology" value="1" ${dual?'':'checked'}> <span>One meter — on the changeover, tariff input says which supply</span></label>
-   <label><input type="radio" name="crSupplyTopology" value="2" ${dual?'checked':''}> <span>Two meters — one on the grid, one on the generator</span></label>
-  </div>
+ const dual=meters.length>1;
+ return `<article class="cr-editor cr-topology"><div class="cr-editor-head"><div><p>Grid or generator</p><h3>How the controller will tell them apart</h3></div></div>
+  <p class="cr-topology-note">${meters.length===0
+   ? 'Add the supply meters below. With one, the controller reads its EM-500 tariff input. With two or more, it uses the role set on each meter.'
+   : dual
+    ? `${meters.length} supply meters, so the controller compares their measured power and uses the <strong>role</strong> set on each one below.`
+    : 'One supply meter, so the controller reads its EM-500 <strong>tariff input</strong> to tell grid from generator. There is no role to choose.'}</p>
   <p class="cr-topology-state" id="crTopologyMessage">${meters.length} meter${meters.length===1?'':'s'} configured.</p>
  </article>`;}
 
-/* Writes the one field this choice decides and leaves every other
- * source-detection value as the controller already holds it: a topology choice
- * must not silently rewrite thresholds or a register an engineer set. */
-async function saveSupplyTopology(mode){
- const say=(text,tone)=>{const el=$('crTopologyMessage');if(el){el.textContent=text;el.className='cr-topology-state'+(tone?' '+tone:'');}};
- try{
-  say('Saving…');
-  const current=await fetch('/api/source-detection',{cache:'no-store',credentials:'same-origin'}).then(r=>r.json());
-  const config=current.config||{};
-  const payload={...config,mode};
-  const response=await fetch('/api/source-detection',{method:'POST',credentials:'same-origin',
-   headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-  if(!response.ok){const body=await response.json().catch(()=>({}));throw new Error(body.message||body.error||`HTTP ${response.status}`);}
-  say(mode===2?'Saved. Set each meter role below.':'Saved. The tariff input decides which supply is live.','good');
- }catch(error){say(`Could not save: ${error.message}`,'bad');}
-}
+/* THE TOPOLOGY IS NO LONGER SAVED FROM HERE.
+ *
+ * It was a radio button writing source-detection mode, stored separately from
+ * the meters and free to disagree with them. It did: a plant with one meter was
+ * switched to two, the controller refused the incomplete configuration, and the
+ * refusal appeared in this card's status line while the wizard carried on. The
+ * owner's rule -- one meter reads the tariff, more than one goes by role -- is
+ * now derived from the commissioned meters by the firmware, so there is nothing
+ * here to get out of step with. See effective_mode() in source_detection.c. */
 
 function timingEstimate(d){const t=d.tuning;const transaction=t.response_delay_ms+t.timeout_ms+(t.retries*t.retry_interval_ms)+t.intercall_ms;const scan=Math.max(t.normal_ms,transaction)*state.devices.length;const margin=t.stale_ms-scan;return{transaction,scan,margin,state:margin<0?'block':margin<scan?'review':'healthy'};}
 /* REGISTER INTERPRETATION IS A METER-ONLY QUESTION.
@@ -557,14 +549,6 @@ function updateMeterNote(){
    :'Model and manual verification is still required for this profile.'):'';}
 
 function bind(){
- document.querySelectorAll('input[name="crSupplyTopology"]').forEach(radio=>{
-  radio.onchange=()=>{
-   state.supplyTopology=Number(radio.value);
-   /* Re-render: the per-meter role question below appears or disappears with
-    * this answer, and leaving it on screen after "one meter" was chosen is
-    * exactly the question the owner said must not be asked. */
-   render();
-   saveSupplyTopology(Number(radio.value));};});
  document.querySelectorAll('[data-add]').forEach(button=>button.onclick=()=>addDevice(catalog.find(p=>p.id===button.dataset.add)));
  document.querySelector('[data-action="add-meter"]')?.addEventListener('click',()=>{const pick=$('crMeterPick');if(pick)addDevice(catalog.find(p=>p.id===pick.value));});
  $('crMeterPick')?.addEventListener('change',updateMeterNote);updateMeterNote();

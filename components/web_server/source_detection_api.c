@@ -80,6 +80,18 @@ static void add_status_json(cJSON *root, const source_detection_status_t *status
 {
     cJSON *object = cJSON_AddObjectToObject(root, "status");
     cJSON_AddNumberToObject(object, "config_generation", status->config_generation);
+    /*
+     * THE METHOD IN USE, WHICH IS NO LONGER THE ONE IN THE CONFIGURATION.
+     *
+     * The topology is derived from the commissioned meters now -- one supply
+     * meter reads its tariff input, two or more go by role -- so the stored
+     * mode is a starting point rather than an answer. Only the config block
+     * carried a mode, which meant the one number an engineer would check to
+     * see how the controller is deciding was the one number that no longer
+     * described it.
+     */
+    cJSON_AddNumberToObject(object, "mode", status->mode);
+    cJSON_AddStringToObject(object, "mode_name", source_detection_mode_name(status->mode));
     cJSON_AddStringToObject(object, "state", source_detection_state_name(status->state));
     cJSON_AddStringToObject(object, "candidate_state",
                             source_detection_state_name(status->candidate_state));

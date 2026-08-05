@@ -111,6 +111,54 @@ static bool meter_configured(const app_config_t *app_config, uint8_t index)
 }
 
 /*
+ * THE TOPOLOGY IS COUNTED, NOT CHOSEN.
+ *
+ * It used to be a radio button in the commissioning wizard, saved separately
+ * from the meters themselves, and the two could disagree. They did: a plant with
+ * one meter was switched to the two-meter topology, the save was refused as
+ * incomplete, the refusal appeared in a status line nobody reads, and the
+ * controller went on deciding from a tariff input while the screen implied
+ * otherwise.
+ *
+ * The owner's rule, and it is the right one: "1 hi hai to tariff, otherwise
+ * depend on role". One supply meter cannot be compared against anything, so its
+ * tariff input is the only evidence there is. Two or more can be compared, and
+ * then the question is which is which -- which is exactly what the commissioned
+ * ROLE already says.
+ *
+ * Counting removes the disagreement rather than adding a check for it. There is
+ * nothing left to get wrong: commission the meters, and the method follows.
+ *
+ * An explicit DISABLED is still honoured. That is a decision not to detect at
+ * all, which is different from not having said how.
+ */
+static uint8_t supply_meter_count(const app_config_t *app_config)
+{
+    if (!app_config) return 0U;
+    uint8_t count = 0U;
+    for (uint8_t i = 0U; i < app_config->meter_count && i < APP_MAX_METERS; ++i) {
+        if (!app_config->meters[i].enabled) continue;
+        const uint8_t role = app_config->meters[i].role;
+        if (role == METER_ROLE_GRID || role == METER_ROLE_GENERATOR) count++;
+    }
+    return count;
+}
+
+static source_detection_mode_t effective_mode(const source_detection_config_t *config,
+                                              const app_config_t *app_config)
+{
+    if (!config) return SOURCE_DETECTION_MODE_DISABLED;
+    if (config->mode == SOURCE_DETECTION_MODE_DISABLED) return SOURCE_DETECTION_MODE_DISABLED;
+    /* No roles assigned yet is not a topology. The stored mode stands so a
+     * part-commissioned plant behaves as it did rather than changing method
+     * halfway through being set up. */
+    const uint8_t supplies = supply_meter_count(app_config);
+    if (supplies == 0U) return (source_detection_mode_t)config->mode;
+    return supplies == 1U ? SOURCE_DETECTION_MODE_SINGLE_INPUT
+                          : SOURCE_DETECTION_MODE_DUAL_METER;
+}
+
+/*
  * WHICH METER IS THE GRID, AND WHICH IS THE GENERATOR.
  *
  * There were two answers to this and nothing kept them in step. The commissioned
@@ -154,11 +202,12 @@ static uint32_t evaluation_period_ms(const source_detection_config_t *config,
                                      const app_config_t *app_config)
 {
     if (!config || !app_config) return 0U;
-    if (config->mode == SOURCE_DETECTION_MODE_SINGLE_INPUT &&
+    const source_detection_mode_t mode = effective_mode(config, app_config);
+    if (mode == SOURCE_DETECTION_MODE_SINGLE_INPUT &&
         meter_configured(app_config, config->single.meter_index)) {
         return app_config->meters[config->single.meter_index].poll_interval_ms;
     }
-    if (config->mode == SOURCE_DETECTION_MODE_DUAL_METER) {
+    if (mode == SOURCE_DETECTION_MODE_DUAL_METER) {
         uint8_t grid_index = METER_ROLE_INDEX_NONE;
         uint8_t generator_index = METER_ROLE_INDEX_NONE;
         resolve_dual_meters(config, app_config, &grid_index, &generator_index);
@@ -215,7 +264,11 @@ static source_detection_evidence_t collect_evidence(
     source_detection_evidence_t evidence = {0};
     if (!config || !app_config) return evidence;
 
-    if (config->mode == SOURCE_DETECTION_MODE_SINGLE_INPUT) {
+    /* Counted, not stored -- see effective_mode(). Gathering evidence for the
+     * stored mode while the engine judged by the counted one would put the
+     * decision and its evidence on different topologies. */
+    const source_detection_mode_t mode = effective_mode(config, app_config);
+    if (mode == SOURCE_DETECTION_MODE_SINGLE_INPUT) {
         if (meter_configured(app_config, config->single.meter_index)) {
             acquire_single_input(config, timestamp);
         }
@@ -230,7 +283,7 @@ static source_detection_evidence_t collect_evidence(
         return evidence;
     }
 
-    if (config->mode == SOURCE_DETECTION_MODE_DUAL_METER) {
+    if (mode == SOURCE_DETECTION_MODE_DUAL_METER) {
         meter_data_t grid = {0};
         meter_data_t generator = {0};
         uint8_t grid_index = METER_ROLE_INDEX_NONE;
@@ -265,16 +318,20 @@ static source_reason_t runtime_config_reason(
     if (!config || !source_detection_config_valid(config)) {
         return SOURCE_REASON_INVALID_CONFIG;
     }
-    if (config->mode == SOURCE_DETECTION_MODE_DISABLED) {
+    const source_detection_mode_t mode = effective_mode(config, app_config);
+    if (mode == SOURCE_DETECTION_MODE_DISABLED) {
         return SOURCE_REASON_NOT_CONFIGURED;
     }
-    if (config->mode == SOURCE_DETECTION_MODE_SINGLE_INPUT) {
+    if (mode == SOURCE_DETECTION_MODE_SINGLE_INPUT) {
         return meter_configured(app_config, config->single.meter_index)
                    ? SOURCE_REASON_NONE
                    : SOURCE_REASON_INVALID_CONFIG;
     }
-    return meter_configured(app_config, config->dual.grid_meter_index) &&
-           meter_configured(app_config, config->dual.generator_meter_index)
+    uint8_t grid_index = METER_ROLE_INDEX_NONE;
+    uint8_t generator_index = METER_ROLE_INDEX_NONE;
+    resolve_dual_meters(config, app_config, &grid_index, &generator_index);
+    return meter_configured(app_config, grid_index) &&
+           meter_configured(app_config, generator_index)
                ? SOURCE_REASON_NONE
                : SOURCE_REASON_INVALID_CONFIG;
 }
@@ -311,8 +368,14 @@ static uint32_t evaluate_once(uint32_t *seen_generation)
         const bool single_meter_is_em500 =
             s_config.single.meter_index < APP_MAX_METERS &&
             meter_model_is_em500(s_app_config.meters[s_config.single.meter_index].model);
-        const source_detection_policy_t policy =
+        source_detection_policy_t policy =
             source_detection_config_policy(&s_config, single_meter_is_em500);
+        /* The engine branches on policy.mode, and the evidence above was
+         * gathered for the COUNTED topology. Handing it the stored one instead
+         * would have it judge tariff evidence by threshold rules, or the
+         * reverse -- the two halves of one decision disagreeing about what kind
+         * of plant this is. */
+        policy.mode = effective_mode(&s_config, &s_app_config);
         result = source_detection_step(&s_memory, &policy, &evidence, timestamp);
     } else {
         source_detection_reset(&s_memory);
@@ -325,7 +388,9 @@ static uint32_t evaluate_once(uint32_t *seen_generation)
 
     source_detection_status_t status = {
         .config_generation = generation,
-        .mode = (source_detection_mode_t)s_config.mode,
+        /* Report what the controller is actually doing, not what was
+         * stored: the screen and the decision must agree. */
+        .mode = effective_mode(&s_config, &s_app_config),
         .state = result.state,
         .candidate_state = result.candidate_state,
         .tariff = result.tariff,
