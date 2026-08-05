@@ -105,7 +105,13 @@
      * a diagnosis.
      */
     function memoryPanel(resources) {
-        const runtime = resources.runtime || {};
+        /* The controller returns these at the TOP LEVEL of the payload; only
+         * `thresholds` is nested. This read `resources.runtime`, which the
+         * firmware has never sent, so every figure on this page rendered as an
+         * em dash while /api/system/resources answered perfectly -- and the
+         * threshold line below it rendered correctly, which is what gave the
+         * shape mismatch away. The fallback keeps both shapes working. */
+        const runtime = resources.runtime || resources || {};
         const thresholds = resources.thresholds || {};
         const state_ = resources.resource_state || 'unknown';
         const card = panel('Memory', 'Working memory', state_,
@@ -137,7 +143,7 @@
 
     /* Uptime, and whether the last restart was one somebody asked for. */
     function runtimePanel(resources) {
-        const runtime = resources.runtime || {};
+        const runtime = resources.runtime || resources || {};
         const unexpected = resources.last_reboot_unexpected === true;
         const card = panel('Runtime', 'Since it last started', unexpected ? 'restarted by itself' : null,
             unexpected ? 'bad' : null);
@@ -160,17 +166,22 @@
     }
 
     function identityPanel(resources) {
-        const firmware = resources.firmware || {};
-        const hardware = resources.hardware || {};
+        /* Same top-level shape as the panels above; `resources.firmware` and
+         * `resources.hardware` were never sent either.
+         *
+         * Built, ESP-IDF and Product are gone rather than repointed: the
+         * controller publishes no build date, no IDF version and no product
+         * model, so those three rows could only ever have shown an em dash. A
+         * row that can never carry a value is not information, it is furniture.
+         * The MAC address takes their place -- it is published, it identifies
+         * this unit, and it is what a support call actually asks for. */
         const card = panel('Identity', 'This controller');
         const list = node('div', 'health-list');
         list.append(
-            row('Firmware', firmware.version || '—'),
-            row('Built', `${firmware.build_date || '—'} ${firmware.build_time || ''}`.trim()),
-            row('ESP-IDF', firmware.idf_version || '—'),
-            row('Chip', `${hardware.chip_model_name || hardware.target || '—'} rev ${hardware.chip_revision ?? '—'}`),
-            row('Cores', hardware.cpu_cores ?? '—'),
-            row('Product', resources.product_model || '—')
+            row('Firmware', resources.firmware_version || '—'),
+            row('Chip', `${resources.chip_model_name || resources.target || '—'} rev ${resources.chip_revision ?? '—'}`),
+            row('Cores', resources.cpu_cores ?? '—'),
+            row('MAC address', resources.mac_address || '—')
         );
         card.append(list);
         return card;

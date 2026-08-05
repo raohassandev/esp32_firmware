@@ -935,10 +935,24 @@
         byId('meterPoll').value = meter.poll_ms ?? 1000;
         byId('meterTimeout').value = meter.timeout_ms ?? 1500;
 
-        byId('controlTarget').value = control.grid_import_target_kw ?? 0;
-        byId('controlDeadband').value = control.deadband_kw ?? 0;
-        byId('controlInterval').value = control.interval_ms ?? 250;
-        byId('controlStaleTimeout').value = control.meter_stale_timeout_ms ?? 3000;
+        /*
+         * The four control fields that were here went with the PV-DG control
+         * page. Their lines did not, and byId() returns null for an element that
+         * is not in the document, so `.value =` threw -- BEFORE the three lines
+         * below it.
+         *
+         * The whole Controller page was the casualty: device name, schema, and
+         * with them the advanced JSON, all left at their placeholders while
+         * /api/system/resources was returning the data perfectly well. It
+         * presented as an empty page rather than as an error, because the throw
+         * was swallowed by the caller's catch, so there was nothing in the
+         * console to follow.
+         *
+         * `control` is still read above and still used by nothing here; it stays
+         * because renderConfig is where a future control form would read it, and
+         * removing the binding would hide that this configuration group exists.
+         */
+        void control;
 
         setText('systemDeviceName', config.device_name || '--');
         setText('systemSchema', config.schema ?? '--');
@@ -1061,25 +1075,10 @@
         meter.timeout_ms = timeout;
     }
 
-    function collectControlConfig() {
-        if (!state.config || !state.config.control) throw new Error('Control configuration is unavailable.');
-        clearValidation();
-        const target = Number(byId('controlTarget').value);
-        const deadband = Number(byId('controlDeadband').value);
-        const interval = Number(byId('controlInterval').value);
-        const staleTimeout = Number(byId('controlStaleTimeout').value);
-        let valid = true;
-        if (!Number.isFinite(target)) { markInvalid('controlTarget', 'Enter a valid target.'); valid = false; }
-        if (!Number.isFinite(deadband) || deadband < 0) { markInvalid('controlDeadband', 'Deadband must be zero or greater.'); valid = false; }
-        if (!Number.isFinite(interval) || interval < 100) { markInvalid('controlInterval', 'Interval must be at least 100 ms.'); valid = false; }
-        if (!Number.isFinite(staleTimeout) || staleTimeout < 500) { markInvalid('controlStaleTimeout', 'Stale timeout must be at least 500 ms.'); valid = false; }
-        if (!valid) throw new Error('Correct the highlighted control settings.');
-
-        state.config.control.grid_import_target_kw = target;
-        state.config.control.deadband_kw = deadband;
-        state.config.control.interval_ms = interval;
-        state.config.control.meter_stale_timeout_ms = staleTimeout;
-    }
+    /* collectControlConfig() and handleControlSave() lived here and read four
+     * inputs from the deleted control page. They are gone with it; the control
+     * group of the configuration is edited from the Solar-Grid workspace, which
+     * has its own validation and its own fail-closed rules. */
 
     async function saveConfiguration(messageId) {
         if (state.saving) return null;
@@ -1127,17 +1126,6 @@
             setMessage('meterMessage', 'Saved. Restart required to apply endpoint changes.', 'good');
         } catch (error) {
             setMessage('meterMessage', error.message, 'bad');
-        }
-    }
-
-    async function handleControlSave() {
-        setMessage('controlMessage', '');
-        try {
-            collectControlConfig();
-            await saveConfiguration('controlMessage');
-            setMessage('controlMessage', 'Parameters saved. Control enable state was not changed.', 'good');
-        } catch (error) {
-            setMessage('controlMessage', error.message, 'bad');
         }
     }
 
@@ -1849,7 +1837,11 @@
         byId('wifiForm').addEventListener('submit', handleWifiSave);
         byId('wifiRescanButton').addEventListener('click', handleRescan);
         byId('meterSaveButton').addEventListener('click', handleMeterSave);
-        byId('controlSaveButton').addEventListener('click', handleControlSave);
+        /* controlSaveButton went with the PV-DG control page. The line binding
+         * it did not, and addEventListener on null threw HERE -- so every
+         * listener below never bound: the advanced JSON save, the configuration
+         * reload, the export and the restart. The Controller page's buttons were
+         * all dead and nothing said so, because the throw was swallowed. */
         byId('saveJsonButton').addEventListener('click', handleJsonSave);
         byId('reloadConfigButton').addEventListener('click', async () => {
             setMessage('systemMessage', 'Reloading…');
