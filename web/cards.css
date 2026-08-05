@@ -227,12 +227,27 @@
  * is stopping it. */
 .op-num-pending { opacity: 0.6; font-style: italic; }
 
-/* A commanded value the controller computed and is NOT sending.
+/*
+ * THE COMMANDED PERCENTAGE, AND WHETHER IT IS ACTUALLY LEAVING THE CONTROLLER.
  *
- * It is a real decision that is not in force, and it must not read as the
- * limit the plant is actually being held to -- the foot of the card says which
- * gate is stopping it. */
-.amx-metric-value.is-not-in-force { opacity: 0.6; font-style: italic; }
+ * The number is shown either way -- the controller computes it whether or not
+ * automatic control is on, and an engineer needs to see what it WOULD send as
+ * much as what it is sending. What must never be ambiguous is which of the two
+ * is on screen.
+ *
+ * Colour carries that here, at the owner's request: green while the value is
+ * reaching the inverters, amber while it is only being computed. This is a
+ * deliberate exception to the rule that healthy states stay neutral -- the two
+ * states are equally "healthy" and the distinction is not severity but whether
+ * an instruction is in force, which is the one thing an operator standing in
+ * front of the plant needs to read at a glance.
+ *
+ * Colour is never the only signal: the italic and the foot text ("Computed, not
+ * being sent: <reason>") carry the same fact for anyone who cannot separate the
+ * hues.
+ */
+.amx-metric-value.is-in-force { color: var(--good); }
+.amx-metric-value.is-not-in-force { color: var(--warning); font-style: italic; }
 
 /* The automatic-control switch on the Solar inverters page.
  *

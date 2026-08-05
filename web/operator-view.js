@@ -1088,7 +1088,12 @@
             const line = node('div', 'amx-metric-value');
             line.append(document.createTextNode(command.text));
             line.append(node('span', 'amx-metric-unit', '%'));
-            if (!command.inForce) line.classList.add('is-not-in-force');
+            /* Both states are marked, not just the bad one. Green says the value
+             * is reaching the inverters, amber says it is only being computed --
+             * and the number is shown either way, because what the controller
+             * WOULD send is exactly what an engineer checks before switching
+             * automatic control on. */
+            line.classList.add(command.inForce ? 'is-in-force' : 'is-not-in-force');
             card.append(line);
             card.append(node('span', 'amx-metric-foot', command.inForce
                 ? 'The limit the controller is holding the inverters to'
