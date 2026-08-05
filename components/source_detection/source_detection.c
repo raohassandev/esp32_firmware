@@ -110,6 +110,46 @@ static bool meter_configured(const app_config_t *app_config, uint8_t index)
            app_config->meters[index].enabled;
 }
 
+/*
+ * WHICH METER IS THE GRID, AND WHICH IS THE GENERATOR.
+ *
+ * There were two answers to this and nothing kept them in step. The commissioned
+ * ROLE lives on the meter itself and is what the engineer sets, what the meter
+ * pages route by, and what the control loop selects the grid measurement with.
+ * This module read a SEPARATE pair of indices stored in its own configuration,
+ * which the commissioning wizard never wrote -- it saves the topology mode and
+ * nothing else.
+ *
+ * Observed on the bench: a plant commissioned as two meters with its one meter
+ * set to the generator role. The role was stored correctly, the meter page
+ * showed it as the generator, and the plant overview went on reporting GRID with
+ * the generator's 391 kW under it -- because this module was still in
+ * single-input mode and, had it not been, would have looked up meter index 255
+ * for both supplies and resolved nothing.
+ *
+ * The role wins. It is the answer an engineer actually gave, it is already the
+ * answer every other subsystem uses, and deriving from it here removes the
+ * second copy rather than adding a third writer to keep it synchronised. The
+ * stored indices remain as the fallback for a configuration that set them
+ * explicitly and has no roles assigned.
+ */
+static void resolve_dual_meters(const source_detection_config_t *config,
+                                const app_config_t *app_config,
+                                uint8_t *grid_index, uint8_t *generator_index)
+{
+    *grid_index = config ? config->dual.grid_meter_index : METER_ROLE_INDEX_NONE;
+    *generator_index = config ? config->dual.generator_meter_index : METER_ROLE_INDEX_NONE;
+    if (!app_config) return;
+
+    const meter_role_assignment_t roles = config_manager_role_assignment(app_config);
+    /* An invalid assignment -- duplicate generators, nothing assigned -- is not
+     * an instruction to guess. The stored indices stand and the freshness gates
+     * below decide, which is the same fail-closed path as an absent meter. */
+    if (!roles.valid) return;
+    if (roles.grid_index != METER_ROLE_INDEX_NONE) *grid_index = roles.grid_index;
+    if (roles.generator_count > 0U) *generator_index = roles.generator_index[0];
+}
+
 static uint32_t evaluation_period_ms(const source_detection_config_t *config,
                                      const app_config_t *app_config)
 {
@@ -118,14 +158,17 @@ static uint32_t evaluation_period_ms(const source_detection_config_t *config,
         meter_configured(app_config, config->single.meter_index)) {
         return app_config->meters[config->single.meter_index].poll_interval_ms;
     }
-    if (config->mode == SOURCE_DETECTION_MODE_DUAL_METER &&
-        meter_configured(app_config, config->dual.grid_meter_index) &&
-        meter_configured(app_config, config->dual.generator_meter_index)) {
-        const uint32_t grid_period =
-            app_config->meters[config->dual.grid_meter_index].poll_interval_ms;
-        const uint32_t generator_period =
-            app_config->meters[config->dual.generator_meter_index].poll_interval_ms;
-        return grid_period < generator_period ? grid_period : generator_period;
+    if (config->mode == SOURCE_DETECTION_MODE_DUAL_METER) {
+        uint8_t grid_index = METER_ROLE_INDEX_NONE;
+        uint8_t generator_index = METER_ROLE_INDEX_NONE;
+        resolve_dual_meters(config, app_config, &grid_index, &generator_index);
+        if (meter_configured(app_config, grid_index) &&
+            meter_configured(app_config, generator_index)) {
+            const uint32_t grid_period = app_config->meters[grid_index].poll_interval_ms;
+            const uint32_t generator_period =
+                app_config->meters[generator_index].poll_interval_ms;
+            return grid_period < generator_period ? grid_period : generator_period;
+        }
     }
     return 0U;
 }
@@ -190,11 +233,14 @@ static source_detection_evidence_t collect_evidence(
     if (config->mode == SOURCE_DETECTION_MODE_DUAL_METER) {
         meter_data_t grid = {0};
         meter_data_t generator = {0};
-        const bool have_grid = meter_configured(app_config, config->dual.grid_meter_index) &&
-                               meter_manager_get_data(config->dual.grid_meter_index, &grid);
+        uint8_t grid_index = METER_ROLE_INDEX_NONE;
+        uint8_t generator_index = METER_ROLE_INDEX_NONE;
+        resolve_dual_meters(config, app_config, &grid_index, &generator_index);
+        const bool have_grid = meter_configured(app_config, grid_index) &&
+                               meter_manager_get_data(grid_index, &grid);
         const bool have_generator =
-            meter_configured(app_config, config->dual.generator_meter_index) &&
-            meter_manager_get_data(config->dual.generator_meter_index, &generator);
+            meter_configured(app_config, generator_index) &&
+            meter_manager_get_data(generator_index, &generator);
 
         evidence.grid_has_sample = have_grid && grid.last_update_ms != 0U &&
                                    grid.online && !grid.degraded;

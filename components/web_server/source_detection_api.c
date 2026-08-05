@@ -291,6 +291,47 @@ static bool parse_config(cJSON *root, source_detection_config_t *config,
 
     config->magic = SOURCE_DETECTION_CONFIG_MAGIC;
     config->version = SOURCE_DETECTION_CONFIG_VERSION;
+
+    /*
+     * SEEDED FROM THE COMMISSIONED ROLES WHEN THE REQUEST DOES NOT NAME THEM.
+     *
+     * Selecting the two-meter topology in the commissioning wizard sends the
+     * MODE and nothing else -- it has no field for "which meter is the grid",
+     * because the engineer already answered that when they set each meter's
+     * role. The validator, correctly, refuses a dual configuration with no
+     * meters in it, so every such save was rejected with "Configuration is
+     * incomplete" and the topology silently stayed on single-input.
+     *
+     * Observed on the bench: a plant switched to two meters with its meter set
+     * to the generator role, and the plant overview still reporting GRID with
+     * the generator's power under it. The wizard showed the refusal in a status
+     * line that is easy to miss, so the setting looked as though it had been
+     * accepted.
+     *
+     * Only ever fills what the request left unset, so an explicit index in the
+     * body still wins. The role remains the source of truth at evaluation time
+     * -- see resolve_dual_meters() in source_detection.c -- so a role changed
+     * later is followed without another save here.
+     */
+    if (config->mode == SOURCE_DETECTION_MODE_DUAL_METER) {
+        app_config_t *snapshot = calloc(1, sizeof(*snapshot));
+        if (snapshot && config_manager_get_snapshot(snapshot) == ESP_OK) {
+            const meter_role_assignment_t roles =
+                config_manager_role_assignment(snapshot);
+            if (roles.valid) {
+                if (config->dual.grid_meter_index == SOURCE_DETECTION_METER_INDEX_NONE &&
+                    roles.grid_index != METER_ROLE_INDEX_NONE) {
+                    config->dual.grid_meter_index = roles.grid_index;
+                }
+                if (config->dual.generator_meter_index == SOURCE_DETECTION_METER_INDEX_NONE &&
+                    roles.generator_count > 0U) {
+                    config->dual.generator_meter_index = roles.generator_index[0];
+                }
+            }
+        }
+        free(snapshot);
+    }
+
     if (!source_detection_config_valid(config)) {
         strlcpy(error,
                 "Configuration is incomplete: select a topology, valid enabled meters, site-verified function/address convention, and non-zero debounce and stale timeouts",
