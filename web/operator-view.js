@@ -1778,6 +1778,37 @@
         });
         table.append(tbody);
         card.append(table);
+
+        /*
+         * WHY EACH BLOCKED MACHINE IS BLOCKED, VISIBLY.
+         *
+         * The control card above says "the table below says why for each
+         * machine". It did not. The reason was carried only as a title
+         * attribute on the Commanded cell -- a tooltip, invisible on a wall
+         * screen, on a tablet, and to anyone who does not think to hover.
+         *
+         * Observed: a fleet reporting 1 of 1 answering, 100 kW enabled, 0 kW
+         * commandable and "Standby", with a table showing Online and 100 % and
+         * no hint that an unconfirmed enable register was holding the whole
+         * plant. The one fact needed to act on it was the one fact not on
+         * screen.
+         *
+         * Only the blocked machines are listed, and only when there are any: a
+         * plant where everything is commandable says nothing here, which is how
+         * this stays worth reading when it does appear.
+         */
+        const blocked = rows.filter((entry) => entry.preview && entry.preview.available
+            && entry.preview.would_write !== true && entry.preview.blocked_by);
+        if (blocked.length) {
+            const list = node('div', 'op-table-blocked');
+            blocked.forEach((entry) => {
+                const line = node('p', 'op-table-blocked-row');
+                line.append(node('strong', '', entry.name));
+                line.append(document.createTextNode(` — not commanded: ${entry.preview.blocked_by}`));
+                list.append(line);
+            });
+            card.append(list);
+        }
         return card;
     }
 

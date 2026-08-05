@@ -267,3 +267,16 @@
 /* Under the inverter table: which column is a reading and which is an
  * instruction. They sit one apart and look alike, and only one is evidence. */
 .op-table-note { margin: var(--space-2) 0 0; color: var(--muted); }
+
+/* Why a machine is not being commanded, under the table that lists it.
+ *
+ * The control card promises "the table below says why for each machine"; this
+ * is what makes that true. It was a title attribute before -- a tooltip, which
+ * is no answer at all on a wall display or a tablet.
+ *
+ * Amber, matching the commanded percentage when it is computed but not in
+ * force: the same condition, said twice in the same colour. Absent entirely
+ * when nothing is blocked, so its presence is itself the signal. */
+.op-table-blocked { margin-top: 10px; display: grid; gap: 4px; }
+.op-table-blocked-row { margin: 0; color: var(--warning); font-size: 12px; line-height: 1.5; }
+.op-table-blocked-row strong { color: inherit; font-weight: 800; }
