@@ -946,18 +946,99 @@ static void control_task(void *argument)
             .generator_safe_limit_kw = generator_safe_limit_kw,
         };
 
-        /* Stepped on a new reading, held otherwise. Disabling control clears it
-         * outright: a held decision must not survive being switched off. */
-        if (!control_enabled) policy = (power_control_output_t){0};
-        else if (new_measurement) policy = power_control_step(&input);
+        /*
+         * COMPUTED WHETHER OR NOT IT MAY BE SENT.
+         *
+         * The policy used to run only while automatic control was enabled, so
+         * with control off the controller had no answer to "what would you do?"
+         * -- every screen showed 0 %, and an engineer had to arm the plant to
+         * find out what arming it would command. The owner asked for the
+         * calculation to happen first, which is the right order: see the number,
+         * then decide.
+         *
+         * WITHOUT THE INTEGRAL. While disabled the loop is not acting, so its
+         * error never gets corrected, and an integrator left running would wind
+         * up for as long as the plant sat idle and then dump that history into
+         * the first command after arming. Held at zero, the preview is the
+         * proportional answer to the plant as it stands right now -- which is
+         * what "what would you do" means -- and carries no history it was never
+         * allowed to earn.
+         *
+         * Stepped on a new reading, held otherwise, in both states.
+         */
+        if (new_measurement) {
+            policy = power_control_step(&input);
+        } else if (!measurement_fresh) {
+            /*
+             * A HELD DECISION MUST NOT OUTLIVE THE MEASUREMENT IT WAS MADE FROM.
+             *
+             * The previous version cleared the held policy when control was
+             * switched OFF, which caught one way of it going stale and missed
+             * the other: a meter that stops answering leaves the loop with
+             * nothing new to step on, and the last decision would stand
+             * indefinitely -- reported as current, and now visible as a preview
+             * on a screen even while disabled.
+             *
+             * Freshness is the honest test, and it covers both states. No usable
+             * measurement, no answer.
+             */
+            policy = (power_control_output_t){0};
+        }
 
-        if (!control_enabled || !policy.valid) {
+        if (!control_enabled) {
+            /*
+             * THE PREVIEW IS COMPUTED AGAINST WHAT IS COMMISSIONED, NOT WHAT IS
+             * ELIGIBLE.
+             *
+             * Relaxing the disabled branch alone was not enough and the plant
+             * said so: the policy above is sized against the COMMANDABLE fleet,
+             * and on a controller whose only inverter is held by an unconfirmed
+             * prerequisite that total is zero. The step then has no denominator,
+             * returns invalid, and the screen still reads 0 % -- for want of a
+             * capacity, not for want of an answer.
+             *
+             * So the preview re-runs the same pure policy with the two
+             * PERMISSION facts relaxed: the commissioned capacity instead of the
+             * eligible one, and the runtime gate treated as open. Nothing about
+             * the DATA is relaxed -- measurement_fresh still has to hold, and a
+             * stale or absent reading still yields no answer, because a preview
+             * from a measurement the controller does not have would be a
+             * fabrication.
+             *
+             * The integral is passed as zero and its result discarded. This runs
+             * every cycle while idle; accumulating here would wind up unopposed
+             * and land in the first command after arming.
+             */
+            integral_kw = 0.0f;
+            const float commissioned_kw = inverter_manager_get_enabled_rated_kw();
+            if (isfinite(commissioned_kw) && commissioned_kw > 0.0f && new_measurement) {
+                power_control_input_t preview = input;
+                preview.measurement_fresh = measurement_fresh;
+                preview.fleet_capacity_kw = commissioned_kw;
+                preview.current_pv_command_kw = current_target_kw;
+                preview.integral_kw = 0.0f;
+                /*
+                 * The ramps are sized from the capacity too, so leaving the
+                 * eligible ones in place left the preview able to move at
+                 * 0 kW/s: the step returned a target it could not ramp to and
+                 * the answer was still zero. Recomputed against the same
+                 * commissioned capacity the target is sized against, or the two
+                 * halves of the preview disagree about how big the plant is.
+                 */
+                preview.ramp_up_kw_per_second =
+                    ramp_kw_per_second(&ramp, true, commissioned_kw, true, interval_seconds);
+                preview.ramp_down_kw_per_second =
+                    ramp_kw_per_second(&ramp, false, commissioned_kw, true, interval_seconds);
+                const power_control_output_t shown = power_control_step(&preview);
+                if (shown.valid) policy = shown;
+            }
+        } else if (!policy.valid) {
             integral_kw = 0.0f;
             policy.requested_pv_kw = 0.0f;
-        } else if (!previous_cycle_valid) {
-            current_target_kw = 0.0f;
+        } else {
+            if (!previous_cycle_valid) current_target_kw = 0.0f;
+            integral_kw = policy.next_integral_kw;
         }
-        if (policy.valid) integral_kw = policy.next_integral_kw;
 
         float requested_kw = control_enabled && policy.valid
                                  ? policy.requested_pv_kw
@@ -1095,7 +1176,22 @@ static void control_task(void *argument)
             .raw_grid_power_kw = raw_grid_kw,
             .grid_target_kw = configured_grid_target(),
             .error_kw = policy.valid ? policy.error_kw : NAN,
-            .requested_pv_kw = requested_kw,
+            /*
+             * REQUESTED is what the controller has WORKED OUT. APPLIED is what
+             * it is driving. They differ by exactly one thing -- permission --
+             * and separating them is the point.
+             *
+             * requested_pv_kw used to be forced to zero whenever automatic
+             * control was off, so the two carried the same number and every
+             * screen read 0 % on a plant the controller had a perfectly good
+             * answer for. An engineer had to arm the plant to discover what
+             * arming it would command.
+             *
+             * Nothing acts on this field. Every consumer in the firmware is a
+             * reporting path; applied_pv_kw below is what the command site uses
+             * and it stays gated on control_enabled.
+             */
+            .requested_pv_kw = policy.valid ? policy.requested_pv_kw : requested_kw,
             .applied_pv_kw = applied_kw,
             .grid_policy = (uint8_t)s_grid_config.policy,
             .source_mode = (uint8_t)source.mode,

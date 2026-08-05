@@ -1721,6 +1721,36 @@ float inverter_manager_get_total_rated_kw(void)
     return total;
 }
 
+/*
+ * THE CAPACITY THAT IS COMMISSIONED, not the capacity that may be commanded.
+ *
+ * inverter_manager_get_total_rated_kw() above counts only inverters that are
+ * eligible right now -- online, confirmed, past every gate -- because that is
+ * what a command must be divided across. It is the wrong number for answering
+ * "what WOULD this plant be told", which is a question about a plant that is not
+ * yet commanding: on a controller whose only inverter is held by an unconfirmed
+ * prerequisite it returns zero, the policy has nothing to size a target against,
+ * and every screen reports 0 % for want of a denominator rather than for want of
+ * an answer.
+ *
+ * This one counts what the engineer commissioned. It is used only to compute the
+ * preview; the command path still divides by the eligible total, so a machine
+ * that is not allowed to be commanded still receives nothing.
+ */
+float inverter_manager_get_enabled_rated_kw(void)
+{
+    float total = 0.0f;
+    for (uint8_t i = 0; i < s_inverter_count; ++i) {
+        inverter_runtime_t *runtime = &s_inverters[i];
+        portENTER_CRITICAL(&runtime->lock);
+        const bool enabled = runtime->config.enabled;
+        const float rated = runtime->config.rated_power_kw;
+        portEXIT_CRITICAL(&runtime->lock);
+        if (enabled && isfinite(rated) && rated > 0.0f) total += rated;
+    }
+    return total;
+}
+
 static esp_err_t encode_command(const inverter_profile_t *profile, float percent,
                                 uint16_t *words, uint8_t *word_count)
 {

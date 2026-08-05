@@ -273,7 +273,12 @@ static esp_err_t inverters_get(httpd_req_t *request)
      * response so every inverter's preview describes the same instant. */
     control_status_t control_status = {0};
     control_engine_get_status(&control_status);
-    const float control_target_kw = control_status.applied_pv_kw;
+    /* The preview answers "what would this inverter be told", which must be
+     * answerable before automatic control is armed -- that is when an engineer
+     * needs it. applied_pv_kw is zero while control is off by design, so the
+     * preview built on it could only ever say 0 %. requested_pv_kw is the
+     * controller's computed answer and is published in both states. */
+    const float control_target_kw = control_status.requested_pv_kw;
 
     cJSON_AddNumberToObject(root, "generated_ms", current_ms);
     cJSON_AddNumberToObject(root, "configured_count", config->inverter_count);

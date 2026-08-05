@@ -64,15 +64,25 @@ else:
         failures.append('the new-measurement test does not compare against the '
                         'sample last acted on')
 
-step = re.search(r'if \(!control_enabled\) policy = .*?\n\s*else if \(([^)]*)\) '
-                 r'policy = power_control_step', source, re.S)
+step = re.search(r'if \(new_measurement\) \{\s*\n\s*policy = power_control_step', source)
 if not step:
     failures.append('power_control_step is no longer gated on a new measurement, '
-                    'or the disabled-control branch that clears the held decision '
-                    'is gone; either restores the oscillation')
-elif 'new_measurement' not in step.group(1):
-    failures.append('power_control_step runs on something other than a new '
-                    'measurement')
+                    'which restores the oscillation')
+
+# The policy is computed in BOTH states now. It used to run only while automatic
+# control was enabled, so with control off the controller had no answer to "what
+# would you do" -- every screen read 0 % on a plant it had a perfectly good answer
+# for, and an engineer had to arm it to find out what arming it would command.
+#
+# The integral is the part that may NOT run while disabled: the loop is not
+# acting, so its error is never corrected, and an integrator left running would
+# wind up for as long as the plant sat idle and dump that history into the first
+# command after arming.
+if not re.search(r'if \(!control_enabled\) \{\s*\n(?:\s*/\*.*?\*/\s*\n)?\s*'
+                 r'integral_kw = 0\.0f;', source, re.S):
+    failures.append('the integral is not cleared while control is disabled, so it '
+                    'winds up unopposed for as long as the plant is idle and lands '
+                    'in the first command after arming')
 
 # The held decision is what keeps the setpoint steady between readings. If policy
 # is declared inside the loop again it resets every tick, and a hold cycle
@@ -98,12 +108,20 @@ else:
                         'hold and commands zero, dropping the PV plant between '
                         'measurements')
 
-# ------------------------------------- 2. disabling control clears the decision
-if not re.search(r'if \(!control_enabled\) policy = \(power_control_output_t\)\{0\}',
-                 source):
-    failures.append('the held decision is not cleared when control is disabled, so '
-                    'a setpoint computed while control was on can outlive the '
-                    'authority that produced it')
+# ------------------------- 2. a held decision must not outlive its measurement
+#
+# This used to require clearing when control was DISABLED. That caught one way of
+# going stale and missed the other: a meter that stops answering leaves the loop
+# with nothing new to step on, and the last decision stands indefinitely while
+# being reported as current. Freshness is the honest test and covers both, which
+# matters more now that the policy is computed -- and shown -- while control is
+# off, so that an engineer can see what arming the plant would command.
+if not re.search(r'\}\s*else if \(!measurement_fresh\) \{\s*'
+                 r'(?:/\*.*?\*/\s*)?policy = \(power_control_output_t\)\{0\};',
+                 source, re.S):
+    failures.append('the held decision is not cleared when the measurement goes '
+                    'stale, so a setpoint can outlive the reading it was computed '
+                    'from and still be reported as current')
 
 # ---------------------------------------------- 3. the interval is the real gap
 interval = re.search(r'static float safe_interval_seconds\(.*?\n\}', source, re.S)

@@ -38,12 +38,21 @@ require("source_mode_is_stable(input->source_mode)" in guard,
         "so a changeover cannot produce a ramped-down command instead of zero")
 
 # 3. The control engine must act within the same cycle, not wait for the next one.
-require("if (!control_enabled || !policy.valid) {" in CONTROL,
+# The branch was split when the policy began being computed while control is off:
+# disabled clears only the integral (the preview keeps its number), enabled-and-
+# invalid clears the integral AND zeroes the request. Both still act in the cycle
+# that produced the result, which is what this clause is about.
+require("} else if (!policy.valid) {" in CONTROL and
+        "policy.requested_pv_kw = 0.0f;" in CONTROL,
         "an invalid policy result must be handled in the same control cycle")
-zeroing = CONTROL[CONTROL.index("if (!control_enabled || !policy.valid) {"):]
+zeroing = CONTROL[CONTROL.index("} else if (!policy.valid) {"):]
 zeroing = zeroing[:zeroing.index("float applied_kw")]
 require("policy.requested_pv_kw = 0.0f;" in zeroing,
         "an invalid policy result must zero the request immediately, not decay it")
+# And the acted-on value is gated separately, so an invalid result cannot reach
+# the inverters even if the branch above is ever weakened.
+require("float requested_kw = control_enabled && policy.valid" in CONTROL,
+        "the commanded value must require both authority and a valid policy")
 
 # 4. The transition itself must be debounced, and must report unknown while it runs
 #    rather than holding the previous source.

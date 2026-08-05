@@ -78,6 +78,9 @@ void inverter_manager_commissioning_summary(inverter_fleet_commissioning_t *out_
 esp_err_t inverter_manager_init(void);
 uint8_t inverter_manager_get_count(void);
 float inverter_manager_get_total_rated_kw(void);
+/* Commissioned capacity, whether or not it may be commanded right now. Only the
+ * preview may use it; see the definition. */
+float inverter_manager_get_enabled_rated_kw(void);
 
 /*
  * How many times an inverter has rejoined the commandable fleet.

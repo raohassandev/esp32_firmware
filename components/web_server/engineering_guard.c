@@ -259,7 +259,9 @@ static esp_err_t safe_inverters(httpd_req_t *request)
         control_status_t control_status = {0};
         control_engine_get_status(&control_status);
         inverter_command_preview_t preview = {0};
-        if (inverter_manager_preview_command(i, control_status.applied_pv_kw, &preview)) {
+        /* requested, not applied: the preview must answer before automatic
+         * control is armed. See the same choice in device_api.c. */
+        if (inverter_manager_preview_command(i, control_status.requested_pv_kw, &preview)) {
             cJSON *would = cJSON_AddObjectToObject(item, "command_preview");
             cJSON_AddBoolToObject(would, "available", preview.available);
             if (preview.available) {
