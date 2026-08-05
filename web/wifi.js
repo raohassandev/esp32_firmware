@@ -20,8 +20,15 @@
 
     const byId = (id) => document.getElementById(id);
 
+    /* The engineering network form used to have its own route, #/wifi, and its
+     * own sidebar entry beside the operator's "Wi-Fi network" -- two entries that
+     * read as the same thing. The form now lives inside the network page, gated,
+     * so this is the route to recognise. Renaming this predicate rather than
+     * leaving it pointed at a route that no longer exists: this module would have
+     * concluded it was never on screen and stopped refreshing, and the fields
+     * would sit at whatever they held when the page was built. */
     function isWifiRoute() {
-        return window.location.hash.replace(/^#\/?/, '').split(/[?&]/, 1)[0] === 'wifi';
+        return window.location.hash.replace(/^#\/?/, '').split(/[?&]/, 1)[0] === 'network';
     }
 
     const access = () => window.AutomatrixEngineeringAccess;
@@ -76,10 +83,15 @@
         }
     }
 
+    /* Mounted inside the engineering block on the network page, not beside the
+     * operator panel above it. That panel already scans and joins; this survey
+     * earns its place by showing what that one deliberately does not -- the
+     * security mode of each network, and whether this radio can join it -- so it
+     * belongs at the engineering depth rather than as a second search button in
+     * front of a plant owner. */
     function installScanPanel() {
-        const wifiPage = document.querySelector('.page[data-page="wifi"]');
-        const intro = wifiPage && wifiPage.querySelector('.page-intro');
-        if (!wifiPage || !intro || byId('wifiScanPanel')) return;
+        const host = byId('engineeringNetworkBody');
+        if (!host || byId('wifiScanPanel')) return;
 
         const panel = document.createElement('article');
         panel.className = 'panel wifi-scan-panel';
@@ -92,7 +104,7 @@
             '<div class="wifi-scan-message" id="wifiScanMessage" role="status"></div>',
             '<div class="wifi-network-list" id="wifiNetworkList"><div class="empty-state">Run a scan to discover nearby networks.</div></div>'
         ].join('');
-        intro.after(panel);
+        host.prepend(panel);
     }
 
     function setScanMessage(message, tone = '') {
@@ -523,10 +535,19 @@
         }
     }
 
+    /* Separate so the hashchange path can bind a button that did not exist when
+     * bind() ran. Guarded by a dataset flag rather than by removeEventListener,
+     * which would need the same function reference and gains nothing here. */
+    function bindScanButton() {
+        const scanButton = byId('wifiScanButton');
+        if (!scanButton || scanButton.dataset.bound === 'true') return;
+        scanButton.dataset.bound = 'true';
+        scanButton.addEventListener('click', requestScan);
+    }
+
     function bind() {
         installScanPanel();
-        const scanButton = byId('wifiScanButton');
-        if (scanButton) scanButton.addEventListener('click', requestScan);
+        bindScanButton();
 
         const form = byId('wifiForm');
         if (form) form.addEventListener('submit', handleWifiSubmit, true);
@@ -543,6 +564,23 @@
 
         window.addEventListener('hashchange', () => {
             if (!isWifiRoute()) cancelScanPolling();
+        });
+        /*
+         * MOUNTED WHEN THE HOST APPEARS, NOT WHEN THIS MODULE LOADS.
+         *
+         * The block this survey lives in is built by operator-network.js the
+         * first time the network page is visited -- after bind() has run, and
+         * after the hashchange that took the user there. Both of those fire too
+         * early and found nothing, so the survey never appeared.
+         *
+         * The shared observer on #mainContent is exactly the signal for this:
+         * it reports when another module has changed the page. Installation is
+         * idempotent, so being called on unrelated changes costs one lookup.
+         */
+        access()?.onContentChange(() => {
+            if (!isWifiRoute()) return;
+            installScanPanel();
+            bindScanButton();
         });
         /* Leaving the route stops polling above; entering it - or signing in
          * while already on it - loads the survey through the shared scope hook,

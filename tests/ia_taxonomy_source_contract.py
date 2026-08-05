@@ -72,8 +72,13 @@ for label in ("'Operate'", "'Commission'", "'Maintain'", "'Access'"):
 # alarms, control and readiness were removed from the product; a route table
 # entry for a page that does not exist is what this clause exists to prevent in
 # the other direction.
+# 'wifi' left this list when the engineering network form moved onto the
+# operator network page. It was a second route and a second sidebar entry for
+# what a signed-in engineer read as the same destination; the settings survive as
+# a gated block on 'network'. See adoptEngineeringNetwork() in
+# web/operator-network.js.
 for route in ("dashboard", "meters", "generator", "inverters", "commissioning",
-              "wifi", "system", "engineering"):
+              "network", "system", "engineering"):
     require(f"{route}: {{ name:" in APP, f"route {route} has no entry in the route table")
 
 require("function ensureNavigationHierarchy" in APP,
@@ -103,7 +108,11 @@ require("mayUseEngineering" in MODE and "onScopeChange" in MODE,
 # ------------------------------------------------- one durable name per page
 
 for route, name in [("dashboard", "Plant overview"), ("system", "Controller"),
-                    ("wifi", "Network setup"),
+                    # "Network setup" is gone with the route. The one network
+                    # destination is "Wi-Fi network"; the engineering settings are
+                    # a gated block on it rather than a second name for the same
+                    # subject.
+                    ("network", "Wi-Fi network"),
                     ("meters", "Grid power"), ("generator", "Generator power"),
                     ("inverters", "Solar inverters"),
                     ("engineering", "Engineering access")]:

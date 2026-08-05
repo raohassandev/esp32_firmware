@@ -1,20 +1,23 @@
-/* operator-network.js - the site owner's own Wi-Fi page.
+/* operator-network.js - the controller's one network page.
  *
- * OWNS: the #/network route and its page. Nothing else.
+ * OWNS: the #/network route, its page, and the operator panel on it. It also
+ *   RE-PARENTS the engineering network form onto this page; see
+ *   adoptEngineeringNetwork() below.
  * DOES NOT OWN: routing (app.js), navigation order (product-shell-v2.js), or
- *   any engineering network setting - those stay on #/wifi behind a session.
+ *   the engineering form's own behaviour - that stays in web/wifi.js, which
+ *   binds by element id and is unchanged by the move.
  *
- * WHY THIS EXISTS SEPARATELY FROM #/wifi. The engineering network page asks an
- * engineer's questions: static addressing, the recovery access point, retry
- * timing, a fallback profile. A factory owner who has changed their router does
- * not have those questions or that password, and making them wait for a site
- * visit to retype one passphrase is the whole complaint this answers.
+ * TWO DEPTHS, ONE PAGE. The panel here asks the plant owner's question: which
+ * router, and its password. A factory owner who has changed their router does
+ * not have an engineer's questions or an engineer's password, and making them
+ * wait for a site visit to retype one passphrase is the complaint this answers.
+ * Below it, behind the engineering session, sits everything that can strand a
+ * controller: static addressing, the fallback profile, the recovery access
+ * point, retry timing.
  *
- * So this page can do exactly two things - list what is in range, and join one
- * with a passphrase - against two endpoints that can do exactly those two
- * things. What it cannot touch is what keeps a controller findable: the recovery
- * AP, static addressing, the fallback profile. A unit can be moved from here; it
- * cannot be locked away.
+ * These were two routes and two sidebar entries, and to anyone signed in they
+ * read as the same thing listed twice. They are one entry now. Nothing was
+ * dropped in the merge - the depth an operator sees is exactly what it was.
  */
 (() => {
     'use strict';
@@ -46,6 +49,53 @@
         if (value >= -70) return 'good';
         if (value >= -80) return 'weak';
         return 'very weak';
+    }
+
+    /*
+     * ONE NETWORK PAGE, TWO DEPTHS.
+     *
+     * The sidebar used to carry "Wi-Fi network" and "Network setup" as separate
+     * entries, and to anyone signed in they read as the same thing twice. They
+     * were not: this page joins a router, and #/wifi held everything that can
+     * strand a controller -- static addressing, the fallback profile, the
+     * recovery access point's passphrase, retry timing.
+     *
+     * Deleting either would have cost something real. Removing this one takes
+     * the plant owner's ability to rejoin a changed router without an engineer;
+     * removing the other takes the only screen that can set the recovery
+     * passphrase, which is the last way back into a relocated unit.
+     *
+     * So the engineering form is MOVED here rather than duplicated or dropped.
+     * Its markup, its ids and web/wifi.js are untouched -- wifi.js binds by
+     * element id and does not care which section its fields live in -- which is
+     * why this is a re-parent and not a rewrite. product-mode.css already hides
+     * #wifiForm from operators, so the depth an operator sees is unchanged.
+     *
+     * The route table, the nav and the API-permission map lose 'wifi' with it;
+     * see app.js and product-mode.js. That last one matters: engineering API
+     * calls are authorised per route, so /api/wifi/config had to be re-pointed
+     * at 'network' or saving from the merged page would be refused.
+     */
+    function adoptEngineeringNetwork(page) {
+        const legacy = document.querySelector('[data-page="wifi"]');
+        if (!legacy || legacy === page) return;
+        /* Its own heading, because the block now sits under an operator panel
+         * and would otherwise read as more of the same form. */
+        const details = node('details', 'op-more level-engineering');
+        const summary = node('summary', 'op-more-summary', 'Engineering network settings');
+        details.append(summary);
+        const body = node('div', 'op-more-body');
+        /* Named so web/wifi.js can mount its radio survey inside this block
+         * rather than beside the operator panel, where it would be a second
+         * "search for networks" control on the same page. */
+        body.id = 'engineeringNetworkBody';
+        /* The intro is the operator panel's job now; everything else moves. */
+        Array.from(legacy.children).forEach((child) => {
+            if (!child.classList.contains('page-intro')) body.append(child);
+        });
+        details.append(body);
+        page.append(details);
+        legacy.remove();
     }
 
     function ensurePage() {
@@ -87,6 +137,7 @@
         main.append(page);
         byId('operatorNetworkRescan').addEventListener('click', () => { loadScan(true); });
         byId('operatorNetworkJoin').addEventListener('click', join);
+        adoptEngineeringNetwork(page);
         return page;
     }
 

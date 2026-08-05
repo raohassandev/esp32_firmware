@@ -337,7 +337,7 @@
         const inverters = payload.inverters?.summary || {};
         const telemetry = payload.inverterTelemetry?.summary || {};
         return [
-            { id: 'network', title: 'Network connection', route: 'wifi', complete: status.network_online === true, detail: status.network_online ? `${status.ssid || 'Network'} connected` : 'Connect the controller to the site network.' },
+            { id: 'network', title: 'Network connection', route: 'network', complete: status.network_online === true, detail: status.network_online ? `${status.ssid || 'Network'} connected` : 'Connect the controller to the site network.' },
             { id: 'meter', title: 'Grid measurement', route: 'meters', complete: Number(meters.online) > 0, detail: Number(meters.online) > 0 ? `${meters.online} meter online` : 'Configure and verify the primary grid meter.' },
             { id: 'inverters', title: 'Solar inverter fleet', route: 'inverters', complete: Number(inverters.enabled) > 0, detail: Number(inverters.enabled) > 0 ? `${inverters.enabled} inverter channel(s) enabled` : 'Configure inverter endpoints and rated capacity.' },
             { id: 'readonly', title: 'Read-only verification', route: 'inverters', complete: Number(telemetry.telemetry_valid) > 0, detail: Number(telemetry.telemetry_valid) > 0 ? `${telemetry.telemetry_valid} telemetry channel(s) verified` : 'Run read-only probes and compare live values.' },

@@ -77,11 +77,13 @@
          * Changing the router is something the person who runs the plant does,
          * not a commissioning step -- and putting it in Commission would file it
          * under a heading they have been told not to touch. The engineer's
-         * network page is the separate 'wifi' route below and keeps everything
-         * that can strand a controller. */
+         * The engineer's settings -- static addressing, the fallback profile,
+         * the recovery access point, retry timing -- used to be a second route,
+         * 'wifi', and a second sidebar entry that read as a duplicate of this
+         * one. They are now a gated block ON this page; see
+         * adoptEngineeringNetwork() in web/operator-network.js. */
         network: { name: 'Wi-Fi network', short: 'Wi-Fi', group: 'operate', icon: '≈' },
         commissioning: { name: 'Commissioning', group: 'commission', icon: '✓' },
-        wifi: { name: 'Network setup', short: 'Network', group: 'commission', icon: '⌁' },
         system: { name: 'Controller', group: 'maintain', icon: '⚙' },
         engineering: { name: 'Engineering access', short: 'Engineering', group: 'access', icon: '▣' }
     };
@@ -94,7 +96,7 @@
     const PAGE_TYPES = {
         dashboard: 'operational', meters: 'operational', generator: 'operational',
         inverters: 'operational',
-        network: 'form', wifi: 'form', system: 'form',
+        network: 'form', system: 'form',
         commissioning: 'guided', engineering: 'guided'
     };
 

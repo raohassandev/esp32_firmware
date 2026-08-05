@@ -171,7 +171,7 @@
      * intended order before writing, because re-appending a node in place still
      * records a mutation. Visibility stays with product-mode.js. */
     const OPERATE_ROUTES = ['dashboard', 'meters', 'inverters', 'control', 'alarms'];
-    const SERVICE_ROUTES = ['readiness', 'engineering', 'commissioning', 'wifi', 'system'];
+    const SERVICE_ROUTES = ['readiness', 'engineering', 'commissioning', 'system'];
 
     function groupNavigation() {
         const nav = document.querySelector('.nav-list');

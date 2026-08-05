@@ -69,14 +69,14 @@
     head.querySelector('.experience-question').textContent = meta.question;
     head.querySelector('.experience-guidance').textContent = meta.action;
     const scope = head.querySelector('.experience-scope');
-    const engineeringPage = ['engineering','commissioning','wifi','system'].includes(name);
+    const engineeringPage = ['engineering','commissioning','system'].includes(name);
     scope.textContent = engineeringPage ? 'Engineering scope' : 'Operator scope';
     scope.className = `experience-scope ${engineeringPage ? 'engineering' : 'operator'}`;
   }
 
   function classifyPage(page, name) {
-    page.classList.toggle('experience-operator-page', !['engineering','commissioning','wifi','system'].includes(name));
-    page.classList.toggle('experience-engineering-page', ['engineering','commissioning','wifi','system'].includes(name));
+    page.classList.toggle('experience-operator-page', !['engineering','commissioning','system'].includes(name));
+    page.classList.toggle('experience-engineering-page', ['engineering','commissioning','system'].includes(name));
     page.querySelectorAll(':scope > .page-intro').forEach((node) => node.classList.add('experience-legacy-intro'));
     [...page.children].forEach((child, index) => {
       if (!child.classList.contains('experience-masthead') && !child.classList.contains('page-intro')) {

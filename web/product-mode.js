@@ -23,7 +23,7 @@
      * tests/production_release_gate.py blocks a production release while it is non-empty. */
     const DEV_DEFAULT_ENGINEERING_PASSWORD = '';
 
-    const PROTECTED_ROUTES = new Set(['wifi', 'control', 'system', 'commissioning']);
+    const PROTECTED_ROUTES = new Set(['control', 'system', 'commissioning']);
     const ENGINEERING_ONLY_SELECTORS = [
         '#em500Workspace',
         '#inverterProfilePicker',
@@ -42,8 +42,12 @@
      * is printed on the customer-facing operator screen. See finding S4 in
      * docs/UI_VISUAL_AUDIT_2026-07-29.md. */
     const ENGINEERING_ONLY_ENDPOINTS = [
-        { path: '/api/wifi/scan', routes: ['wifi', 'commissioning'] },
-        { path: '/api/wifi/config', routes: ['wifi', 'commissioning'] },
+        /* 'network' rather than 'wifi': the engineering form moved onto the
+         * operator network page and these calls are authorised per ROUTE, so
+         * leaving them pointed at a route that no longer exists would refuse
+         * every save from the merged page. */
+        { path: '/api/wifi/scan', routes: ['network', 'commissioning'] },
+        { path: '/api/wifi/config', routes: ['network', 'commissioning'] },
         { path: '/api/solar-grid/config', routes: ['control', 'commissioning'] },
         { path: '/api/solar-grid/status', routes: ['control', 'commissioning'] },
         { path: '/api/inverter-profiles', routes: ['inverters', 'commissioning'] },
