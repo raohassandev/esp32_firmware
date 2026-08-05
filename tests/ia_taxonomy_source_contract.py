@@ -61,9 +61,12 @@ def require(condition: bool, message: str) -> None:
 # ===================================================== 1. navigation hierarchy
 
 require("const NAV_GROUPS" in APP, "there is no navigation grouping table")
-for group in ("'operate'", "'commission'", "'maintain'", "'access'"):
+# 'maintain' went with the Controller page, which was its only route. A heading
+# with nothing under it is the thing this file's grouping rules exist to prevent,
+# so the group is gone rather than left empty.
+for group in ("'operate'", "'commission'", "'access'"):
     require(group in APP, f"navigation group missing: {group}")
-for label in ("'Operate'", "'Commission'", "'Maintain'", "'Access'"):
+for label in ("'Operate'", "'Commission'", "'Access'"):
     require(label in APP, f"navigation group is unlabelled: {label}")
 
 # Every reachable route is placed in exactly one group. A route missing from the
@@ -78,7 +81,7 @@ for label in ("'Operate'", "'Commission'", "'Maintain'", "'Access'"):
 # a gated block on 'network'. See adoptEngineeringNetwork() in
 # web/operator-network.js.
 for route in ("dashboard", "meters", "generator", "inverters", "commissioning",
-              "network", "system", "engineering"):
+              "network", "engineering"):
     require(f"{route}: {{ name:" in APP, f"route {route} has no entry in the route table")
 
 require("function ensureNavigationHierarchy" in APP,
@@ -107,7 +110,7 @@ require("mayUseEngineering" in MODE and "onScopeChange" in MODE,
 
 # ------------------------------------------------- one durable name per page
 
-for route, name in [("dashboard", "Plant overview"), ("system", "Controller"),
+for route, name in [("dashboard", "Plant overview"),
                     # "Network setup" is gone with the route. The one network
                     # destination is "Wi-Fi network"; the engineering settings are
                     # a gated block on it rather than a second name for the same
@@ -143,10 +146,11 @@ route_records = re.findall(r"(\w+): \{([^}]*)\}", route_table)
 # that has silently stopped working returns zero or one record, not eleven. So
 # the floor catches the failure this was defending against and stays quiet for
 # the change it was never about.
-# Nine, since alarms, control and readiness were removed. The floor exists to
-# catch an extraction that has stopped matching -- which returns zero or one,
-# not nine -- and not to freeze the number of pages the product has.
-require(len(route_records) >= 8,
+# Seven now, after alarms, control, readiness, wifi and system were removed. The
+# floor exists to catch an extraction that has stopped matching -- which returns
+# zero or one -- and not to freeze the number of pages the product has, which is
+# why it moves down with each real removal rather than holding a stale count.
+require(len(route_records) >= 5,
         f"the route table parsed as only {len(route_records)} records, so the "
         f"extraction has probably stopped matching and the checks below are vacuous")
 

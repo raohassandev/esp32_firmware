@@ -37,8 +37,6 @@
                 <a class="nav-link" href="#/inverters" data-route="inverters" aria-label="Solar inverters"><span aria-hidden="true">◇</span><span>Solar inverters</span></a>
                 <a class="nav-link" href="#/network" data-route="network" aria-label="Wi-Fi network"><span aria-hidden="true">≈</span><span>Wi-Fi network</span></a>
                 <p class="nav-group-title" data-nav-group="commission" title="Bringing the site into service">Commission</p>
-                <p class="nav-group-title" data-nav-group="maintain" title="Servicing an installed controller">Maintain</p>
-                <a class="nav-link" href="#/system" data-route="system" aria-label="Controller"><span aria-hidden="true">⚙</span><span>Controller</span></a>
                 <p class="nav-group-title" data-nav-group="access" title="Engineering session">Access</p>
             </nav>
             <div class="sidebar-footer"><div class="sidebar-state" id="sidebarState">Connecting to controller…</div><div class="sidebar-version" id="sidebarVersion">Firmware configuration loading</div></div>
@@ -177,10 +175,6 @@
                          firmware does the second thing deliberately. -->
                     
                     </section>
-
-                
-
-                <section class="page" data-page="system" aria-labelledby="systemTitle"><div class="page-intro"><div><p class="eyebrow">Maintenance</p><h2 id="systemTitle">System</h2><p>Controller identity, configuration backup and controlled restart.</p></div></div><div class="dashboard-grid"><article class="panel"><div class="panel-header"><div><p class="eyebrow">Controller</p><h3>System information</h3></div></div><div class="health-list"><div class="health-row"><span>Device name</span><strong id="systemDeviceName">--</strong></div><div class="health-row"><span>Configuration schema</span><strong id="systemSchema">--</strong></div><div class="health-row"><span>Current IP</span><strong id="systemIp">--</strong></div><div class="health-row"><span>Connected SSID</span><strong id="systemSsid">--</strong></div></div><div class="panel-actions"><button class="button secondary" id="exportButton" type="button">Export configuration</button><button class="button danger-button" id="restartButton" type="button">Restart controller</button></div></article><article class="panel"><div class="panel-header"><div><p class="eyebrow">Advanced</p><h3>Configuration JSON</h3></div><span class="subtle-badge">Passwords masked</span></div><textarea id="advancedJson" class="json-editor" spellcheck="false" aria-label="Advanced configuration JSON" readonly></textarea><div class="panel-actions"><button class="button secondary" id="reloadConfigButton" type="button">Reload</button><button class="button primary" id="saveJsonButton" type="button" disabled title="Advanced JSON write support is scheduled for a later milestone">Read-only</button><span id="systemMessage" class="action-message" role="status">Advanced JSON is read-only in this milestone.</span></div></article></div></section>
             </main>
         </div>
     </div>

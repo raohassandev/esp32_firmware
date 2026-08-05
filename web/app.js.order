@@ -45,7 +45,6 @@ source-detection.js
 solar-grid.js
 operator-view.js
 operator-network.js
-service-page.js
 operator-operations.js
 operator-product-suite.js
 commissioning-wizard-v2.js

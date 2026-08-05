@@ -498,7 +498,6 @@
         ensureView('meters', 'operatorMeterView');
         ensureView('inverters', 'operatorInverterView');
         ensureView('control', 'operatorControlView');
-        ensureView('system', 'operatorSystemView');
     }
 
     /* ------------------------------------------------------------- power flow
@@ -1872,29 +1871,6 @@
      * Which controller is this, is it reachable, and is anything wrong with it.
      * Everything else that used to be here - what Engineering contains, how the
      * page refreshes, the product tagline - answered a question nobody asked. */
-    function renderSystem(payload) {
-        const view = byId('operatorSystemView');
-        if (!view) return;
-        const status = payload.status || {};
-        const alarms = Array.isArray(status.alarm_names) ? status.alarm_names : [];
-        view.replaceChildren();
-        const card = node('article', 'op-card');
-        card.append(node('div', 'op-card-headline', 'Controller'),
-            statusLine('shield', 'Product', 'Automatrix PV-DG Controller', '', 'good'),
-            statusLine('wifi', 'Connection',
-                status.network_online ? stateWord('communication', 'online', 'Online') : stateWord('communication', 'offline', 'Offline'),
-                status.network_online ? `${status.ssid || 'Wi-Fi'} · ${status.ip || ''}`.trim() : 'Network connection unavailable',
-                status.network_online ? 'good' : 'bad'),
-            statusLine('alarm', 'Alarms',
-                alarms.length ? `${alarms.length} ${stateWord('alarm', 'critical', 'Critical')}` : stateWord('alarm', 'normal', 'Normal'),
-                alarms.length ? alarms.join(', ') : '', alarms.length ? 'bad' : 'good'));
-        view.append(card);
-
-        const support = node('article', 'op-card op-support-card');
-        support.append(icon('shield'), node('div', '', ''));
-        support.lastChild.append(node('p', '', 'Setup, commissioning and diagnostics are in the protected Engineering area.'));
-        view.append(support);
-    }
 
     function hideLegacyOperatorContent() {
         /*
@@ -1935,7 +1911,7 @@
         if (!isOperator()) return;
         /* 'control' is gone with its page; naming a page that no longer exists
          * reads as coverage this function does not have. */
-        ['meters', 'system'].forEach((name) => {
+        ['meters'].forEach((name) => {
             const page = document.querySelector(`[data-page="${name}"]`);
             if (!page) return;
             Array.from(page.children).forEach((child) => {
@@ -1989,7 +1965,7 @@
      * commissioning, network setup and the engineering workspace - pages this
      * module renders nothing on, competing for the four client sockets the
      * controller has. It polls where it draws, and nowhere else. */
-    const PRODUCT_ROUTES = new Set(['dashboard', 'meters', 'generator', 'inverters', 'control', 'system']);
+    const PRODUCT_ROUTES = new Set(['dashboard', 'meters', 'generator', 'inverters']);
 
     async function refreshAll() {
         if (state.busy || !PRODUCT_ROUTES.has(route())) return;
@@ -2051,7 +2027,6 @@
         else if (current === 'generator') renderMeter(state.lastPayload, 'generator');
         else if (current === 'inverters') renderInverters(state.lastPayload);
         else if (current === 'control') renderControl(state.lastPayload);
-        else if (current === 'system') renderSystem(state.lastPayload);
         /* This view is rebuilt every refresh. The chart and the exceptions band
          * are not: they live in nodes this module keeps and re-appends, so they
          * survive the rebuild. The event tells the module that owns them that a

@@ -50,7 +50,7 @@
    * Engineering, commissioning, network setup and pre-lab readiness keep their
    * masthead: those pages have no product view and no heading of their own, and
    * the orienting question is the only framing they get. */
-  const OPERATOR_PRODUCT_ROUTES = new Set(['dashboard', 'meters', 'inverters', 'control', 'system', 'alarms']);
+  const OPERATOR_PRODUCT_ROUTES = new Set(['dashboard', 'meters', 'generator', 'inverters']);
 
   const route = () => location.hash.replace(/^#\/?/, '') || 'dashboard';
   const isEngineering = () => document.documentElement.dataset.access === 'engineering';
@@ -69,14 +69,14 @@
     head.querySelector('.experience-question').textContent = meta.question;
     head.querySelector('.experience-guidance').textContent = meta.action;
     const scope = head.querySelector('.experience-scope');
-    const engineeringPage = ['engineering','commissioning','system'].includes(name);
+    const engineeringPage = ['engineering','commissioning'].includes(name);
     scope.textContent = engineeringPage ? 'Engineering scope' : 'Operator scope';
     scope.className = `experience-scope ${engineeringPage ? 'engineering' : 'operator'}`;
   }
 
   function classifyPage(page, name) {
-    page.classList.toggle('experience-operator-page', !['engineering','commissioning','system'].includes(name));
-    page.classList.toggle('experience-engineering-page', ['engineering','commissioning','system'].includes(name));
+    page.classList.toggle('experience-operator-page', !['engineering','commissioning'].includes(name));
+    page.classList.toggle('experience-engineering-page', ['engineering','commissioning'].includes(name));
     page.querySelectorAll(':scope > .page-intro').forEach((node) => node.classList.add('experience-legacy-intro'));
     [...page.children].forEach((child, index) => {
       if (!child.classList.contains('experience-masthead') && !child.classList.contains('page-intro')) {

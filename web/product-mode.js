@@ -23,7 +23,7 @@
      * tests/production_release_gate.py blocks a production release while it is non-empty. */
     const DEV_DEFAULT_ENGINEERING_PASSWORD = '';
 
-    const PROTECTED_ROUTES = new Set(['control', 'system', 'commissioning']);
+    const PROTECTED_ROUTES = new Set(['commissioning']);
     const ENGINEERING_ONLY_SELECTORS = [
         '#em500Workspace',
         '#inverterProfilePicker',

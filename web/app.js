@@ -45,7 +45,6 @@
     const NAV_GROUPS = [
         { id: 'operate', label: 'Operate', hint: 'Watching a running plant' },
         { id: 'commission', label: 'Commission', hint: 'Bringing the site into service' },
-        { id: 'maintain', label: 'Maintain', hint: 'Servicing an installed controller' },
         { id: 'access', label: 'Access', hint: 'Engineering session' }
     ];
 
@@ -84,7 +83,6 @@
          * adoptEngineeringNetwork() in web/operator-network.js. */
         network: { name: 'Wi-Fi network', short: 'Wi-Fi', group: 'operate', icon: '≈' },
         commissioning: { name: 'Commissioning', group: 'commission', icon: '✓' },
-        system: { name: 'Controller', group: 'maintain', icon: '⚙' },
         engineering: { name: 'Engineering access', short: 'Engineering', group: 'access', icon: '▣' }
     };
 
@@ -96,7 +94,7 @@
     const PAGE_TYPES = {
         dashboard: 'operational', meters: 'operational', generator: 'operational',
         inverters: 'operational',
-        network: 'form', system: 'form',
+        network: 'form',
         commissioning: 'guided', engineering: 'guided'
     };
 
@@ -954,10 +952,9 @@
          */
         void control;
 
-        setText('systemDeviceName', config.device_name || '--');
-        setText('systemSchema', config.schema ?? '--');
+        /* The Controller page is gone; the sidebar caption is the one thing it
+         * fed that is still on screen. */
         setText('sidebarVersion', `Configuration schema ${config.schema ?? '--'} · ${config.device_name || 'Controller'}`);
-        byId('advancedJson').value = JSON.stringify(config, null, 2);
     }
 
     async function loadConfig() {
@@ -1091,7 +1088,12 @@
                 body: JSON.stringify(state.config)
             });
             setMessage(messageId, 'Saved and verified in flash.', 'good');
-            byId('advancedJson').value = JSON.stringify(state.config, null, 2);
+            /* The advanced JSON view went with the Controller page. Refreshing
+             * it from here would throw on a null element and take EVERY
+             * configuration save with it -- this function is what the Wi-Fi and
+             * meter forms call. That is the exact failure the Controller page
+             * itself had, from the same cause, so it is removed rather than
+             * guarded. */
             toast('Configuration saved successfully.', 'good');
             return result;
         } finally {
@@ -1129,16 +1131,6 @@
         }
     }
 
-    async function handleJsonSave() {
-        setMessage('systemMessage', '');
-        try {
-            state.config = JSON.parse(byId('advancedJson').value);
-            await saveConfiguration('systemMessage');
-            await loadConfig();
-        } catch (error) {
-            setMessage('systemMessage', `Save failed: ${error.message}`, 'bad');
-        }
-    }
 
     async function handleRescan() {
         setMessage('wifiMessage', 'Starting Wi-Fi rescan…');
@@ -1151,18 +1143,6 @@
         }
     }
 
-    function exportConfiguration() {
-        if (!state.config) return;
-        const blob = new Blob([JSON.stringify(state.config, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = 'automatrix-pvdg-config.json';
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        URL.revokeObjectURL(url);
-    }
 
     function toast(message, tone = '') {
         const region = byId('toastRegion');
@@ -1842,18 +1822,6 @@
          * listener below never bound: the advanced JSON save, the configuration
          * reload, the export and the restart. The Controller page's buttons were
          * all dead and nothing said so, because the throw was swallowed. */
-        byId('saveJsonButton').addEventListener('click', handleJsonSave);
-        byId('reloadConfigButton').addEventListener('click', async () => {
-            setMessage('systemMessage', 'Reloading…');
-            try { await loadConfig(); setMessage('systemMessage', 'Configuration reloaded.', 'good'); }
-            catch (error) { setMessage('systemMessage', error.message, 'bad'); }
-        });
-        byId('exportButton').addEventListener('click', exportConfiguration);
-        byId('restartButton').addEventListener('click', async () => {
-            if (!window.confirm('Restart the controller now?')) return;
-            try { await restartController(); }
-            catch (error) { setMessage('systemMessage', error.message, 'bad'); }
-        });
     }
 
     /* Published before start() so every later module in the bundle - the access
