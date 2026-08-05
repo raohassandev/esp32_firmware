@@ -244,6 +244,20 @@
     }
 
     function start() {
+        /*
+         * BUILT AT START-UP, NOT ON FIRST VISIT.
+         *
+         * ensurePage() also adopts the engineering network form out of its old
+         * section, and that section has no navigation entry any more. Building
+         * this page lazily left the old one sitting in the document, unreachable
+         * and unremoved, until somebody happened to open the network route --
+         * which tools/browser_check.js reports, correctly, as a page with no way
+         * to reach it.
+         *
+         * The page is a few hundred bytes of detached DOM until the router shows
+         * it, so there is nothing to save by deferring it.
+         */
+        ensurePage();
         onRoute();
         window.addEventListener('hashchange', onRoute);
         /* Status only, and only while the page is open. The scan is not polled:

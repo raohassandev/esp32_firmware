@@ -30,28 +30,36 @@ assert ".status-strip { display: none; }" in css, "legacy global status strip mu
 assert "#controllerPill { display: none; }" in css, "legacy controller pill must not compete with health control"
 assert ".product-tool-button" in css and "display: none" in css, "secondary display tools must leave the permanent header"
 assert "max-width: 650px" in css and "place-items: end stretch" in css, "mobile overflow sheet is required"
-assert "groupNavigation" in js and "dataset.shellGrouped" in js, "navigation hierarchy must be deterministic and idempotent"
 assert "removeDuplicateIntros" in js, "duplicate page introductions must be suppressed"
 
-# The shell is the single owner of the navigation list: both the item order and
-# the section labels. product-experience-v2.js used to insert the labels into a
-# list this module was reordering underneath them, so the outcome depended on
-# which module ran last. Both label strings must therefore live here.
-assert "experience-nav-label" in js, "the shell owns the navigation section labels"
-assert "'Operate'" in js and "'Commission & service'" in js, "navigation sections are not labelled"
+# THE SHELL MUST NOT ARRANGE THE NAVIGATION LIST.
+#
+# It used to, and so did app.js, to different schemes: this module carried its
+# own OPERATE/SERVICE route lists and its own two section labels and appended
+# them to the same .nav-list that app.js orders from the ROUTES table. The result
+# depended on which ran last, and the second copy went stale exactly as a second
+# copy does -- still naming 'control', 'alarms' and 'readiness' after those pages
+# were deleted, and never hearing about 'generator' or 'network'.
+#
+# What that produced on a real controller: Plant overview, Grid power and Solar
+# inverters pushed below the ACCESS heading, with COMMISSION and MAINTAIN
+# standing empty above them. The shell's own labels had been hidden with a CSS
+# rule instead of removed, which left two empty spans and the conflict intact.
+#
+# app.js owns it now, alone: it holds the route table, each route's group and
+# each route's durable name, and tests/ia_taxonomy_source_contract.py pins that
+# ownership from the other side. This clause is the matching half -- if the shell
+# ever grows a second arranger again, the two contracts disagree and one of them
+# fails, which is the point.
+assert "groupNavigation" not in js,     "the shell must not arrange the navigation list; app.js owns it"
+assert "OPERATE_ROUTES" not in js and "SERVICE_ROUTES" not in js,     "a second route list in the shell is the copy that goes stale"
+assert "experience-nav-label" not in js,     "the shell must not create navigation section labels; the ROUTES table names the groups"
 
-# Grouping must be repeatable, not latched: nav entries are added by later
-# modules (the commissioning entry among them) after this module has started,
-# and a one-shot pass leaves them unplaced. Repeatable means it must also be
-# idempotent -- it compares before it writes.
-assert "if (tail.length === ordered.length" in js, "navigation grouping must not mutate when already ordered"
 
 # Visibility of a navigation entry follows Engineering authorisation and belongs
-# to product-mode.js. The shell orders the list; it must never hide an entry.
-grouping = js[js.index("function groupNavigation"):js.index("function removeDuplicateIntros")]
-assert "hidden" not in grouping, "the shell must not decide navigation visibility"
-assert "dataset.access" not in grouping and "authenticated" not in grouping, \
-    "navigation order must not depend on authorisation state"
+# to product-mode.js. The clause that inspected the shell's arranger for hidden
+# handling is gone with the arranger itself: a module that no longer touches the
+# list cannot hide anything in it. The ownership assertions above keep it so.
 
 # One MutationObserver watches #mainContent for the whole application and it
 # lives in product-mode.js. This module subscribes; it does not add its own.

@@ -21,16 +21,15 @@
                  module changes the sidebar. Authorisation is unchanged and still
                  belongs entirely to web/product-mode.js.
 
-                 data-shell-grouped tells web/product-shell-v2.js that ordering has
-                 already been decided; its own flat ordering pass is idempotent and
-                 skips when the flag is present. The two empty experience-nav-label
-                 elements below hold the matching latch in web/product-experience-v2.js,
-                 which re-inserts its own two-group labels whenever the sidebar does
-                 not have exactly two of them. Both modules are owned elsewhere; this
-                 satisfies their contracts rather than editing them. -->
-            <nav class="nav-list" data-shell-grouped="true">
-                <span class="experience-nav-label nav-group-latch" hidden aria-hidden="true"></span>
-                <span class="experience-nav-label nav-group-latch" hidden aria-hidden="true"></span>
+                 There used to be two decoys here: a data-shell-grouped flag and two
+                 empty label spans, placed to stop a SECOND arranger in
+                 product-shell-v2.js from re-ordering this list and inserting its own
+                 headings. That arranger is gone -- app.js owns the navigation alone --
+                 so the decoys are gone with it. Neutering a conflicting module from
+                 the markup kept the two of them out of each other's way; it did not
+                 stop them disagreeing, and the disagreement is what put three
+                 operational pages under the ACCESS heading on a real controller. -->
+            <nav class="nav-list">
                 <p class="nav-group-title" data-nav-group="operate" title="Watching a running plant">Operate</p>
                 <a class="nav-link" href="#/dashboard" data-route="dashboard" aria-label="Plant overview"><span aria-hidden="true">⌂</span><span>Plant overview</span></a>
                 <a class="nav-link" href="#/meters" data-route="meters" aria-label="Grid power"><span aria-hidden="true">▤</span><span>Grid power</span></a>

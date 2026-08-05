@@ -609,7 +609,9 @@ input:disabled, select:disabled, textarea:disabled {
 .nav-list .nav-group-title:first-of-type { margin-top: 4px; }
 .nav-list .nav-group-title[hidden] { display: none; }
 /* Latches for web/product-experience-v2.js. They carry no content. */
-.nav-list .nav-group-latch { display: none; }
+/* The latch class belonged to a second navigation arranger in
+ * product-shell-v2.js that is gone; hiding its labels was a patch over a
+ * conflict rather than a fix for it. Nothing creates them now. */
 
 /* ==================================================== engineering session banner
  *

@@ -170,30 +170,29 @@
      * repeatable instead of latched, and checks the list is not already in the
      * intended order before writing, because re-appending a node in place still
      * records a mutation. Visibility stays with product-mode.js. */
-    const OPERATE_ROUTES = ['dashboard', 'meters', 'inverters', 'control', 'alarms'];
-    const SERVICE_ROUTES = ['readiness', 'engineering', 'commissioning', 'system'];
-
-    function groupNavigation() {
-        const nav = document.querySelector('.nav-list');
-        if (!nav) return;
-        nav.dataset.shellGrouped = 'true';
-
-        const ordered = [];
-        const operate = OPERATE_ROUTES.map((name) => nav.querySelector(`[data-route="${name}"]`)).filter(Boolean);
-        const service = SERVICE_ROUTES.map((name) => nav.querySelector(`[data-route="${name}"]`)).filter(Boolean);
-        /* Class name belongs to product-experience-v2.css; the element is
-         * created here because navigation has one owner. */
-        const labels = [...nav.querySelectorAll(':scope > .experience-nav-label')];
-        if (operate.length) ordered.push(labels[0] || node('div', 'experience-nav-label', 'Operate'));
-        ordered.push(...operate);
-        if (service.length) ordered.push(labels[1] || node('div', 'experience-nav-label', 'Commission & service'));
-        ordered.push(...service);
-        labels.slice(2).forEach((extra) => extra.remove());
-
-        const tail = [...nav.children].slice(-ordered.length);
-        if (tail.length === ordered.length && ordered.every((item, index) => tail[index] === item)) return;
-        nav.append(...ordered);
-    }
+    /*
+     * NAVIGATION HAS ONE OWNER, AND IT IS NOT THIS MODULE.
+     *
+     * There used to be a second arranger here: its own OPERATE/SERVICE route
+     * lists, its own two group labels, and an append to the end of the same
+     * .nav-list that app.js orders from the ROUTES table. Two modules arranging
+     * one list to different schemes, and the result depended on which ran last.
+     *
+     * It had also gone stale in the way a second copy always does. Its lists
+     * still named 'control', 'alarms' and 'readiness' -- three pages deleted from
+     * the product -- and had never heard of 'generator' or 'network'. What the
+     * owner saw was the consequence: Plant overview, Grid power and Solar
+     * inverters pushed below the ACCESS heading with COMMISSION and MAINTAIN
+     * standing empty above them.
+     *
+     * Its labels had already been neutered with a display:none rule rather than
+     * removed, which left two empty spans in the list and the conflict intact.
+     *
+     * app.js keeps the route table, the group of every route and the durable
+     * name of each, and produces the correct order from them. This module keeps
+     * the page context, the health control and the overflow menu, which is what
+     * its header claims.
+     */
 
     function removeDuplicateIntros() {
         document.querySelectorAll('.page').forEach((page) => {
@@ -207,20 +206,15 @@
         installPageContext();
         installHealthControl();
         installOverflowMenu();
-        groupNavigation();
         removeDuplicateIntros();
         window.addEventListener('hashchange', () => {
             updatePageContext();
-            groupNavigation();
             removeDuplicateIntros();
         });
         /* One observer watches #mainContent for the whole application, in
          * product-mode.js. Subscribe rather than add a third to the same node.
          * Late nav entries arrive with their page, so grouping runs here too. */
-        window.AutomatrixEngineeringAccess?.onContentChange(() => {
-            groupNavigation();
-            removeDuplicateIntros();
-        });
+        window.AutomatrixEngineeringAccess?.onContentChange(removeDuplicateIntros);
     }
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
