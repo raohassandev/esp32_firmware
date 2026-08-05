@@ -1951,8 +1951,10 @@
      * names now live in one table in web/app.js and are applied there. */
     function updateLanguage() {
         window.AutomatrixUi?.ensureNavigationHierarchy();
-        const wifiLink = document.querySelector('[data-route="wifi"]');
-        if (wifiLink) wifiLink.dataset.engineeringNav = 'true';
+        /* Marking the old 'wifi' entry as engineering-only is gone with the
+         * entry. Deliberately not repointed at 'network': that page is the plant
+         * owner's own, and the engineering settings inside it are gated by
+         * #wifiForm rather than by hiding the whole destination. */
     }
 
     /* The shell's top-bar refresh control is the one manual refresh in the

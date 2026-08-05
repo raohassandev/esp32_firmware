@@ -19,7 +19,11 @@ cmake = (ROOT / 'components/web_server/CMakeLists.txt').read_text(encoding='utf-
 server = (ROOT / 'components/web_server/web_server.c').read_text(encoding='utf-8')
 header = (ROOT / 'components/web_server/include/web_assets.h').read_text(encoding='utf-8')
 assets = (ROOT / 'components/web_server/web_assets.c').read_text(encoding='utf-8')
-for route in ('dashboard','meters','inverters','control','alarms','readiness','engineering','commissioning','wifi','system'):
+# The routes this product actually has. 'control', 'alarms' and 'readiness' went
+# with their pages; 'wifi' went when the engineering network form moved onto the
+# network page. Each had been left behind here as copy for a destination that no
+# longer existed, which is the state this list exists to prevent.
+for route in ('dashboard','meters','generator','inverters','engineering','commissioning','network','system'):
     assert f'{route}:' in js, f'missing page model for {route}'
 for phrase in ('What is happening','what requires attention','safest next action'):
     pass

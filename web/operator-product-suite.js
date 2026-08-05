@@ -62,8 +62,10 @@
      * the sidebar and the page title disagreed. The route table names the
      * pages; this function arranges and hides them. */
     function normalizeNavigation() {
-        const wifi = document.querySelector('.nav-link[data-route="wifi"]');
-        if (wifi) wifi.hidden = !isEngineering();
+        /* The 'wifi' entry is gone: its form moved onto the network page, which
+         * is an OPERATE entry and must stay visible without a session. Hiding a
+         * link by route name here is why this lookup is not simply repointed at
+         * 'network' -- that would take the plant owner's Wi-Fi page away. */
         const alarms = document.querySelector('.nav-link[data-route="alarms"]');
         const system = document.querySelector('.nav-link[data-route="system"]');
         if (alarms && system && alarms.nextElementSibling !== system) system.before(alarms);

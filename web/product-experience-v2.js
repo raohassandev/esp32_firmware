@@ -19,14 +19,14 @@
      * that on a single-meter tariff plant this meter measures whichever source
      * is live, so the page is about the live supply rather than the utility. */
     meters: { eyebrow: 'Live supply', title: 'Grid power', question: 'Can the source measurement be trusted right now?', action: 'Confirm which supply is carrying the plant, then its direction, freshness and availability before relying on the reading.' },
+    /* Its own entry, because the generator page is its own destination: a
+     * plant on diesel is asking a different question from one on the utility,
+     * and falling back to a default title would have named it neither. */
+    generator: { eyebrow: 'Live supply', title: 'Generator power', question: 'What is the engine carrying, and is it loaded enough?', action: 'Check the measured output against the commissioned minimum loading before trusting the curtailment.' },
     inverters: { eyebrow: 'Solar', title: 'Solar inverters', question: 'How much solar is available and which equipment needs attention?', action: 'Review fleet availability, production and equipment state.' },
-    control: { eyebrow: 'Control', title: 'PV-DG control', question: 'Is automatic control available, safe and intentionally enabled?', action: 'Resolve blockers before enabling any automatic command path.' },
-    alarms: { eyebrow: 'Attention', title: 'Alarms and events', question: 'What changed, what is affected and what should be done next?', action: 'Work from highest severity to lowest and confirm each condition clears.' },
-    readiness: { eyebrow: 'Validation', title: 'Pre-lab readiness', question: 'What still blocks controlled hardware testing?', action: 'Clear software and configuration blockers before connecting field equipment.' },
     engineering: { eyebrow: 'Restricted workspace', title: 'Engineering', question: 'Which commissioning task are you performing?', action: 'Use only the relevant workflow and keep automatic control locked.' },
     commissioning: { eyebrow: 'Guided workflow', title: 'Commissioning', question: 'Has each site-readiness gate been verified in order?', action: 'Complete the sequence and retain the exported evidence.' },
     network: { eyebrow: 'Connection', title: 'Wi-Fi network', question: 'Is the controller on the network you expect?', action: 'Change the network here if the router or the site has changed.' },
-    wifi: { eyebrow: 'Engineering · Network', title: 'Network setup', question: 'Can the controller remain reachable after this change?', action: 'Keep the recovery access point enabled until the station connection is proven.' },
     system: { eyebrow: 'Engineering · Service', title: 'Controller', question: 'What maintenance action is required?', action: 'Export configuration before making service changes.' }
   };
 
