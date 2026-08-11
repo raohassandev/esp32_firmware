@@ -47,5 +47,6 @@ build/screenshots/
 node_modules/
 package-lock.json
 
-# Physical hardware credentials. Never committed -- this repository is public.
-docs/LOCAL_CREDENTIALS.md
+# The project context file carries hardware credentials in section 12.
+# Never committed -- this repository is public and a pushed secret is permanent.
+docs/PROJECT_CONTEXT.md
