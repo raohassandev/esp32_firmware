@@ -78,6 +78,7 @@ set(WEB_SERVER_C_SOURCES
     "audit_log_core.c"
     "audit_log.c"
     "audit_log_api.c"
+    live_socket.c
     "web_assets.c"
 )
 

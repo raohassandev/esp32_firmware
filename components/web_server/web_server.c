@@ -21,6 +21,7 @@
 #include "solar_grid_status_api.h"
 #include "source_detection_api.h"
 #include "system_resource_api.h"
+#include "live_socket.h"
 #include "web_api.h"
 #include "web_assets.h"
 
@@ -173,6 +174,7 @@ esp_err_t web_server_start(void)
     }
     ESP_RETURN_ON_ERROR(engineering_auth_register(s_server), "web", "engineering auth API registration failed");
     ESP_RETURN_ON_ERROR(web_api_register(s_server), "web", "core API registration failed");
+    ESP_RETURN_ON_ERROR(live_socket_register(s_server), "web", "live socket registration failed");
     ESP_RETURN_ON_ERROR(operational_api_register(s_server), "web", "operator history/event API registration failed");
     ESP_RETURN_ON_ERROR(device_api_register(s_server), "web", "device API registration failed");
     ESP_RETURN_ON_ERROR(inverter_profile_api_register(s_server), "web", "inverter profile API registration failed");
