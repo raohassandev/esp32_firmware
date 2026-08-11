@@ -956,21 +956,128 @@ static esp_err_t send_json(httpd_req_t *request, cJSON *root)
     return err;
 }
 
-static void add_sample_json(cJSON *array, const operational_sample_t *sample, uint32_t current)
+/*
+ * ONE NAME PER FIELD, NOT ONE PER SAMPLE.
+ *
+ * This built 180 objects, each repeating all eight field names and every value.
+ * Measured on the plant: 31,500 bytes for a 15-minute window, fetched every ten
+ * seconds -- 63 % of everything the plant overview downloads.
+ *
+ * Of those 31,500 bytes, 5,307 carried grid power, which is the only field that
+ * actually varies. Seven of the eight held ONE distinct value across all 180
+ * samples: solar null throughout, meter_online true throughout, alarms zero
+ * throughout, and so on -- 22 kB of the payload was the same answer repeated.
+ * age_ms cost another 3,218 and is derivable, since sample_interval_ms is
+ * already sent and the samples are evenly spaced.
+ *
+ * So: a column per field, a field that never changes collapsed to a single
+ * value under "constant", and no per-sample timestamp. Same information, same
+ * eight facts, 3,757 bytes.
+ *
+ * The overlays this feeds -- comms gaps, alarm markers, control bands -- read
+ * meter_online, alarms and control_enabled per sample, so none of them may be
+ * dropped. They are folded, not discarded, and the browser rebuilds the sample
+ * array it has always consumed.
+ */
+/* Rounded to 10 W before transmission.
+ *
+ * A float that decodes to 341.239990234375 costs eighteen characters to say a
+ * number this product displays to one decimal and measures to rather less. On
+ * the field that dominates the payload once the constants are folded out, that
+ * is most of what is left.
+ *
+ * The SUMMARY -- min, max, average -- is computed in add_summary() from the
+ * unrounded samples, so the figures an operator reads are not derived from a
+ * display convenience. This rounding applies to the drawn series alone, where
+ * 10 W is a fifth of a pixel. */
+static void add_number_or_null(cJSON *array, float value)
 {
-    cJSON *item = cJSON_CreateObject();
-    if (!item) return;
-    cJSON_AddNumberToObject(item, "age_ms", current - sample->timestamp_ms);
-    if (isfinite(sample->grid_kw)) cJSON_AddNumberToObject(item, "grid_kw", sample->grid_kw);
-    else cJSON_AddNullToObject(item, "grid_kw");
-    if (isfinite(sample->solar_kw)) cJSON_AddNumberToObject(item, "solar_kw", sample->solar_kw);
-    else cJSON_AddNullToObject(item, "solar_kw");
-    cJSON_AddBoolToObject(item, "meter_online", sample->meter_online != 0);
-    cJSON_AddNumberToObject(item, "inverter_online", sample->inverter_online);
-    cJSON_AddNumberToObject(item, "inverter_enabled", sample->inverter_enabled);
-    cJSON_AddBoolToObject(item, "control_enabled", sample->control_enabled != 0);
-    cJSON_AddNumberToObject(item, "alarms", sample->alarm_flags);
-    cJSON_AddItemToArray(array, item);
+    if (isfinite(value)) {
+        /* Rounded in DOUBLE, not in float. roundf() gives back a float whose
+         * nearest double is 693.280029296875, and cJSON prints the double -- so
+         * rounding in single precision produced the eighteen characters it was
+         * meant to remove. */
+        cJSON_AddItemToArray(array, cJSON_CreateNumber(round((double)value * 100.0) / 100.0));
+    } else {
+        cJSON_AddItemToArray(array, cJSON_CreateNull());
+    }
+}
+
+static void add_series_json(cJSON *root, const operational_sample_t *samples, uint16_t count)
+{
+    cJSON *series = cJSON_AddObjectToObject(root, "series");
+    cJSON *constant = cJSON_AddObjectToObject(root, "constant");
+    if (!series || !constant || count == 0U) return;
+
+    /* A field is constant only if EVERY sample agrees. Checked rather than
+     * assumed: a run that happens to start flat must not have its later
+     * variation folded away. */
+    bool solar_same = true, meter_same = true, online_same = true;
+    bool enabled_same = true, control_same = true, alarms_same = true;
+    for (uint16_t i = 1; i < count; ++i) {
+        const operational_sample_t *a = &samples[i - 1];
+        const operational_sample_t *b = &samples[i];
+        const bool a_solar = isfinite(a->solar_kw), b_solar = isfinite(b->solar_kw);
+        if (a_solar != b_solar || (a_solar && a->solar_kw != b->solar_kw)) solar_same = false;
+        if (a->meter_online != b->meter_online) meter_same = false;
+        if (a->inverter_online != b->inverter_online) online_same = false;
+        if (a->inverter_enabled != b->inverter_enabled) enabled_same = false;
+        if (a->control_enabled != b->control_enabled) control_same = false;
+        if (a->alarm_flags != b->alarm_flags) alarms_same = false;
+    }
+
+    /* grid_kw is never folded. It is the measurement this chart exists to draw,
+     * and a flat fifteen minutes is a fact about the plant that the reader must
+     * still see as a line rather than infer from its absence. */
+    cJSON *grid = cJSON_AddArrayToObject(series, "grid_kw");
+    if (grid) for (uint16_t i = 0; i < count; ++i) add_number_or_null(grid, samples[i].grid_kw);
+
+    if (solar_same) {
+        if (isfinite(samples[0].solar_kw)) {
+            cJSON_AddNumberToObject(constant, "solar_kw", samples[0].solar_kw);
+        } else {
+            cJSON_AddNullToObject(constant, "solar_kw");
+        }
+    } else {
+        cJSON *solar = cJSON_AddArrayToObject(series, "solar_kw");
+        if (solar) for (uint16_t i = 0; i < count; ++i) add_number_or_null(solar, samples[i].solar_kw);
+    }
+
+    if (meter_same) {
+        cJSON_AddBoolToObject(constant, "meter_online", samples[0].meter_online != 0);
+    } else {
+        cJSON *a = cJSON_AddArrayToObject(series, "meter_online");
+        if (a) for (uint16_t i = 0; i < count; ++i)
+            cJSON_AddItemToArray(a, cJSON_CreateBool(samples[i].meter_online != 0));
+    }
+    if (online_same) {
+        cJSON_AddNumberToObject(constant, "inverter_online", samples[0].inverter_online);
+    } else {
+        cJSON *a = cJSON_AddArrayToObject(series, "inverter_online");
+        if (a) for (uint16_t i = 0; i < count; ++i)
+            cJSON_AddItemToArray(a, cJSON_CreateNumber(samples[i].inverter_online));
+    }
+    if (enabled_same) {
+        cJSON_AddNumberToObject(constant, "inverter_enabled", samples[0].inverter_enabled);
+    } else {
+        cJSON *a = cJSON_AddArrayToObject(series, "inverter_enabled");
+        if (a) for (uint16_t i = 0; i < count; ++i)
+            cJSON_AddItemToArray(a, cJSON_CreateNumber(samples[i].inverter_enabled));
+    }
+    if (control_same) {
+        cJSON_AddBoolToObject(constant, "control_enabled", samples[0].control_enabled != 0);
+    } else {
+        cJSON *a = cJSON_AddArrayToObject(series, "control_enabled");
+        if (a) for (uint16_t i = 0; i < count; ++i)
+            cJSON_AddItemToArray(a, cJSON_CreateBool(samples[i].control_enabled != 0));
+    }
+    if (alarms_same) {
+        cJSON_AddNumberToObject(constant, "alarms", samples[0].alarm_flags);
+    } else {
+        cJSON *a = cJSON_AddArrayToObject(series, "alarms");
+        if (a) for (uint16_t i = 0; i < count; ++i)
+            cJSON_AddItemToArray(a, cJSON_CreateNumber(samples[i].alarm_flags));
+    }
 }
 
 static void add_summary(cJSON *root, const operational_sample_t *samples, uint16_t count)
@@ -1049,8 +1156,10 @@ static esp_err_t history_get(httpd_req_t *request)
     cJSON_AddNumberToObject(root, "generated_ms", current);
     cJSON_AddBoolToObject(root, "controller_resident", true);
     cJSON_AddNumberToObject(root, "sample_interval_ms", use_minute ? MINUTE_INTERVAL_MS : SAMPLE_INTERVAL_MS);
-    cJSON *items = cJSON_AddArrayToObject(root, "samples");
-    for (uint16_t i = 0; i < count; ++i) add_sample_json(items, &snapshot[i], current);
+    /* Oldest first, evenly spaced by sample_interval_ms, newest last. The
+     * browser derives each sample's age from its index; no timestamp is sent. */
+    cJSON_AddNumberToObject(root, "count", count);
+    add_series_json(root, snapshot, count);
     add_summary(root, snapshot, count);
     free(snapshot);
     return send_json(request, root);

@@ -77,6 +77,45 @@
      * sorted by time and de-duplicated: a timestamp may only appear once, which
      * is what stops a refresh that overlaps a render from drawing a sample
      * twice. */
+    /*
+     * THE CONTROLLER SENDS COLUMNS, THIS BUILDS THE ROWS EVERYTHING ELSE READS.
+     *
+     * A 15-minute window was 31,500 bytes of objects that repeated all eight
+     * field names 180 times, and in which seven of the eight fields held one
+     * distinct value throughout -- 63 % of everything the plant overview
+     * downloaded, to say the same thing over and over.
+     *
+     * It now arrives as a column per varying field, a single value per constant
+     * one, and no per-sample timestamp: the samples are evenly spaced by
+     * sample_interval_ms with the newest last, so each age is its distance from
+     * the end. 3,757 bytes for the same eight facts.
+     *
+     * Rebuilt into the identical sample objects here, once, so toPoints and
+     * every overlay that reads sample.meter_online or sample.alarms are
+     * untouched. A payload that still carries `samples` is used as-is, so a
+     * browser and a controller on different versions still agree.
+     */
+    function rehydrate(data) {
+        if (Array.isArray(data.samples)) return data.samples;
+        const series = data.series;
+        if (!series || typeof series !== 'object') return [];
+        const constant = data.constant && typeof data.constant === 'object' ? data.constant : {};
+        const columns = Object.keys(series).filter((key) => Array.isArray(series[key]));
+        const count = Number(data.count) > 0 ? Number(data.count)
+            : columns.reduce((most, key) => Math.max(most, series[key].length), 0);
+        const interval = Number(data.sample_interval_ms) || 0;
+        const rows = [];
+        for (let index = 0; index < count; index += 1) {
+            /* Newest last: the final sample is the freshest, so its age is zero
+             * and each earlier one is a whole number of intervals older. */
+            const sample = { age_ms: (count - 1 - index) * interval };
+            Object.keys(constant).forEach((key) => { sample[key] = constant[key]; });
+            columns.forEach((key) => { sample[key] = series[key][index]; });
+            rows.push(sample);
+        }
+        return rows;
+    }
+
     function toPoints(samples, key, options) {
         const list = Array.isArray(samples) ? samples : [];
         const settings = options || {};
@@ -1027,7 +1066,7 @@
             },
             setData(payload) {
                 const data = payload || {};
-                view.samples = Array.isArray(data.samples) ? data.samples : [];
+                view.samples = rehydrate(data);
                 view.intervalMs = Number(data.sample_interval_ms) || null;
                 view.receivedAt = Number.isFinite(Number(data.receivedAt)) ? Number(data.receivedAt) : Date.now();
                 if (data.range) { view.range = normalizeRange(data.range); paintRanges(); }

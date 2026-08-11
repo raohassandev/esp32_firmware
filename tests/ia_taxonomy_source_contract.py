@@ -390,8 +390,22 @@ require("function timeStep" in CHART and "function formatClock" in CHART,
         "the chart has no time axis")
 require("kW" in CHART, "the value axis does not name its unit")
 require("function formatSpan" in CHART, "the visible range is not stated")
-require("sample_interval_ms" in OPERATIONS,
+# Asserted where it is USED, not where it was once copied.
+#
+# This looked for the literal in operator-operations.js, which forwarded the
+# history payload field by field. That module now spreads the whole payload
+# instead -- it has to, because the controller sends columns and folded
+# constants rather than a `samples` array, and a hand-picked field list silently
+# dropped the new ones and drew an empty chart against a correct response.
+#
+# So the interval is asserted in the chart that consumes it, and the forwarding
+# is asserted as a SPREAD: naming fields here is the failure mode, not the
+# safeguard.
+require("sample_interval_ms" in CHART,
         "the trend does not use the controller's declared sample interval")
+require("...state.history" in OPERATIONS,
+        "the history payload must be forwarded whole; naming its fields drops "
+        "whatever the controller adds and the chart draws nothing")
 
 # Current, minimum, maximum and average.
 for label in ("'Current'", "'Minimum'", "'Average'", "'Peak'"):

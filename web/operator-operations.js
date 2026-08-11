@@ -436,12 +436,15 @@
             instance.setState('loading');
             return;
         }
-        instance.setData({
-            samples: state.history.samples,
-            sample_interval_ms: state.history.sample_interval_ms,
-            range: state.history.range,
-            receivedAt: state.historyAt
-        });
+        /* The whole payload, not a hand-picked three fields.
+         *
+         * This forwarded `samples` by name, and the controller no longer sends
+         * one: the history arrives as columns plus the constants folded out of
+         * them, which the chart rehydrates. Naming the fields here meant the new
+         * ones were dropped in transit and the chart drew an empty series
+         * against a controller that had answered correctly. Spreading it keeps
+         * this end out of the wire format's business. */
+        instance.setData({ ...state.history, receivedAt: state.historyAt });
     }
 
     function mountChart(target, page) {
