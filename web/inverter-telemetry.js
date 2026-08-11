@@ -151,7 +151,10 @@
 
     function schedule() {
         clearInterval(state.timer);
-        state.timer = setInterval(load, 2000);
+        /* Ten seconds, from two. This is the per-string diagnostic detail on the
+         * Solar inverters page; the fleet's live output and commanded percentage
+         * come from /api/live twice a second. */
+        state.timer = setInterval(load, 10000);
     }
 
     document.addEventListener('DOMContentLoaded', () => {

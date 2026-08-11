@@ -358,6 +358,14 @@ static bool public_uri(const char *uri)
     return strcmp(uri, "/") == 0 || strcmp(uri, "/favicon.ico") == 0 ||
            strcmp(uri, "/app.css") == 0 || strcmp(uri, "/app.js") == 0 ||
            strcmp(uri, "/api/status") == 0 || strcmp(uri, "/api/telemetry") == 0 ||
+           /* The operator screens' fast path. Every value on it is already on
+            * /api/status, which is public for the same reason: these are the
+            * figures the plant overview draws, and a controller whose own
+            * overview cannot draw itself without a session is not an operator
+            * interface. It carries no endpoint, no register, no credential and
+            * no configuration -- see live_api.c for what is deliberately left
+            * out. */
+           strcmp(uri, "/api/live") == 0 ||
            strncmp(uri, "/api/engineering/", 17) == 0 ||
            /* The two operator network controls. Deliberately the narrowest pair
             * that lets a site owner move their own controller onto a different

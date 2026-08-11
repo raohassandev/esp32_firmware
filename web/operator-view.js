@@ -2107,7 +2107,36 @@
                 renderCurrent();
             }
         });
-        state.timer = window.setInterval(refreshAll, 5000);
+        /*
+         * FIFTEEN SECONDS, NOT FIVE -- because the numbers that move now arrive
+         * on their own path.
+         *
+         * This loop fetches the two large payloads: /api/meters with its
+         * per-phase measurements and energy counters, and /api/inverters with
+         * its per-machine detail. Neither changes at the rate anybody watches
+         * them, and both were being fetched three times as often as they had
+         * anything new to say.
+         *
+         * The figures a person does watch come from app.js's 500 ms /api/live
+         * poll, merged onto the status and announced -- which this listens for
+         * below, so the screen redraws twice a second while the heavy reads
+         * happen four times a minute.
+         */
+        state.timer = window.setInterval(refreshAll, 15000);
+        /*
+         * Redrawn on the live tick, from the payload already in hand.
+         *
+         * Without this the headline figures would still change only when this
+         * module's own timer came round, and moving that timer to fifteen
+         * seconds would have made the screen SLOWER rather than faster -- the
+         * fast endpoint would be fetched twice a second and displayed four
+         * times a minute.
+         */
+        window.addEventListener('amx-controller-status', (event) => {
+            if (!state.lastPayload || !PRODUCT_ROUTES.has(route())) return;
+            state.lastPayload.status = event.detail || state.lastPayload.status;
+            renderCurrent();
+        });
         new MutationObserver(() => {
             updateLanguage();
             hideLegacyOperatorContent();

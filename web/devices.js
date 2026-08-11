@@ -466,7 +466,12 @@
     function bind() {
         byId('meterTelemetryRefresh')?.addEventListener('click', () => refresh(true));
         window.addEventListener('hashchange', () => refresh(false));
-        window.setInterval(() => refresh(false), 5000);
+        /* Fifteen seconds. This fetches /api/telemetry for the dashboard and
+         * /api/meters for the grid page -- the derived site figures and the
+         * per-phase detail. The numbers a person watches now arrive on app.js's
+         * 500 ms /api/live poll, so fetching these three times as often as they
+         * change bought nothing. */
+        window.setInterval(() => refresh(false), 15000);
     }
 
     function start() {

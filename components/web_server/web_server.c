@@ -13,6 +13,7 @@
 #include "esp_check.h"
 #include "esp_http_server.h"
 #include "inverter_config_api.h"
+#include "live_api.h"
 #include "inverter_profile_api.h"
 #include "meter_config_api.h"
 #include "meter_read_jobs.h"
@@ -173,6 +174,7 @@ esp_err_t web_server_start(void)
     }
     ESP_RETURN_ON_ERROR(engineering_auth_register(s_server), "web", "engineering auth API registration failed");
     ESP_RETURN_ON_ERROR(web_api_register(s_server), "web", "core API registration failed");
+    ESP_RETURN_ON_ERROR(live_api_register(s_server), "web", "live API registration failed");
     ESP_RETURN_ON_ERROR(operational_api_register(s_server), "web", "operator history/event API registration failed");
     ESP_RETURN_ON_ERROR(device_api_register(s_server), "web", "device API registration failed");
     ESP_RETURN_ON_ERROR(inverter_profile_api_register(s_server), "web", "inverter profile API registration failed");

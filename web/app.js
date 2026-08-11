@@ -853,6 +853,82 @@
         window.dispatchEvent(new CustomEvent('amx-controller-health', { detail }));
     }
 
+    /*
+     * THE FAST PATH: /api/live every 500 ms, /api/status every ten seconds.
+     *
+     * The figures a person watches -- grid power, solar, the commanded
+     * percentage, whether control is acting -- were arriving on /api/status at
+     * 1.7 kB every two seconds, from a controller that reads its meter every
+     * 300 ms and decides every second. The screen was up to two seconds behind
+     * a machine that knew better.
+     *
+     * /api/live carries only those figures, in about 380 bytes. Polled twice a
+     * second that is FEWER bytes than the two-second status poll it replaces,
+     * and the number on screen is four times fresher.
+     *
+     * 500 ms is a measured floor, not caution. The meter itself produces a new
+     * value every 300-600 ms, solar is polled once a second and the control
+     * decision is made once a second, so a faster poll would re-send the same
+     * numbers -- and with a worst-case 202 ms response it would begin
+     * overlapping its own requests.
+     *
+     * MERGED ONTO THE LAST FULL STATUS rather than replacing it. Everything
+     * downstream reads the status shape, and rewriting each consumer to know
+     * about two payloads would put the same fact in two places. The full status
+     * still arrives every ten seconds and carries everything this does not:
+     * network detail, commissioning scope, the grid measurement's provenance.
+     */
+    /* app.js has no finite() of its own -- the operator modules do. Using it
+     * here threw a ReferenceError on every tick, and the catch below swallowed
+     * it: the endpoint was fetched twice a second for ten minutes and nothing
+     * was ever merged. Exactly the failure this session found in renderConfig
+     * and in bind(), reintroduced by me in the same shape. */
+    const isNumber = (value) => Number.isFinite(Number(value));
+
+    function applyLive(live) {
+        if (!live || !state.status) return;
+        const status = state.status;
+        if (isNumber(live.grid_kw)) status.grid_power_kw = live.grid_kw;
+        if (typeof live.meter_online === 'boolean') status.meter_online = live.meter_online;
+        const authority = status.control_authority;
+        if (authority) {
+            if (isNumber(live.requested_pv_kw)) authority.requested_pv_kw = live.requested_pv_kw;
+            if (isNumber(live.applied_pv_kw)) authority.applied_pv_kw = live.applied_pv_kw;
+            if (typeof live.control_enabled === 'boolean') {
+                authority.control_enabled = live.control_enabled;
+                status.control_enabled = live.control_enabled;
+            }
+            if (live.mode_label) authority.mode_label = live.mode_label;
+            if (typeof live.inhibit_reason === 'string') authority.inhibit_reason = live.inhibit_reason;
+        }
+        if (live.source && status.source) {
+            status.source.state = live.source;
+            status.source.attributed_to = live.source;
+        }
+        /* Republished and announced on every tick, because a cache that is only
+         * refreshed on the slow poll would hand a reader a ten-second-old
+         * reading while a half-second-old one sat unused. */
+        window.AutomatrixStatusCache = { at: Date.now(), payload: status };
+        window.dispatchEvent(new CustomEvent('amx-controller-status', { detail: status }));
+    }
+
+    let liveFailures = 0;
+    async function refreshLive() {
+        /* Nothing to merge onto until the first full status has landed. */
+        if (!state.status) return;
+        try {
+            applyLive(await api('/api/live'));
+            liveFailures = 0;
+        } catch (error) {
+            /* NOT silent. A swallowed throw here is invisible -- the endpoint
+             * keeps being fetched and nothing ever updates -- which is how the
+             * first version of this ran for ten minutes doing nothing. Reported
+             * once per run of failures rather than twice a second. */
+            if (liveFailures === 0) console.warn('Live values unavailable:', error);
+            liveFailures += 1;
+        }
+    }
+
     async function refreshStatus() {
         if (state.refreshing) return;
         state.refreshing = true;
@@ -1872,7 +1948,10 @@
                 reloading = true;
                 location.reload();
             }
-        }, 2000);
+        }, 10000);
+        /* The fast path above. Started after the first full status so the merge
+         * always has something to merge onto. */
+        window.setInterval(refreshLive, 500);
         window.AutomatrixEngineeringAccess?.onScopeChange(refreshSourceDetection);
         refreshSourceDetection();
         /*

@@ -45,6 +45,7 @@ set(WEB_SERVER_C_SOURCES
     "web_server.c"
     "web_api.c"
     "device_api.c"
+    "live_api.c"
     "meter_json.c"
     "inverter_json.c"
     "engineering_auth.c"
