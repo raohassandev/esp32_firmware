@@ -20,7 +20,7 @@ This report does not qualify the release for automatic PV-DG control.
   - Working tree had untracked `build-tenda/`
   - Expected commit `fc5cbf59196f016226bbe1584c718fd32bfeb1b2` was not present locally
 - Action taken: `git fetch --all --prune`, then `git merge --ff-only origin/feature/pvdg-batch3-consolidated`
-- Result: branch fast-forwarded first to expected PR #9 merge commit, then later to `46cb36d`, which adds `docs/CODEX_LOCAL_EXECUTION_ROADMAP.md`.
+- Result: branch fast-forwarded first to expected PR #9 merge commit, then later to `46cb36d`, which adds the local execution roadmap (deleted as spent on 2026-08-11; recoverable from git history).
 
 ## 3. Hardware details
 

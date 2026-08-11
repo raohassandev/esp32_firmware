@@ -85,8 +85,9 @@ assert ".source_mode = SOURCE_MODE_GRID_ONLY" not in CONTROL_ENGINE, \
     "live Grid Only mode must be proven by explicit source evidence, not assumed from meter freshness"
 # This previously asserted SOURCE_MODE_GENERATOR_ONLY was absent entirely, because at
 # the time nothing could establish generator operation. That is no longer true, and the
-# scope was changed deliberately by the system owner on 2026-07-29 (see section 4.4 of
-# docs/CHATGPT_EXECUTION_BRIEF.md): no genset controller is integrated, the source is
+# scope was changed deliberately by the system owner on 2026-07-29, and the decision is
+# restated here because the brief that carried it has since been deleted as spent:
+# no genset controller is integrated, the source is
 # established by a wired 220 VAC input verified on site plus meter power, and the
 # controller only ever reduces PV.
 #

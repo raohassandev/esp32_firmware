@@ -2,7 +2,7 @@
 
 **Status:** specification, ready to implement
 **Scope:** EM500 only. No genset-controller integration in this phase.
-**Supersedes** the "Phase 1 endurance" item in `CHATGPT_EXECUTION_BRIEF.md` as the first task.
+**Supersedes** the "Phase 1 endurance" item in the execution brief (since deleted as spent) as the first task.
 
 The controller must know whether the solar plant is currently running **with the grid** or
 **with a generator**, because the control policy differs: grid mode regulates to the grid import
