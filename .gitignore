@@ -46,3 +46,6 @@ build/screenshots/
 
 node_modules/
 package-lock.json
+
+# Physical hardware credentials. Never committed -- this repository is public.
+docs/LOCAL_CREDENTIALS.md
