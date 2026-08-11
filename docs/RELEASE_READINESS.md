@@ -1,0 +1,817 @@
+# Release readiness — Automatrix PV-DG Controller
+
+**Commit:** see `git log`; last substantive update covered the acquisition
+performance work, prerequisite enable sequencing and Float32 support
+**Assessed:** 2026-07-30 (updated the same day; the hardware evidence in section 2
+was gathered at `1282af8` and has not been re-run since)
+**Target hardware:** ESP32-S3-DevKitC-1 N16R8 (16 MB flash, 8 MB octal PSRAM), ESP-IDF v6.0.1
+
+This document records what has been demonstrated on physical hardware, what has
+only been demonstrated in software, and what has not been demonstrated at all.
+It exists so that a release decision is made against evidence rather than
+against a passing build.
+
+---
+
+## 0. The scope of this release phase
+
+**This phase is one meter and one inverter brand: the EM500 (Lovato-derived)
+meter and the Huawei SUN2000 inverter. Everything else is parked.**
+
+The product owner scoped it deliberately: *"for now our objective is to focus
+only. We will look on other meters later. if you have configured/added, mark them
+block for this phase, in this phase we will mature only EM500."*
+
+| In scope | What that means |
+|---|---|
+| **EM500 (Lovato-derived) meter** | The only meter model whose register semantics this firmware claims to know. Register `0x2100` is its documented "OR of all digital inputs", which is what licenses reading it as a bitmask. |
+| **Huawei** — `huawei.sun2000.pending`, `huawei.smartlogger.plant`, and no lab rig | The brand with the strongest evidence in the catalogue: register `40125`, scale ×10 (45 % → `450`, 100 % → `1000`), manual-transcribed with citations. **Not commandable: the lab arm is closed.** |
+
+**Parked is refused, not removed.** Every parked meter model and inverter profile
+keeps its entry, its citations and its reasons. Each is refused at commissioning
+with a message naming it as deferred, and each has a stated unpark criterion —
+meters in §4c, inverters in §4b.
+
+**Huawei stays LAB-only.** The phase scope is not a promotion. Simulator
+agreement never promotes a profile to production; only real-hardware readback
+evidence does, and none exists. `INVERTER_WRITE_FORBIDDEN` / `LAB_ONLY` /
+`PRODUCTION` are unchanged, and `tests/inverter_write_permission_test.c` still
+proves **no shipped profile can command production equipment**.
+
+**Parking only ever adds a refusal.** It is checked first and it removes nothing:
+the readback requirement, the prerequisite rule, the flash-backed rate rule and
+the production-qualification rule all still run underneath it. Unparking a
+profile therefore restores exactly the verdict it had before rather than granting
+it anything — which is what makes the scope reversible without re-arguing any
+safety case. `tests/inverter_write_permission_test.c` asserts this in both
+directions.
+
+Enforced by `tests/phase_scope_source_contract.py`, which runs in CI.
+
+---
+
+## 1. The decisive constraint
+
+**No manufacturer profile is write-qualified. The controller cannot command a
+real inverter, and this is by design, not by omission.**
+
+The table below is generated from the compiled catalogue, so it cannot drift from
+the code. "Lab authority" is what `inverter_profile_write_permission()` returns
+when an endpoint **is** declared a simulator. That column now reads `forbidden`
+for every profile: the controller is deployed on a site where everything on the
+wire is real equipment, so a declaration grants no authority at all and the only
+route to a command is PRODUCTION_APPROVED. See
+`tests/no_lab_authority_source_contract.py`.
+
+| Manufacturer | Profile | Qualification | Lab authority | Why not commandable |
+|---|---|---|---|---|
+| Custom | `custom.modbus-percent-v1` | Documented | forbidden | no registers configured; also **parked** for this phase (§0) |
+| **Huawei** | `huawei.sun2000.pending` | Documented | production | the controller is on site: a lab declaration grants nothing, so nothing below PRODUCTION_APPROVED is commandable (§1.2) |
+| **Huawei (plant, via SmartLogger)** | `huawei.smartlogger.plant` | Documented | production | plant command at `40428` confirmed on **measured** power at `40525`, never on the stored-command echo; nothing exercised against a physical logger (§1.3) |
+| GoodWe | `goodwe.commercial.pending` | Documented | forbidden | command/readback at 42407 transcribed, but the register is **flash-backed** with no documented write rate (see §1.2); also **parked** (§0) |
+| Solis | `solis.commercial.pending` | Documented | production | **parked** for this phase (§0). Underneath the parking its prerequisite enable at PDU 3069 is described and verified by readback (§1.2), so unparking restores lab authority |
+| Growatt | `growatt.tl3x.documented` | Documented | forbidden | power-on write lock (§1.2); also **parked** (§0) |
+| Growatt | `growatt.tlx.documented` | Documented | forbidden | power-on write lock (§1.2); also **parked** (§0) |
+| Sungrow | `sungrow.string.documented` | Documented | production | **parked** for this phase (§0). Underneath the parking its prerequisite enable at PDU 5006 is described and verified by readback (§1.2), so unparking restores lab authority |
+| Chint / CPS | `chint.cps.sch100_125ktl.documented` | Documented | forbidden | needs prerequisite enable (§1.2); also **parked** (§0) |
+| SolarEdge | `solaredge.terramax.documented` | Documented | production | **parked** for this phase (§0). Also **inert at runtime** regardless: no active-power register, so it never becomes eligible to command — and the manual contradicts itself on Float32 vs integer (see §1.6) |
+| FoxESS | `foxess.commercial.pending` | Documented | production | **parked** for this phase (§0). Underneath the parking, command/readback at 49007 with an addressing convention **deduced, not proven** (see §1.5 below) |
+| AISWEI (Knox / Solplanet ASW) | `knox.aiswei.asw.documented` | Documented | forbidden | printed 44001 must enable active-power control before printed 45403 takes effect, and 45403 echoes either way; also **parked** (§0) |
+
+Write-qualified or commandable profiles: **6**.
+
+**Huawei is the only brand that can be exercised at all**, and only against a
+declared simulator. Everything else is refused before a command can be issued —
+now for two independent reasons rather than one, since the phase scope in §0
+parks every non-Huawei profile on top of whatever already refused it.
+
+Note the two rows where parking is the *only* refusal today: `solis.commercial.pending`
+and `sungrow.string.documented` had reached lab authority on their own evidence.
+Parking is what holds them, and unparking them restores lab authority immediately —
+which is precisely why the parking is recorded as a product decision in §0 and not
+mixed in with the safety refusals in §1.2.
+
+### 1.2 Why four transcribed brands are still refused
+
+Transcribing the Solis, Growatt, Sungrow and Chint/CPS manuals found a failure
+mode worse than a wrong address, and it is the reason those profiles carry
+register maps yet cannot be commanded.
+
+**Solis** (tag 3070 = `0xAA`), **Sungrow** (tag 5007 = `0xAA`) and **Chint/CPS**
+(`0x2602` = 1) each require a register to be set before their power-limit setpoint
+does anything. The trap is that the setpoint register still **accepts** the write
+and still **echoes it back**. A controller would therefore see a matching readback,
+report the command **confirmed**, and the inverter would ignore the limit and keep
+generating.
+
+That is worse than a mismatch and worse than a timeout, because the readback stops
+being evidence and every layer above it — including the operator — is told the
+plant is limited when it is not.
+
+**The firmware now sequences and verifies a prerequisite**, so this section no
+longer describes a blanket refusal. Authority depends on whether the profile can
+describe an enable register that is both writable and *readable*: it writes it,
+then RE-READS to confirm, and never trusts its own write. Solis (PDU 3069) and
+Sungrow (PDU 5006) carry verifiable descriptions and are lab-commandable.
+
+Two are still refused, for different reasons. **Chint/CPS** has a citation for
+writing `0x2602` but none establishing it can be READ — an enable written blind is
+an assertion the controller cannot check, which reaches the same false-confirmation
+trap by another door. **Knox/AISWEI** is the same case at printed 44001. Being
+unable to command is recoverable; being told a limit is in force when it is not is
+not.
+
+**Growatt** is refused for a related reason: it locks network power control after
+power-on, the manual's unlock password is **redacted**, and it **auto-relocks
+after five minutes** — so control would stop silently mid-run even if the unlock
+were known.
+
+**Huawei is not refused**, because its prerequisite is different in kind: when a
+SmartLogger is in the path, `Remote power schedule` must be set to `Enable` per
+inverter, and that is a **logger menu setting**, not a register the controller
+writes. It is a one-time human commissioning step, recorded in
+`docs/SITE_COMMISSIONING_RUNBOOK.md` §1.4 together with two related traps —
+register 42019, where a non-zero schedule-validity period makes a commanded limit
+**self-expire**, and register 40737, where anything other than remote scheduling
+means something else owns plant scheduling. **The hazard is identical if the step
+is skipped, and the controller cannot detect it.**
+
+### 1.3 Plant-level control at the logger: implemented, on measured power
+
+Commanding the plant at the logger (`40428`, RW U16, percent x10) rather than per
+inverter is one write instead of N behind a documented >=1 s interval, and it avoids
+a register collision where `42017` is `SystemTime: year` on the logger but
+`active power gradient` on an inverter.
+
+It was previously refused because reading `40428` back returns **the value the logger
+stored, not the plant's achieved state**, and an undocumented "Adjustment
+coefficient" means a commanded 80 % need not deliver 80 %. Confirming on that echo
+would report `confirmed` for a limit that is not in force.
+
+**Confirmation can now close on measured plant power** (`40525`, RO I32, raw watts),
+and the honest part is what it refuses to claim:
+
+| Situation | Verdict |
+|---|---|
+| Output was **above** the new limit before the command, at or below it after | **confirmed** — the limit is demonstrated |
+| Output **above** the limit past the settle window | **mismatched** + safe-zero. Unambiguous: no change in irradiance can lift a plant above a limit in force |
+| Output below the limit, but it was **already** below beforehand | **unverified** — equally consistent with the limit working and with the sun going in |
+| No pre-command baseline (e.g. after a restart) | **unverified** |
+| A commanded 100 % | **unverified, permanently** — the baseline can never be above it |
+
+Verified independently of the implementation: a cloudy plant whose setpoint echo
+matches perfectly is correctly **not** confirmed, which is the exact trap this
+mechanism exists to avoid.
+
+Two consequences to be aware of. The ambiguous verdict deliberately does **not**
+demand a safe-zero — doing so would drive PV to zero every time irradiance dipped
+below the commanded limit, most of a working day — so escalation waits for the next
+sample. And under ambiguity no commanded value advances, so the control engine sees
+no confirmed command, which is honest rather than convenient.
+
+A demonstrated limit still says only that output is at or below what was asked. It
+says **nothing** about the Adjustment coefficient, which has no register and is
+invisible to a Modbus client.
+
+Full evidence and citations: `docs/SMARTLOGGER_PATH_ANALYSIS.md`.
+
+### 1.6 SolarEdge: the best-documented manual, and two reasons it is still inert
+
+The SolarEdge TerraMax technical note is the strongest evidence obtained for any
+brand. It is the **only** manual read for this project that documents both a
+setpoint reaction time ("< 1 s") and a data-transfer interval ("< 0.1 s"), and it
+proves its addressing convention with four worked frames. Float32 support and
+per-profile command word order were added to the firmware specifically so it could
+be expressed — before that, writing 50 % into its Float32 register as an integer
+would have produced the float ~7e-44, effectively zero, and the readback would have
+decoded the same garbage the same wrong way and **confirmed** it.
+
+It is nonetheless not commandable, for two independent reasons.
+
+**It is inert at runtime.** The profile carries no active-power register, because
+SolarEdge reports AC power as an int16 with a *runtime* scale factor in a separate
+register, which the profile structure cannot express. Without telemetry an inverter
+never becomes eligible for a command, so nothing is issued. Same condition as the
+Knox/AISWEI entry. Fixing it needs runtime scale-factor support.
+
+**The manual contradicts itself on the data type.** Its type tables state Float32
+three times; Appendix A's worked examples treat the same registers as integers — a
+read response decoding to `0x00000032` (integer 50) and a write of `0x64` rather
+than `0x42C80000`. The type tables were taken as normative, because they are stated
+three times and the appendix self-contradicts internally, but **the entire command
+path rests on that choice until one read is performed on real hardware.** A single
+read-only transaction on `0xF304` settles both the type and the word order at once
+and is the first thing to do on site.
+
+**A third item is a genuine safety consideration, not a blocker.** SolarEdge
+documents a comms-loss fail-safe: a command timeout (`0xF310`) and a fall-back
+active power limit (`0xF312`). The manual states **no default for either**. If the
+fallback is 100 %, then losing the controller *raises* the plant's limit rather than
+holding or lowering it — the opposite of fail-safe from a generator's point of
+view. Both registers must be read and recorded during commissioning. The firmware
+does not write them.
+
+
+"Documented" means the register map was transcribed from a manual and has never
+been exercised against the physical equipment. Promoting a profile requires the
+exact manual, a model-specific mapping, simulator evidence, a bench test and a
+physical readback qualification — in that order.
+
+**The Huawei entry is now a real transcription rather than a placeholder.** Every
+field is attributed line by line to `Huawei Inverter Modbus Interface Definitions
+(V3.0)`, Issue 01 (2023-01-17), and the addressing convention is settled by the
+manual's own `40200/0X9D08` line. It is still `DOCUMENTED`: nothing in it has been
+exercised against a physical SUN2000, so the production write gate still refuses
+it. Transcription raises the *quality of the claim*, not the qualification level.
+Attribution and the open items are in `docs/HUAWEI_SUN2000_REGISTER_EVIDENCE.md`;
+the procedure for closing them is `docs/SITE_COMMISSIONING_RUNBOOK.md`.
+
+**Consequence for this release:** it is a *monitoring, commissioning and
+protection* release. It is not a *closed-loop control* release. Automatic
+control is structurally inhibited against physical equipment and will remain so
+until a profile is qualified against real hardware.
+
+### 1.1 The one narrow exception: declared lab simulators
+
+The site's inverters are ~2000 miles away, so the control loop had to become
+exercisable before anyone travels. It previously could not be at all: writing
+requires a production-approved, non-simulator profile, none exists, and the loop
+was unreachable.
+
+Rather than weaken the production gate, a **second and narrower** authority was
+added. An authenticated engineer may declare a specific inverter's endpoint to be
+a Modbus simulator; that declaration, and nothing else, unlocks a command through
+a profile that is not production-approved, and it grants `lab_simulator_only`
+authority — never production.
+
+What bounds it:
+
+- `INVERTER_WRITE_FORBIDDEN` is the zero value, so uninitialised or unreadable
+  state denies the write.
+- A readback register is required in **both** modes. An unconfirmable command is
+  never permitted.
+- A simulator-only profile can never reach production authority, and a lab
+  declaration never raises a profile's qualification level.
+- Commanding real equipment this way would require a human to declare real
+  equipment a simulator — a deliberate false statement, not an accident and not a
+  default. **This is the one thing the design cannot defend against**, and it is
+  called out as such in the site runbook.
+- Declaring or revoking a lab target disables automatic control, so it cannot take
+  effect underneath a running loop.
+
+**The commissioning verdict now carries a scope**, and the scope is decided by the
+weakest link:
+
+| Scope | Meaning |
+|---|---|
+| `none` | Not commissioned. Automatic control inhibited. |
+| `lab_simulator_only` | Commissioned, but at least one commanded inverter is a declared simulator. **Nothing observed is evidence about physical equipment.** One declared simulator makes the whole verdict LAB even if every other inverter is production-qualified. |
+| `production` | Every commanded inverter passed production write qualification. Not reachable today. |
+
+Lab counts are never summed into the qualified count, and the status, gate and
+assignment APIs all publish the scope beside the verdict, so `"commissioned":
+true` cannot be read without also knowing whether the target was real.
+
+**A `lab_simulator_only` verdict is not a release.** No verdict reachable on this
+commit is a production verdict.
+
+## 2. Demonstrated on physical hardware
+
+Flashed to the board over COM5, hash-verified, and observed live at
+192.168.100.14 on `Automatrix-4G`.
+
+**This evidence was gathered at `1282af8` and has not been re-gathered at
+`6dd862c`.** The commits since then touch the write-permission gate, the profile
+store (schema 2, with migration) and the settle window, so the board has not been
+observed running the code this document now assesses. Nothing in the table below
+should be read as evidence about `6dd862c`; it is evidence that the board ran a
+close ancestor.
+
+| Area | Evidence |
+|---|---|
+| Boot stability | 13 min continuous uptime, no crash, no reboot loop |
+| Wi-Fi | Associated, IP 192.168.100.14, RSSI −49 dBm |
+| Meter acquisition | EM500 slave 3 online, quality good |
+| **Acquisition latency** | Grid data age **8–123 ms** across repeated samples; control cycle age 75 ms |
+| Source detection | Resolved **generator via tariff 2** with 220 V applied to the tariff port |
+| Fail-closed control | `control_enabled:false`, `inhibit_reason:"No inverter is enabled."` |
+| Alarm state model | `rtn_unacknowledged` observed live on NET-001 and MTR-003 (ISA-18.2 gap A1) |
+| Root-cause grouping | `active 2` reduced to `primary_active 1` (gap A5) |
+| Nuisance suppression | `suppressed_transitions 1` — on/off delay absorbing chatter (gap A4) |
+| Shelving authorisation | Unauthenticated shelve returns **401** |
+| Engineering gateway | Commissioning gate, write-confirmation, identity and audit-log return **401** unauthenticated. **Not a blanket 401:** `engineering_guard.c` deliberately routes `GET /api/config`, `/api/meters`, `/api/inverters` and `/api/inverter-telemetry` to reduced *safe* payloads with HTTP 200, with credentials and SSIDs stripped. The property that matters is that no unauthenticated response carries a secret and every mutating route is refused — not that every route answers 401. |
+| Operator history | 200 with 24.8 KB payload (PSRAM-dependent; previously failed with 500) |
+| **Alarm journal durability (gap A2)** | Storage partition provisioned on first boot (`storage partition provisioned; the alarm journal is now durable`), then **survived a hard reset**: `stored` 8 → 12, `next_sequence` continued 9 → 13 rather than resetting, sequences 1–12 all readable and ordered, 0 unreadable, 0 write failures. Provisioning did **not** repeat on the second boot. |
+
+## 3. Demonstrated in software only
+
+| Area | Evidence | Not yet shown |
+|---|---|---|
+| Full contract suite | **55** Python source contracts wired into CI at this commit (up from 54; the recorded 0-failure run was at `1282af8` and the full suite has not been re-run locally at `6dd862c`) | A recorded green run at this exact commit |
+| Executable unit tests | 6 gcc-compiled tests wired into CI (source mode, source detection, Solar-Grid integration, commissioning gate, write confirmation, **write permission**) | — |
+| Browser modules | 3 JS suites, syntax checks on all edited modules | Rendered layout |
+| Build | Clean ESP-IDF build, **zero warnings**; app 1,686,144 bytes, 46% of the 3 MB partition free | — |
+| Inverter command path | Simulator scenarios incl. rollback, timeout, comm-lost | Any physical inverter |
+| Alarm journal ring behaviour | Host-compiled test: wrap, corruption (exactly one record lost), sequence continuity across reopen | Wrap and corruption recovery on real SPIFFS (durability itself is verified — see above) |
+| Commissioning gate | Nine prerequisites, fail-closed on unreadable state; scope published with every verdict | Payload inspection (needs Engineering password) |
+| Write permission gate | Executed over the real profile catalogue: FORBIDDEN is zero, NULL forbidden, **no shipped profile can command production**, simulator profiles never reach production, readback mandatory even in the lab, every level below production-approved requires an explicit declaration | Anything about physical equipment |
+| Per-profile settle window | `power_limit_settle_ms`, with the deferred-apply sequence walked in `tests/inverter_write_confirmation_test.c`: PENDING throughout, CONFIRMED once applied, MISMATCHED for a genuine disagreement past the window, and pending never demanding a safe-zero | A settle value measured on physical equipment |
+| UI contrast | WCAG arithmetic on parsed token values, 32 pairs, 0 failures | Visual rendering |
+
+### 3.1 The settle window, and the false fault it would have caused
+
+This is worth stating plainly because it is the clearest case so far of a
+firmware-side invented value doing real harm.
+
+Measuring the lab simulator showed it **accepts** a 40125 percentage write and
+applies it about **1500 ms later**, reporting the *previous* active limit until it
+does. Against the old **global 500 ms** settle window, a perfectly accepted command
+read as `MISMATCHED`. `MISMATCHED` latches a confirmation fault, removes the
+inverter from commandable capacity and **drives it to zero**. A false fault on a
+healthy 100 kW machine is as damaging as missing a real one.
+
+How long a setpoint takes to reach its readback register is a property of the
+**device**, not of the controller, so it now lives in the profile as
+`power_limit_settle_ms` (zero means "use the firmware default"). The lab profile
+declares 2500 ms, derived from measurement with margin. The **Huawei manufacturer
+profile deliberately leaves it at the firmware default, because no manual states a
+value and there is no evidence to set one from.**
+
+The window can only ever *delay* a verdict — past it, a disagreeing readback is
+still a mismatch, and the 5000 ms deadline still bounds how long an unconfirmed
+setpoint may stand. A profile value is clamped strictly below that deadline,
+because a settle window at or beyond it would leave a disagreement permanently
+pending.
+
+**Unresolved by this change:** the correct value for real SUN2000 hardware, and
+whether the readback reports the *requested* or the *active* limit. The simulator
+reports the active value; the manual says nothing. Both must be measured on site
+(`docs/SITE_COMMISSIONING_RUNBOOK.md` §5).
+
+### 3.2 The closed loop: proven at the Modbus level, not through the firmware
+
+Two separate claims, deliberately kept apart:
+
+- **Proven.** The lab simulator's register layout and behaviour were exercised
+  **directly, by a Modbus client**, and the results are recorded in
+  `docs/HUAWEI_SUN2000_REGISTER_EVIDENCE.md` §2: `30000` returns `SUN2000-SIM`
+  with first word `0x5355`; `32080` decodes as I32 watts, high word first;
+  `40125` reads percent x 10; and a 40125 write is applied ~1500 ms later while
+  40199 applies immediately. Manual and simulator agree on every address, type,
+  gain and scale. This establishes that the transcribed map is coherent and that
+  the loop closes **at the Modbus level**.
+- **Not proven.** The loop has **not** been closed **through the firmware**. No
+  run exists in which the controller itself issued a command, confirmed it by
+  readback and regulated against a meter. The blocker is access, not design:
+  driving that path requires the Engineering-scope API, and the **Engineering
+  password has not been supplied**, so the lab-target declaration that unlocks a
+  write cannot be made.
+
+Until that run exists, the closed loop is a design supported by unit tests and by
+direct-client register evidence — not a demonstrated firmware behaviour. Do not
+read section 3.1's simulator measurements as firmware validation; they were taken
+with a Modbus client standing where the firmware would stand.
+
+## 4. Not demonstrated
+
+1. **Any physical inverter write.** See section 1. This is the one item that
+   keeps the release from being a control release.
+2. **The closed loop through the firmware, even against the simulator.** Proven at
+   the Modbus level by a direct client; never driven by the controller itself.
+   Blocked on Engineering-API access. See section 3.2.
+3. **Write confirmation against real equipment.** The readback evaluator is
+   unit-tested and the settle window is now per-profile, but
+   `INVERTER_CONFIRMATION_SETTLE_MS = 500` (the default the Huawei profile still
+   uses) and `DEADLINE_MS = 5000` remain **firmware-side values chosen without a
+   manual** and need site measurement. See section 3.1.
+4. **Which register a real SUN2000 honours for percentage control.** The manual
+   documents both `40125` ("active fine adjustment interface") and `40199` (the
+   anti-backcurrent "active power percentage control interface"). Anti-backcurrent
+   is exactly this product's application, so 40199 may be the more correct
+   register; the firmware commands 40125 because it is the conventional
+   third-party derating interface. **This is an open site-verification item, not a
+   settled decision.**
+5. **Whether a SmartLogger sits in the Modbus path.** The Huawei profile's
+   connection type is `LOGGER_GATEWAY`. A logger can re-map unit ids and
+   addresses, which would invalidate every transcribed address. The SmartLogger
+   documents are available but unanalysed.
+6. **Protected endpoint payloads.** Correctly returning 401; contents
+   uninspected pending the Engineering password.
+7. **Visual rendering of the UI.** The last visual audit run was invalid (37 of
+   60 runs, adapter suspended mid-run) and has not been repeated.
+8. **Grid/generator synchronisation interlock.** `fleet_synchronised()` exists
+   but is not wired into the control engine, because it needs per-manufacturer
+   inverter status registers that have not been supplied. For Huawei specifically
+   the blocker is now identified: signal 178 "Device Status" at `32089` is an E16
+   whose **code table the manual defers to an "Inverter Key Signal Extension
+   Description" that is not among the manuals available.** No profile configures a
+   status register and every inverter reports `INVERTER_STATE_UNKNOWN`. A guessed
+   mapping could report "on grid" while an inverter is faulted, so the honest
+   unknown stands until that document is obtained.
+9. **Alarm journal wrap and corruption recovery on real flash.** Proven on the
+   host at 16384 records; the board has written 12. Reaching a wrap in the field
+   takes time, so the ring's oldest-first eviction is unproven on real SPIFFS.
+10. **FAT / SAT.** Not started.
+11. **Any of the site procedure in `docs/SITE_COMMISSIONING_RUNBOOK.md`.** It is
+    written, reviewed against the source, and unexecuted. Writing a procedure is
+    not performing it.
+
+## 4a. Known defect: three definitions of "stale"
+
+Found by the operator-documentation audit, quantified here, **not yet fixed**.
+
+Three independent thresholds decide whether a meter sample is too old:
+
+| Where | Threshold | Governs |
+|---|---|---|
+| `safety_manager.c` | the **configured** `meter_stale_timeout_ms` (default **1000 ms**) | whether control input is blocked |
+| `operational_api.c` | fixed `METER_FRESH_MS` = **5000 ms** | whether alarm MTR-001 raises |
+| `web_api.c` | fixed `METER_STALE_AFTER_MS` = **5000 ms** | the dashboard's `meter_stale` flag and quality word |
+
+With the shipped defaults there is therefore a **1000–5000 ms window** in which
+control is inhibited because the sample is stale, while the dashboard reports the
+measurement as good and no alarm is raised. An operator in that window sees a healthy
+plant that is not controlling, with nothing on screen explaining why — which is
+precisely the confusion this product's provenance work exists to remove.
+
+The measured acquisition latency makes this reachable rather than theoretical: mean
+93 ms but 24 % of transactions exceed 250 ms and the tail reaches 319 ms, so a brief
+gateway stall plus a retry can cross 1000 ms without ever approaching 5000 ms.
+
+**The fix is one definition.** The configured value should govern all three, because
+it is the one an engineer can tune to the site's measured latency; the two fixed
+constants cannot be. Not applied in this change only because both files were being
+edited concurrently and this is safety-relevant code that should not be merged
+carelessly.
+
+## 4b. Deferred by the product owner: inverter profile qualification
+
+Parked deliberately, not forgotten. Recorded here so the reasons survive and nobody
+has to re-derive them.
+
+| Brand | Why it is not commandable | What would unpark it |
+|---|---|---|
+| **GoodWe** | Command register 42407 is **flash-backed** ("does not support high-frequency write operations") and the manual gives **no permitted write rate** and no write-cycle budget. Commanding it continuously would wear out the inverter's non-volatile memory -- a permanent hardware failure while every write reports success. | A permitted rate **from GoodWe**. This is a question for the manufacturer, not a measurement. Once stated, set `min_command_interval_ms` and the existing guard lifts by itself. |
+| **Growatt** | Locks network power control after power-on, the manual's unlock password is **redacted**, and it **re-arms after five minutes** -- so control would stop silently mid-run even if the unlock were known. | The unlock procedure from Growatt, plus a decision on how to handle the five-minute re-arm. |
+| **Chint / CPS** | `0x2602` is cited for **writing** only; nothing establishes it can be **read**. An enable written blind cannot be verified, and an unverifiable enable means the setpoint is accepted, echoed back and ignored. | One citation showing `0x2602` is readable (FC 0x03 or 0x04), or a site read proving it. |
+| **Knox / AISWEI** | Printed 44001 must enable active-power control before 45403 takes effect, and 45403 echoes either way. Same unverifiable-enable case. | A citation or site read establishing 44001 readback. |
+| **SolarEdge** | Inert at runtime: SolarEdge reports AC power with a **runtime scale factor** the profile structure cannot express, so telemetry never becomes valid and the inverter is never eligible for a command. Separately, its manual **contradicts itself** on Float32 versus integer. | Runtime scale-factor support in the profile model, and one read on real hardware to settle the data type. |
+| **FoxESS** | Commandable in lab, but its addressing convention is **deduced, not proven** -- no offset rule and no worked frame. If the deduction is wrong, 49007 becomes 49006, a *reactive power* register. | One read of 30000 on the physical machine. |
+
+**None of these is a firmware defect.** In every case the firmware is refusing to
+command equipment on evidence it judges insufficient, which is the intended behaviour.
+The refusals are enforced structurally and covered by executable tests, so they cannot
+be lifted accidentally -- each one needs a specific, named piece of evidence.
+
+### 4b.1 Parked by the phase scope
+
+The table above is about **evidence**. This one is about **product scope**, and the
+two are independent: a profile can be refused by both, by either, or -- as with
+Solis and Sungrow -- by the scope alone.
+
+Every profile below carries `deferred_this_phase = true` in
+`components/inverter_manager/inverter_profiles.c`, which
+`inverter_profile_write_permission()` refuses first and in both modes. Nothing is
+deleted. Unparking is removing that one field.
+
+| Profile | Also refused on evidence? | What would unpark it |
+|---|---|---|
+| `custom.modbus-percent-v1` | Yes -- no registers configured at all | Phase scope widens. The evidence gate would still refuse it until it is given a register map. |
+| `soltrix.sim.goodwe.v1` | No | Phase scope widens to GoodWe. It is the GoodWe lab rig and has no purpose before then. |
+| `soltrix.sim.solis.v1` | No | Phase scope widens to Solis. Same. |
+| `goodwe.commercial.pending` | Yes -- flash-backed register, no stated write rate | Phase scope widens **and** GoodWe states a permitted rate (see the table above). Both, not either. |
+| `solis.commercial.pending` | **No -- parking is the only thing holding it** | Phase scope widens to Solis. It reaches lab authority on its own evidence the moment it is unparked. |
+| `growatt.tl3x.documented` | Yes -- power-on write lock | Phase scope widens **and** Growatt supplies the unlock procedure. |
+| `growatt.tlx.documented` | Yes -- power-on write lock | Phase scope widens **and** Growatt supplies the unlock procedure. |
+| `sungrow.string.documented` | **No -- parking is the only thing holding it** | Phase scope widens to Sungrow. It reaches lab authority immediately on unparking. |
+| `chint.cps.sch100_125ktl.documented` | Yes -- `0x2602` readability unestablished | Phase scope widens **and** a citation or site read proves `0x2602` is readable. |
+| `foxess.commercial.pending` | No (lab-capable, but addressing deduced) | Phase scope widens to FoxESS. The deduced addressing in the table above remains an open risk to close before any production use. |
+| `knox.aiswei.asw.documented` | Yes -- 44001 readback unestablished | Phase scope widens **and** 44001 readback is established. |
+| `solaredge.terramax.documented` | Yes -- inert at runtime, no active-power register | Phase scope widens **and** runtime scale-factor support exists. Even unparked it would never become eligible to command. |
+
+**Unparking is a product decision and is never a safety clearance.** Removing
+`deferred_this_phase` restores exactly the verdict a profile had before it was
+parked -- for six of the twelve above, that verdict is still `forbidden`. This is
+asserted by `test_phase_parking_only_ever_adds_a_refusal()` in
+`tests/inverter_write_permission_test.c`, which proves on a constructed profile
+that parking never removes a safety refusal and unparking never grants one.
+
+**Huawei is the exception and the shortest path to a control release.** Its map is
+transcribed from the manufacturer manual with per-value citations, its addressing
+convention is settled by the manual's own worked example, and it is commandable
+against a declared simulator today. The open questions are narrow and enumerated in
+`docs/HUAWEI_SUN2000_REGISTER_EVIDENCE.md`: which of `40125` or `40199` the machine
+honours, the settle time, and whether the readback reports the requested or the active
+value. `docs/SITE_COMMISSIONING_RUNBOOK.md` is written to close all three in one visit.
+
+## 4c. Deferred by the product owner: meter models
+
+Same principle as §4b, applied to meters. *"0x2100 is only for EM500 that is the
+copy of Lovato. this is not applies on all meters."*
+
+Meters were previously configured as anonymous Modbus endpoints — a host, a unit
+id, a register and a scale, with no statement of what instrument was on the other
+end. That is why the bitmask rule leaked: with no model to check, the only thing
+the code could key on was the commissioned grid value, which is a property of the
+site's *wiring*, not of the *meter*. The model is now a commissioned fact
+(`meter_config_t.model`, schema 6), stated by an engineer and never inferred from
+a register address or a scale factor.
+
+| Meter model | Status | What would unpark it |
+|---|---|---|
+| **EM500 (Lovato-derived)** — `METER_MODEL_EM500_LOVATO` | **In scope.** The only family whose register semantics this firmware claims to know. `0x2100` is its documented "OR of all digital inputs", verified on the installed meters on 2026-07-29 by energising the source-detection input and observing 0 → 1. | — |
+| **Generic Modbus** — `METER_MODEL_GENERIC_MODBUS` | **Parked.** Any instrument reached as a plain Modbus endpoint. Refused at commissioning with `meter_model_deferred`. | A named meter family with (a) a manufacturer citation for whichever register carries its source/tariff indication, and (b) a statement of whether that register is a bitmask or an enumeration. Then add an enumerated `meter_model_t` value for that family and list it in `meter_model_in_phase_scope()`. Generic Modbus as a category is not unparkable — the whole point is that "some meter" has no documented semantics to commission against. |
+| *(no model stated)* — `METER_MODEL_UNDECLARED` | **Refused, and not a deferral.** Reported separately as `meter_model_undeclared` because the remedy is different: state the model. | Nothing to unpark. An engineer states which instrument is wired. |
+
+**What this costs on upgrade.** A unit already commissioned on schema 5 migrates
+with every meter `UNDECLARED`, so its commissioning gate closes until an engineer
+states the model. That is deliberate. The alternative was to assume every already
+commissioned meter is an EM500 and keep applying EM500 bitmask semantics to
+whatever is physically wired, which is the exact failure this section exists to
+prevent. Wi-Fi credentials, meter endpoints, control tuning and generator limits
+are all preserved, so recovery is one form field rather than a re-commissioning,
+and NVS is never erased.
+
+**Why the model field is 32 bits for a three-valued enum.** Configuration
+migration in this firmware dispatches on the stored blob *size*. `role` and
+`generator_index` leave two bytes of tail padding in `meter_config_t`, so a
+`uint8_t` model is absorbed by that padding and `sizeof(app_config_t)` does not
+change — measured, not assumed: 124 bytes with and without. Schema 5 and schema 6
+would then be indistinguishable, and a commissioned schema-5 blob would load as
+schema 6 with every meter acquiring a model out of padding bytes. A 32-bit field
+makes schema 6 strictly larger. A `_Static_assert` in `config_manager.c` fails the
+build if this is ever narrowed.
+
+## 4d. Directed by the product owner: a weak, published recovery-AP passphrase
+
+`CONFIG_PVDG_RECOVERY_AP_PASSWORD` is set to **`12345678`** on the owner's
+express and repeated instruction. *"last time is ka password fix kia tha
+12345678 — is ko filhal ye hi fix kr do. is ko release gate men likh den."*
+
+This section is the "likh den".
+
+**What it changes.** The always-on recovery access point
+`Automatrix-PVDG-<suffix>` now accepts a passphrase that is compiled into a
+**public** repository and is one of the most-guessed strings in existence.
+Anyone within radio range of a controller can join its setup network. From
+there the operator API is reachable without authentication, and the engineering
+routes are reachable by anyone who also has the engineering password. WPA2 with
+a published pre-shared key is an open network with extra steps.
+
+It also replaces a working per-device secret. With the default empty, each unit
+generates its own 16-character passphrase from the hardware RNG on first start
+and prints it to the serial console at every boot, so an engineer holding the
+board can always read it. That mechanism is not removed — it is simply no longer
+reached, because a compiled value is only used when a unit has no usable stored
+passphrase of its own.
+
+**Why it is recorded here rather than argued.** The concern was raised, and the
+owner reaffirmed the instruction. It is his product and his risk to carry. What
+is not negotiable is that the risk stays *visible*, so:
+
+| Signal | Behaviour |
+|---|---|
+| `tests/production_release_gate.py` | **Fails**, naming it: *"recovery AP passphrase default is a well known weak passphrase"* and *"sdkconfig pins a compiled-in recovery AP passphrase"*. Two independent blockers, one for the Kconfig default and one for the pinned `sdkconfig`. |
+| Serial console, every boot | `config_manager_recovery_ap_is_build_default()` returns true, so `announce_recovery_ap_on_serial()` prints the build-default banner: *"identical on every unit built from this public source, so it is public knowledge."* |
+| This section | The written record that the failure above is intended and must not be silenced. |
+
+**The gate failing is the point.** It is not a defect to be worked around. Anyone
+who "fixes" the release gate to make this pass has removed the only automated
+statement that this build cannot be deployed. The remedy is to restore the empty
+default, not to edit the test.
+
+**What clears it.** Set `CONFIG_PVDG_RECOVERY_AP_PASSWORD` back to `""`, rebuild,
+and let each unit generate its own passphrase; or, per unit and without a
+rebuild, replace the stored passphrase through `/api/wifi/config`. Any unit whose
+stored passphrase is still `12345678` when it leaves the bench carries this
+section with it.
+
+## 4e. The inverter comms-loss fail-safe mostly does not exist
+
+The product owner's instruction was to write each inverter's communications
+fail-safe parameter periodically, so that a controller failure drives the
+inverter to zero on its own:
+
+> *"Hr inverter men communication fail-safe ka 1 setting parameter hota he. age
+> communication master device ya controller se fail ho jae to inverter khud hi
+> apni power ZERO pe le jata he."*
+
+Eight manuals in this catalogue were read for exactly that register. **Seven
+record that no such register is documented for a third-party control link.**
+
+| Brand | What the manual actually has |
+|---|---|
+| Growatt TL3-X | *"none documented for the Modbus control link. No watchdog, timeout or fallback-limit register for a third-party controller appears in this map."* |
+| Growatt TLX | Same finding. |
+| Solis | Tag 3153 *"Internal EPM failsafe switch"* (p.33) — concerns the **EPM export meter**, not the control link. |
+| SAJ | p.13 holding 42 *"bfailsafeEn; G100 fail safe"* — **G100 export limitation**, tied to the export meter. |
+| Sungrow | None documented. |
+| Chint CPS | None documented. |
+| SolarEdge | 46002 belongs to a **dispatch group**, not the percentage path. |
+| Knox / AiSWEI | *"none documented for a third-party control link"*; the one present is an export-meter scheme. |
+
+The pattern is consistent and worth stating plainly: these inverters ship a
+fail-safe for **loss of the export meter in a grid-export-limitation scheme**,
+which is a different fault with a different remedy. Losing *this* controller is
+not a condition they are documented to detect.
+
+**What that means for the plant.** On loss of communications the last written
+limit simply stands. For a PV-DG site that is the wrong direction: the generator
+protection depends on the controller being able to lower PV, and a controller
+that has stopped talking cannot. The inverter holds whatever it was last told
+rather than reverting to something safe.
+
+**Why nothing is written.** There is no register to write. Inventing one, or
+repurposing an export-meter fail-safe whose semantics are documented to be about
+something else, is exactly the class of guess this project refuses.
+
+**What would change it.** A manufacturer citation, per brand, for a register
+that (a) detects loss of the Modbus master specifically, (b) states the timeout
+units and range, and (c) states whether it is stored in non-volatile memory —
+because the owner also asked for a periodic re-assert every 30 minutes, and a
+flash-backed register written 48 times a day wears out. The mechanism to carry
+that, when it exists, is **read first and write only on a difference**, so a
+plant whose inverters have not been reset performs zero writes.
+
+Until then the honest mitigation is the controller-side half, which is
+implemented: an inverter that stops answering leaves the commandable fleet after
+the grace window, and PV is recomputed without it.
+
+## 4f. Parallel operation: implemented, never exercised
+
+Grid and generator running in parallel is now a released control mode. The
+strategy is that the two objectives are reconciled by taking the MORE
+RESTRICTIVE of them: the grid policy sets the target the loop drives toward, and
+the generator's minimum-loading floor caps the maximum PV it may reach.
+
+**What has NOT happened.** No synchronised plant has been connected to this
+controller. Every part of this was reasoned from the plant model and exercised
+against unit tests; none of it has seen two sources on one bus.
+
+**The known approximation, stated plainly.** The generator floor is derived the
+same way it is for a generator carrying the plant alone: lower PV and the
+generator picks up load. That holds when the generator is the SWING machine. It
+does not hold when the generator is BASE-LOADED -- its own controller holds it at
+a fixed kW, and a PV change flows to the grid instead. On such a plant the floor
+does not bind the way this assumes, and PV may be curtailed harder than the
+machine actually requires.
+
+The error direction is toward a *more* loaded generator, so it costs yield rather
+than protection. That is the acceptable direction to be wrong in, and it is still
+wrong: a base-loaded site will under-produce until this is refined with
+measurements from a real synchronised plant.
+
+**Reaching this mode requires a deliberate commissioning statement.** Source
+detection must be in dual-meter topology and `dual_meter.sync_capable` must be
+set. A plant that has not been declared able to synchronise treats two live
+sources as a conflict and stops PV, which is where every uncommissioned unit
+sits.
+
+**What would clear this section.** A synchronised site, with the sharing mode
+recorded (isochronous or base-load), and measurements of what the generator
+actually does when PV moves.
+
+## 4g. The operator can change their own Wi-Fi, and what that costs
+
+The site owner has to be able to move their own controller onto a different
+Wi-Fi. They change routers, they change premises, and they do not have the
+engineering password -- requiring one turns a five-minute job into a site visit.
+
+So two routes are reachable without an engineering session, and only two:
+
+| Route | What it does |
+|---|---|
+| `GET /api/network/scan` | Lists what is in radio range |
+| `POST /api/network/join` | Sets the primary station SSID and passphrase |
+
+**The surface was narrowed instead of the authentication being dropped.** Each
+exclusion is a way a controller could otherwise be lost or taken, and all of them
+stay behind an engineering session:
+
+- **The recovery AP passphrase and SSID.** That access point is the guaranteed
+  way back into a unit whose station credentials are wrong. An operator who could
+  change it could lock the controller away from everyone, themselves included.
+- **Static IP, gateway, netmask, DNS.** Wrong values strand a unit on a network
+  it appears to have joined, which is far harder to diagnose than a wrong
+  passphrase. `join` additionally RESETS addressing to DHCP, because a static
+  address belonging to the previous network is the commonest way a join looks
+  successful and is not.
+- **The fallback station profile, retry counts and backoff timing.**
+
+**What it costs, stated rather than glossed.** Anyone already on the site network
+can move the controller to a different access point. There is no additional
+authentication in front of that.
+
+The mitigations are that the recovery access point stays on air and out of reach,
+so the unit is never actually lost; that a wrong join is recoverable by anyone
+with physical access to the board; and that the change requires a restart, so it
+is not silent.
+
+**This is a product decision, not a security finding that was missed.** If the
+judgement changes, the remedy is one line: remove the two paths from
+`public_uri()` in `engineering_guard.c` and the page reverts to requiring a
+session.
+
+## 5. Open decisions
+
+These are product decisions, deliberately not made unilaterally.
+
+| # | Decision | Current behaviour |
+|---|---|---|
+| D1 | Should a **disabled generator ramp** block commissioning? | It blocks. "No rate limit" is treated as unsafe rather than inherited from a default. |
+| D2 | Should **one unqualified inverter** block the whole plant? | It blocks. Every enabled inverter must be write-qualified and readback-capable. |
+| D3 | Was deleting `inverter_command_policy.{c,h}` correct? | Deleted. It decided the same question for a synchronous path that no longer exists; two competing confirmation policies in safety firmware is worse. Reversible. |
+| D4 | Settle window / deadline 5000 ms | Now **per profile** (`power_limit_settle_ms`). The lab profile declares 2500 ms from measurement; every other profile, including Huawei, falls back to the invented 500 ms default. The 5000 ms deadline remains global and invented, and a profile value is clamped strictly below it. Documented in source as needing site measurement. |
+| D7 | Is the lab-simulator write authority an acceptable way to reach the control loop before travelling? | In force. It is the only route to exercising the loop at all, it grants `lab_simulator_only` and never production, and its one weakness is a human falsely declaring real equipment a simulator. Reversible: removing it makes the loop unreachable again. |
+| D8 | `40125` or `40199` for Huawei percentage control? | 40125 is commanded, on the grounds that it is the conventional third-party derating interface. **Not decided on evidence** — the manual's description of 40199 (anti-backcurrent) matches this application better. Deliberately left as a site-verification item rather than switched on reasoning alone. |
+| D9 | Should the controller write the inverter's own ramp gradient (Huawei signal 432, `42017`, %/s)? | It does not. The control engine ramps and the inverter's gradient is left alone, so two rate limiters sit in series and the slower dominates. A controller ramp faster than the inverter's gradient will simply not be achieved and will look like a tracking failure. Reconciliation is a site step. |
+| D5 | Repeated-mismatch policy | An inverter that mismatches then confirms a safe zero rejoins the fleet. `mismatch_count` is retained but there is no "N strikes and out" latch, so a marginal inverter will cycle. |
+| D6 | `.eyebrow` brand orange at **2.23:1** on light background, 10 px | Left untouched, colour and size, pending a brand decision. Pinned by contract so it cannot be silently half-fixed. |
+
+### 5.1 Deferred to phase 2: ramp rate has to scale with engine size
+
+Recorded from the product owner, 2026-07-31, and deliberately **not** implemented
+now:
+
+> *"agr generator ka size km he let say 50kva tu load variation ane pe is ke
+> frequency destablize ho jati he, jis ki wja se inverter de-synch ho jate hen.
+> is liye chote gen pe ramp rate km rkha jata he, bra generator brdasht kr jata
+> he."*
+
+A small engine's speed governor cannot absorb a step change the way a large one
+can. Move PV too quickly on a 50 kVA set and the frequency excursion is large
+enough that the grid-tied inverters drop out on their own protection — so the
+controller's attempt to protect the generator *disconnects the very equipment it
+was commanding*, and the plant loses PV entirely rather than being curtailed.
+
+What this firmware does today: the ramp is a single commissioned rate per
+profile, plus the urgency doubling below 25 percent loading added in this phase.
+Neither is aware of engine size. A rate that is safe on 500 kVA can therefore be
+commissioned unchanged on 50 kVA.
+
+What phase 2 needs, and why it is not a five-minute change:
+
+- A rate derived from, or at least bounded by, the engine rating rather than
+  entered free-hand — and the relationship is not linear, so it cannot be
+  invented. It needs either manufacturer governor data or measurement on
+  representative sets.
+- The urgency doubling must be bounded by the same limit. Doubling a rate that
+  is already at a small engine's stability limit is exactly the case that
+  de-synchronises the inverters, and it would do so while the plant is *already*
+  in an underloaded state.
+- A recorded frequency measurement during a ramp on a small set, because "the
+  inverters dropped out" is the observable symptom and frequency is the cause;
+  without the measurement the two are indistinguishable from a comms fault.
+
+Until then the safe commissioning posture is: on small engines, enter a
+conservatively low ramp rate and confirm on site that PV steps do not trip the
+inverters.
+
+## 6. Inputs still required
+
+- **Generator ratings: rated kW, minimum loading %, reserve kW, reverse-power
+  margin.** Still not supplied. The gate treats a zero rating as "not
+  commissioned" and holds PV at zero, and no default may be invented. Capturing
+  these is the largest single gap the site visit closes.
+- Engineering password, to verify protected endpoint payloads **and to drive the
+  closed loop through the firmware at all** (section 3.2). This is now a blocker,
+  not merely an inspection convenience.
+- GoodWe manual (and any other manual intended for write qualification)
+- The Huawei *"Inverter Key Signal Extension Description"*, for the Device Status
+  code table — the blocker on the synchronisation interlock
+- `SmartLogger ModBus Interface Definitions` for the logger model actually
+  installed, if one is in the Modbus path
+- Confirmation of whether anything else at the site already writes the inverter
+  power-limit registers (plant SCADA, EMS, logger export limitation, grid-code
+  curtailment). Two masters on one register will fight.
+
+## 7. Recommendation
+
+Release as **monitoring, commissioning and protection firmware**, with automatic
+control documented as inhibited pending profile qualification. Do not describe
+this build as a closed-loop PV-DG synchronisation controller until at least one
+manufacturer profile has passed physical readback qualification and the items in
+section 4 are closed.
+
+Two additions since the last assessment, and neither changes that recommendation:
+
+- The Huawei register map is now **attributable to a manual line by line** rather
+  than a placeholder. That improves the quality of the claim and makes a site
+  visit efficient. It is still `DOCUMENTED`, and the production gate still refuses
+  it.
+- The controller can now be commanded against a **declared lab simulator**, so the
+  loop is reachable for the first time. That is a lab capability with a
+  `lab_simulator_only` verdict attached, and it is explicitly not evidence about
+  physical equipment.
+
+The single item that would most change this assessment is still to **qualify one
+real inverter profile end to end on physical equipment**: exact manual,
+model-specific mapping, simulator evidence, bench test, then physical readback.
+`docs/SITE_COMMISSIONING_RUNBOOK.md` is the procedure for that visit; it is
+written and **unexecuted**.
+
+The nearest item that can be closed **without** travelling is section 3.2 — obtain
+the Engineering password and drive the closed loop through the firmware against the
+simulator. That would move the loop from "unit-tested design plus direct-client
+register evidence" to "demonstrated firmware behaviour against a model", which is
+the last step available before the plant itself.
