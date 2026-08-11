@@ -138,6 +138,14 @@ typedef struct {
     uint32_t identity_failures;      /* liveness probe */
     uint32_t identity_mismatches;    /* identity probe */
     uint32_t telemetry_failures;
+    /* The last readback outcome, so an unreadable setpoint register is reported
+     * when it changes rather than on every poll. ESP_OK until one is attempted,
+     * which makes the first failure a change and therefore audible. */
+    esp_err_t readback_last_error;
+    /* Whether a confirmation has already been reported for this machine, so the
+     * routine re-confirmation that follows every periodic rewrite is silent
+     * while a verdict that is NOT a confirmation always speaks. */
+    bool confirmation_logged;
     /* The endpoint answered the identity probe with ILLEGAL DATA ADDRESS: it
      * does not implement the nameplate register. Distinct from "this profile
      * describes no probe" and from "the probe returned the wrong value". */
@@ -718,6 +726,43 @@ static esp_err_t poll_readback(inverter_runtime_t *runtime, uint32_t timestamp)
         if (err == ESP_OK && !isfinite(readback_percent)) err = ESP_ERR_INVALID_RESPONSE;
     }
 
+    /*
+     * A READBACK THAT NEVER ARRIVES MUST SAY SO.
+     *
+     * This returned its error to a caller that discards it, so a setpoint
+     * register that cannot be read produced silence: has_command stayed false,
+     * the fleet reported command_tested 0 and last_write_ok 0, and the only
+     * visible symptom was two zeroes with no stated cause -- while the write
+     * itself was landing on the machine perfectly well.
+     *
+     * The register and the device's own exception are named, because the two
+     * failures that matter here are indistinguishable otherwise: a wrong
+     * address (the device answers ILLEGAL DATA ADDRESS) and an unreachable
+     * device (the gateway answers for it). Rate limited to the change, so a
+     * permanently unreadable register costs one line rather than one per poll.
+     */
+    if (err != ESP_OK && runtime->readback_last_error != err) {
+        uint8_t exception_function = 0U;
+        uint8_t exception_code = 0U;
+        uint32_t exception_ms = 0U;
+        uint32_t exception_count = 0U;
+        char note[64] = "";
+        if (modbus_tcp_get_last_exception(&runtime->connection, &exception_function,
+                                          &exception_code, &exception_ms, &exception_count)) {
+            snprintf(note, sizeof(note), " (device exception 0x%02X on function 0x%02X)",
+                     exception_code, exception_function);
+        }
+        ESP_LOGW(TAG,
+                 "%s: power limit readback register %u (function %u) unreadable, %s%s"
+                 " -- a write may still be reaching the machine, but it cannot be "
+                 "confirmed",
+                 runtime->config.name,
+                 (unsigned)profile->power_limit_readback_address,
+                 (unsigned)profile->power_limit_readback_function,
+                 esp_err_to_name(err), note);
+    }
+    runtime->readback_last_error = err;
+
     portENTER_CRITICAL(&runtime->lock);
     if (err == ESP_OK) {
         runtime->data.readback_percent = readback_percent;
@@ -1122,7 +1167,40 @@ static bool evaluate_write_confirmation(inverter_runtime_t *runtime, uint32_t ti
         }
         runtime->data.confirmation_fault = true;
     }
+    const bool write_seen = runtime->data.write_issued;
+    const float judged_percent = runtime->data.requested_percent;
     portEXIT_CRITICAL(&runtime->lock);
+
+    /*
+     * THE VERDICT, EVERY TIME IT CHANGES.
+     *
+     * command_tested and last_write_ok are both derived from this one decision,
+     * and until now nothing said what it was. A fleet reporting 0 tested with a
+     * write plainly landing on the machine gave an owner two zeroes and no
+     * thread to pull: unreadable readback, wrong scaling, and a write that was
+     * never issued all look identical from outside.
+     *
+     * The first confirmation, and every verdict that is not one.
+     *
+     * "One line per transition" was the obvious rule and it was wrong: the
+     * setpoint is rewritten periodically even when the percentage does not
+     * change, each write returns the verdict to pending, and the confirmation
+     * that follows is a transition. Measured at fifteen lines every thirty
+     * seconds on a plant sitting steady at 100 %. A log that noisy is a log
+     * nobody reads, and it would bury the failure it exists to show.
+     */
+    const bool worth_saying = changed &&
+                              (verdict.state != INVERTER_WRITE_CONFIRMED ||
+                               !runtime->confirmation_logged);
+    if (verdict.state == INVERTER_WRITE_CONFIRMED) runtime->confirmation_logged = true;
+    if (worth_saying) {
+        ESP_LOGI(TAG, "%s write verdict: %s (evidence %s) for %.0f%%%s",
+                 runtime->config.name,
+                 inverter_write_state_name((inverter_write_state_t)verdict.state),
+                 inverter_write_proof_name((inverter_write_proof_t)verdict.proof),
+                 (double)judged_percent,
+                 write_seen ? "" : " -- no write has been issued yet");
+    }
     return safe_zero_required;
 }
 

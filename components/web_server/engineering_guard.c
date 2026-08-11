@@ -201,6 +201,8 @@ static esp_err_t safe_inverters(httpd_req_t *request)
     }
     uint8_t enabled = 0;
     uint8_t online = 0;
+    uint8_t command_tested = 0;
+    uint8_t last_write_ok = 0;
     float configured_kw = 0.0f;
     float enabled_kw = 0.0f;
     cJSON *root = cJSON_CreateObject();
@@ -224,6 +226,11 @@ static esp_err_t safe_inverters(httpd_req_t *request)
             enabled_kw += config->inverters[i].rated_power_kw;
         }
         if (have && data.online) online++;
+        /* Counted, not assumed. Both figures below were literal zeroes. */
+        if (have && data.has_command) {
+            command_tested++;
+            if (data.online) last_write_ok++;
+        }
         cJSON *item = cJSON_CreateObject();
         cJSON_AddNumberToObject(item, "index", i);
         cJSON_AddStringToObject(item, "name", config->inverters[i].name);
@@ -285,8 +292,24 @@ static esp_err_t safe_inverters(httpd_req_t *request)
     cJSON_AddNumberToObject(summary, "configured_rated_kw", configured_kw);
     cJSON_AddNumberToObject(summary, "enabled_rated_kw", enabled_kw);
     cJSON_AddNumberToObject(summary, "commandable_rated_kw", inverter_manager_get_total_rated_kw());
-    cJSON_AddNumberToObject(summary, "command_tested", 0);
-    cJSON_AddNumberToObject(summary, "last_write_ok", 0);
+    /*
+     * MEASURED, AFTER BEING HARDCODED TO ZERO.
+     *
+     * These two were written as literal zeroes in the operator projection, so a
+     * plant whose setpoint the machine confirmed on every pass -- verdict
+     * CONFIRMED on setpoint readback, twice a second, with production tracking
+     * the limit -- still reported "0 command tested, 0 last write ok" to anyone
+     * not logged in as engineering. The one screen an owner actually looks at
+     * said the commands had never been proven, and nothing in the firmware
+     * disagreed with it out loud.
+     *
+     * Withholding these was never what this gate is for. It hides the register
+     * address, the function code and the raw word; whether a setpoint was
+     * confirmed is a plant fact, and the same argument is already made above for
+     * the commanded percentage.
+     */
+    cJSON_AddNumberToObject(summary, "command_tested", command_tested);
+    cJSON_AddNumberToObject(summary, "last_write_ok", last_write_ok);
     cJSON_AddNumberToObject(summary, "initialization_failed", 0);
     free(config);
     return send_json(request, root);
