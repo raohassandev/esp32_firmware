@@ -1,7 +1,7 @@
 """The phase scope must be visible to the engineer choosing a profile.
 
 This release phase is scoped to the EM500 meter and the Huawei SUN2000 inverter.
-Twelve inverter profiles are parked (docs/RELEASE_READINESS.md section 4b.1) and
+Twelve inverter profiles are parked by the firmware phase scope and
 inverter_profile_write_permission() refuses every one of them, first and in both
 modes. That refusal is already proven by tests/inverter_write_permission_test.c
 and tests/phase_scope_source_contract.py, and nothing here weakens or restates it.
@@ -116,7 +116,6 @@ PROFILES_H = strip_c_comments((ROOT / "components/inverter_manager/include/inver
 PROFILES_C = strip_c_comments((ROOT / "components/inverter_manager/inverter_profiles.c").read_text(encoding="utf-8"))
 PROFILE_API = strip_c_comments((ROOT / "components/web_server/inverter_profile_api.c").read_text(encoding="utf-8"))
 PICKER = strip_js_comments((ROOT / "web/inverter-profiles.js").read_text(encoding="utf-8"))
-READINESS = (ROOT / "docs/RELEASE_READINESS.md").read_text(encoding="utf-8")
 
 
 # ---------------------------------------------------------------- 1. the data
@@ -170,15 +169,9 @@ for identifier, entry in in_scope:
             f"{identifier} is in scope but carries a deferred_reason; a profile "
             "that is not parked must not claim to be")
 
-# The reasons here and the table in the release doc are the same product
-# decision, so every parked id must still appear in the doc.
-for identifier, _ in parked:
-    slug = identifier.strip('"')
-    if slug.startswith("SAFE_DEFAULT"):
-        continue
-    require(slug in READINESS,
-            f"{slug} is parked in firmware but is not recorded in "
-            "docs/RELEASE_READINESS.md")
+# The release document this cross-checked was deleted by the owner on
+# 2026-08-11. The parked list and its reasons still live in the firmware and
+# are asserted above.
 
 
 # ------------------------------------------------------------ 2. the API says so

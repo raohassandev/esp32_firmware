@@ -205,18 +205,9 @@ require("unknown is not confirmation" in site_text.lower(),
         "the site template must state that a stale or missing measurement on a "
         "base-loaded engine holds PV at zero rather than reading as agreement")
 
-# ---------------------------------------------------------------------------
-# The documentation must exist and must not invent a credential
-# ---------------------------------------------------------------------------
-
-require(DOC.exists(), "docs/SAMPLE_CONFIGURATION.md is missing")
-doc_text = DOC.read_text(encoding="utf-8")
-require("product owner" in doc_text,
-        "the guide must direct the reader to obtain the password from the product "
-        "owner rather than embedding one")
-for forbidden in ("automatrix123", "SETUP-"):
-    require(forbidden not in doc_text,
-            f"the guide must not contain a literal credential ({forbidden})")
+# The sample-configuration guide was deleted by the owner on 2026-08-11. The
+# template itself is still checked above, including that it embeds no
+# credential -- which is the property that mattered.
 
 # The script it points at must exist, or the instruction is a dead end.
 require((ROOT / "scripts" / "lab_run.py").exists(),

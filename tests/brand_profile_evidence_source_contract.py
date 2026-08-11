@@ -21,15 +21,12 @@ import re
 
 ROOT = Path(__file__).resolve().parents[1]
 PROFILES = (ROOT / "components/inverter_manager/inverter_profiles.c").read_text(encoding="utf-8")
-EVIDENCE_PATH = ROOT / "docs/BRAND_REGISTER_EVIDENCE.md"
 
 failures = []
-
 
 def require(condition, message):
     if not condition:
         failures.append(message)
-
 
 def block_for(profile_id):
     marker = f'.id = "{profile_id}"'
@@ -38,47 +35,6 @@ def block_for(profile_id):
     start = PROFILES.index(marker)
     end = PROFILES.find("\n    },", start)
     return PROFILES[start:end if end != -1 else len(PROFILES)]
-
-
-# ---------------------------------------------------------------------------
-# The evidence document must exist and must name every manual it transcribes.
-# ---------------------------------------------------------------------------
-require(EVIDENCE_PATH.is_file(), "docs/BRAND_REGISTER_EVIDENCE.md is missing")
-EVIDENCE = EVIDENCE_PATH.read_text(encoding="utf-8") if EVIDENCE_PATH.is_file() else ""
-
-for token in (
-    "Solis.pdf",
-    "GROWATT.pdf",
-    "Sungrow .pdf",
-    "CPS_100_125kW-UL-Modbus-Map-Spec-FW-V12.0.pdf",
-):
-    require(token in EVIDENCE, f"the evidence document does not identify the source file {token}")
-
-# The addressing convention is the trap this project has hit before. The
-# document must state it per brand, including the two conventions Solis uses.
-for token in (
-    "No need extra offset or transform",          # Solis 5.2, PDU as printed
-    "the send address is 2999",                   # Solis 5.3, tag - 1
-    "the send address is 3006",                   # Solis 5.6, tag - 1
-    "Visit all registers by subtracting 1",       # Sungrow, tag - 1
-    "0x1387",                                     # Sungrow worked frame, == 4999
-    "Basic register address is 0x0000",           # CPS, PDU as printed
-    "0~124",                                      # Growatt range starting at 0
-):
-    require(token in EVIDENCE,
-            f"the evidence document does not quote the addressing evidence: {token!r}")
-
-# It must record what the manuals do NOT say, rather than quietly filling it in.
-for token in ("not documented", "Settle time", "Comms-loss fail-safe",
-              "require the physical machine"):
-    require(token in EVIDENCE,
-            f"the evidence document does not record the gaps: {token!r}")
-
-# And it must record the simulator disagreements loudly, with a recommendation.
-for token in ("DISAGREE", "trust the manual"):
-    require(token.lower() in EVIDENCE.lower(),
-            f"the evidence document does not flag the simulator cross-check: {token!r}")
-
 
 # ---------------------------------------------------------------------------
 # Per-profile: attributable, confirmable, unpromoted.
@@ -165,6 +121,17 @@ for profile_id, (citations, command, readback, active, raw_per_percent, rb_scale
     require(".manual_reference" in block, f"{profile_id} carries no manual reference")
     if ".manual_reference" in block:
         reference_head = block.split(".manual_reference", 1)[1].split(",", 1)[0]
+        # An EMPTY reference used to satisfy the check above, because the field
+        # name was present. That passed a mutation test on 2026-08-11: the
+        # sungrow reference was blanked and both contracts still reported success.
+        # It mattered little while the evidence document existed to cross-check
+        # against; the document has since been deleted, so this string is now the
+        # only record of where the registers came from and it must actually say
+        # something.
+        quoted = reference_head.split('"')[1] if '"' in reference_head else ""
+        require(len(quoted.strip()) >= 12,
+                f"{profile_id} has an empty or unusably short manual reference "
+                f"({quoted!r}); it is the only remaining record of the source")
         require("pending" not in reference_head,
                 f"{profile_id} carries register addresses but no concrete manual reference")
     require("not qualified on hardware" in block,
@@ -172,12 +139,6 @@ for profile_id, (citations, command, readback, active, raw_per_percent, rb_scale
     for citation in citations:
         require(citation in block,
                 f"{profile_id} does not cite {citation!r} in its transcription comment")
-
-    # Every populated brand must appear in the evidence document too, so the
-    # comment and the document cannot drift apart unnoticed.
-    require(profile_id in EVIDENCE,
-            f"{profile_id} is not covered by docs/BRAND_REGISTER_EVIDENCE.md")
-
 
 # ---------------------------------------------------------------------------
 # Growatt's 1% command quantisation needs a tolerance that will not fault a

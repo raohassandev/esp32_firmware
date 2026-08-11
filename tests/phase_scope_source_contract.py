@@ -115,7 +115,6 @@ CONFIG_TYPES = squeeze(code("components/config_manager/include/config_types.h"))
 CONFIG_MANAGER = squeeze(code("components/config_manager/config_manager.c"))
 METER_API = squeeze(code("components/web_server/meter_config_api.c"))
 WORKFLOW = (ROOT / ".github/workflows/esp-idf-build.yml").read_text(encoding="utf-8")
-DOC = (ROOT / "docs/RELEASE_READINESS.md").read_text(encoding="utf-8")
 
 # ---------------------------------------------------------------------------
 # 1. The meter model is a COMMISSIONED FACT, not an inference.
@@ -463,24 +462,10 @@ require("tests/source_detection_engine_test.c" in WORKFLOW,
         "the executable proof of the confinement must run in CI")
 require("tests/commissioning_gate_test.c" in WORKFLOW,
         "the executable proof of the meter refusal must run in CI")
-require("## 0. The scope of this release phase" in DOC,
-        "docs/RELEASE_READINESS.md must state this phase's scope in its own section")
-require("EM500" in DOC and "SUN2000" in DOC,
-        "the phase scope section must name both the meter and the inverter")
-require("## 4b. Deferred by the product owner: inverter profile qualification" in DOC,
-        "the per-brand inverter unpark criteria must survive")
-require("### 4b.1 Parked by the phase scope" in DOC,
-        "every profile parked by the phase scope needs its unpark criterion recorded")
-require("## 4c. Deferred by the product owner: meter models" in DOC,
-        "the per-model meter unpark criteria must be recorded, in the same shape "
-        "as the inverter ones")
-for identifier in parked:
-    slug = identifier.strip('"')
-    if slug.startswith("SAFE_DEFAULT"):
-        continue
-    require(slug in DOC,
-            f"{slug} is parked in the firmware but is not listed with an unpark "
-            f"criterion in docs/RELEASE_READINESS.md")
+# The release document that carried the phase scope and the per-profile unpark
+# criteria was deleted by the owner on 2026-08-11. The firmware-side confinement
+# asserted above is unchanged and is what actually stops a parked profile being
+# commanded; what is gone is the written reason each one is parked.
 
 if failures:
     for failure in failures:

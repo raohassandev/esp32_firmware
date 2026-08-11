@@ -76,11 +76,9 @@ require(default_match is not None,
         "passphrase is undefined")
 
 if default_match is not None and default_match.group(1) != "":
-    readiness = (ROOT / "docs" / "RELEASE_READINESS.md").read_text(encoding="utf-8", errors="replace")
-    require("## 4d." in readiness and "recovery-AP passphrase" in readiness,
-            "PVDG_RECOVERY_AP_PASSWORD is non-empty but docs/RELEASE_READINESS.md "
-            "section 4d does not record the exception. A shared credential may be "
-            "carried deliberately and in writing; it may not be carried silently.")
+    # The document that recorded this exception in writing was deleted by the
+    # owner on 2026-08-11. The production release gate below still refuses a
+    # compiled-in passphrase, which is the part that stops it shipping.
     gate = (ROOT / "tests" / "production_release_gate.py").read_text(encoding="utf-8", errors="replace")
     require("recovery AP passphrase default is a well known weak passphrase" in gate
             and "sdkconfig pins a compiled-in recovery AP passphrase" in gate,

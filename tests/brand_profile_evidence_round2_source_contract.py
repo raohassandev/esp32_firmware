@@ -40,15 +40,12 @@ ROOT = Path(__file__).resolve().parents[1]
 PROFILES = (ROOT / "components/inverter_manager/inverter_profiles.c").read_text(encoding="utf-8")
 DECODE_H = (ROOT / "components/inverter_manager/include/inverter_profile_decode.h").read_text(encoding="utf-8")
 PROFILES_H = (ROOT / "components/inverter_manager/include/inverter_profiles.h").read_text(encoding="utf-8")
-EVIDENCE_PATH = ROOT / "docs/BRAND_REGISTER_EVIDENCE_ROUND2.md"
 
 failures = []
-
 
 def require(condition, message):
     if not condition:
         failures.append(message)
-
 
 def block_for(profile_id):
     marker = f'.id = "{profile_id}"'
@@ -57,53 +54,6 @@ def block_for(profile_id):
     start = PROFILES.index(marker)
     end = PROFILES.find("\n    },", start)
     return PROFILES[start:end if end != -1 else len(PROFILES)]
-
-
-# ---------------------------------------------------------------------------
-# The evidence document must exist and must identify every manual it transcribes.
-# ---------------------------------------------------------------------------
-require(EVIDENCE_PATH.is_file(), "docs/BRAND_REGISTER_EVIDENCE_ROUND2.md is missing")
-EVIDENCE = EVIDENCE_PATH.read_text(encoding="utf-8") if EVIDENCE_PATH.is_file() else ""
-
-for token in (
-    "FoxESS-Modbus-Protocol-V1.05.03.00.pdf",
-    "GoodWe_grid-tied_GT-series_Modubus_Protocol(8).pdf",
-    "MB001_ASW GEN-Modbus-en_V2.1.5(2).pdf",
-):
-    require(token in EVIDENCE, f"the evidence document does not identify the source file {token}")
-
-# The addressing convention is the trap this project has hit before. The document
-# must state it per brand, and must quote the evidence rather than assert it.
-for token in (
-    "F7 03 7D 55 00 01 98 E0",        # GoodWe worked frame
-    "0x7D55 == 32085",                 # ...and the arithmetic that proves it
-    "remove 3x or 4x and subtract 1",  # Knox/AISWEI rule
-    "0x03e8",                          # ...and its worked conversion
-    "the first PDU address is 0",       # FoxESS -- the only argument available
-    "DEDUCTION ONLY",                   # ...explicitly graded as weaker
-):
-    require(token in EVIDENCE,
-            f"the evidence document does not quote the addressing evidence: {token!r}")
-
-# It must record what the manuals do NOT say, rather than quietly filling it in.
-for token in ("not documented", "left unset", "Settle time", "Comms-loss fail-safe",
-              "require the physical machine"):
-    require(token in EVIDENCE, f"the evidence document does not record the gaps: {token!r}")
-
-# The two hazards that are invisible in a register number must be stated loudly.
-require("Storage, does not support high-frequency write operations" in EVIDENCE,
-        "the evidence document must quote GoodWe's flash-wear prohibition verbatim: a "
-        "controller writing that register every control cycle destroys the inverter")
-require("accept the write and echo the value back" in EVIDENCE,
-        "the evidence document must explain the accept-and-echo failure that makes a "
-        "prerequisite enable a refusal rather than an inconvenience")
-
-# The brand-conflation correction must stay explained, or someone will merge them
-# back together.
-for token in ("two different manufacturers", "49007", "45403"):
-    require(token in EVIDENCE,
-            f"the evidence document must record why FoxESS and Knox are separate: {token!r}")
-
 
 # ---------------------------------------------------------------------------
 # Per-profile: attributable, confirmable, unpromoted.
@@ -182,6 +132,17 @@ for profile_id, (citations, command, readback, raw_per_percent, rb_scale, write_
     require(".manual_reference" in block, f"{profile_id} carries no manual reference")
     if ".manual_reference" in block:
         reference_head = block.split(".manual_reference", 1)[1].split(",", 1)[0]
+        # An EMPTY reference used to satisfy the check above, because the field
+        # name was present. That passed a mutation test on 2026-08-11: the
+        # sungrow reference was blanked and both contracts still reported success.
+        # It mattered little while the evidence document existed to cross-check
+        # against; the document has since been deleted, so this string is now the
+        # only record of where the registers came from and it must actually say
+        # something.
+        quoted = reference_head.split('"')[1] if '"' in reference_head else ""
+        require(len(quoted.strip()) >= 12,
+                f"{profile_id} has an empty or unusably short manual reference "
+                f"({quoted!r}); it is the only remaining record of the source")
         require("pending" not in reference_head,
                 f"{profile_id} carries register addresses but no concrete manual reference")
     require("not qualified on hardware" in block,
@@ -189,10 +150,6 @@ for profile_id, (citations, command, readback, raw_per_percent, rb_scale, write_
     for citation in citations:
         require(citation in block,
                 f"{profile_id} does not cite {citation!r} in its transcription comment")
-
-    require(profile_id in EVIDENCE,
-            f"{profile_id} is not covered by docs/BRAND_REGISTER_EVIDENCE_ROUND2.md")
-
 
 # ---------------------------------------------------------------------------
 # Knox/AISWEI documents a prerequisite enable, so it must be refused write
@@ -220,7 +177,6 @@ for profile_id in ("foxess.commercial.pending", "goodwe.commercial.pending"):
     require("PREREQUISITE ENABLE" in block.upper(),
             f"{profile_id} must state explicitly whether a prerequisite enable register "
             "was found, so silence is never mistaken for absence of evidence")
-
 
 # ---------------------------------------------------------------------------
 # The word order that no manual states must stay unstated.
@@ -255,7 +211,6 @@ if goodwe is not None:
     require(".active_power_type = INVERTER_VALUE_S32" in goodwe,
             "GoodWe documents active power as S32")
 
-
 # ---------------------------------------------------------------------------
 # The REFUSALS. Five brands were examined and rejected, each for a reason that is
 # a safety fact. A later edit must not quietly populate one, and the reason must
@@ -279,11 +234,6 @@ REFUSALS = {
         "image-only",
     ],
 }
-
-for brand, tokens in REFUSALS.items():
-    for token in tokens:
-        require(token in EVIDENCE,
-                f"the evidence document no longer records why {brand} was refused: {token!r}")
 
 # No profile may exist for a refused brand. The check is on the profile id list so
 # that adding one is a deliberate act that fails this test first.
@@ -430,24 +380,6 @@ if solaredge is not None:
                      "little-endian", "base 0", "Float32"):
         require(citation in solaredge,
                 f"solaredge.terramax.documented does not cite {citation!r}")
-    require("solaredge.terramax.documented" in EVIDENCE,
-            "solaredge.terramax.documented is not covered by "
-            "docs/BRAND_REGISTER_EVIDENCE_ROUND2.md")
-
-# The document's own record of the SolarEdge decision must survive, including the
-# contradiction that only physical equipment can settle and the addressing
-# evidence. These are the facts a reviewer needs in order to check the profile.
-for token in (
-    "F322",                             # the register
-    "little-endian word order",         # the order, quoted from p.14
-    "stops production and restarts",    # the commit step this firmware must never issue
-    "F3 24 00 00 00 64",                # a worked frame proving the addressing
-    "0x00000032",                       # the integer-in-a-float-register hazard
-    "F304",                             # the non-invasive read that settles it
-):
-    require(token in EVIDENCE,
-            f"the evidence document no longer records the SolarEdge decision: {token!r}")
-
 
 if failures:
     for failure in failures:
