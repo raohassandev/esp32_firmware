@@ -940,9 +940,45 @@ static void service_prerequisite(inverter_runtime_t *runtime, uint32_t timestamp
 
     if (decision.action == INVERTER_PREREQ_ACTION_WRITE) {
         esp_err_t err = write_prerequisite(runtime, timestamp);
-        ESP_LOGW(TAG, "%s prerequisite enable register does not hold; write %s "
-                      "(re-read will decide)",
-                 runtime->config.name, err == ESP_OK ? "issued" : esp_err_to_name(err));
+        /*
+         * NAME THE REGISTER AND THE REFUSAL, not just "it failed".
+         *
+         * This logged an esp_err_t and nothing else, so a controller repeating
+         * "write ESP_ERR_INVALID_RESPONSE" every five seconds gave no way to
+         * tell an exception from the device apart from a mismatched echo, and no
+         * way to tell WHICH register it was arguing about. Both were needed on
+         * the plant and neither was there: ESP_ERR_INVALID_RESPONSE is returned
+         * for a Modbus exception AND for a reply whose address or value does not
+         * match the request, which are different faults with different fixes.
+         *
+         * The exception is only reported when the transport actually recorded
+         * one, so an echo mismatch is distinguishable by its ABSENCE here rather
+         * than by a zero that could mean either.
+         */
+        uint8_t exception_function = 0U, exception_code = 0U;
+        uint32_t exception_ms = 0U, exception_count = 0U;
+        const bool had_exception =
+            err != ESP_OK &&
+            modbus_tcp_get_last_exception(&runtime->connection, &exception_function,
+                                          &exception_code, &exception_ms, &exception_count);
+        if (err == ESP_OK) {
+            ESP_LOGW(TAG, "%s prerequisite enable register %u does not hold; write issued "
+                          "(re-read will decide)",
+                     runtime->config.name,
+                     (unsigned)runtime->profile->prerequisite_address);
+        } else if (had_exception) {
+            ESP_LOGW(TAG, "%s prerequisite enable register %u: write refused, %s "
+                          "(device exception 0x%02X on function 0x%02X)",
+                     runtime->config.name,
+                     (unsigned)runtime->profile->prerequisite_address,
+                     esp_err_to_name(err), exception_code, exception_function);
+        } else {
+            ESP_LOGW(TAG, "%s prerequisite enable register %u: write refused, %s "
+                          "(no device exception -- the reply did not match the request)",
+                     runtime->config.name,
+                     (unsigned)runtime->profile->prerequisite_address,
+                     esp_err_to_name(err));
+        }
         /* No verdict is drawn from the write. The next pass re-reads, and only
          * that read may set prerequisite_satisfied. Scheduled immediately so the
          * confirming read is not delayed by a whole recheck period. */
