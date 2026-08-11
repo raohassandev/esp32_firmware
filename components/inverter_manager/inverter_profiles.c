@@ -771,7 +771,30 @@ static const inverter_profile_t PROFILES[] = {
         /* Manual tag 5007 must be set to 0xAA before the setpoint at 5007+1
          * takes effect. Not sequenceable by this firmware, and the setpoint
          * echoes regardless, so a command would falsely confirm. Refused. */
-        .requires_prerequisite_enable = true,
+        /*
+         * NOT REQUIRED ON THIS MODEL, and both halves of that are measured.
+         *
+         * The gate stood on a write to PDU 5006, and the inverter answers that
+         * write with exception 0x02 on function 0x86 -- ILLEGAL DATA ADDRESS,
+         * its own words, logged every five seconds. It is not refusing
+         * permission and the link is not failing: that register does not accept
+         * writes on this machine.
+         *
+         * The owner then wrote the power limit at 5007 directly with Modbus Poll
+         * and it took, cleanly. So the limit needs no enable here, and the
+         * register the gate depended on cannot be written at all -- a gate that
+         * can never be satisfied protects nothing, it only blocks.
+         *
+         * This fits what the profile has already had corrected: this machine
+         * takes NO -1 offset. Its input registers gave a fictitious steady
+         * 65.5 kW at 5030 and the truth at 5031, and 5006 is 5007 with the same
+         * wrong offset applied.
+         *
+         * The description below stays so the register remains documented and the
+         * gate is one word away from being restored, if a model is ever found
+         * that both needs it and accepts it.
+         */
+        .requires_prerequisite_enable = false,
         .manufacturer = "Sungrow",
         .deferred_this_phase = true,
         .deferred_reason =
