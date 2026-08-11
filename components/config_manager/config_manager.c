@@ -617,6 +617,37 @@ meter_role_assignment_t config_manager_role_assignment(const app_config_t *c)
             }
         }
     }
+    /*
+     * ONE SUPPLY METER IS THE SUPPLY METER, WHATEVER ITS ROLE SAYS.
+     *
+     * The owner's rule, and it already governs which page a reading is drawn on:
+     * with one supply meter the instrument sits on the changeover and its tariff
+     * input says which supply is live, so a commissioned role is a label that is
+     * wrong for half of every day. With two or more, the role is the only thing
+     * that can tell them apart, and it decides.
+     *
+     * This function did not know that. A single meter left on the GENERATOR role
+     * -- set during a two-meter trial, on a field the interface then hides when
+     * only one meter exists -- gave grid_count 0 and valid false, so the control
+     * loop had no grid measurement, /api/live reported grid power as null, and
+     * the commissioning gate said "No enabled meter is assigned the grid role".
+     * The Grid page beside it drew 340.2 kW from that same instrument, because
+     * the page routing follows the tariff. Two answers to one question, and the
+     * owner could neither see nor change the one that was wrong.
+     *
+     * Fixed here rather than at each reader. This function is where "which meter
+     * is what" is answered, and the alternative was a special case in the control
+     * engine, another in the commissioning gate and a third wherever the next
+     * reader appeared.
+     *
+     * The generator slot is left populated. Whether the plant is running on its
+     * generator is decided by source detection from the tariff, not by this, and
+     * the generator limit still needs to find the instrument.
+     */
+    if (out.grid_count == 0U && out.generator_count == 1U && !out.duplicate_generator) {
+        out.grid_index = out.generator_index[0];
+        out.grid_count = 1U;
+    }
     out.valid = out.grid_count == 1U && !out.duplicate_generator;
     return out;
 }
