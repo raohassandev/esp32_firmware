@@ -24,14 +24,6 @@ CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
 CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
 CONFIG_HTTPD_MAX_URI_LEN=256
-# The live interface is one long-lived connection per browser, not seven polled
-# endpoints. Measured on the board: one tab holding the plant overview kept TEN
-# established connections -- the whole of max_open_sockets -- because a browser
-# opens its keep-alive pool and holds it whatever it is asked to carry. Two tabs
-# saturated the controller and a third would have been refused. Reducing the
-# number of endpoints did not help: a page making eleven requests in twenty-one
-# seconds still held ten sockets. Only a single connection does.
-CONFIG_HTTPD_WS_SUPPORT=y
 CONFIG_PVDG_DEFAULT_ZLAN_HOST="192.168.100.200"
 
 # Scheduler granularity. The default 100 Hz gives a 10 ms tick, which quantises
