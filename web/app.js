@@ -905,6 +905,15 @@
             status.source.state = live.source;
             status.source.attributed_to = live.source;
         }
+        /* The whole frame, kept as it arrived.
+         *
+         * status has nowhere to put solar -- it is an inverter measurement, not
+         * a controller one -- so merging it here would mean inventing a field.
+         * The renderers read this instead and overlay it onto the telemetry they
+         * already hold. Without it a written command visibly moved the plant ten
+         * to fifteen seconds before the screen admitted it, because production
+         * still came from the slow inverter poll. */
+        window.AutomatrixLive = { at: Date.now(), payload: live };
         /* Republished and announced on every tick, because a cache that is only
          * refreshed on the slow poll would hand a reader a ten-second-old
          * reading while a half-second-old one sat unused. */

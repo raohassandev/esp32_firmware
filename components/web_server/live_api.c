@@ -121,6 +121,32 @@ static esp_err_t live_get(httpd_req_t *request)
     /* NaN rather than zero when nothing is measuring: a plant with no reachable
      * inverter has an UNKNOWN output, and 0.0 kW is a measurement nobody took. */
     add_kw(root, "solar_kw", solar_known ? solar_kw : NAN);
+
+    /*
+     * PER MACHINE AS WELL AS THE TOTAL.
+     *
+     * The fleet total alone left the Solar inverters table -- one row per
+     * machine, with its own NOW column -- reading from a ten-second poll, so a
+     * command that visibly moved the plant took ten to fifteen seconds to appear
+     * against the inverter it moved. The owner watched production jump and the
+     * screen sit still.
+     *
+     * Index and kW only. Everything else on that row -- state, rating, last
+     * update, the register detail -- changes at commissioning speed and stays on
+     * the slow endpoint.
+     */
+    cJSON *list = cJSON_AddArrayToObject(root, "inverters");
+    for (uint8_t i = 0; list && i < inverters; ++i) {
+        inverter_data_t data = {0};
+        if (!inverter_manager_get_data(i, &data)) continue;
+        cJSON *item = cJSON_CreateObject();
+        if (!item) break;
+        cJSON_AddNumberToObject(item, "index", i);
+        cJSON_AddBoolToObject(item, "online", data.online);
+        add_kw(item, "kw", (data.telemetry_valid && !data.telemetry_stale)
+                               ? data.measured_power_kw : NAN);
+        cJSON_AddItemToArray(list, item);
+    }
     add_kw(root, "commandable_kw", inverter_manager_get_total_rated_kw());
 
     /* The fleet's commanded percentage and whether it is going out, so the card

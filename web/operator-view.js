@@ -1684,6 +1684,46 @@
      * only the commanded figure sees the plant move slowly and cannot tell
      * whether the controller asked for slow or the ramp made it slow.
      */
+    /*
+     * PRODUCTION FROM THE FAST ENDPOINT, WRITTEN OVER THE SLOW ONE.
+     *
+     * A limit written by the controller changes what the machines make within a
+     * second or two. This module's own poll runs every fifteen seconds and the
+     * inverter telemetry poll every ten, so until this existed the plant moved
+     * and the screen sat still for ten to fifteen seconds -- long enough for an
+     * operator to conclude the command had not landed and write it again.
+     *
+     * Only the two things that actually move on that timescale are taken from
+     * the live frame: the measured kW per machine and the fleet total. State,
+     * rating, registers and every other column stay with the slow poll that owns
+     * them, so nothing here can invent a reading the fast endpoint never sent --
+     * an inverter the live frame does not mention is left exactly as found.
+     */
+    function overlayLive(payload) {
+        const live = window.AutomatrixLive && window.AutomatrixLive.payload;
+        const telemetry = payload && payload.inverterTelemetry;
+        if (!live || !telemetry || !Array.isArray(live.inverters)) return;
+
+        const fresh = new Map(live.inverters.map((item) => [Number(item.index), item]));
+        (telemetry.inverters || []).forEach((row, position) => {
+            const match = fresh.get(Number(row.index ?? position));
+            if (!match) return;
+            if (finite(match.kw)) {
+                row.measured_power_kw = Number(match.kw);
+                row.telemetry_valid = true;
+            } else {
+                /* The machine stopped answering. Holding the last number would
+                 * show production that nobody is measuring. */
+                row.telemetry_valid = false;
+            }
+            if (typeof match.online === 'boolean') row.online = match.online;
+        });
+
+        if (!telemetry.summary) return;
+        telemetry.summary.telemetry_valid = live.inverters.filter((item) => finite(item.kw)).length;
+        telemetry.summary.measured_total_kw = finite(live.solar_kw) ? Number(live.solar_kw) : null;
+    }
+
     function inverterTable(inverters, telemetryMap, status) {
         /* Shared out across the machines that carry a rating, the same basis
          * the controller uses. */
@@ -2033,6 +2073,7 @@
                        : api('/api/inverter-telemetry')
             ]);
             state.lastPayload = { status, meters, inverters, inverterTelemetry, telemetry: state.siteTelemetry };
+            overlayLive(state.lastPayload);
             renderCurrent();
         } catch (error) {
             const view = document.querySelector('.page.active .operator-product-view');
@@ -2135,6 +2176,7 @@
         window.addEventListener('amx-controller-status', (event) => {
             if (!state.lastPayload || !PRODUCT_ROUTES.has(route())) return;
             state.lastPayload.status = event.detail || state.lastPayload.status;
+            overlayLive(state.lastPayload);
             renderCurrent();
         });
         new MutationObserver(() => {
