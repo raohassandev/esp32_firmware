@@ -79,9 +79,10 @@ Mode B is used.
 
 ## Superseded: `0x2160` does not exist on these meters
 
-`docs/PHASE1_SOURCE_DETECTION_SPEC.md` defaults the single-input source register to decimal
-8544 (`0x2160`), recorded as clone-specific and established by physical observation. On this
-unit it is **not readable**:
+The Phase 1 source-detection specification — deleted on 2026-08-11 once source detection
+became role-driven, and recoverable from git history — defaulted the single-input source
+register to decimal 8544 (`0x2160`), recorded as clone-specific and established by physical
+observation. On this unit it is **not readable**:
 
 | Register | FC03 | FC04 |
 |---|---|---|
