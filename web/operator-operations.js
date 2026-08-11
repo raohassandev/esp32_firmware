@@ -509,11 +509,33 @@
 
     async function refreshAll() {
         if (!isOperator() || state.busy) return;
+        /*
+         * ASKED FOR ONLY WHERE IT IS DRAWN.
+         *
+         * Both of these were fetched every ten seconds on EVERY page. The trend
+         * exists on the plant overview alone (CHART_PAGES has one entry) and the
+         * attention band renders only there too, so on the grid, generator,
+         * solar, network and commissioning pages the controller was asked for
+         * both and neither was ever shown.
+         *
+         * The history is the expensive one -- the largest single response this
+         * interface asks for -- and it was being fetched on the Wi-Fi page.
+         *
+         * Keyed on what is actually MOUNTED rather than on a list of route
+         * names, so this stays correct if a chart or the band moves to another
+         * page: a list of names is a second copy of a fact the DOM already
+         * holds.
+         */
+        const wantsHistory = Boolean(byId('operatorTrendHost') || document.querySelector('.pvc-root'));
+        const wantsEvents = Boolean(byId('operatorAttentionHost'));
+        if (!wantsHistory && !wantsEvents) return;
         state.busy = true;
         try {
             const [history, events] = await Promise.all([
-                api(`/api/operator/history?range=${encodeURIComponent(state.range)}`),
-                api('/api/operator/events')
+                wantsHistory
+                    ? api(`/api/operator/history?range=${encodeURIComponent(state.range)}`)
+                    : Promise.resolve(state.history),
+                wantsEvents ? api('/api/operator/events') : Promise.resolve(state.events)
             ]);
             state.history = history;
             state.historyAt = Date.now();

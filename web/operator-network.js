@@ -233,6 +233,22 @@
     async function refresh() {
         if (route() !== 'network') return;
         if (!ensurePage()) return;
+        /*
+         * app.js reads /api/status every two seconds and publishes what it got.
+         * Fetching it again here made this the only page in the product asking
+         * for the same fact twice on two independent timers -- measured at
+         * sixteen requests in twenty-one seconds against ten everywhere else.
+         *
+         * On a controller whose browser already holds seven of its ten sockets,
+         * a duplicate request does not merely waste its own: it occupies one
+         * another module is waiting for.
+         *
+         * Falls back to fetching only if that module has not answered yet, so
+         * nothing depends on load order, and only accepts a reading newer than
+         * this page's own five-second cadence.
+         */
+        const held = window.AutomatrixStatusCache;
+        if (held && Date.now() - held.at <= 5000) { renderStatus(held.payload); return; }
         try { renderStatus(await api('/api/status')); } catch { renderStatus(null); }
     }
 
