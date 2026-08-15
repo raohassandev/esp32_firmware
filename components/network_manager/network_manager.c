@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>   /* strcasecmp, for the case-only SSID match below */
 #include "config_manager.h"
 #include "device_identity.h"
 #include "esp_check.h"
@@ -265,6 +266,46 @@ static esp_err_t scan_configured_networks(bool *primary_found, bool *fallback_fo
             const char *ssid = (const char *)records[i].ssid;
             if (s_cfg.primary.enabled && strcmp(ssid, s_cfg.primary.ssid) == 0) *primary_found = true;
             if (s_cfg.fallback.enabled && strcmp(ssid, s_cfg.fallback.ssid) == 0) *fallback_found = true;
+        }
+        /*
+         * A SAVED SSID THAT DIFFERS FROM THE AIR ONLY IN CASE.
+         *
+         * SSIDs are case sensitive and the supplicant matches them exactly, so
+         * "inverter" typed for a network called "Inverter" produces reason 201,
+         * NO_AP_FOUND -- the same code as a network that is not there at all.
+         *
+         * That single wrong keystroke is a lockout, not an inconvenience. It
+         * happened here on 2026-08-15: the controller sat in a retry loop it
+         * could never leave, and the recovery access point -- the documented way
+         * back in -- was out of radio range of the only laptop on site. There was
+         * no path to the controller at all except a serial cable and a reflash.
+         *
+         * So when the scan carries an access point whose name matches a saved
+         * profile case-insensitively, the spelling on the air wins. Deliberately
+         * in RAM only: this is a correction for THIS radio environment, not an
+         * edit of what the operator configured, and it is re-derived from a fresh
+         * scan on every boot. It is logged plainly, because a controller that
+         * silently joined a network the operator did not type would be worse than
+         * the failure it fixes.
+         */
+        for (uint16_t i = 0; i < count; ++i) {
+            const char *ssid = (const char *)records[i].ssid;
+            if (s_cfg.primary.enabled && !*primary_found &&
+                strcasecmp(ssid, s_cfg.primary.ssid) == 0) {
+                ESP_LOGW(TAG, "Saved primary SSID '%s' differs from the air only in case; "
+                              "using '%s' as broadcast. Correct it in the network settings.",
+                         s_cfg.primary.ssid, ssid);
+                strlcpy(s_cfg.primary.ssid, ssid, sizeof(s_cfg.primary.ssid));
+                *primary_found = true;
+            }
+            if (s_cfg.fallback.enabled && !*fallback_found &&
+                strcasecmp(ssid, s_cfg.fallback.ssid) == 0) {
+                ESP_LOGW(TAG, "Saved fallback SSID '%s' differs from the air only in case; "
+                              "using '%s' as broadcast. Correct it in the network settings.",
+                         s_cfg.fallback.ssid, ssid);
+                strlcpy(s_cfg.fallback.ssid, ssid, sizeof(s_cfg.fallback.ssid));
+                *fallback_found = true;
+            }
         }
         ESP_LOGI(TAG, "Scan found %u APs; primary '%s' %s, fallback '%s' %s",
                  (unsigned)count,
