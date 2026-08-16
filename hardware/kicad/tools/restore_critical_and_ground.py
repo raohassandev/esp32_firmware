@@ -4,7 +4,8 @@
 The caller first removes prior controlled route primitives with the text-safe
 stripper. This process is deliberately add-only: no pcbnew BOARD item deletion,
 avoiding SWIG ownership crashes observed in CI. In1.Cu remains the dedicated L2
-GND reference; F/B GND pours are limited to the low-voltage logic region.
+GND reference. F.Cu and B.Cu each get one non-overlapping concave GND polygon in
+the low-voltage region, with the relay-contact side and MagJack window excluded.
 """
 from pathlib import Path
 import sys
@@ -32,29 +33,31 @@ def gnd_netcode(board):
     raise RuntimeError('GND netcode not found')
 
 
-def add_rect_zone(board, layer, netcode, rect):
-    x0,y0,x1,y1 = rect
-    z = pcbnew.ZONE(board)
+def add_surface_notched_zone(board, layer, netcode):
+    z=pcbnew.ZONE(board)
     z.SetLayer(layer)
     z.SetNetCode(netcode)
-    for x,y in ((x0,y0),(x1,y0),(x1,y1),(x0,y1)):
-        if not z.AppendCorner(pt(x,y), -1):
+    outline=(
+        (EDGE,LOGIC_Y0),
+        (BOARD_X-EDGE,LOGIC_Y0),
+        (BOARD_X-EDGE,MAGJACK_Y0),
+        (MAGJACK_X0,MAGJACK_Y0),
+        (MAGJACK_X0,MAGJACK_Y1),
+        (BOARD_X-EDGE,MAGJACK_Y1),
+        (BOARD_X-EDGE,BOARD_Y-EDGE),
+        (EDGE,BOARD_Y-EDGE),
+    )
+    for x,y in outline:
+        if not z.AppendCorner(pt(x,y),-1):
             raise RuntimeError(f'failed to append GND-zone corner {(x,y)}')
     board.Add(z)
 
 
 def add_surface_ground(board):
-    gnd = gnd_netcode(board)
-    layers = (pcbnew.F_Cu, pcbnew.B_Cu)
-    rects = (
-        (EDGE, LOGIC_Y0, MAGJACK_X0, BOARD_Y-EDGE),
-        (MAGJACK_X0, LOGIC_Y0, BOARD_X-EDGE, MAGJACK_Y0),
-        (MAGJACK_X0, MAGJACK_Y1, BOARD_X-EDGE, BOARD_Y-EDGE),
-    )
-    for layer in layers:
-        for rect in rects:
-            add_rect_zone(board, layer, gnd, rect)
-    return len(layers) * len(rects)
+    gnd=gnd_netcode(board)
+    for layer in (pcbnew.F_Cu,pcbnew.B_Cu):
+        add_surface_notched_zone(board,layer,gnd)
+    return 2
 
 
 def main(board_path):
@@ -63,7 +66,6 @@ def main(board_path):
     if board is None:
         raise SystemExit(f'cannot load board: {path}')
 
-    # Text-safe stripper has already removed only the controlled route items.
     critical.route_ethernet(board)
     critical.route_usb(board)
     zones = add_surface_ground(board)
@@ -71,7 +73,7 @@ def main(board_path):
     pcbnew.SaveBoard(str(path), board)
     print(f'POST_SES_REPAIR: PASS controlled_routes=restored surface_gnd_zones={zones}')
     print('  safety: F/B GND pours start at Y=30.0mm; relay-contact region excluded')
-    print('  MagJack transformer window excluded on F/B; In1.Cu L2 plane preserved')
+    print('  MagJack transformer window excluded; no touching same-priority GND rectangles')
 
 
 if __name__ == '__main__':
