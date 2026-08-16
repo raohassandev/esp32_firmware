@@ -20,9 +20,10 @@ b.FIXED.update({
     'J_HMI': (83, 87, 0),
     'J_RS232': (101, 87, 0),
     'J_DI': (122, 87, 0),
-    # MagJack and USB receptacle intentionally use their board-edge geometry.
-    'J_ETH': (141, 65, 90),
-    'J_USB': (142, 42, 90),
+    # Connector bodies may meet/overhang the enclosure edge; copper pads remain
+    # fully within the 145 x 95 mm fabricated PCB.
+    'J_ETH': (136, 65, 90),
+    'J_USB': (140, 42, 90),
 })
 
 EDGE_OVERHANG = {'J_ETH', 'J_USB'}
