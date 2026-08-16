@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Add F.Cu/B.Cu GND pours after SES import; no connectivity rebuild here."""
+"""Add F.Cu/B.Cu solid GND pours after SES import."""
 from pathlib import Path
 import sys
 import pcbnew
@@ -24,7 +24,15 @@ def gnd_netcode(board):
 
 
 def add_zone(board,layer,netcode):
-    z=pcbnew.ZONE(board); z.SetLayer(layer); z.SetNetCode(netcode)
+    z=pcbnew.ZONE(board)
+    z.SetLayer(layer)
+    z.SetNetCode(netcode)
+    # The surface pours are the low-impedance GND return for logic-side pads.
+    # Use solid pad connection so the post-router pour itself closes the GND
+    # connectivity instead of leaving thermal spokes starved by dense routing.
+    z.SetPadConnection(pcbnew.ZONE_CONNECTION_FULL)
+    z.SetMinThickness(pcbnew.FromMM(0.20))
+    z.SetLocalClearance(pcbnew.FromMM(0.20))
     outline=((EDGE,LOGIC_Y0),(BOARD_X-EDGE,LOGIC_Y0),(BOARD_X-EDGE,MAGJACK_Y0),
              (MAGJACK_X0,MAGJACK_Y0),(MAGJACK_X0,MAGJACK_Y1),
              (BOARD_X-EDGE,MAGJACK_Y1),(BOARD_X-EDGE,BOARD_Y-EDGE),(EDGE,BOARD_Y-EDGE))
@@ -39,7 +47,7 @@ def main(board_path):
     nc=gnd_netcode(board)
     add_zone(board,pcbnew.F_Cu,nc); add_zone(board,pcbnew.B_Cu,nc)
     pcbnew.SaveBoard(str(path),board)
-    print('SURFACE_GND_GEOMETRY: PASS F.Cu+B.Cu logic pours; relay/MagJack exclusions retained')
+    print('SURFACE_GND_GEOMETRY: PASS solid F.Cu+B.Cu logic pours; relay/MagJack exclusions retained')
 
 
 if __name__=='__main__':
