@@ -86,24 +86,26 @@ jobs:
           KPY="docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $PWD:/work -w /work kicad/kicad:10.0.5 python3"
           K="docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $PWD:/work -w /work kicad/kicad:10.0.5 kicad-cli"
 
-          # Own all high-speed topology before the generic low-speed router.
+          # Own high-speed topology before the generic low-speed router.
           $KPY hardware/kicad/tools/pre_route_critical_nets.py "$PCB" | tee -a hardware/kicad/placement.log
 
           # Create and fill the dedicated L2 GND reference before DSN export.
-          # This also gives the Specctra exporter a real GND plane rather than
-          # merely a disabled inner signal layer.
           $KPY hardware/kicad/tools/post_route_finalize.py "$PCB"
           $K pcb drc --severity-error --refill-zones --save-board \
             --output hardware/kicad/Automatrix_PVDG_RevA-pre-route-drc.rpt "$PCB" || true
 
           cp "$PCB" "$PLACED"
           $KPY hardware/kicad/tools/route_reva_freerouting.py export "$PLACED" "$DSN"
+          python3 hardware/kicad/tools/prepare_dsn_plane_classes.py "$DSN"
+
+          : > hardware/kicad/freerouting.log
           echo '=== DSN PLANE/LAYER CHECK ===' | tee -a hardware/kicad/freerouting.log
-          grep -n -E '\(plane|\(layer "?In1\.Cu"?' "$DSN" | head -30 | tee -a hardware/kicad/freerouting.log || true
+          grep -n -E '\(plane|\(layer "?In1\.Cu"?|\(class GND_PLANE' "$DSN" | head -40 | tee -a hardware/kicad/freerouting.log || true
 
           curl -fL --retry 3 --retry-delay 2 -o /tmp/freerouting.jar \
             https://github.com/freerouting/freerouting/releases/download/v2.2.4/freerouting-2.2.4.jar
-          : > hardware/kicad/freerouting.log
+
+          COMMON='-inc GND_PLANE --router.layers.routable=true,false,true,true --router.layers.preferred_direction_horizontal=true,false,false,true --router.plane_via_costs=1'
           success=0
           for attempt in 1 2 3; do
             OUT="hardware/kicad/route-attempt-${attempt}.ses"
@@ -114,13 +116,11 @@ jobs:
               2) LIMIT=300; OPTS='-mp 100 -mt 3 -oit 0 -is random -us global' ;;
               3) LIMIT=360; OPTS='-mp 140 -mt 3 -oit 0 -is sequential -us hybrid' ;;
             esac
-            echo "=== FREEROUTING ATTEMPT $attempt limit=${LIMIT}s: $OPTS ===" | tee -a hardware/kicad/freerouting.log
+            echo "=== FREEROUTING ATTEMPT $attempt limit=${LIMIT}s: $OPTS $COMMON ===" | tee -a hardware/kicad/freerouting.log
 
-            # A single bounded strategy is allowed to time out. Do not let
-            # `set -e` suppress the remaining independent fallback strategies.
             set +e
             timeout "${LIMIT}s" java -Xmx5g -jar /tmp/freerouting.jar --gui.enabled=false \
-              -de "$DSN" -do "$OUT" $OPTS 2>&1 | tee -a hardware/kicad/freerouting.log
+              -de "$DSN" -do "$OUT" $COMMON $OPTS 2>&1 | tee -a hardware/kicad/freerouting.log
             ROUTER_RC=${PIPESTATUS[0]}
             set -e
             echo "FREEROUTING_ATTEMPT_${attempt}_EXIT=$ROUTER_RC" | tee -a hardware/kicad/freerouting.log
@@ -131,6 +131,13 @@ jobs:
             fi
 
             $KPY hardware/kicad/tools/route_reva_freerouting.py import "$PCB" "$OUT"
+
+            # SES import owns generic routes; restore the controlled USB/Ethernet
+            # paths and complete surface-to-L2 GND connectivity afterwards.
+            $KPY hardware/kicad/tools/restore_critical_and_ground.py "$PCB" | tee -a hardware/kicad/freerouting.log
+            $K pcb drc --severity-error --refill-zones --save-board \
+              --output "hardware/kicad/route-attempt-${attempt}-drc.rpt" "$PCB" || true
+
             set +e
             $KPY hardware/kicad/tools/route_reva_freerouting.py audit "$PCB" 2>&1 | tee -a hardware/kicad/freerouting.log
             RC=${PIPESTATUS[0]}
@@ -141,7 +148,7 @@ jobs:
               echo "ROUTING_COMPLETE_ATTEMPT=$attempt" | tee -a hardware/kicad/freerouting.log
               break
             fi
-            echo "Attempt $attempt SES still has unrouted connections; trying fallback." | tee -a hardware/kicad/freerouting.log
+            echo "Attempt $attempt post-plane board still has unrouted connections; trying fallback." | tee -a hardware/kicad/freerouting.log
           done
 
           test "$success" = '1'
@@ -238,6 +245,7 @@ jobs:
             hardware/kicad/Automatrix_PVDG_RevA.dsn
             hardware/kicad/Automatrix_PVDG_RevA.ses
             hardware/kicad/route-attempt-*.ses
+            hardware/kicad/route-attempt-*-drc.rpt
             hardware/kicad/Automatrix_PVDG_RevA-erc.rpt
             hardware/kicad/Automatrix_PVDG_RevA-pre-route-drc.rpt
             hardware/kicad/Automatrix_PVDG_RevA-drc.rpt
