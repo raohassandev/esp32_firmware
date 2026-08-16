@@ -16,6 +16,15 @@ Compact ESP-IDF firmware for the ESP32-S3 PV-DG controller.
 
 Simulator-only profiles and pending manufacturer profiles cannot issue production writes. Physical automatic inverter control remains locked until exact manuals and hardware qualification are complete.
 
+## Rev-A hardware / PCB planning
+
+The canonical single-PCB hardware plan is now maintained in:
+
+- [`docs/HARDWARE_PCB_REVA_MASTER_PLAN.md`](docs/HARDWARE_PCB_REVA_MASTER_PLAN.md) — PCB architecture, mandatory/optional functions, relay outputs, GPIO allocation, validation gates and DIN-rail enclosure plan.
+- [`docs/PCB_AND_ENCLOSURE_SERVICE_PROVIDER_RFQ.md`](docs/PCB_AND_ENCLOSURE_SERVICE_PROVIDER_RFQ.md) — quotation package for PCB design, prototype/production PCBA and enclosure/casing service providers.
+
+The Rev-A mandatory hardware baseline is ESP32-S3 + wired Ethernet + two independent RS485 ports + four dry-contact relay outputs + serial touch-display UART + USB-C + 12/24 VDC power. Four isolated digital inputs, RTC, microSD and an RS232 HMI option are planned as optional/DNP sections on the same PCB.
+
 ## Pull the current integration branch
 
 Run in an ESP-IDF Command Prompt from the local repository directory:
