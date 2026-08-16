@@ -29,14 +29,14 @@ jobs:
           docker pull kicad/kicad:10.0.5
           docker run --rm kicad/kicad:10.0.5 kicad-cli version --format about
 
-      - name: Audit controlled manifest pin ordering
-        run: python3 hardware/kicad/tools/audit_manifest.py
-
       - name: Generate controlled schematic
         run: |
           set -euo pipefail
-          python3 hardware/kicad/tools/generate_reva_schematic.py
+          python3 hardware/kicad/tools/generate_reva_final.py
           test -s hardware/kicad/Automatrix_PVDG_RevA.kicad_sch
+          test -s hardware/kicad/Automatrix.kicad_sym
+          test -s hardware/kicad/sym-lib-table
+          test -s hardware/kicad/fp-lib-table
           echo "Generated schematic bytes: $(wc -c < hardware/kicad/Automatrix_PVDG_RevA.kicad_sch)"
           python3 -m json.tool hardware/kicad/Automatrix_PVDG_RevA.kicad_pro >/dev/null
 
@@ -57,8 +57,23 @@ jobs:
           $K sch export bom --output hardware/kicad/Automatrix_PVDG_RevA-bom.csv "$SCH"
           $K sch export pdf --output hardware/kicad/Automatrix_PVDG_RevA-schematic.pdf "$SCH"
 
+      - name: Independently audit exported physical pin nets
+        run: python3 hardware/kicad/tools/validate_exported_netlist.py
+
       - name: Design-control checks
         run: python3 hardware/kicad/tools/validate_design_control.py
+
+      - name: Probe PCB scripting support
+        run: |
+          set +e
+          docker run --rm kicad/kicad:10.0.5 python3 - <<'PY'
+          try:
+              import pcbnew
+              print('PCBNEW_PYTHON=YES', pcbnew.GetBuildVersion())
+          except Exception as exc:
+              print('PCBNEW_PYTHON=NO', repr(exc))
+          PY
+          exit 0
 
       - name: Validate PCB when present
         run: |
@@ -78,7 +93,11 @@ jobs:
         if: env.ERC_EXIT_CODE == '0'
         run: |
           set -euo pipefail
-          git add hardware/kicad/Automatrix_PVDG_RevA.kicad_sch
+          git add \
+            hardware/kicad/Automatrix_PVDG_RevA.kicad_sch \
+            hardware/kicad/Automatrix.kicad_sym \
+            hardware/kicad/sym-lib-table \
+            hardware/kicad/fp-lib-table
           if [ -f hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb ]; then
             git add hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb
           fi
