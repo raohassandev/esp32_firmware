@@ -188,6 +188,10 @@ _ORIGINAL_CLUSTER = b.cluster_for
 
 def _cluster_for_final(old):
     u=old.upper()
+    # USB/field ideal-diode OR parts belong to the 5 V power architecture, not
+    # the USB data/ESD connector cluster.
+    if old in ('D_OR_USB','D_OR_FIELD') or '_OR_USB' in u or '_OR_FIELD' in u:
+        return 'U5'
     if old.startswith('C3_') or 'BUCK3' in u or old=='L2':
         return 'U6'
     for n in range(1,5):
