@@ -76,21 +76,45 @@ jobs:
           distribution: temurin
           java-version: '25'
 
-      - name: Route all PCB connections
+      - name: Route all PCB connections with fallback strategies
         run: |
           set -euo pipefail
           PCB='hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb'
+          PLACED='hardware/kicad/Automatrix_PVDG_RevA-placed.kicad_pcb'
           DSN='hardware/kicad/Automatrix_PVDG_RevA.dsn'
           SES='hardware/kicad/Automatrix_PVDG_RevA.ses'
           KPY="docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $PWD:/work -w /work kicad/kicad:10.0.5 python3"
-          $KPY hardware/kicad/tools/route_reva_freerouting.py export "$PCB" "$DSN"
+          cp "$PCB" "$PLACED"
+          $KPY hardware/kicad/tools/route_reva_freerouting.py export "$PLACED" "$DSN"
           curl -fL --retry 3 --retry-delay 2 -o /tmp/freerouting.jar \
             https://github.com/freerouting/freerouting/releases/download/v2.2.4/freerouting-2.2.4.jar
-          timeout 540s java -Xmx5g -jar /tmp/freerouting.jar \
-            --gui.enabled=false -de "$DSN" -do "$SES" -mp 40 -mt 2 \
-            2>&1 | tee hardware/kicad/freerouting.log
-          test -s "$SES"
-          $KPY hardware/kicad/tools/route_reva_freerouting.py import "$PCB" "$SES"
+          : > hardware/kicad/freerouting.log
+          success=0
+          for attempt in 1 2 3; do
+            OUT="hardware/kicad/route-attempt-${attempt}.ses"
+            cp "$PLACED" "$PCB"
+            case "$attempt" in
+              1) OPTS='-mp 60 -mt 2 -is prioritized -us greedy' ;;
+              2) OPTS='-mp 120 -mt 4 -oit 0 -is random -us global' ;;
+              3) OPTS='-mp 160 -mt 6 -oit 0 -is sequential -us hybrid -hr 1:1' ;;
+            esac
+            echo "=== FREEROUTING ATTEMPT $attempt: $OPTS ===" | tee -a hardware/kicad/freerouting.log
+            timeout 540s java -Xmx5g -jar /tmp/freerouting.jar --gui.enabled=false \
+              -de "$DSN" -do "$OUT" $OPTS 2>&1 | tee -a hardware/kicad/freerouting.log
+            test -s "$OUT"
+            $KPY hardware/kicad/tools/route_reva_freerouting.py import "$PCB" "$OUT"
+            set +e
+            $KPY hardware/kicad/tools/route_reva_freerouting.py audit "$PCB" 2>&1 | tee -a hardware/kicad/freerouting.log
+            RC=${PIPESTATUS[0]}
+            set -e
+            if [ "$RC" = '0' ]; then
+              cp "$OUT" "$SES"
+              success=1
+              echo "ROUTING_COMPLETE_ATTEMPT=$attempt" | tee -a hardware/kicad/freerouting.log
+              break
+            fi
+          done
+          test "$success" = '1'
           $KPY hardware/kicad/tools/route_reva_freerouting.py audit "$PCB"
 
       - name: Final board DRC and STEP
@@ -176,6 +200,7 @@ jobs:
             hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb
             hardware/kicad/Automatrix_PVDG_RevA.dsn
             hardware/kicad/Automatrix_PVDG_RevA.ses
+            hardware/kicad/route-attempt-*.ses
             hardware/kicad/Automatrix_PVDG_RevA-erc.rpt
             hardware/kicad/Automatrix_PVDG_RevA-drc.rpt
             hardware/kicad/Automatrix_PVDG_RevA.net
