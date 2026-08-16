@@ -31,6 +31,22 @@ jobs:
           test -x "$KICAD"
           "$KICAD" version --format about
 
+      - name: Probe KiCad scripting environment
+        run: |
+          set -u
+          echo '=== pcbnew module locations ==='
+          find /Applications/KiCad/KiCad.app/Contents -name 'pcbnew.py' -o -name '_pcbnew*.so' 2>/dev/null | head -20 || true
+          echo '=== system python pcbnew ==='
+          python3 - <<'PY'
+          try:
+              import pcbnew
+              print('SYSTEM_PYTHON_PCBNEW=YES', pcbnew.GetBuildVersion())
+          except Exception as exc:
+              print('SYSTEM_PYTHON_PCBNEW=NO', repr(exc))
+          PY
+          echo '=== KiCad library roots ==='
+          find /Applications/KiCad/KiCad.app/Contents/SharedSupport -maxdepth 3 -type d \( -name '*.pretty' -o -name 'symbols' \) 2>/dev/null | head -20 || true
+
       - name: Project syntax and schematic ERC
         run: |
           set -euo pipefail
