@@ -9,9 +9,8 @@ K="docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $PWD:/work -w /work kica
 
 : > hardware/kicad/freerouting.log
 
-# Establish the dedicated L2 reference plane before Specctra export.  L2 stays
-# power/non-signal; GND is still routed on the remaining copper layers so every
-# pad/island has deterministic electrical connectivity to the reference plane.
+# Dedicated L2 GND plane is established before Specctra export. Generic routing
+# owns signals; GND remains a plane/pour problem and is stitched after fill.
 $KPY hardware/kicad/tools/post_route_finalize.py "$PCB"
 $K pcb drc --severity-error --refill-zones --save-board \
   --output hardware/kicad/Automatrix_PVDG_RevA-pre-route-drc.rpt "$PCB" || true
@@ -27,21 +26,32 @@ for attempt in 1 2; do
   OUT="hardware/kicad/route-attempt-${attempt}.ses"
   rm -f "$OUT"; cp "$PLACED" "$PCB"
   case "$attempt" in
-    1) LIMIT=420; OPTS='-mp 180 -mt 4 -oit 0.15 -is prioritized -us greedy' ;;
-    2) LIMIT=600; OPTS='-mp 240 -mt 5 -oit 0.10 -is sequential -us hybrid' ;;
+    1) LIMIT=300; OPTS='-mp 120 -mt 3 -oit 0.15 -is prioritized -us greedy' ;;
+    2) LIMIT=420; OPTS='-mp 180 -mt 4 -oit 0.10 -is sequential -us hybrid' ;;
   esac
-  echo "=== FREEROUTING 2.3 ATTEMPT $attempt limit=${LIMIT}s GND=ROUTED FANOUT=OFF ===" | tee -a hardware/kicad/freerouting.log
+  echo "=== FREEROUTING 2.3 ATTEMPT $attempt limit=${LIMIT}s GND=PLANE FANOUT=OFF ===" | tee -a hardware/kicad/freerouting.log
   set +e
   timeout "${LIMIT}s" java -Xmx5g -jar /tmp/freerouting.jar --gui.enabled=false \
     --router.automatic_neckdown=false --router.fanout.enabled=false \
-    -de "$DSN" -do "$OUT" $OPTS 2>&1 | tee -a hardware/kicad/freerouting.log
+    -de "$DSN" -do "$OUT" -inc GND_PLANE $OPTS 2>&1 | tee -a hardware/kicad/freerouting.log
   ROUTER_RC=${PIPESTATUS[0]}
   set -e
   echo "FREEROUTING_ATTEMPT_${attempt}_EXIT=$ROUTER_RC" | tee -a hardware/kicad/freerouting.log
   [ -s "$OUT" ] || continue
 
   $KPY hardware/kicad/tools/route_reva_freerouting.py import "$PCB" "$OUT"
+
+  # Replace the one repeatable local autorouter conflict with a controlled
+  # 0.20mm route across F/B/In2 layers.
+  python3 hardware/kicad/tools/strip_net_tracks_text.py "$PCB" SD_SCLK | tee -a hardware/kicad/freerouting.log
+  $KPY hardware/kicad/tools/repair_sd_sclk.py "$PCB" | tee -a hardware/kicad/freerouting.log
+
+  # Add surface copper, fill once so islands are measurable, stitch every safe
+  # F.Cu GND island to L2, then refill for the authoritative DRC/audit.
   $KPY hardware/kicad/tools/add_surface_ground.py "$PCB"
+  $K pcb drc --severity-error --refill-zones --save-board \
+    --output "hardware/kicad/route-attempt-${attempt}-pre-stitch-drc.rpt" "$PCB" || true
+  $KPY hardware/kicad/tools/stitch_ground_islands.py "$PCB" | tee -a hardware/kicad/freerouting.log
   $K pcb drc --severity-error --refill-zones --save-board \
     --output "hardware/kicad/route-attempt-${attempt}-drc.rpt" "$PCB" || true
 
