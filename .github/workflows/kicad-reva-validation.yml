@@ -76,7 +76,7 @@ jobs:
           distribution: temurin
           java-version: '25'
 
-      - name: Route all PCB connections with critical Ethernet pre-route
+      - name: Route PCB with locked USB Ethernet topology
         run: |
           set -euo pipefail
           PCB='hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb'
@@ -117,20 +117,26 @@ jobs:
           done
           test "$success" = '1'
           $KPY hardware/kicad/tools/route_reva_freerouting.py audit "$PCB"
+          $KPY hardware/kicad/tools/post_route_finalize.py "$PCB"
 
-      - name: Final board DRC and STEP
+      - name: Final DRC L2 ground SI and STEP gates
         run: |
           set -euo pipefail
           PCB='hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb'
           K="docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $PWD:/work -w /work kicad/kicad:10.0.5 kicad-cli"
+          KPY="docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $PWD:/work -w /work kicad/kicad:10.0.5 python3"
           $K pcb upgrade --force "$PCB"
           set +e
           $K pcb drc --severity-all --exit-code-violations --refill-zones --save-board \
             --output hardware/kicad/Automatrix_PVDG_RevA-drc.rpt "$PCB"
           DRC_RC=$?
+          $KPY hardware/kicad/tools/validate_signal_integrity.py "$PCB" hardware/kicad/Automatrix_PVDG_RevA-si.rpt
+          SI_RC=$?
           set -e
           echo "DRC_EXIT_CODE=$DRC_RC" >> "$GITHUB_ENV"
+          echo "SI_EXIT_CODE=$SI_RC" >> "$GITHUB_ENV"
           cat hardware/kicad/Automatrix_PVDG_RevA-drc.rpt || true
+          cat hardware/kicad/Automatrix_PVDG_RevA-si.rpt || true
           $K pcb export stats --format json --output hardware/kicad/Automatrix_PVDG_RevA-stats.json "$PCB"
           set +e
           $K pcb export step --force --no-dnp --output hardware/kicad/Automatrix_PVDG_RevA.step "$PCB"
@@ -143,17 +149,19 @@ jobs:
           set -euo pipefail
           test "${ERC_EXIT_CODE:-99}" = '0'
           test "${DRC_EXIT_CODE:-99}" = '0'
+          test "${SI_EXIT_CODE:-99}" = '0'
           test "${STEP_EXIT_CODE:-99}" = '0'
-          printf 'H2 routing complete\nERC=0\nDRC=0\nUNCONNECTED=0\nSTEP=0\n' > hardware/kicad/H2_ROUTING_COMPLETE
+          printf 'H2 routing complete\nERC=0\nDRC=0\nUNCONNECTED=0\nL2_GND=PASS\nSIGNAL_INTEGRITY_GEOMETRY=PASS\nSTEP=0\n' > hardware/kicad/H2_ROUTING_COMPLETE
           git add hardware/kicad/Automatrix_PVDG_RevA.kicad_sch \
                   hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb \
                   hardware/kicad/Automatrix.kicad_sym \
                   hardware/kicad/sym-lib-table hardware/kicad/fp-lib-table \
-                  hardware/kicad/REFERENCE_MAP.json hardware/kicad/H2_ROUTING_COMPLETE
+                  hardware/kicad/REFERENCE_MAP.json hardware/kicad/H2_ROUTING_COMPLETE \
+                  hardware/kicad/Automatrix_PVDG_RevA-si.rpt
           if ! git diff --cached --quiet; then
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git commit -m 'pcb: freeze routed Rev-A H2 [skip ci]'
+            git commit -m 'pcb: freeze routed Rev-A H2 SI checkpoint [skip ci]'
             git push origin HEAD:hardware/kicad-reva-implementation
           fi
           echo "RELEASE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
@@ -204,6 +212,7 @@ jobs:
             hardware/kicad/route-attempt-*.ses
             hardware/kicad/Automatrix_PVDG_RevA-erc.rpt
             hardware/kicad/Automatrix_PVDG_RevA-drc.rpt
+            hardware/kicad/Automatrix_PVDG_RevA-si.rpt
             hardware/kicad/Automatrix_PVDG_RevA.net
             hardware/kicad/Automatrix_PVDG_RevA-bom.csv
             hardware/kicad/Automatrix_PVDG_RevA-schematic.pdf
