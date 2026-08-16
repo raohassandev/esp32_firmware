@@ -241,11 +241,27 @@ def _local_candidates(px, py, span=8.0, step=1.0):
             yield p
 
 
+def _region_candidates(px, py, bounds, step=1.0):
+    xmin,ymin,xmax,ymax=bounds
+    pts=[]
+    x=xmin
+    while x<=xmax+1e-9:
+        y=ymin
+        while y<=ymax+1e-9:
+            pts.append((x,y))
+            y+=step
+        x+=step
+    pts.sort(key=lambda p:(abs(p[0]-px)+abs(p[1]-py),abs(p[1]-py),abs(p[0]-px)))
+    return pts
+
+
 def _resolve_all_fixed_anchor_collisions():
     """Pairwise-solve all fixed anchors once, before b.main() sees them.
 
     Field transceivers and Ethernet/power controllers are placed before the MCU,
     because short field/PHY connections are less negotiable than MCU position.
+    ESP32 gets a wider controlled region instead of a small local radius because
+    its module courtyard/antenna body is substantially larger than the ICs.
     """
     connector_order = [
         'J_PWR','J_RS485A','J_RS485B','J_HMI','J_RS232','J_DI',
@@ -269,7 +285,15 @@ def _resolve_all_fixed_anchor_collisions():
         fp.SetOrientationDegrees(rot)
 
         locked = old in connector_order
-        candidates = [(px, py)] if locked else _local_candidates(px, py, span=24.0, step=1.0)
+        if locked:
+            candidates=[(px,py)]
+        elif old == 'U1':
+            # Keep ESP32 in central logic region; avoid relay/power field zone and
+            # right-edge Ethernet/USB mechanics while giving its large module
+            # enough freedom to fit. Preferred point remains first by sorting.
+            candidates=_region_candidates(px,py,(58.0,42.0,96.0,78.0),step=1.0)
+        else:
+            candidates=_local_candidates(px, py, span=24.0, step=1.0)
         found = None
         for x, y in candidates:
             fp.SetPosition(b.mm(x, y))
@@ -293,7 +317,7 @@ def _resolve_all_fixed_anchor_collisions():
                 box = _physical_box(fp).GetInflated(pcbnew.FromMM(MECH_CLEARANCE))
                 conflicts = [name for name, ob in chosen if box.Intersects(ob)]
                 raise RuntimeError(f'fixed connector geometry conflict {old} at {(px,py,rot)} with {conflicts}')
-            raise RuntimeError(f'cannot locally resolve fixed internal anchor {old} near {(px,py,rot)}')
+            raise RuntimeError(f'cannot resolve fixed internal anchor {old} near {(px,py,rot)}')
 
         x, y, rot, box = found
         b.FIXED[old] = (x, y, rot)
