@@ -15,19 +15,13 @@ i = 0
 while i < len(lines):
     if re.match(r"\s*\(net\s*$", lines[i]):
         depth = lines[i].count("(") - lines[i].count(")")
-        block = [lines[i]]
-        i += 1
+        block = [lines[i]]; i += 1
         while i < len(lines) and depth > 0:
-            block.append(lines[i])
-            depth += lines[i].count("(") - lines[i].count(")")
-            i += 1
+            block.append(lines[i]); depth += lines[i].count("(") - lines[i].count(")"); i += 1
         b = "\n".join(block)
         m = re.search(r'\(name\s+"([^"]+)"\)', b)
-        if not m:
-            continue
-        net = m.group(1)
-        if net.startswith("/"):
-            net = net[1:]
+        if not m: continue
+        net = m.group(1).lstrip("/")
         for nm in re.finditer(r'\(node\s+\(ref\s+"([^"]+)"\)\s+\(pin\s+"([^"]+)"\)', b, re.S):
             pin_to_net[(nm.group(1), nm.group(2))] = net
         continue
@@ -36,7 +30,6 @@ while i < len(lines):
 
 def canonical(ref): return REF_MAP.get(ref, ref)
 
-
 def check(ref, expected):
     cref = canonical(ref)
     for pin, net in expected.items():
@@ -44,6 +37,10 @@ def check(ref, expected):
         if actual != net:
             raise SystemExit(f"EXPORTED NETLIST FAIL: {ref}->{cref} pin {pin}: expected {net!r}, got {actual!r}")
 
+def check_nc(ref,pin):
+    cref=canonical(ref); actual=pin_to_net.get((cref,str(pin)))
+    if actual is not None and not actual.startswith("unconnected-("):
+        raise SystemExit(f"EXPORTED NETLIST FAIL: {ref}->{cref} pin {pin} must be NC but is on {actual}")
 
 check("U1", {
     "1":"GND","2":"3V3","3":"ESP_EN","4":"RELAY1_CTL","5":"RELAY2_CTL","6":"RELAY3_CTL","7":"RELAY4_CTL",
@@ -57,13 +54,35 @@ check("R_MCU_DM_SER", {"1":"USB_D-_MCU","2":"USB_D-"})
 check("R_MCU_DP_SER", {"1":"USB_D+_MCU","2":"USB_D+"})
 check("C_MCU_DM_USB", {"1":"USB_D-_MCU","2":"GND"})
 check("C_MCU_DP_USB", {"1":"USB_D+_MCU","2":"GND"})
+
 check("U2", {
-    "1":"ETH_TXN","2":"ETH_TXP","3":"GND","4":"3V3","5":"ETH_RXN","6":"ETH_RXP","8":"3V3","9":"GND",
-    "10":"ETH_EXRES","11":"3V3","14":"GND","15":"3V3","16":"GND","17":"3V3","19":"GND","20":"ETH_TOCAP",
-    "21":"3V3","22":"ETH_1V2","23":"GND","25":"ETH_LED_LINK","27":"ETH_LED_ACT","28":"3V3","29":"GND",
+    "1":"ETH_TXN","2":"ETH_TXP","3":"GND","4":"3V3A","5":"ETH_RXN","6":"ETH_RXP","8":"3V3A","9":"GND",
+    "10":"ETH_EXRES","11":"3V3A","14":"GND","15":"3V3A","16":"GND","17":"3V3A","19":"GND","20":"ETH_TOCAP",
+    "21":"3V3A","22":"ETH_1V2","23":"GND","25":"ETH_LED_LINK","27":"ETH_LED_ACT","28":"3V3","29":"GND",
     "30":"ETH_XI","31":"ETH_XO","32":"ETH_CS","33":"ETH_SCLK","34":"ETH_MISO","35":"ETH_MOSI","36":"ETH_INT",
     "37":"ETH_RST","43":"ETH_PMODE2","44":"ETH_PMODE1","45":"ETH_PMODE0","48":"GND",
 })
+check("J_ETH", {
+    "1":"ETH_TXP_MAG","2":"ETH_TCT","3":"ETH_TXN_MAG","4":"ETH_RXP_MAG","5":"ETH_RCT","6":"ETH_RXN_MAG",
+    "8":"CHASSIS","9":"ETH_LED_LINK_K","10":"3V3","11":"ETH_LED_ACT_K","12":"3V3","13":"CHASSIS",
+})
+check_nc("J_ETH","7")
+
+# WIZnet reference-network continuity checks.
+check("FB_ETH", {"1":"3V3","2":"3V3A"})
+for suffix,chip,mag in (
+    ("TXP","ETH_TXP","ETH_TXP_MAG"),("TXN","ETH_TXN","ETH_TXN_MAG"),
+    ("RXP","ETH_RXP","ETH_RXP_MAG"),("RXN","ETH_RXN","ETH_RXN_MAG"),
+):
+    check(f"R_ETH_{suffix}_DAMP", {"1":chip,"2":mag})
+    check(f"R_ETH_{suffix}_BIAS", {"1":"3V3A","2":mag})
+check("R_ETH_TCT", {"1":"3V3A","2":"ETH_TCT"})
+check("C_ETH_TCT", {"1":"ETH_TCT","2":"GND"})
+check("C_ETH_RCT", {"1":"ETH_RCT","2":"GND"})
+check("R_ETH_LINK_LED", {"1":"ETH_LED_LINK","2":"ETH_LED_LINK_K"})
+check("R_ETH_ACT_LED", {"1":"ETH_LED_ACT","2":"ETH_LED_ACT_K"})
+check("C_ETH_CHASSIS", {"1":"GND","2":"CHASSIS"})
+
 for ref, pfx in (("U3","RS485A"),("U4","RS485B")):
     check(ref, {"1":f"{pfx}_RX","2":f"{pfx}_DE","3":f"{pfx}_DE","4":f"{pfx}_TX","5":"GND","6":f"{pfx}_A","7":f"{pfx}_B","8":"3V3"})
 check("J_HMI", {"1":"5V_HMI","2":"GND","3":"HMI_TX_OUT","4":"HMI_RX_IN"})
@@ -77,10 +96,6 @@ for n in range(1,5):
 check("U7", {"1":"RS232_C1P","2":"RS232_VPLUS","3":"RS232_C1M","4":"RS232_C2P","5":"RS232_C2M","6":"RS232_VMINUS","11":"HMI_TX","12":"HMI_RX","13":"HMI_RS232_RX","14":"HMI_RS232_TX","15":"GND","16":"3V3"})
 check("J_RS232", {"1":"GND","2":"HMI_RS232_TX","3":"HMI_RS232_RX"})
 
-for ref, pin in [("U2","24"),("U2","26"),("J_USB","A8"),("J_USB","B8")]:
-    cref = canonical(ref)
-    actual = pin_to_net.get((cref, pin))
-    if actual is not None and not actual.startswith("unconnected-("):
-        raise SystemExit(f"EXPORTED NETLIST FAIL: {ref}->{cref} pin {pin} must be NC but is on {actual}")
+for ref,pin in [("U2","24"),("U2","26"),("J_USB","A8"),("J_USB","B8")]: check_nc(ref,pin)
 
-print(f"exported physical pin/net audit: PASS ({len(pin_to_net)} connected pins indexed; canonical refs applied)")
+print(f"exported physical pin/net audit: PASS ({len(pin_to_net)} connected pins indexed; canonical refs applied; W5500 reference network verified)")
