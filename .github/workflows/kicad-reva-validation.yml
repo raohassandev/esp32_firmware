@@ -37,8 +37,10 @@ jobs:
           test -s hardware/kicad/Automatrix.kicad_sym
           test -s hardware/kicad/sym-lib-table
           test -s hardware/kicad/fp-lib-table
+          test -s hardware/kicad/REFERENCE_MAP.json
           echo "Generated schematic bytes: $(wc -c < hardware/kicad/Automatrix_PVDG_RevA.kicad_sch)"
           python3 -m json.tool hardware/kicad/Automatrix_PVDG_RevA.kicad_pro >/dev/null
+          python3 -m json.tool hardware/kicad/REFERENCE_MAP.json >/dev/null
 
       - name: KiCad schematic parse, ERC and exports
         run: |
@@ -59,6 +61,22 @@ jobs:
 
       - name: Independently audit exported physical pin nets
         run: python3 hardware/kicad/tools/validate_exported_netlist.py
+
+      - name: Enforce canonical annotation
+        run: |
+          python3 - <<'PY'
+          import csv,re,sys
+          p='hardware/kicad/Automatrix_PVDG_RevA-bom.csv'
+          rows=list(csv.DictReader(open(p,encoding='utf-8-sig')))
+          refs=[]
+          for row in rows:
+              refs.extend(x.strip() for x in row['Refs'].split(',') if x.strip())
+          bad=[r for r in refs if not re.fullmatch(r'[A-Za-z]+\d+',r)]
+          dup=sorted({r for r in refs if refs.count(r)>1})
+          if bad or dup:
+              raise SystemExit(f'annotation FAIL bad={bad} duplicate={dup}')
+          print(f'canonical annotation: PASS ({len(refs)} unique references)')
+          PY
 
       - name: Design-control checks
         run: python3 hardware/kicad/tools/validate_design_control.py
@@ -97,7 +115,8 @@ jobs:
             hardware/kicad/Automatrix_PVDG_RevA.kicad_sch \
             hardware/kicad/Automatrix.kicad_sym \
             hardware/kicad/sym-lib-table \
-            hardware/kicad/fp-lib-table
+            hardware/kicad/fp-lib-table \
+            hardware/kicad/REFERENCE_MAP.json
           if [ -f hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb ]; then
             git add hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb
           fi
