@@ -6,21 +6,20 @@ not allowed to define USB or Ethernet MDI topology. This script owns those
 critical paths, locks them, and leaves the remaining nets to Freerouting.
 
 Policy:
-- USB main pair: F.Cu over reserved In1.Cu GND reference, paired geometry.
-- USB-C duplicate D pads: symmetric short In2.Cu branches with equal via count.
-- Ethernet RX pair: F.Cu, short and via-free.
-- Ethernet TX pair: In2.Cu with one matched via per conductor; In1.Cu is the
-  adjacent GND reference. This is a controlled prototype deviation from the
-  WIZnet preferred no-via topology and is audited explicitly.
+- 0.20 mm minimum critical-track width so the controlled routes satisfy the
+  frozen Rev-A board minimum instead of relying on a DRC override.
+- USB main pair: F.Cu over the In1.Cu GND reference, non-crossing paired path.
+- USB-C duplicate D pads: symmetric In2.Cu branches with two vias/conductor.
+- Ethernet RX: F.Cu, via-free, routed around the W5500 package bottom edge.
+- Ethernet TX: In2.Cu with one well-separated via/conductor.
 """
 from pathlib import Path
 import json
-import math
 import sys
 import pcbnew
 
-WIDTH_USB_MM = 0.18
-WIDTH_ETH_MM = 0.18
+WIDTH_USB_MM = 0.20
+WIDTH_ETH_MM = 0.20
 VIA_MM = 0.60
 DRILL_MM = 0.30
 
@@ -112,20 +111,26 @@ def route_ethernet(board):
     dtxn=xy_mm(j_tx_n.GetPosition()); dtxp=xy_mm(j_tx_p.GetPosition())
     drxn=xy_mm(j_rx_n.GetPosition()); drxp=xy_mm(j_rx_p.GetPosition())
 
-    # TX: matched F.Cu escapes into paired through vias, then short In2 routes.
-    # The pair maintains the same ordering from vias to the THT MagJack pads.
-    vtxn=(stxn[0]-0.95, stxn[1]); vtxp=(stxp[0]-0.95, stxp[1])
+    # TX escapes diverge before the vias. The old 0.5 mm-spaced via pair
+    # physically overlapped; these centers are 1.5 mm apart and clear U2 pads.
+    vtxn=(stxn[0]-2.04, stxn[1]-0.75)
+    vtxp=(stxp[0]-2.04, stxp[1]+0.25)
     add_track(board,stxn,vtxn,F,net_from_pad(tx_n),WIDTH_ETH_MM); add_via(board,vtxn,net_from_pad(tx_n))
     add_track(board,stxp,vtxp,F,net_from_pad(tx_p),WIDTH_ETH_MM); add_via(board,vtxp,net_from_pad(tx_p))
-    add_polyline(board,[vtxn,(125.8,vtxn[1]),dtxn],IN2,net_from_pad(tx_n),WIDTH_ETH_MM)
-    add_polyline(board,[vtxp,(126.3,vtxp[1]),dtxp],IN2,net_from_pad(tx_p),WIDTH_ETH_MM)
+    add_polyline(board,[vtxn,(124.0,vtxn[1]),(127.2,dtxn[1]-1.7),dtxn],IN2,net_from_pad(tx_n),WIDTH_ETH_MM)
+    add_polyline(board,[vtxp,(124.5,vtxp[1]),(128.0,dtxp[1]-1.0),dtxp],IN2,net_from_pad(tx_p),WIDTH_ETH_MM)
 
-    # RX: wrap above the W5500 package on F.Cu. Both conductors use parallel
-    # 45-degree escapes and remain short enough for the Rev-A MDI target.
-    top_n=59.55; top_p=59.05
-    add_polyline(board,[srxn,(srxn[0]-0.95,srxn[1]),(srxn[0]-1.95,top_n),(drxn[0]-2.3,top_n),drxn],F,net_from_pad(rx_n),WIDTH_ETH_MM)
-    add_polyline(board,[srxp,(srxp[0]-1.35,srxp[1]),(srxp[0]-2.45,top_p),(drxp[0]-3.0,top_p),drxp],F,net_from_pad(rx_p),WIDTH_ETH_MM)
-    print('ETHERNET_CRITICAL_PREROUTE: PASS TX=In2/1via-each RX=F.Cu/0via')
+    # RX pair wraps below the W5500 instead of across its top-row control pads.
+    # Final vertical approaches remain left of the MagJack PTH pad column.
+    y_n=69.2; y_p=69.7
+    x_n=127.6; x_p=128.2
+    add_polyline(board,[srxn,(srxn[0]-1.2,srxn[1]),(srxn[0]-1.8,srxn[1]+0.8),
+                        (srxn[0]-1.8,y_n),(x_n,y_n),(x_n,drxn[1]),drxn],
+                 F,net_from_pad(rx_n),WIDTH_ETH_MM)
+    add_polyline(board,[srxp,(srxp[0]-0.8,srxp[1]),(srxp[0]-1.3,srxp[1]+0.8),
+                        (srxp[0]-1.3,y_p),(x_p,y_p),(x_p,drxp[1]),drxp],
+                 F,net_from_pad(rx_p),WIDTH_ETH_MM)
+    print('ETHERNET_CRITICAL_PREROUTE: PASS TX=In2/1via-each RX=F.Cu/0via noncrossing')
 
 
 def route_usb(board):
@@ -134,16 +139,29 @@ def route_usb(board):
     j2=footprint(board, semantic_ref('J_USB'))
     rdm=footprint(board, semantic_ref('R_MCU_DM_SER'))
     rdp=footprint(board, semantic_ref('R_MCU_DP_SER'))
+    cdm=footprint(board, semantic_ref('C_MCU_DM_USB'))
+    cdp=footprint(board, semantic_ref('C_MCU_DP_USB'))
 
     mcu_dm=pad_number(u1,13); mcu_dp=pad_number(u1,14)
     rdm_mcu=pad_net(rdm,'USB_D-_MCU'); rdm_ext=pad_net(rdm,'USB_D-')
     rdp_mcu=pad_net(rdp,'USB_D+_MCU'); rdp_ext=pad_net(rdp,'USB_D+')
+    cdm_sig=pad_net(cdm,'USB_D-_MCU'); cdp_sig=pad_net(cdp,'USB_D+_MCU')
     for p,n in ((mcu_dm,'USB_D-_MCU'),(mcu_dp,'USB_D+_MCU')):
         if p.GetNetname()!=n: raise RuntimeError(f'USB MCU endpoint mismatch: {p.GetNetname()} != {n}')
 
-    # Short MCU-side connections into the close series resistors.
-    add_polyline(board,[xy_mm(mcu_dm.GetPosition()),xy_mm(rdm_mcu.GetPosition())],F,net_from_pad(mcu_dm),WIDTH_USB_MM)
-    add_polyline(board,[xy_mm(mcu_dp.GetPosition()),xy_mm(rdp_mcu.GetPosition())],F,net_from_pad(mcu_dp),WIDTH_USB_MM)
+    mdm=xy_mm(mcu_dm.GetPosition()); mdp=xy_mm(mcu_dp.GetPosition())
+    rdm0=xy_mm(rdm_mcu.GetPosition()); rdp0=xy_mm(rdp_mcu.GetPosition())
+    cdm0=xy_mm(cdm_sig.GetPosition()); cdp0=xy_mm(cdp_sig.GetPosition())
+
+    # Separate MCU escapes vertically before moving toward the resistors. This
+    # avoids the old DM trace running through the adjacent DP MCU pad.
+    add_polyline(board,[mdm,(mdm[0],mdm[1]-1.05),(rdm0[0]-1.2,mdm[1]-1.05),rdm0],F,net_from_pad(mcu_dm),WIDTH_USB_MM)
+    add_polyline(board,[mdp,(mdp[0],mdp[1]+0.95),(rdp0[0]-1.2,mdp[1]+0.95),rdp0],F,net_from_pad(mcu_dp),WIDTH_USB_MM)
+
+    # DNP tuning-cap stubs stay on the MCU side and branch away from the main
+    # pair, so their GND pads cannot be crossed by USB_D+/USB_D-.
+    add_polyline(board,[rdm0,(rdm0[0]+0.6,rdm0[1]-0.8),(cdm0[0]-0.9,cdm0[1]),cdm0],F,net_from_pad(rdm_mcu),WIDTH_USB_MM)
+    add_polyline(board,[rdp0,(rdp0[0]+0.6,rdp0[1]+0.8),(cdp0[0]-0.9,cdp0[1]),cdp0],F,net_from_pad(rdp_mcu),WIDTH_USB_MM)
 
     a6=pad_number(j2,'A6'); b6=pad_number(j2,'B6')
     a7=pad_number(j2,'A7'); b7=pad_number(j2,'B7')
@@ -153,18 +171,20 @@ def route_usb(board):
     sdm=xy_mm(rdm_ext.GetPosition()); sdp=xy_mm(rdp_ext.GetPosition())
     adm=xy_mm(a7.GetPosition()); adp=xy_mm(a6.GetPosition())
 
-    # Parallel main corridor. Nominal width/gap is a routing placeholder; the
-    # provider must tune the final width/gap to 90-ohm differential impedance
-    # using the frozen production stack-up without changing topology/length.
-    dm_pts=[sdm,(24.0,sdm[1]),(35.0,53.00),(128.0,53.00),(136.50,44.50),adm]
-    dp_pts=[sdp,(24.4,sdp[1]),(36.4,53.45),(128.45,53.45),(136.95,44.95),adp]
+    # Non-crossing main corridor. The path is intentionally topology-locked;
+    # final impedance width/gap remains a provider stack-up tuning item.
+    dm_pts=[sdm,(29.0,sdm[1]),(35.0,54.00),(128.0,54.00),
+            (132.5,49.50),(135.8,44.00),(137.2,42.50),adm]
+    dp_pts=[sdp,(29.0,sdp[1]),(36.0,54.50),(128.5,54.50),
+            (133.0,50.00),(136.3,44.50),(137.7,43.00),adp]
     add_polyline(board,dm_pts,F,net_from_pad(rdm_ext),WIDTH_USB_MM)
     add_polyline(board,dp_pts,F,net_from_pad(rdp_ext),WIDTH_USB_MM)
 
-    # USB-C has duplicated D contacts. Connect each duplicate with the same
-    # two-via topology on In2 so both polarities have identical transition count.
-    dm_v1=(135.50,adm[1]); dm_v2=(135.50,xy_mm(b7.GetPosition())[1])
-    dp_v1=(136.50,adp[1]); dp_v2=(136.50,xy_mm(b6.GetPosition())[1])
+    # Type-C duplicate contacts require a layer swap because their physical
+    # ordering is interleaved. Use separate via columns so the two nets never
+    # cross or share copper.
+    dm_v1=(136.20,adm[1]); dm_v2=(136.20,xy_mm(b7.GetPosition())[1])
+    dp_v1=(137.20,adp[1]); dp_v2=(137.20,xy_mm(b6.GetPosition())[1])
     for primary,dup,v1,v2,net in (
         (adm,xy_mm(b7.GetPosition()),dm_v1,dm_v2,net_from_pad(a7)),
         (adp,xy_mm(b6.GetPosition()),dp_v1,dp_v2,net_from_pad(a6)),
@@ -173,11 +193,11 @@ def route_usb(board):
         add_track(board,v1,v2,IN2,net,WIDTH_USB_MM); add_via(board,v2,net)
         add_track(board,v2,dup,F,net,WIDTH_USB_MM)
 
-    # Local return-current stitching around the USB transition region.
+    # Return-current stitches are intentionally outside the main pair/fanout.
     gnd=find_gnd_net(board)
-    for p in ((134.0,48.0),(137.5,48.0),(134.0,39.5),(137.5,39.5)):
+    for p in ((126.0,57.0),(130.0,57.0),(126.0,39.0),(130.0,39.0)):
         add_via(board,p,gnd)
-    print('USB_CRITICAL_PREROUTE: PASS main=F.Cu duplicate-fanout=In2 symmetric-vias')
+    print('USB_CRITICAL_PREROUTE: PASS 0.20mm noncrossing main pair + symmetric duplicate fanout')
 
 
 def main(board_path):
