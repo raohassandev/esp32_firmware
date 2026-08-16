@@ -38,7 +38,6 @@ jobs:
           test -s hardware/kicad/sym-lib-table
           test -s hardware/kicad/fp-lib-table
           test -s hardware/kicad/REFERENCE_MAP.json
-          echo "Generated schematic bytes: $(wc -c < hardware/kicad/Automatrix_PVDG_RevA.kicad_sch)"
           python3 -m json.tool hardware/kicad/Automatrix_PVDG_RevA.kicad_pro >/dev/null
           python3 -m json.tool hardware/kicad/REFERENCE_MAP.json >/dev/null
 
@@ -65,15 +64,12 @@ jobs:
         run: |
           python3 - <<'PY'
           import csv,re
-          p='hardware/kicad/Automatrix_PVDG_RevA-bom.csv'
-          rows=list(csv.DictReader(open(p,encoding='utf-8-sig')))
+          rows=list(csv.DictReader(open('hardware/kicad/Automatrix_PVDG_RevA-bom.csv',encoding='utf-8-sig')))
           refs=[]
-          for row in rows:
-              refs.extend(x.strip() for x in row['Refs'].split(',') if x.strip())
+          for row in rows: refs.extend(x.strip() for x in row['Refs'].split(',') if x.strip())
           bad=[r for r in refs if not re.fullmatch(r'[A-Za-z]+\d+',r)]
           dup=sorted({r for r in refs if refs.count(r)>1})
-          if bad or dup:
-              raise SystemExit(f'annotation FAIL bad={bad} duplicate={dup}')
+          if bad or dup: raise SystemExit(f'annotation FAIL bad={bad} duplicate={dup}')
           print(f'canonical annotation: PASS ({len(refs)} unique references)')
           PY
 
@@ -81,9 +77,7 @@ jobs:
         run: python3 hardware/kicad/tools/validate_design_control.py
 
       - name: Confirm KiCad pcbnew scripting support
-        run: |
-          set -euo pipefail
-          docker run --rm kicad/kicad:10.0.5 python3 -c 'import pcbnew; print("PCBNEW_PYTHON=YES", pcbnew.GetBuildVersion())'
+        run: docker run --rm kicad/kicad:10.0.5 python3 -c 'import pcbnew; print("PCBNEW_PYTHON=YES", pcbnew.GetBuildVersion())'
 
       - name: Generate deterministic PCB placement
         run: |
@@ -91,6 +85,31 @@ jobs:
           docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -e KICAD10_FOOTPRINT_DIR=/usr/share/kicad/footprints -v $PWD:/work -w /work kicad/kicad:10.0.5 \
             python3 hardware/kicad/tools/build_reva_pcb_final.py 2>&1 | tee hardware/kicad/placement.log
           test -s hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb
+
+      - name: Set up Java 25 for Freerouting
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Route placed PCB via Specctra DSN/SES
+        run: |
+          set -euo pipefail
+          PCB='hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb'
+          DSN='hardware/kicad/Automatrix_PVDG_RevA.dsn'
+          SES='hardware/kicad/Automatrix_PVDG_RevA.ses'
+          KPY="docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $PWD:/work -w /work kicad/kicad:10.0.5 python3"
+          $KPY hardware/kicad/tools/route_reva_freerouting.py export "$PCB" "$DSN"
+          curl -fL --retry 3 --retry-delay 2 \
+            -o /tmp/freerouting.jar \
+            https://github.com/freerouting/freerouting/releases/download/v2.2.4/freerouting-2.2.4.jar
+          java -version
+          timeout 540s java -Xmx5g -jar /tmp/freerouting.jar \
+            --gui.enabled=false -de "$DSN" -do "$SES" -mp 40 -mt 2 \
+            2>&1 | tee hardware/kicad/freerouting.log
+          test -s "$SES"
+          $KPY hardware/kicad/tools/route_reva_freerouting.py import "$PCB" "$SES"
+          $KPY hardware/kicad/tools/route_reva_freerouting.py audit "$PCB"
 
       - name: PCB DRC diagnostics and manufacturing preview
         run: |
@@ -103,7 +122,6 @@ jobs:
           DRC_RC=$?
           set -e
           echo "DRC_EXIT_CODE=$DRC_RC" >> "$GITHUB_ENV"
-          echo '=== PCB DRC REPORT ==='
           cat hardware/kicad/Automatrix_PVDG_RevA-drc.rpt || true
           $K pcb export stats --format json --output hardware/kicad/Automatrix_PVDG_RevA-stats.json "$PCB"
           set +e
@@ -116,20 +134,15 @@ jobs:
         if: env.ERC_EXIT_CODE == '0'
         run: |
           set -euo pipefail
-          git add \
-            hardware/kicad/Automatrix_PVDG_RevA.kicad_sch \
-            hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb \
-            hardware/kicad/Automatrix.kicad_sym \
-            hardware/kicad/sym-lib-table \
-            hardware/kicad/fp-lib-table \
-            hardware/kicad/REFERENCE_MAP.json
-          if git diff --cached --quiet; then
-            echo 'KiCad native sources already current.'
-            exit 0
-          fi
+          git add hardware/kicad/Automatrix_PVDG_RevA.kicad_sch \
+                  hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb \
+                  hardware/kicad/Automatrix.kicad_sym \
+                  hardware/kicad/sym-lib-table hardware/kicad/fp-lib-table \
+                  hardware/kicad/REFERENCE_MAP.json
+          if git diff --cached --quiet; then echo 'KiCad native sources already current.'; exit 0; fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'pcb: persist KiCad 10 Rev-A placement checkpoint'
+          git commit -m 'pcb: persist KiCad 10 Rev-A routed checkpoint'
           git push origin HEAD:hardware/kicad-reva-implementation
 
       - name: Upload KiCad validation evidence
@@ -141,6 +154,9 @@ jobs:
           retention-days: 14
           path: |
             hardware/kicad/placement.log
+            hardware/kicad/freerouting.log
+            hardware/kicad/Automatrix_PVDG_RevA.dsn
+            hardware/kicad/Automatrix_PVDG_RevA.ses
             hardware/kicad/Automatrix_PVDG_RevA-erc.rpt
             hardware/kicad/Automatrix_PVDG_RevA.net
             hardware/kicad/Automatrix_PVDG_RevA-bom.csv
@@ -151,17 +167,14 @@ jobs:
 
       - name: Enforce H1 clean schematic gate
         if: always()
-        run: |
-          echo "ERC exit code: ${ERC_EXIT_CODE:-missing}"
-          test "${ERC_EXIT_CODE:-99}" = "0"
+        run: test "${ERC_EXIT_CODE:-99}" = "0"
 
       - name: Enforce H2 only after routing-complete marker
         if: always()
         run: |
           if [ -f hardware/kicad/H2_ROUTING_COMPLETE ]; then
-            echo "H2 routing marker present; DRC must be clean."
             test "${DRC_EXIT_CODE:-99}" = "0"
             test "${STEP_EXIT_CODE:-99}" = "0"
           else
-            echo "H2 is still in implementation; DRC diagnostics captured without completion claim."
+            echo "H2 routing is being executed and audited; marker remains fail-closed until final DRC is clean."
           fi
