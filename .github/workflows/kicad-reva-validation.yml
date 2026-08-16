@@ -29,6 +29,9 @@ jobs:
           docker pull kicad/kicad:10.0.5
           docker run --rm kicad/kicad:10.0.5 kicad-cli version --format about
 
+      - name: Audit controlled manifest pin ordering
+        run: python3 hardware/kicad/tools/audit_manifest.py
+
       - name: Generate controlled schematic
         run: |
           set -euo pipefail
