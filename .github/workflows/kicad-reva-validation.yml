@@ -16,18 +16,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  kicad-parse-and-erc:
-    runs-on: [self-hosted, macOS, vems]
-    timeout-minutes: 20
+  kicad-10-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    container:
+      image: kicad/kicad:10.0.5
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: KiCad version
-        run: |
-          KICAD='/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli'
-          test -x "$KICAD"
-          "$KICAD" version --format about
+        run: kicad-cli version --format about
 
       - name: Generate controlled schematic
         run: |
@@ -36,59 +35,48 @@ jobs:
           test -s hardware/kicad/Automatrix_PVDG_RevA.kicad_sch
           echo "Generated schematic bytes: $(wc -c < hardware/kicad/Automatrix_PVDG_RevA.kicad_sch)"
 
-      - name: Probe KiCad scripting environment
-        run: |
-          set -u
-          echo '=== pcbnew module locations ==='
-          find /Applications/KiCad/KiCad.app/Contents -name 'pcbnew.py' -o -name '_pcbnew*.so' 2>/dev/null | head -20 || true
-          echo '=== system python pcbnew ==='
-          python3 - <<'PY'
-          try:
-              import pcbnew
-              print('SYSTEM_PYTHON_PCBNEW=YES', pcbnew.GetBuildVersion())
-          except Exception as exc:
-              print('SYSTEM_PYTHON_PCBNEW=NO', repr(exc))
-          PY
-          echo '=== KiCad library roots ==='
-          find /Applications/KiCad/KiCad.app/Contents/SharedSupport -maxdepth 4 -type d \( -name '*.pretty' -o -name 'symbols' \) 2>/dev/null | head -30 || true
-
-      - name: Probe legacy schematic upgrade behavior
-        run: |
-          set -euo pipefail
-          KICAD='/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli'
-          TMP="$(mktemp -d)"
-          cp hardware/kicad/tools/legacy_probe.sch "$TMP/legacy_probe.sch"
-          "$KICAD" sch upgrade "$TMP/legacy_probe.sch"
-          find "$TMP" -maxdepth 1 -type f -print
-
       - name: Project syntax and schematic ERC
         run: |
           set -euo pipefail
-          KICAD='/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli'
           SCH='hardware/kicad/Automatrix_PVDG_RevA.kicad_sch'
           PRO='hardware/kicad/Automatrix_PVDG_RevA.kicad_pro'
           python3 -m json.tool "$PRO" >/dev/null
-          "$KICAD" sch upgrade --force "$SCH"
-          "$KICAD" sch erc --severity-all --exit-code-violations --output hardware/kicad/Automatrix_PVDG_RevA-erc.rpt "$SCH"
-          "$KICAD" sch export netlist --format kicadsexpr --output hardware/kicad/Automatrix_PVDG_RevA.net "$SCH"
-          "$KICAD" sch export bom --output hardware/kicad/Automatrix_PVDG_RevA-bom.csv "$SCH"
-          "$KICAD" sch export pdf --output hardware/kicad/Automatrix_PVDG_RevA-schematic.pdf "$SCH"
+          kicad-cli sch upgrade --force "$SCH"
+          kicad-cli sch erc --severity-all --exit-code-violations --output hardware/kicad/Automatrix_PVDG_RevA-erc.rpt "$SCH"
+          kicad-cli sch export netlist --format kicadsexpr --output hardware/kicad/Automatrix_PVDG_RevA.net "$SCH"
+          kicad-cli sch export bom --output hardware/kicad/Automatrix_PVDG_RevA-bom.csv "$SCH"
+          kicad-cli sch export pdf --output hardware/kicad/Automatrix_PVDG_RevA-schematic.pdf "$SCH"
 
       - name: Design-control checks
-        run: |
-          python3 hardware/kicad/tools/validate_design_control.py
+        run: python3 hardware/kicad/tools/validate_design_control.py
 
-      - name: Persist validated native schematic
+      - name: Validate PCB when present
+        run: |
+          set -euo pipefail
+          PCB='hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb'
+          if [ -f "$PCB" ]; then
+            kicad-cli pcb upgrade --force "$PCB"
+            kicad-cli pcb drc --schematic-parity --severity-all --exit-code-violations --refill-zones --save-board --output hardware/kicad/Automatrix_PVDG_RevA-drc.rpt "$PCB"
+            kicad-cli pcb export stats --format json --output hardware/kicad/Automatrix_PVDG_RevA-stats.json "$PCB"
+            kicad-cli pcb export step --force --no-dnp --output hardware/kicad/Automatrix_PVDG_RevA.step "$PCB"
+          else
+            echo 'PCB file not present yet; schematic gate only.'
+          fi
+
+      - name: Persist KiCad-validated native sources
         run: |
           set -euo pipefail
           git add hardware/kicad/Automatrix_PVDG_RevA.kicad_sch
+          if [ -f hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb ]; then
+            git add hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb
+          fi
           if git diff --cached --quiet; then
-            echo 'Native schematic already current.'
+            echo 'KiCad native sources already current.'
             exit 0
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'hw: persist KiCad-validated Rev-A schematic'
+          git commit -m 'hw: persist KiCad 10 validated Rev-A sources'
           git push origin HEAD:hardware/kicad-reva-implementation
 
       - name: Upload KiCad validation evidence
@@ -102,3 +90,6 @@ jobs:
             hardware/kicad/Automatrix_PVDG_RevA.net
             hardware/kicad/Automatrix_PVDG_RevA-bom.csv
             hardware/kicad/Automatrix_PVDG_RevA-schematic.pdf
+            hardware/kicad/Automatrix_PVDG_RevA-drc.rpt
+            hardware/kicad/Automatrix_PVDG_RevA-stats.json
+            hardware/kicad/Automatrix_PVDG_RevA.step
