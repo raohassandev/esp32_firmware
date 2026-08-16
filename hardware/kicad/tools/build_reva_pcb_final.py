@@ -19,13 +19,10 @@ RF_EDGE = {'U1'}
 
 USB_CORRIDORS = (
     (18.0, 51.5, 137.5, 54.8),
-    (16.0, 51.5, 25.0, 68.5),
+    (16.0, 51.5, 30.0, 70.0),
     (132.0, 40.0, 143.5, 55.0),
 )
 ETH_CORRIDOR = (110.5, 56.0, 134.0, 70.0)
-# RJ45 is an edge-mounted mechanical object; its courtyard may overlap the
-# abstract USB corridor rectangle even though its physical body does not. Keep
-# the ordinary physical collision check authoritative for J_ETH.
 USB_ALLOWED = {'U1','J_USB','J_ETH','R_MCU_DM_SER','R_MCU_DP_SER','C_MCU_DM_USB','C_MCU_DP_USB'}
 ETH_ALLOWED = {'U2','J_ETH'}
 
@@ -40,8 +37,9 @@ b.FIXED.update({
     'Q1':(13.0,32.0,0), 'Q2':(52.0,35.0,0), 'Q3':(84.0,35.0,0), 'Q4':(109.0,32.0,0),
     'U3':(38.0,78.0,0), 'U4':(60.0,78.0,0),
     'U2':(116.0,64.0,0),
-    'R_MCU_DM_SER':(20.0,64.0,0), 'R_MCU_DP_SER':(20.0,66.0,0),
-    'C_MCU_DM_USB':(23.0,62.5,0), 'C_MCU_DP_USB':(23.0,67.5,0),
+    # Keep the pair close to the MCU but outside the RF/body collision margin.
+    'R_MCU_DM_SER':(23.5,64.0,0), 'R_MCU_DP_SER':(23.5,66.0,0),
+    'C_MCU_DM_USB':(27.0,62.5,0), 'C_MCU_DP_USB':(27.0,67.5,0),
 })
 
 
@@ -166,7 +164,7 @@ def _autofit_esp32_rf_edge():
 
 
 b.ZONE_BOUNDS.update({
-    'U1':(2,36,58,80), 'U5':(28,40,60,68), 'U6':(42,40,74,67),
+    'U1':(2,36,58,80), 'U5':(30,40,60,68), 'U6':(44,40,74,67),
     'U7':(72,66,108,88), 'U_RTC':(72,42,108,67),
     'U2':(92,55,107,75),
     'U_DI1':(96,68,112,88), 'U_DI2':(104,68,121,88), 'U_DI3':(113,68,131,88), 'U_DI4':(122,68,139,88),
