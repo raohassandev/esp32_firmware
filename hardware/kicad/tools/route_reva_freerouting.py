@@ -6,11 +6,12 @@ Modes:
   import <board> <ses>   Import a Freerouting SES onto the same board and save.
   audit  <board>         Rebuild ratsnest and fail if any unrouted connections remain.
 
-The DSN/SES flow is intentionally isolated from schematic/component placement:
-KiCad imports only routing from SES; footprints, nets and outline remain owned
-by the validated Rev-A generator.
+Rev-A stack-up policy reserves In1.Cu as the continuous GND reference layer.
+The DSN is therefore post-processed to mark In1.Cu as a power layer so the
+generic autorouter cannot place signal traces on it.
 """
 from pathlib import Path
+import re
 import sys
 import pcbnew
 
@@ -25,9 +26,19 @@ def load(path):
 def export_dsn(board_path, dsn_path):
     b = load(board_path)
     ok = pcbnew.ExportSpecctraDSN(b, str(dsn_path))
-    if not ok or not Path(dsn_path).exists() or Path(dsn_path).stat().st_size == 0:
+    path = Path(dsn_path)
+    if not ok or not path.exists() or path.stat().st_size == 0:
         raise SystemExit('Specctra DSN export failed')
-    print(f'DSN_EXPORT_PASS bytes={Path(dsn_path).stat().st_size}')
+
+    text = path.read_text(encoding='utf-8')
+    pattern = r'(\(layer\s+"?In1\.Cu"?\s*\n\s*)\(type\s+signal\)'
+    text, count = re.subn(pattern, r'\1(type power)', text, count=1)
+    if count != 1:
+        raise SystemExit('failed to reserve In1.Cu as DSN power/non-signal layer')
+    path.write_text(text, encoding='utf-8')
+    if re.search(pattern, text):
+        raise SystemExit('In1.Cu still exported as signal layer')
+    print(f'DSN_EXPORT_PASS bytes={path.stat().st_size} In1.Cu=POWER_RESERVED')
 
 
 def import_ses(board_path, ses_path):
@@ -50,10 +61,14 @@ def audit(board_path):
     tracks = list(b.GetTracks())
     vias = sum(1 for t in tracks if isinstance(t, pcbnew.PCB_VIA))
     traces = len(tracks) - vias
-    print(f'ROUTING_AUDIT unconnected={unconn} traces={traces} vias={vias} nets={b.GetNetCount()}')
+    in1 = b.GetLayerID('In1.Cu')
+    in1_signals = sum(1 for t in tracks if not isinstance(t, pcbnew.PCB_VIA) and t.GetLayer() == in1)
+    print(f'ROUTING_AUDIT unconnected={unconn} traces={traces} vias={vias} nets={b.GetNetCount()} in1_signal_tracks={in1_signals}')
+    if in1_signals:
+        raise SystemExit(f'L2 reference-plane violation: {in1_signals} signal tracks on In1.Cu')
     if unconn:
         raise SystemExit(f'H2 routing incomplete: {unconn} ratsnest connection(s) remain')
-    print('H2_CONNECTIVITY_PASS: unconnected=0')
+    print('H2_CONNECTIVITY_PASS: unconnected=0 In1.Cu_signal_tracks=0')
 
 
 def main():
