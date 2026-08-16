@@ -32,7 +32,7 @@ jobs:
       - name: Generate controlled schematic
         run: |
           set -euo pipefail
-          python3 hardware/kicad/tools/generate_reva_final.py
+          python3 hardware/kicad/tools/run_reva_generator.py
           test -s hardware/kicad/Automatrix_PVDG_RevA.kicad_sch
           test -s hardware/kicad/Automatrix.kicad_sym
           test -s hardware/kicad/sym-lib-table
