@@ -17,6 +17,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: kicad-reva-implementation
+  cancel-in-progress: true
+
 jobs:
   kicad-parse-and-erc:
     runs-on: [self-hosted, macOS, vems]
