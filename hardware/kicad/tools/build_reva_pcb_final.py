@@ -7,7 +7,8 @@ This wrapper owns production-style mechanical fit semantics:
 - ordinary components must keep their courtyard inside the board;
 - RJ45/USB may intentionally overhang the enclosure edge, but every copper pad
   must remain inside the PCB;
-- field terminals are moved inward enough for their actual KiCad courtyards;
+- relay and service-edge field terminals are auto-fitted from their exact
+  KiCad courtyard geometry rather than assumed connector depths;
 - edge connector anchors are auto-fitted against real KiCad pad geometry so a
   library-origin change cannot silently push solder pads off the fabricated PCB.
 """
@@ -129,6 +130,23 @@ def _autofit_bottom_anchor(old, x, rotation=180):
     raise RuntimeError(f'cannot fit bottom connector {old} inside board without changing PCB mechanics')
 
 
+def _autofit_top_anchor(old, x, rotation=0):
+    """Move a service-edge connector inward only as far as its real courtyard requires."""
+    fp_id = _footprint_id_for_semantic(old)
+    fp = b.load_fp(fp_id)
+    fp.SetReference('TMP')
+    fp.SetOrientationDegrees(rotation)
+    y = b.BOARD_Y - 1.0
+    while y >= b.BOARD_Y - 18.0:
+        fp.SetPosition(b.mm(x, y))
+        box = _physical_box(fp).GetInflated(pcbnew.FromMM(MECH_CLEARANCE))
+        if _inside_board(box, b.EDGE_MARGIN):
+            print(f'top anchor {old}: x={x:.1f} y={y:.1f} rot={rotation} courtyard-inside-board=PASS')
+            return (x, round(y, 3), rotation)
+        y -= 0.5
+    raise RuntimeError(f'cannot fit top connector {old} inside board without changing PCB mechanics')
+
+
 # Auto-fit the two intentional edge-overhang connectors from their actual stock
 # KiCad footprints. Copper/drilled pads must stay inside the fabricated PCB.
 b.FIXED['J_ETH'] = _autofit_edge_anchor(
@@ -138,11 +156,18 @@ b.FIXED['J_USB'] = _autofit_edge_anchor(
     'J_USB', 'Connector_USB:USB_C_Receptacle_GCT_USB4105-xx-A_16P_TopMnt_Horizontal', 42, 90
 )
 
-# Relay field terminals live on the opposite board edge. Their courtyard depth
-# varies by the exact 5.08 mm terminal footprint, so derive the minimum safe Y
-# rather than assuming a 4 mm anchor.
+# Relay field terminals live on the bottom contact edge.
 for old, x in (('J_RLY1', 20), ('J_RLY2', 52), ('J_RLY3', 84), ('J_RLY4', 116)):
     b.FIXED[old] = _autofit_bottom_anchor(old, x)
+
+# Service row is the opposite edge. This covers mandatory power, dual RS485 and
+# HMI plus optional RS232/DI so DNP features cannot silently make the board
+# mechanically impossible when the Full variant is populated.
+for old, x in (
+    ('J_PWR', 14), ('J_RS485A', 37), ('J_RS485B', 59),
+    ('J_HMI', 83), ('J_RS232', 101), ('J_DI', 122),
+):
+    b.FIXED[old] = _autofit_top_anchor(old, x)
 
 b.try_position = _try_position
 
