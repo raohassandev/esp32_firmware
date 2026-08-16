@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Finalize Rev-A stack-up after signal routing.
+"""Finalize Rev-A stack-up with a solid L2 GND reference plane.
 
 In1.Cu is the dedicated L2 GND reference. A single concave GND polygon covers
 all low-voltage board area while carving a deliberate no-plane notch under the
@@ -33,6 +33,12 @@ def add_notched_zone(board, layer, netcode):
     z=pcbnew.ZONE(board)
     z.SetLayer(layer)
     z.SetNetCode(netcode)
+    # L2 is the authoritative low-impedance GND reference. Solid pad
+    # connection avoids thermal-spoke starvation and lets PTH/via GND pads
+    # close connectivity through the plane rather than through routed traces.
+    z.SetPadConnection(pcbnew.ZONE_CONNECTION_FULL)
+    z.SetMinThickness(pcbnew.FromMM(0.20))
+    z.SetLocalClearance(pcbnew.FromMM(0.20))
     outline=(
         (EDGE,EDGE),
         (BOARD_X-EDGE,EDGE),
@@ -40,7 +46,6 @@ def add_notched_zone(board, layer, netcode):
         (MAGJACK_X0,MAGJACK_Y0),
         (MAGJACK_X0,MAGJACK_Y1),
         (BOARD_X-EDGE,MAGJACK_Y1),
-        (BOARD_X-EDGE,BOARD_Y-EDGE),
         (EDGE,BOARD_Y-EDGE),
     )
     for x,y in outline:
@@ -62,7 +67,7 @@ def main(board_path):
 
     add_notched_zone(board,layer,gnd_netcode(board))
     pcbnew.SaveBoard(str(path),board)
-    print(f'L2_GND_ZONE_GEOMETRY_PASS: zones=1 notched MagJack_window=({MAGJACK_X0},{MAGJACK_Y0})-({BOARD_X},{MAGJACK_Y1})')
+    print(f'L2_GND_ZONE_GEOMETRY_PASS: solid zones=1 notched MagJack_window=({MAGJACK_X0},{MAGJACK_Y0})-({BOARD_X},{MAGJACK_Y1})')
 
 
 if __name__=='__main__':
