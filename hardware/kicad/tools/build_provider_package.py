@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Build the controlled Rev-A PCB/PCBA/enclosure provider package.
 
-Fail-closed: a FINAL package is refused until H2 routing is explicitly complete
-and every manufacturing output exists from the same checkout/commit.
+Fail-closed: a FINAL package is refused until H2 routing, L2 reference-plane and
+critical-route geometry gates are explicitly complete and every manufacturing
+output exists from the same checkout/commit.
 """
 from pathlib import Path
 import hashlib, subprocess, zipfile
@@ -20,11 +21,13 @@ required_exact = [
     K / 'Automatrix_PVDG_RevA.kicad_pcb', K / 'Automatrix_PVDG_RevA-schematic.pdf',
     K / 'Automatrix_PVDG_RevA-bom.csv', K / 'BOM_TARGET.csv',
     K / 'Automatrix_PVDG_RevA-drc.rpt', K / 'Automatrix_PVDG_RevA-erc.rpt',
-    K / 'Automatrix_PVDG_RevA.step',
+    K / 'Automatrix_PVDG_RevA-si.rpt', K / 'Automatrix_PVDG_RevA.step',
+    K / 'HW_INTERFACE_CONTRACT.json',
     DOC / 'HARDWARE_PCB_REVA_MASTER_PLAN.md',
     DOC / 'PCB_AND_ENCLOSURE_SERVICE_PROVIDER_RFQ.md',
     DOC / 'PCB_PROVIDER_HANDOFF_READINESS.md', DOC / 'PROVIDER_PACKAGE_CONTENTS.md',
     M / 'Automatrix_PVDG_RevA_enclosure.scad', M / 'ENCLOSURE_REVA_SPEC.md',
+    M / 'PCB_MECHANICAL_HANDOFF.json',
 ]
 required_manufacturing = {
     'Gerbers': list((MF / 'gerber').glob('*')),
@@ -39,13 +42,12 @@ required_manufacturing = {
 }
 
 missing=[str(p.relative_to(ROOT)) for p in required_exact if not p.exists() or p.stat().st_size==0]
-
-# H2 is a gate marker rather than a manufacturing payload. Older frozen
-# checkpoints used an empty marker, so existence is sufficient for backward
-# compatibility. New checkpoints write explicit PASS evidence and that text is
-# included in the provider ZIP/checksum manifest.
-if not H2_MARKER.exists():
+if not H2_MARKER.exists() or H2_MARKER.stat().st_size==0:
     missing.append(str(H2_MARKER.relative_to(ROOT)))
+else:
+    proof=H2_MARKER.read_text(encoding='utf-8',errors='replace')
+    for token in ('ERC=0','DRC=0','UNCONNECTED=0','L2_GND=PASS','SIGNAL_INTEGRITY_GEOMETRY=PASS','STEP=0'):
+        if token not in proof: missing.append(f'H2 proof token missing: {token}')
 
 matched=[]
 for label,candidates in required_manufacturing.items():
