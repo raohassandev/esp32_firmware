@@ -66,9 +66,12 @@ for n in range(1,5):
 check("U7", {"1":"RS232_C1P","2":"RS232_VPLUS","3":"RS232_C1M","4":"RS232_C2P","5":"RS232_C2M","6":"RS232_VMINUS","11":"HMI_TX","12":"HMI_RX","13":"HMI_RS232_RX","14":"HMI_RS232_TX","15":"GND","16":"3V3"})
 check("J_RS232", {"1":"GND","2":"HMI_RS232_TX","3":"HMI_RS232_RX"})
 
-# Explicit NCs: absent from any net is the expected proof.
+# KiCad exports explicit no-connect pins as synthetic pseudo-net names such as
+# `unconnected-(U2-SPDLED-Pad24)`.  Either complete absence from the net table
+# or one of these KiCad-generated pseudo-nets proves the pin is intentionally NC.
 for ref, pin in [("U2","24"),("U2","26"),("J_USB","A8"),("J_USB","B8")]:
-    if (ref, pin) in pin_to_net:
-        raise SystemExit(f"EXPORTED NETLIST FAIL: {ref} pin {pin} must be NC but is on {pin_to_net[(ref,pin)]}")
+    actual = pin_to_net.get((ref, pin))
+    if actual is not None and not actual.startswith("unconnected-("):
+        raise SystemExit(f"EXPORTED NETLIST FAIL: {ref} pin {pin} must be NC but is on {actual}")
 
 print(f"exported physical pin/net audit: PASS ({len(pin_to_net)} connected pins indexed)")
