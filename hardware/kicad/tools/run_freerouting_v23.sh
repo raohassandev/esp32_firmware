@@ -33,6 +33,7 @@ for attempt in 1 2; do
   echo "=== FREEROUTING 2.3 ATTEMPT $attempt limit=${LIMIT}s ===" | tee -a hardware/kicad/freerouting.log
   set +e
   timeout "${LIMIT}s" java -Xmx5g -jar /tmp/freerouting.jar --gui.enabled=false \
+    --router.automatic_neckdown=false \
     -de "$DSN" -do "$OUT" -inc GND_PLANE $OPTS 2>&1 | tee -a hardware/kicad/freerouting.log
   ROUTER_RC=${PIPESTATUS[0]}
   set -e
