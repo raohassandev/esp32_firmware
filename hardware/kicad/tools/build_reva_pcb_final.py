@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Rev-A mechanical finalizer.
 
-Locks only the field/mechanical anchors that have already been proven by KiCad
-10 geometry checks. Large/optional logic parts are deliberately left to the
-base functional-zone placer so they can use the remaining logic area instead
-of over-constraining H2.
+Field/user-facing connectors and safety-critical anchors are locked only after
+KiCad-10 geometry proof. ESP32-S3 is treated as an RF edge module: its copper
+pads/module stay on the PCB while the antenna courtyard is allowed to project
+past the board edge. Power and optional logic are packed after the RF anchor so
+we do not sacrifice antenna placement to an arbitrary early buck position.
 """
 import pcbnew
 import build_reva_pcb as b
@@ -13,9 +14,10 @@ MECH_CLEARANCE = 0.15
 PAD_EDGE_MARGIN = 0.15
 MOUNTING_KEEP_OUTS = ((5.0,5.0,4.3),(140.0,5.0,4.3),(5.0,90.0,4.3),(140.0,90.0,4.3))
 EDGE_OVERHANG = {'J_ETH','J_USB'}
+RF_EDGE = {'U1'}
 
 # Coordinates below are outputs of previous KiCad-10 courtyard/pad checks.
-# Keep user-facing connectors + field transceivers + power/PHY anchors stable.
+# U5 is intentionally not fixed: it must yield to the ESP32 RF edge placement.
 b.FIXED.clear()
 b.FIXED.update({
     'J_PWR':(14.0,87.5,0),
@@ -39,7 +41,6 @@ b.FIXED.update({
     'Q2':(52.0,35.0,0),
     'Q3':(84.0,35.0,0),
     'Q4':(109.0,32.0,0),
-    'U5':(22.0,56.0,0),       # field buck
     'U3':(38.0,78.0,0),       # RS485-A
     'U4':(60.0,78.0,0),       # RS485-B
     'U2':(116.0,64.0,0),      # W5500
@@ -63,7 +64,8 @@ def _physical_box(fp):
             return cy.BBox()
     except Exception:
         pass
-    return _merge_pad_boxes(fp) or fp.GetBoundingBox()
+    pbox=_merge_pad_boxes(fp)
+    return pbox if pbox is not None else fp.GetBoundingBox()
 
 
 def _inside_board(box,margin):
@@ -89,7 +91,9 @@ def _try_position(fp,x,y,placed):
     fp.SetPosition(b.mm(x,y))
     old=b.INV_REF.get(fp.GetReference(),fp.GetReference())
     box=_physical_box(fp).GetInflated(pcbnew.FromMM(MECH_CLEARANCE))
-    if old in EDGE_OVERHANG:
+    if old in EDGE_OVERHANG or old in RF_EDGE:
+        # Connector/RF edge footprints may have mechanical/antenna courtyard
+        # outside the outline, but solder pads must remain on-board.
         pbox=_merge_pad_boxes(fp)
         if pbox is None or not _inside_board(pbox,PAD_EDGE_MARGIN):
             return False
@@ -104,10 +108,67 @@ def _try_position(fp,x,y,placed):
     return True
 
 
-# Give large MCU + optional support blocks wider functional search envelopes.
+def _footprint_id(old):
+    comps,_,_=b.parse_netlist()
+    ref=b.REF_MAP.get(old,old)
+    if ref not in comps or not comps[ref]['footprint']:
+        raise RuntimeError(f'cannot resolve footprint for {old}/{ref}')
+    return comps[ref]['footprint']
+
+
+def _fixed_obstacle_boxes(exclude=None):
+    out=[]
+    for old,(x,y,rot) in b.FIXED.items():
+        if old==exclude:
+            continue
+        fp=b.load_fp(_footprint_id(old)); fp.SetReference('TMP')
+        fp.SetOrientationDegrees(rot); fp.SetPosition(b.mm(x,y))
+        out.append((old,_physical_box(fp).GetInflated(pcbnew.FromMM(MECH_CLEARANCE))))
+    return out
+
+
+def _autofit_esp32_rf_edge():
+    """Place ESP32-S3-WROOM at the left board edge with antenna facing outward.
+
+    90/270 degree rotations are tried first. Full courtyard collision is checked
+    against every fixed field anchor, while only copper pads are required to be
+    inside the PCB so the RF antenna courtyard can extend beyond the edge.
+    """
+    fp=b.load_fp(_footprint_id('U1')); fp.SetReference('TMP')
+    obstacles=_fixed_obstacle_boxes('U1')
+    candidates=[]
+    for rot in (90,270,0,180):
+        x=1.0
+        while x<=48.0+1e-9:
+            y=39.0
+            while y<=76.0+1e-9:
+                # Strong preference: smallest x (antenna at left edge), then y~56.
+                score=(0 if rot in (90,270) else 20)+x+abs(y-56.0)*0.08
+                candidates.append((score,x,y,rot))
+                y+=0.5
+            x+=0.5
+    candidates.sort(key=lambda r:r[0])
+    for _,x,y,rot in candidates:
+        fp.SetOrientationDegrees(rot); fp.SetPosition(b.mm(x,y))
+        pbox=_merge_pad_boxes(fp)
+        if pbox is None or not _inside_board(pbox,PAD_EDGE_MARGIN):
+            continue
+        box=_physical_box(fp).GetInflated(pcbnew.FromMM(MECH_CLEARANCE))
+        if _hits_mount_keepout(box):
+            continue
+        if any(box.Intersects(ob) for _,ob in obstacles):
+            continue
+        b.FIXED['U1']=(round(x,3),round(y,3),rot)
+        print(f'ESP32 RF-edge anchor: x={x:.1f} y={y:.1f} rot={rot} pads-inside/courtyard-clear=PASS')
+        return
+    raise RuntimeError('ESP32 RF-edge auto-fit failed against locked field anchors')
+
+
+# Wider zones. Buck is deliberately moved away from the left RF edge.
 b.ZONE_BOUNDS.update({
-    'U1':(42,40,102,82),
-    'U6':(35,40,70,67),
+    'U1':(2,38,52,78),
+    'U5':(28,40,58,68),
+    'U6':(42,40,72,67),
     'U7':(72,66,108,88),
     'U_RTC':(72,42,108,67),
     'U_DI1':(96,68,112,88),
@@ -116,12 +177,11 @@ b.ZONE_BOUNDS.update({
     'U_DI4':(122,68,139,88),
 })
 
-# More candidate density prevents a large footprint from missing a valid slot
-# between the coarse 2.5 mm grid points used by the base builder.
+
 def _dense_zone_candidates(anchor_old,base):
     ax=pcbnew.ToMM(base.x); ay=pcbnew.ToMM(base.y)
     xmin,ymin,xmax,ymax=b.ZONE_BOUNDS.get(anchor_old,(3,3,b.BOARD_X-3,b.BOARD_Y-3))
-    step=1.0 if anchor_old in ('U1','U6','U7','U_RTC','U_DI1','U_DI2','U_DI3','U_DI4') else 2.0
+    step=1.0 if anchor_old in ('U1','U5','U6','U7','U_RTC','U_DI1','U_DI2','U_DI3','U_DI4') else 2.0
     pts=[]; x=xmin
     while x<=xmax+1e-6:
         y=ymin
@@ -131,6 +191,8 @@ def _dense_zone_candidates(anchor_old,base):
     pts.sort(key=lambda p:(abs(p[0]-ax)+abs(p[1]-ay),abs(p[1]-ay),abs(p[0]-ax),p[1],p[0]))
     return pts
 
+
+_autofit_esp32_rf_edge()
 b.try_position=_try_position
 b.zone_candidates=_dense_zone_candidates
 
