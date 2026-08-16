@@ -33,32 +33,21 @@ ETH_ALLOWED = {'U2','J_ETH'}
 
 b.FIXED.clear()
 b.FIXED.update({
-    # Field / user connectors.
     'J_PWR':(14.0,87.5,0), 'J_RS485A':(37.0,87.5,0), 'J_RS485B':(59.0,87.5,0),
     'J_HMI':(83.0,89.5,0), 'J_RS232':(101.0,89.5,0), 'J_DI':(119.5,79.5,0),
     'J_ETH':(132.5,65.0,90), 'J_USB':(142.5,42.0,90), 'J_SD':(119.5,42.5,90),
-
-    # Relay/contact row and low-voltage coil-driver boundary.
     'J_RLY1':(20.0,15.5,180), 'J_RLY2':(52.0,7.5,180),
     'J_RLY3':(84.0,7.5,180), 'J_RLY4':(116.0,7.5,180),
     'K1':(20.0,24.0,0), 'K2':(52.0,18.0,0), 'K3':(84.0,18.0,0), 'K4':(116.0,18.0,0),
     'Q1':(13.0,32.0,0), 'Q2':(52.0,35.0,0), 'Q3':(84.0,35.0,0), 'Q4':(109.0,32.0,0),
-
-    # Core functional anchors. These MUST be placed before their support parts;
-    # otherwise pcbnew footprints still sit at (0,0) and dependent passives can
-    # be incorrectly packed into the relay/contact region.
-    'U5':(20.0,75.0,0),       # 12/24V -> 5V buck, close to J_PWR
-    'U6':(52.0,62.0,0),       # 5V -> 3V3 buck
+    'U5':(20.0,75.0,0), 'U6':(52.0,62.0,0),
     'U3':(38.0,78.0,0), 'U4':(60.0,78.0,0),
-    'U7':(84.0,78.0,0),       # DNP RS232 option
-    'U_RTC':(88.0,47.0,0),
+    'U7':(84.0,78.0,0), 'U_RTC':(88.0,47.0,0),
     'BT1':(80.0,64.0,0), 'Y_RTC':(96.0,47.0,0),
     'U_DI1':(96.0,82.0,0), 'U_DI2':(107.0,82.0,0),
     'U_DI3':(113.0,88.0,0), 'U_DI4':(124.0,88.0,0),
     'U2':(116.0,64.0,0), 'Y1':(106.0,64.0,0),
-    'SW_RESET':(10.0,72.0,0), 'SW_BOOT':(34.0,62.0,0),
-
-    # USB series/tuning parts stay close to MCU but outside RF/body margin.
+    'SW_RESET':(10.0,72.0,0), 'SW_BOOT':(68.0,62.0,0),
     'R_MCU_DM_SER':(23.5,64.0,0), 'R_MCU_DP_SER':(23.5,66.0,0),
     'C_MCU_DM_USB':(27.0,62.5,0), 'C_MCU_DP_USB':(27.0,67.5,0),
 })
@@ -184,33 +173,22 @@ def _autofit_esp32_rf_edge():
     raise RuntimeError('ESP32 RF-edge auto-fit failed after separating antenna keepout from body collision')
 
 
-# Functional placement zones. Low-voltage support parts stay on/above the
-# relay-coil boundary (Y>=30); the relay contact / field-terminal side remains
-# free of logic ground and high-speed routing.
 b.ZONE_BOUNDS.update({
     'Q1':(5,30,31,39), 'Q2':(39,30,65,39), 'Q3':(71,30,97,39), 'Q4':(101,30,134,39),
-    'U1':(2,36,58,80),
-    'U5':(6,68.8,31,84),
-    'U6':(38,56,68,70),
-    'U3':(28,70,47,85), 'U4':(50,70,69,85),
-    'U7':(72,69,96,85),
-    'U_RTC':(78,42,103,50.8),
-    'U2':(92,55,107,75),
+    'U1':(2,36,58,80), 'U5':(6,68.8,31,84), 'U6':(38,56,68,70),
+    'U3':(28,70,47,85), 'U4':(50,70,69,85), 'U7':(72,69,96,85),
+    'U_RTC':(78,42,103,50.8), 'U2':(92,55,107,75),
     'U_DI1':(94,72,104,88), 'U_DI2':(104,72,114,88),
     'U_DI3':(112,78,122,91), 'U_DI4':(122,78,135,91),
-    'J_SD':(108,40,131,50.8),
-    'J_USB':(126,31,143,50.8),
+    'J_SD':(108,40,131,50.8), 'J_USB':(126,31,143,50.8),
 })
 
 _ORIGINAL_CLUSTER = b.cluster_for
 
 def _cluster_for_final(old):
     u=old.upper()
-    # AP63203 3V3 stage must not be swallowed by the broader VIN/FB/COUT rule.
     if old.startswith('C3_') or 'BUCK3' in u or old=='L2':
         return 'U6'
-    # Relay control-side components belong with the MOSFET driver, not the
-    # relay/contact body. This keeps logic GND at/above the Y=30 boundary.
     for n in range(1,5):
         if re.search(rf'(FLY|LED|_G|_PD){n}(?:\D|$)',u):
             return f'Q{n}'
@@ -234,9 +212,6 @@ _autofit_esp32_rf_edge()
 b.try_position=_try_position
 b.cluster_for=_cluster_for_final
 b.zone_candidates=_dense_zone_candidates
-# Disable the base builder's wide ring fallback. It can place support passives
-# tens of millimetres outside their functional zones before zone candidates are
-# considered, which caused the original power/USB/relay placement defects.
 b.SLOTS=[]
 
 if __name__=='__main__': b.main()
