@@ -126,19 +126,27 @@ def _footprint_id_for_semantic(old):
 
 
 def _autofit_bottom_anchor(old, x, rotation=180):
+    """Fit relay terminal while reserving the fixed M3 corner mounting pattern."""
     fp_id = _footprint_id_for_semantic(old)
     fp = b.load_fp(fp_id)
     fp.SetReference('TMP')
     fp.SetOrientationDegrees(rotation)
-    y = 1.0
-    while y <= 15.0:
-        fp.SetPosition(b.mm(x, y))
-        box = _physical_box(fp).GetInflated(pcbnew.FromMM(MECH_CLEARANCE))
-        if _inside_board(box, b.EDGE_MARGIN) and not _hits_mount_keepout(box):
-            print(f'bottom anchor {old}: x={x:.1f} y={y:.1f} rot={rotation} courtyard-inside-board=PASS')
-            return (x, round(y, 3), rotation)
-        y += 0.5
-    raise RuntimeError(f'cannot fit bottom connector {old} inside board without changing PCB mechanics')
+    # Keep relay groups visually aligned, but allow the corner groups to shift
+    # horizontally just enough to clear the M3 keepout. Prefer moving inward.
+    dxs = [0.0]
+    for d in (0.5,1.0,1.5,2.0,2.5,3.0,3.5,4.0,4.5,5.0,5.5,6.0,7.0,8.0):
+        dxs.extend((d, -d))
+    for dx in dxs:
+        candidate_x = x + dx
+        y = 1.0
+        while y <= 18.0:
+            fp.SetPosition(b.mm(candidate_x, y))
+            box = _physical_box(fp).GetInflated(pcbnew.FromMM(MECH_CLEARANCE))
+            if _inside_board(box, b.EDGE_MARGIN) and not _hits_mount_keepout(box):
+                print(f'bottom anchor {old}: x={candidate_x:.1f} y={y:.1f} rot={rotation} board+M3-clear=PASS')
+                return (round(candidate_x, 3), round(y, 3), rotation)
+            y += 0.5
+    raise RuntimeError(f'cannot fit bottom connector {old} inside board while preserving M3 mounting pattern')
 
 
 def _x_candidates(preferred_x, span=24.0, step=0.5):
@@ -158,11 +166,11 @@ def _autofit_top_anchor(old, x, rotation=0, allow_x_search=False):
     xs = _x_candidates(x) if allow_x_search else (float(x),)
     for candidate_x in xs:
         y = b.BOARD_Y - 1.0
-        while y >= b.BOARD_Y - 18.0:
+        while y >= b.BOARD_Y - 22.0:
             fp.SetPosition(b.mm(candidate_x, y))
             box = _physical_box(fp).GetInflated(pcbnew.FromMM(MECH_CLEARANCE))
             if _inside_board(box, b.EDGE_MARGIN) and not _hits_mount_keepout(box):
-                print(f'top anchor {old}: x={candidate_x:.1f} y={y:.1f} rot={rotation} courtyard-inside-board=PASS')
+                print(f'top anchor {old}: x={candidate_x:.1f} y={y:.1f} rot={rotation} courtyard+M3-clear=PASS')
                 return (round(candidate_x, 3), round(y, 3), rotation)
             y -= 0.5
     raise RuntimeError(f'cannot fit top connector {old} ({fp_id}) inside board')
@@ -259,7 +267,7 @@ def _resolve_all_fixed_anchor_collisions():
         fp.SetOrientationDegrees(rot)
 
         locked = old in connector_order
-        candidates = [(px, py)] if locked else _local_candidates(px, py, span=10.0, step=1.0)
+        candidates = [(px, py)] if locked else _local_candidates(px, py, span=12.0, step=1.0)
         found = None
         for x, y in candidates:
             fp.SetPosition(b.mm(x, y))
@@ -278,9 +286,6 @@ def _resolve_all_fixed_anchor_collisions():
             break
 
         if found is None:
-            # If a user-facing connector is the conflict source, keep its already
-            # derived enclosure-facing position and let nearby internal anchors
-            # move later; connectors should not wander around the case wall.
             if locked:
                 fp.SetPosition(b.mm(px, py))
                 box = _physical_box(fp).GetInflated(pcbnew.FromMM(MECH_CLEARANCE))
