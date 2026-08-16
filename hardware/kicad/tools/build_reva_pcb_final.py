@@ -101,12 +101,48 @@ def _autofit_edge_anchor(old, fp_id, y, rotation):
     raise RuntimeError(f'cannot fit {old} pads inside {b.BOARD_X}x{b.BOARD_Y} mm board')
 
 
+def _footprint_id_for_semantic(old):
+    comps, _, _ = b.parse_netlist()
+    canonical = b.REF_MAP.get(old, old)
+    if canonical not in comps:
+        raise RuntimeError(f'cannot resolve canonical component for {old}')
+    fp_id = comps[canonical]['footprint']
+    if not fp_id:
+        raise RuntimeError(f'{old}/{canonical} has no footprint in validated netlist')
+    return fp_id
+
+
+def _autofit_bottom_anchor(old, x, rotation=180):
+    """Move a bottom-edge terminal inward only as far as its real courtyard requires."""
+    fp_id = _footprint_id_for_semantic(old)
+    fp = b.load_fp(fp_id)
+    fp.SetReference('TMP')
+    fp.SetOrientationDegrees(rotation)
+    y = 1.0
+    while y <= 15.0:
+        fp.SetPosition(b.mm(x, y))
+        box = _physical_box(fp).GetInflated(pcbnew.FromMM(MECH_CLEARANCE))
+        if _inside_board(box, b.EDGE_MARGIN):
+            print(f'bottom anchor {old}: x={x:.1f} y={y:.1f} rot={rotation} courtyard-inside-board=PASS')
+            return (x, round(y, 3), rotation)
+        y += 0.5
+    raise RuntimeError(f'cannot fit bottom connector {old} inside board without changing PCB mechanics')
+
+
+# Auto-fit the two intentional edge-overhang connectors from their actual stock
+# KiCad footprints. Copper/drilled pads must stay inside the fabricated PCB.
 b.FIXED['J_ETH'] = _autofit_edge_anchor(
     'J_ETH', 'Connector_RJ:RJ45_Cetus_J1B1211CCD_Horizontal', 65, 90
 )
 b.FIXED['J_USB'] = _autofit_edge_anchor(
     'J_USB', 'Connector_USB:USB_C_Receptacle_GCT_USB4105-xx-A_16P_TopMnt_Horizontal', 42, 90
 )
+
+# Relay field terminals live on the opposite board edge. Their courtyard depth
+# varies by the exact 5.08 mm terminal footprint, so derive the minimum safe Y
+# rather than assuming a 4 mm anchor.
+for old, x in (('J_RLY1', 20), ('J_RLY2', 52), ('J_RLY3', 84), ('J_RLY4', 116)):
+    b.FIXED[old] = _autofit_bottom_anchor(old, x)
 
 b.try_position = _try_position
 
