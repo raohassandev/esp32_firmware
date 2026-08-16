@@ -87,7 +87,6 @@ def _try_position(fp, x, y, placed):
 
 
 def _autofit_edge_anchor(old, fp_id, y, rotation):
-    """Search full board width, preferring the furthest-right valid pad-safe anchor."""
     fp = b.load_fp(fp_id)
     fp.SetReference('TMP')
     fp.SetOrientationDegrees(rotation)
@@ -114,7 +113,6 @@ def _footprint_id_for_semantic(old):
 
 
 def _autofit_bottom_anchor(old, x, rotation=180):
-    """Move a bottom-edge terminal inward only as far as its real courtyard requires."""
     fp_id = _footprint_id_for_semantic(old)
     fp = b.load_fp(fp_id)
     fp.SetReference('TMP')
@@ -130,25 +128,44 @@ def _autofit_bottom_anchor(old, x, rotation=180):
     raise RuntimeError(f'cannot fit bottom connector {old} inside board without changing PCB mechanics')
 
 
-def _autofit_top_anchor(old, x, rotation=0):
-    """Move a service-edge connector inward only as far as its real courtyard requires."""
+def _x_candidates(preferred_x, span=24.0, step=0.5):
+    """Try the requested X first, then walk left/right symmetrically."""
+    yield float(preferred_x)
+    delta = step
+    while delta <= span + 1e-9:
+        yield float(preferred_x) - delta
+        yield float(preferred_x) + delta
+        delta += step
+
+
+def _autofit_top_anchor(old, x, rotation=0, allow_x_search=False):
+    """Fit a service connector from its exact courtyard; optional wide parts may search X too."""
     fp_id = _footprint_id_for_semantic(old)
     fp = b.load_fp(fp_id)
     fp.SetReference('TMP')
     fp.SetOrientationDegrees(rotation)
-    y = b.BOARD_Y - 1.0
-    while y >= b.BOARD_Y - 18.0:
-        fp.SetPosition(b.mm(x, y))
-        box = _physical_box(fp).GetInflated(pcbnew.FromMM(MECH_CLEARANCE))
-        if _inside_board(box, b.EDGE_MARGIN):
-            print(f'top anchor {old}: x={x:.1f} y={y:.1f} rot={rotation} courtyard-inside-board=PASS')
-            return (x, round(y, 3), rotation)
-        y -= 0.5
-    raise RuntimeError(f'cannot fit top connector {old} inside board without changing PCB mechanics')
+    xs = _x_candidates(x) if allow_x_search else (float(x),)
+    box0 = _physical_box(fp)
+    print(
+        f'top-fit {old}: footprint={fp_id} '
+        f'courtyard={pcbnew.ToMM(box0.GetWidth()):.1f}x{pcbnew.ToMM(box0.GetHeight()):.1f}mm '
+        f'preferred_x={x:.1f}'
+    )
+    for candidate_x in xs:
+        y = b.BOARD_Y - 1.0
+        while y >= b.BOARD_Y - 18.0:
+            fp.SetPosition(b.mm(candidate_x, y))
+            box = _physical_box(fp).GetInflated(pcbnew.FromMM(MECH_CLEARANCE))
+            if _inside_board(box, b.EDGE_MARGIN):
+                print(f'top anchor {old}: x={candidate_x:.1f} y={y:.1f} rot={rotation} courtyard-inside-board=PASS')
+                return (round(candidate_x, 3), round(y, 3), rotation)
+            y -= 0.5
+    raise RuntimeError(
+        f'cannot fit top connector {old} ({fp_id}) inside board; '
+        f'preferred_x={x}, allow_x_search={allow_x_search}'
+    )
 
 
-# Auto-fit the two intentional edge-overhang connectors from their actual stock
-# KiCad footprints. Copper/drilled pads must stay inside the fabricated PCB.
 b.FIXED['J_ETH'] = _autofit_edge_anchor(
     'J_ETH', 'Connector_RJ:RJ45_Cetus_J1B1211CCD_Horizontal', 65, 90
 )
@@ -156,18 +173,20 @@ b.FIXED['J_USB'] = _autofit_edge_anchor(
     'J_USB', 'Connector_USB:USB_C_Receptacle_GCT_USB4105-xx-A_16P_TopMnt_Horizontal', 42, 90
 )
 
-# Relay field terminals live on the bottom contact edge.
 for old, x in (('J_RLY1', 20), ('J_RLY2', 52), ('J_RLY3', 84), ('J_RLY4', 116)):
     b.FIXED[old] = _autofit_bottom_anchor(old, x)
 
-# Service row is the opposite edge. This covers mandatory power, dual RS485 and
-# HMI plus optional RS232/DI so DNP features cannot silently make the board
-# mechanically impossible when the Full variant is populated.
 for old, x in (
     ('J_PWR', 14), ('J_RS485A', 37), ('J_RS485B', 59),
-    ('J_HMI', 83), ('J_RS232', 101), ('J_DI', 122),
+    ('J_HMI', 83), ('J_RS232', 101),
 ):
     b.FIXED[old] = _autofit_top_anchor(old, x)
+
+# J_DI is optional and wider than the other service connectors. It must fit the
+# Full population without growing the board solely for a DNP option, so search
+# nearby X as well as Y. The actual fixed-anchor collision pass in b.main still
+# rejects any overlap with mandatory connectors or internal blocks.
+b.FIXED['J_DI'] = _autofit_top_anchor('J_DI', 122, allow_x_search=True)
 
 b.try_position = _try_position
 
