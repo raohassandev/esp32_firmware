@@ -76,7 +76,7 @@ jobs:
           distribution: temurin
           java-version: '25'
 
-      - name: Route all PCB connections with fallback strategies
+      - name: Route all PCB connections with critical Ethernet pre-route
         run: |
           set -euo pipefail
           PCB='hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb'
@@ -84,6 +84,7 @@ jobs:
           DSN='hardware/kicad/Automatrix_PVDG_RevA.dsn'
           SES='hardware/kicad/Automatrix_PVDG_RevA.ses'
           KPY="docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $PWD:/work -w /work kicad/kicad:10.0.5 python3"
+          $KPY hardware/kicad/tools/pre_route_critical_nets.py "$PCB" | tee -a hardware/kicad/placement.log
           cp "$PCB" "$PLACED"
           $KPY hardware/kicad/tools/route_reva_freerouting.py export "$PLACED" "$DSN"
           curl -fL --retry 3 --retry-delay 2 -o /tmp/freerouting.jar \
@@ -95,11 +96,11 @@ jobs:
             cp "$PLACED" "$PCB"
             case "$attempt" in
               1) OPTS='-mp 60 -mt 2 -is prioritized -us greedy' ;;
-              2) OPTS='-mp 120 -mt 4 -oit 0 -is random -us global' ;;
-              3) OPTS='-mp 160 -mt 6 -oit 0 -is sequential -us hybrid -hr 1:1' ;;
+              2) OPTS='-mp 100 -mt 3 -oit 0 -is random -us global' ;;
+              3) OPTS='-mp 120 -mt 3 -oit 0 -is sequential -us hybrid' ;;
             esac
             echo "=== FREEROUTING ATTEMPT $attempt: $OPTS ===" | tee -a hardware/kicad/freerouting.log
-            timeout 540s java -Xmx5g -jar /tmp/freerouting.jar --gui.enabled=false \
+            timeout 240s java -Xmx5g -jar /tmp/freerouting.jar --gui.enabled=false \
               -de "$DSN" -do "$OUT" $OPTS 2>&1 | tee -a hardware/kicad/freerouting.log
             test -s "$OUT"
             $KPY hardware/kicad/tools/route_reva_freerouting.py import "$PCB" "$OUT"
