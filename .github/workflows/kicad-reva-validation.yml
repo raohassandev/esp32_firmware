@@ -15,7 +15,7 @@ on:
       - '.github/workflows/kicad-reva-validation.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   kicad-parse-and-erc:
@@ -30,6 +30,13 @@ jobs:
           KICAD='/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli'
           test -x "$KICAD"
           "$KICAD" version --format about
+
+      - name: Generate controlled schematic
+        run: |
+          set -euo pipefail
+          python3 hardware/kicad/tools/generate_reva_schematic.py
+          test -s hardware/kicad/Automatrix_PVDG_RevA.kicad_sch
+          echo "Generated schematic bytes: $(wc -c < hardware/kicad/Automatrix_PVDG_RevA.kicad_sch)"
 
       - name: Probe KiCad scripting environment
         run: |
@@ -53,11 +60,7 @@ jobs:
           KICAD='/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli'
           TMP="$(mktemp -d)"
           cp hardware/kicad/tools/legacy_probe.sch "$TMP/legacy_probe.sch"
-          echo '=== before ==='
-          ls -la "$TMP"
           "$KICAD" sch upgrade "$TMP/legacy_probe.sch"
-          echo '=== after ==='
-          ls -la "$TMP"
           find "$TMP" -maxdepth 1 -type f -print
 
       - name: Project syntax and schematic ERC
@@ -76,6 +79,20 @@ jobs:
       - name: Design-control checks
         run: |
           python3 hardware/kicad/tools/validate_design_control.py
+
+      - name: Persist validated native schematic
+        if: github.event_name == 'push' && github.ref_name == 'hardware/kicad-reva-implementation'
+        run: |
+          set -euo pipefail
+          git add hardware/kicad/Automatrix_PVDG_RevA.kicad_sch
+          if git diff --cached --quiet; then
+            echo 'Native schematic already current.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'hw: persist KiCad-validated Rev-A schematic'
+          git push origin HEAD:hardware/kicad-reva-implementation
 
       - name: Upload KiCad validation evidence
         uses: actions/upload-artifact@v4
