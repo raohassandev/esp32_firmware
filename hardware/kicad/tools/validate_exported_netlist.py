@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Independently prove critical physical pin-to-net mappings from KiCad export."""
 from pathlib import Path
+import json
 import re
 
-NETLIST = Path(__file__).resolve().parents[1] / "Automatrix_PVDG_RevA.net"
+ROOT = Path(__file__).resolve().parents[1]
+NETLIST = ROOT / "Automatrix_PVDG_RevA.net"
+REF_MAP = json.loads((ROOT / "REFERENCE_MAP.json").read_text(encoding="utf-8"))
 text = NETLIST.read_text(encoding="utf-8")
 lines = text.splitlines()
 
@@ -31,11 +34,16 @@ while i < len(lines):
     i += 1
 
 
+def canonical(ref):
+    return REF_MAP.get(ref, ref)
+
+
 def check(ref, expected):
+    cref = canonical(ref)
     for pin, net in expected.items():
-        actual = pin_to_net.get((ref, str(pin)))
+        actual = pin_to_net.get((cref, str(pin)))
         if actual != net:
-            raise SystemExit(f"EXPORTED NETLIST FAIL: {ref} pin {pin}: expected {net!r}, got {actual!r}")
+            raise SystemExit(f"EXPORTED NETLIST FAIL: {ref}->{cref} pin {pin}: expected {net!r}, got {actual!r}")
 
 
 check("U1", {
@@ -66,12 +74,10 @@ for n in range(1,5):
 check("U7", {"1":"RS232_C1P","2":"RS232_VPLUS","3":"RS232_C1M","4":"RS232_C2P","5":"RS232_C2M","6":"RS232_VMINUS","11":"HMI_TX","12":"HMI_RX","13":"HMI_RS232_RX","14":"HMI_RS232_TX","15":"GND","16":"3V3"})
 check("J_RS232", {"1":"GND","2":"HMI_RS232_TX","3":"HMI_RS232_RX"})
 
-# KiCad exports explicit no-connect pins as synthetic pseudo-net names such as
-# `unconnected-(U2-SPDLED-Pad24)`.  Either complete absence from the net table
-# or one of these KiCad-generated pseudo-nets proves the pin is intentionally NC.
 for ref, pin in [("U2","24"),("U2","26"),("J_USB","A8"),("J_USB","B8")]:
-    actual = pin_to_net.get((ref, pin))
+    cref = canonical(ref)
+    actual = pin_to_net.get((cref, pin))
     if actual is not None and not actual.startswith("unconnected-("):
-        raise SystemExit(f"EXPORTED NETLIST FAIL: {ref} pin {pin} must be NC but is on {actual}")
+        raise SystemExit(f"EXPORTED NETLIST FAIL: {ref}->{cref} pin {pin} must be NC but is on {actual}")
 
-print(f"exported physical pin/net audit: PASS ({len(pin_to_net)} connected pins indexed)")
+print(f"exported physical pin/net audit: PASS ({len(pin_to_net)} connected pins indexed; canonical refs applied)")
