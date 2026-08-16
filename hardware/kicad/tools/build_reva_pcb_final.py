@@ -9,8 +9,8 @@ This wrapper owns production-style mechanical fit semantics:
   must remain inside the PCB;
 - relay and service-edge field terminals are auto-fitted from their exact
   KiCad courtyard geometry rather than assumed connector depths;
-- edge connector anchors are auto-fitted against real KiCad pad geometry so a
-  library-origin change cannot silently push solder pads off the fabricated PCB.
+- optional user-accessible connectors are fitted against the complete fixed
+  anchor set so DNP/full-population variants cannot silently collide.
 """
 import pcbnew
 import build_reva_pcb as b
@@ -129,7 +129,6 @@ def _autofit_bottom_anchor(old, x, rotation=180):
 
 
 def _x_candidates(preferred_x, span=24.0, step=0.5):
-    """Try the requested X first, then walk left/right symmetrically."""
     yield float(preferred_x)
     delta = step
     while delta <= span + 1e-9:
@@ -139,7 +138,6 @@ def _x_candidates(preferred_x, span=24.0, step=0.5):
 
 
 def _autofit_top_anchor(old, x, rotation=0, allow_x_search=False):
-    """Fit a service connector from its exact courtyard; optional wide parts may search X too."""
     fp_id = _footprint_id_for_semantic(old)
     fp = b.load_fp(fp_id)
     fp.SetReference('TMP')
@@ -166,6 +164,55 @@ def _autofit_top_anchor(old, x, rotation=0, allow_x_search=False):
     )
 
 
+def _fixed_obstacles(exclude_old):
+    """Instantiate current fixed anchors as geometry-only obstacles."""
+    out = []
+    for other_old, (x, y, rot) in b.FIXED.items():
+        if other_old == exclude_old:
+            continue
+        try:
+            fp_id = _footprint_id_for_semantic(other_old)
+            fp = b.load_fp(fp_id)
+        except Exception:
+            continue
+        fp.SetReference('TMP')
+        fp.SetOrientationDegrees(rot)
+        fp.SetPosition(b.mm(x, y))
+        out.append((other_old, _physical_box(fp).GetInflated(pcbnew.FromMM(MECH_CLEARANCE))))
+    return out
+
+
+def _autofit_internal_anchor(old, preferred_x, preferred_y, rotation, bounds, step=0.5):
+    """Find a board-safe, fixed-anchor-safe position inside a functional window."""
+    fp_id = _footprint_id_for_semantic(old)
+    fp = b.load_fp(fp_id)
+    fp.SetReference('TMP')
+    fp.SetOrientationDegrees(rotation)
+    obstacles = _fixed_obstacles(old)
+    xmin, ymin, xmax, ymax = bounds
+
+    candidates = []
+    x = xmin
+    while x <= xmax + 1e-9:
+        y = ymin
+        while y <= ymax + 1e-9:
+            candidates.append((x, y))
+            y += step
+        x += step
+    candidates.sort(key=lambda p: (abs(p[0]-preferred_x)+abs(p[1]-preferred_y), abs(p[1]-preferred_y), abs(p[0]-preferred_x)))
+
+    for x, y in candidates:
+        fp.SetPosition(b.mm(x, y))
+        box = _physical_box(fp).GetInflated(pcbnew.FromMM(MECH_CLEARANCE))
+        if not _inside_board(box, b.EDGE_MARGIN):
+            continue
+        if any(box.Intersects(ob) for _, ob in obstacles):
+            continue
+        print(f'internal anchor {old}: x={x:.1f} y={y:.1f} rot={rotation} fixed-anchor-clear=PASS')
+        return (round(x, 3), round(y, 3), rotation)
+    raise RuntimeError(f'cannot fit internal connector {old} ({fp_id}) inside bounds={bounds}')
+
+
 b.FIXED['J_ETH'] = _autofit_edge_anchor(
     'J_ETH', 'Connector_RJ:RJ45_Cetus_J1B1211CCD_Horizontal', 65, 90
 )
@@ -182,11 +229,14 @@ for old, x in (
 ):
     b.FIXED[old] = _autofit_top_anchor(old, x)
 
-# J_DI is optional and wider than the other service connectors. It must fit the
-# Full population without growing the board solely for a DNP option, so search
-# nearby X as well as Y. The actual fixed-anchor collision pass in b.main still
-# rejects any overlap with mandatory connectors or internal blocks.
 b.FIXED['J_DI'] = _autofit_top_anchor('J_DI', 122, allow_x_search=True)
+
+# microSD is optional but user-accessible. Fit it in its intended right-side
+# functional region while explicitly avoiding W5500, RJ45 and USB fixed anchors.
+b.FIXED['J_SD'] = _autofit_internal_anchor(
+    'J_SD', preferred_x=116, preferred_y=47, rotation=90,
+    bounds=(104, 38, 126, 56), step=0.5,
+)
 
 b.try_position = _try_position
 
