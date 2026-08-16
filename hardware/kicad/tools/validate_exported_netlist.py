@@ -34,8 +34,7 @@ while i < len(lines):
     i += 1
 
 
-def canonical(ref):
-    return REF_MAP.get(ref, ref)
+def canonical(ref): return REF_MAP.get(ref, ref)
 
 
 def check(ref, expected):
@@ -48,12 +47,16 @@ def check(ref, expected):
 
 check("U1", {
     "1":"GND","2":"3V3","3":"ESP_EN","4":"RELAY1_CTL","5":"RELAY2_CTL","6":"RELAY3_CTL","7":"RELAY4_CTL",
-    "8":"HMI_TX","9":"RS485B_DE","10":"RS485B_TX","11":"RS485B_RX","12":"ETH_RST","13":"USB_D-","14":"USB_D+",
+    "8":"HMI_TX","9":"RS485B_DE","10":"RS485B_TX","11":"RS485B_RX","12":"ETH_RST","13":"USB_D-_MCU","14":"USB_D+_MCU",
     "17":"ETH_INT","18":"ETH_CS","19":"ETH_MOSI","20":"ETH_SCLK","21":"ETH_MISO","22":"HMI_RX",
     "24":"DI3_LOGIC","25":"DI4_LOGIC","27":"ESP_BOOT","28":"STATUS_LED_CTL","29":"SD_CS","30":"SD_MISO",
     "31":"RTC_SDA","32":"RTC_SCL","33":"SD_SCLK","34":"SD_MOSI","35":"RS485A_DE","36":"RS485A_RX","37":"RS485A_TX",
     "38":"DI2_LOGIC","39":"DI1_LOGIC","40":"GND","41":"GND",
 })
+check("R_MCU_DM_SER", {"1":"USB_D-_MCU","2":"USB_D-"})
+check("R_MCU_DP_SER", {"1":"USB_D+_MCU","2":"USB_D+"})
+check("C_MCU_DM_USB", {"1":"USB_D-_MCU","2":"GND"})
+check("C_MCU_DP_USB", {"1":"USB_D+_MCU","2":"GND"})
 check("U2", {
     "1":"ETH_TXN","2":"ETH_TXP","3":"GND","4":"3V3","5":"ETH_RXN","6":"ETH_RXP","8":"3V3","9":"GND",
     "10":"ETH_EXRES","11":"3V3","14":"GND","15":"3V3","16":"GND","17":"3V3","19":"GND","20":"ETH_TOCAP",
