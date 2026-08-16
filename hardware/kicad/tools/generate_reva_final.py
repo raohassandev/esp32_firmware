@@ -15,6 +15,16 @@ import generate_reva_schematic as g
 
 ROOT = Path(__file__).resolve().parents[1]
 
+# The compressed legacy manifest did not need a generic resistor symbol because
+# its original resistors used purpose-specific symbols. Rev-A USB SI tuning
+# parts are ordinary two-pin resistors, so define the minimal project-local
+# symbol explicitly and keep the generator self-contained.
+g.DEFS.setdefault("RES", {
+    "prefix": "R",
+    "description": "Resistor",
+    "pins": [["1", "1"], ["2", "2"]],
+})
+
 
 def comp(ref):
     return next(c for c in g.COMPS if c["ref"] == ref)
