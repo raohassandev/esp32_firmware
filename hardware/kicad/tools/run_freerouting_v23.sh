@@ -9,6 +9,11 @@ K="docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $PWD:/work -w /work kica
 
 : > hardware/kicad/freerouting.log
 
+# Lock the controlled high-speed and stable known routes at the board minimum
+# before handing the remainder to the generic autorouter.
+$KPY hardware/kicad/tools/pre_route_critical_nets.py "$PCB" | tee -a hardware/kicad/placement.log
+$KPY hardware/kicad/tools/route_reva_stragglers.py "$PCB" | tee -a hardware/kicad/placement.log
+
 # Establish the dedicated L2 reference plane before Specctra export.
 $KPY hardware/kicad/tools/post_route_finalize.py "$PCB"
 $K pcb drc --severity-error --refill-zones --save-board \
@@ -17,8 +22,6 @@ cp "$PCB" "$PLACED"
 $KPY hardware/kicad/tools/route_reva_freerouting.py export "$PLACED" "$DSN"
 python3 hardware/kicad/tools/prepare_dsn_plane_classes.py "$DSN"
 
-# v2.3.0 fixes dedicated power-plane routing, fanout stability and SES endpoint
-# snapping relative to v2.2.4. DSN remains Freerouting's recommended production path.
 curl -fL --retry 3 --retry-delay 2 -o /tmp/freerouting.jar \
   https://github.com/freerouting/freerouting/releases/download/v2.3.0/freerouting-2.3.0.jar
 
@@ -33,7 +36,7 @@ for attempt in 1 2; do
   echo "=== FREEROUTING 2.3 ATTEMPT $attempt limit=${LIMIT}s ===" | tee -a hardware/kicad/freerouting.log
   set +e
   timeout "${LIMIT}s" java -Xmx5g -jar /tmp/freerouting.jar --gui.enabled=false \
-    --router.automatic_neckdown=false \
+    --router.automatic_neckdown=false --router.fanout.enabled=false \
     -de "$DSN" -do "$OUT" -inc GND_PLANE $OPTS 2>&1 | tee -a hardware/kicad/freerouting.log
   ROUTER_RC=${PIPESTATUS[0]}
   set -e
@@ -41,6 +44,10 @@ for attempt in 1 2; do
   [ -s "$OUT" ] || continue
 
   $KPY hardware/kicad/tools/route_reva_freerouting.py import "$PCB" "$OUT"
+  # Freerouting can re-express fixed Specctra traces. Replace those nets with
+  # the deterministic KiCad-native topology before final DRC/SI validation.
+  python3 hardware/kicad/tools/strip_critical_tracks_text.py "$PCB" | tee -a hardware/kicad/freerouting.log
+  $KPY hardware/kicad/tools/restore_controlled_routes.py "$PCB" | tee -a hardware/kicad/freerouting.log
   $KPY hardware/kicad/tools/add_surface_ground.py "$PCB"
   $K pcb drc --severity-error --refill-zones --save-board \
     --output "hardware/kicad/route-attempt-${attempt}-drc.rpt" "$PCB" || true
