@@ -14,7 +14,6 @@ This wrapper owns production-style mechanical fit semantics:
 import pcbnew
 import build_reva_pcb as b
 
-# Revised field-terminal anchors after checking actual KiCad-10 courtyards.
 b.FIXED.update({
     'J_PWR': (14, 87, 0),
     'J_RS485A': (37, 87, 0),
@@ -22,9 +21,8 @@ b.FIXED.update({
     'J_HMI': (83, 87, 0),
     'J_RS232': (101, 87, 0),
     'J_DI': (122, 87, 0),
-    # Edge connector positions are resolved dynamically below.
-    'J_ETH': (132, 65, 90),
-    'J_USB': (137, 42, 90),
+    'J_ETH': (125, 65, 90),
+    'J_USB': (135, 42, 90),
 })
 
 EDGE_OVERHANG = {'J_ETH', 'J_USB'}
@@ -44,7 +42,6 @@ def _merge_pad_boxes(fp):
 
 
 def _physical_box(fp):
-    """Return transformed front-courtyard bbox, falling back to pad geometry."""
     try:
         fp.BuildCourtyardCaches()
         cy = fp.GetCourtyard(pcbnew.F_CrtYd)
@@ -75,8 +72,6 @@ def _try_position(fp, x, y, placed):
     box = _physical_box(fp).GetInflated(pcbnew.FromMM(MECH_CLEARANCE))
 
     if old in EDGE_OVERHANG:
-        # Body/courtyard may extend through the enclosure wall, but copper pads
-        # and drilled pads may not fall off the fabricated PCB.
         pbox = _merge_pad_boxes(fp)
         if pbox is None or not _inside_board(pbox, PAD_EDGE_MARGIN):
             return False
@@ -90,32 +85,22 @@ def _try_position(fp, x, y, placed):
     return True
 
 
-def _edge_anchor_candidates(y, rotation, *, xmin=118.0, xmax=141.0, step=0.5):
-    """Prefer the furthest-right valid position while keeping all pads on PCB."""
-    x = xmax
-    out = []
-    while x >= xmin - 1e-9:
-        out.append((round(x, 3), y, rotation))
-        x -= step
-    return out
-
-
 def _autofit_edge_anchor(old, fp_id, y, rotation):
-    """Resolve a safe anchor from the actual footprint pad geometry."""
+    """Search full board width, preferring the furthest-right valid pad-safe anchor."""
     fp = b.load_fp(fp_id)
     fp.SetReference('TMP')
-    for x, yy, rot in _edge_anchor_candidates(y, rotation):
-        fp.SetOrientationDegrees(rot)
-        fp.SetPosition(b.mm(x, yy))
+    fp.SetOrientationDegrees(rotation)
+    x = b.BOARD_X - 1.0
+    while x >= 10.0:
+        fp.SetPosition(b.mm(x, y))
         pbox = _merge_pad_boxes(fp)
         if pbox is not None and _inside_board(pbox, PAD_EDGE_MARGIN):
-            print(f'edge anchor {old}: x={x:.1f} y={yy:.1f} rot={rot} pads-inside-board=PASS')
-            return (x, yy, rot)
+            print(f'edge anchor {old}: x={x:.1f} y={y:.1f} rot={rotation} pads-inside-board=PASS')
+            return (round(x, 3), y, rotation)
+        x -= 0.5
     raise RuntimeError(f'cannot fit {old} pads inside {b.BOARD_X}x{b.BOARD_Y} mm board')
 
 
-# Resolve the two intentional edge connectors using the exact KiCad footprints
-# selected by the schematic. These IDs are controlled in the Rev-A manifest.
 b.FIXED['J_ETH'] = _autofit_edge_anchor(
     'J_ETH', 'Connector_RJ:RJ45_Hanrun_HR911105A', 65, 90
 )
