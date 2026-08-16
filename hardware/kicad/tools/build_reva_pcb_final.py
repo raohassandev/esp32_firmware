@@ -102,7 +102,7 @@ def _autofit_edge_anchor(old, fp_id, y, rotation):
 
 
 b.FIXED['J_ETH'] = _autofit_edge_anchor(
-    'J_ETH', 'Connector_RJ:RJ45_Hanrun_HR911105A', 65, 90
+    'J_ETH', 'Connector_RJ:RJ45_Cetus_J1B1211CCD_Horizontal', 65, 90
 )
 b.FIXED['J_USB'] = _autofit_edge_anchor(
     'J_USB', 'Connector_USB:USB_C_Receptacle_GCT_USB4105-xx-A_16P_TopMnt_Horizontal', 42, 90
