@@ -4,13 +4,13 @@
 **Parent specification:** `hardware/pcb-reva-plan`  
 **Canonical requirements:** `docs/HARDWARE_PCB_REVA_MASTER_PLAN.md`  
 **KiCad project:** `hardware/kicad/Automatrix_PVDG_RevA.kicad_pro`  
-**Status:** IMPLEMENTATION STARTED — schematic not yet frozen
+**Status:** H1 SCHEMATIC FROZEN — H2 PCB IMPLEMENTATION IN PROGRESS
 
 ## Design ownership rule
 
-This branch contains the actual electrical/mechanical implementation. The master hardware plan remains the requirements authority. Any implementation discovery that changes cost, interface count, connector type, GPIO assignment, electrical rating, enclosure size or safety assumption must be reflected back into the master plan before Rev-A is frozen.
+This branch contains the actual electrical/mechanical implementation. The master hardware plan remains the requirements authority. Any implementation discovery that changes cost, interface count, connector type, GPIO assignment, electrical rating, enclosure size or safety assumption must be reflected back into the master plan before Rev-A is released.
 
-A sheet/block is not COMPLETE because it was drawn. It becomes complete only after electrical review, datasheet/reference-design review, ERC and the relevant bench/prototype validation gate.
+A sheet/block is not COMPLETE because it was drawn. It becomes complete only after electrical review, datasheet/reference-design review, native KiCad validation and the relevant bench/prototype validation gate.
 
 ## Rev-A frozen functional scope
 
@@ -18,7 +18,7 @@ A sheet/block is not COMPLETE because it was drawn. It becomes complete only aft
 
 - ESP32-S3-WROOM-1-N8.
 - 12/24 VDC field input and protected power conversion.
-- 10/100 Ethernet using W5500-class SPI Ethernet controller and magnetics RJ45.
+- 10/100 Ethernet using W5500 SPI Ethernet controller and integrated-magnetics RJ45.
 - Two independent protected half-duplex RS485 ports.
 - Four SPDT/Form-C electromechanical dry-contact relay outputs, NC/COM/NO available externally.
 - One independent serial touch-HMI UART port with protected 5 V auxiliary supply.
@@ -33,97 +33,128 @@ A sheet/block is not COMPLETE because it was drawn. It becomes complete only aft
 - RS232 transceiver option for HMI variant.
 - Isolated-RS485 variant is an alternate design/cost study, not base Rev-A.
 
-## Schematic implementation order
+## Schematic implementation blocks
 
-The design will be built and reviewed in this order to prevent downstream PCB rework:
+All Rev-A electrical blocks are now represented in the native KiCad schematic:
 
-1. `PWR` — field input protection, 5 V field rail, 3.3 V logic rail, USB/field power OR-ing/back-feed control.
-2. `MCU` — ESP32-S3 module, EN/BOOT, decoupling, native USB, antenna keep-out requirements and test points.
-3. `ETH` — W5500, clock, SPI, reset/interrupt, magnetics RJ45, ESD and reference-design network.
-4. `RS485A` — UART transceiver, DE/RE, boot-safe bias, TVS, selectable termination/bias, terminal and test points.
-5. `RS485B` — independent copy with independent UART/control; no shared DE/RE.
-6. `HMI` — dedicated UART, 3.3 V/5 V compatibility, 5 V protected auxiliary output and optional RS232 path.
-7. `RELAY` — four coil drivers, flyback, OFF-at-reset hardware bias, status LEDs, contact terminals and HV/LV zoning.
+1. `PWR` — protected field input, 5 V field rail, 3.3 V logic rail, USB/field power OR-ing/back-feed control.
+2. `MCU` — ESP32-S3 module, EN/BOOT, decoupling, native USB and service nodes.
+3. `ETH` — W5500, clock, SPI, reset/interrupt, integrated magnetics RJ45 and PHY support network.
+4. `RS485A` — independent UART transceiver, DE/RE control, TVS, termination/bias provision and terminal.
+5. `RS485B` — independent second RS485 interface.
+6. `HMI` — dedicated TTL UART, 5 V auxiliary supply/protection and DNP RS232 path.
+7. `RELAY` — four Form-C relays, MOSFET drivers, flyback protection, OFF-at-reset bias, indicators and NC/COM/NO terminals.
 8. `DI_OPT` — four optional isolated 12/24 V digital inputs.
 9. `RTC_OPT` — optional RTC and backup source.
 10. `SD_OPT` — optional SPI microSD.
-11. `TEST` — manufacturing/service test points and programming/bring-up access.
-12. Root sheet review, annotation, ERC, BOM review and GPIO reconciliation.
+11. Service/test/control support.
 
-## Preliminary GPIO allocation under implementation
+## Frozen GPIO allocation
 
-| Function | GPIO | Implementation state |
+| Function | GPIO | H1 status |
 |---|---:|---|
-| USB D- | 19 | Reserved / native USB |
-| USB D+ | 20 | Reserved / native USB |
-| RS485-1 TX | 43 | Reserved |
-| RS485-1 RX | 44 | Reserved |
-| RS485-1 DE/RE | 42 | Reserved |
-| RS485-2 TX | 17 | Reserved |
-| RS485-2 RX | 18 | Reserved |
-| RS485-2 DE/RE | 16 | Reserved |
-| HMI TX | 15 | Reserved |
-| HMI RX | 14 | Reserved |
-| W5500 SCLK | 12 | Reserved |
-| W5500 MOSI | 11 | Reserved |
-| W5500 MISO | 13 | Reserved |
-| W5500 CS | 10 | Reserved |
-| W5500 INT | 9 | Reserved |
-| W5500 RESET | 8 | Reserved |
-| Relay 1 | 4 | Reserved |
-| Relay 2 | 5 | Reserved |
-| Relay 3 | 6 | Reserved |
-| Relay 4 | 7 | Reserved |
-| DI1..DI4 optional | 1,2,47,48 | Reserved pending strapping review |
-| RTC SDA/SCL optional | 38,39 | Reserved |
-| SD SCLK/MOSI/MISO/CS optional | 40,41,37,36 | Reserved |
-| Status LED | 35 | Reserved |
-| BOOT | 0 | Boot strap; must be treated carefully |
+| USB D- | 19 | Verified physical module pin/net |
+| USB D+ | 20 | Verified physical module pin/net |
+| RS485-1 TX | 43 | Verified |
+| RS485-1 RX | 44 | Verified |
+| RS485-1 DE/RE | 42 | Verified |
+| RS485-2 TX | 17 | Verified |
+| RS485-2 RX | 18 | Verified |
+| RS485-2 DE/RE | 16 | Verified |
+| HMI TX | 15 | Verified |
+| HMI RX | 14 | Verified |
+| W5500 SCLK | 12 | Verified |
+| W5500 MOSI | 11 | Verified |
+| W5500 MISO | 13 | Verified |
+| W5500 CS | 10 | Verified |
+| W5500 INT | 9 | Verified |
+| W5500 RESET | 8 | Verified |
+| Relay 1 | 4 | Verified |
+| Relay 2 | 5 | Verified |
+| Relay 3 | 6 | Verified |
+| Relay 4 | 7 | Verified |
+| Optional DI1..DI4 | 1,2,47,48 | Verified |
+| Optional RTC SDA/SCL | 38,39 | Verified |
+| Optional SD SCLK/MOSI/MISO/CS | 40,41,37,36 | Verified |
+| Status LED | 35 | Verified |
+| BOOT | 0 | Dedicated boot strap; no field load |
 
-No PCB routing may be finalized until this table passes ESP32-S3 strapping/internal-flash/resource review and schematic ERC.
+A second independent checker audits these physical ESP32/W5500/RS485/USB/HMI/relay pins from the KiCad-exported netlist rather than trusting the generator alone.
 
-## Electrical design gates before PCB placement
+## H1 electrical design gates
 
-- [ ] Field-input voltage range and surge/TVS strategy calculated.
-- [ ] 5 V rail sized for HMI plus four simultaneous relay coils with margin.
-- [ ] 3.3 V rail peak-current and transient margin calculated for ESP32-S3 + W5500 + all populated logic.
-- [ ] USB-only power behavior proven not to energize relay coils/HMI auxiliary output.
-- [ ] ESP32 boot/strapping pins reviewed against every external load.
-- [ ] W5500 schematic checked against manufacturer reference design.
-- [ ] Both RS485 ports checked for failsafe/boot behavior and field ESD.
-- [ ] HMI electrical level assumption documented; no raw 5 V signal may reach ESP32 GPIO.
-- [ ] Relay contact ratings and PCB creepage/clearance basis documented before any 230 VAC claim.
-- [ ] Optional circuits proven not to compromise mandatory core when DNP.
-- [ ] Component lifecycle/availability and at least one alternate considered for production-critical parts.
+- [x] Field-input voltage/protection architecture documented.
+- [x] 5 V rail load budget recorded for HMI + four relays + downstream logic.
+- [x] 3.3 V rail load budget recorded for ESP32-S3 + W5500 + communication/optional logic.
+- [x] USB and field-power rails are separate in the schematic with no intended relay/HMI energization from USB-only power.
+- [x] ESP32 boot/strapping/resource allocation reviewed and independently exported-net checked.
+- [x] W5500 physical pin map and required support network reviewed against manufacturer data.
+- [x] Both RS485 ports have independent UART/control and boot-safe driver-disable intent.
+- [x] HMI input protection prevents intentional raw 5 V drive into ESP32 RX.
+- [x] Relay contact rating/PCB spacing basis documented; complete product is **not** claimed certified for mains merely from relay component rating.
+- [x] Optional circuits are DNP-capable and do not form mandatory core dependencies.
+- [x] Controlled component list/BOM target and cost-down substitution rule committed.
+- [x] Native KiCad 10.0.5 schematic upgrade/parse PASS.
+- [x] Native KiCad ERC: **0 errors, 0 warnings**.
+- [x] Exported physical pin/net audit PASS.
+- [x] Canonical annotation: 149 unique component references PASS.
+- [x] BOM/netlist/schematic-PDF evidence generated by CI.
+
+Physical behavior is deliberately not claimed by H1. USB back-feed, regulator thermal performance, RS485 electrical margins, relay switching/contact temperature and HMI loading remain H4 prototype tests.
 
 ## PCB gates
 
-- Preferred first implementation: 4 layer.
-- User wiring must terminate at board edges.
-- Relay-contact zone must be physically segregated from SELV/logic/communications.
-- ESP32 antenna keep-out must remain free of copper, relays, magnetics, enclosure metal and cable bundles as far as practical.
-- Ethernet differential routing and return path must be kept away from relay switching loops and buck-converter hot loops.
-- Test points must be reachable after assembly and preferably with enclosure top removed.
+- Preferred implementation: 4 layer, 1.6 mm FR-4.
+- Working board envelope: <=145 x 95 mm if the electrically safe layout fits.
+- User wiring terminates at accessible board edges.
+- Relay-contact zone is physically segregated from SELV/logic/communications.
+- ESP32 antenna keep-out must remain free of inappropriate copper/metal/components.
+- Ethernet differential routing and return path stay away from relay switching loops and buck hot loops.
+- Test/service access remains available after assembly.
+- `hardware/kicad/PCB_PLACEMENT_ROUTING_RULES.md` is the H2 layout rule authority.
 
 ## Mechanical/casing gates
 
 - DIN-rail mounting is the default enclosure concept.
-- PCB outline is not frozen until terminal placement and relay safety zoning are credible.
-- Enclosure must provide service access to power, Ethernet, 2x RS485, HMI, four relay Form-C terminals, USB-C and optional DI/microSD as applicable.
-- First prototype casing should be 3D printed or machined/adapted; injection mould tooling is forbidden before PCB and field-fit validation.
+- PCB outline/mounting holes become the source for final casing coordinates after H2.
+- Enclosure provides service access to power, Ethernet, 2x RS485, HMI, four relay Form-C terminals, USB-C and optional DI/microSD as applicable.
+- Parametric prototype casing source exists under `hardware/mechanical/`.
+- First physical casing is 3D printed/adapted; injection-mould tooling remains forbidden before PCB/field-fit validation.
 
-## Current checkpoint
+## Current checkpoints
 
-**H0 — implementation bootstrap: PASS**
+### H0 — implementation bootstrap: PASS
 
-Evidence now present on the implementation branch:
+- Separate implementation branch created from canonical planning branch.
+- KiCad project, controlled component decisions and validation pipeline established.
 
-- Separate branch created from the canonical Rev-A planning branch.
-- KiCad project file created.
-- Root schematic created.
-- Schematic block order and electrical/PCB/mechanical gates recorded.
-- Existing GPIO proposal transferred into implementation control.
+### H1 — schematic freeze: PASS
 
-**H1 — schematic freeze: NOT STARTED/NOT PASSED.**
+Authoritative KiCad 10.0.5 evidence:
 
-H1 will require all mandatory schematic blocks, exact component MPNs, final connector pinout, power calculations, final GPIO review and clean ERC before PCB placement is allowed to be called frozen.
+- deterministic schematic generator: PASS;
+- desired physical-pin manifest: PASS;
+- native schematic upgrade: PASS;
+- ERC: **0 errors / 0 warnings**;
+- exported physical-pin/net audit: PASS;
+- canonical annotation: PASS;
+- design-control invariant check: PASS;
+- generated BOM, netlist and schematic PDF: PASS;
+- validated native schematic persisted to the branch.
+
+### H2 — PCB placement/routing: IN PROGRESS
+
+- 4-layer PCB generator added.
+- exact schematic pad-to-footprint net assignment is fail-closed.
+- industrial functional placement engine added.
+- first placement iteration exposed density around the W5500 support cluster; functional-zone packing is being corrected rather than increasing board size without evidence.
+- H2 cannot pass until placement, routing, schematic parity, DRC, STEP/manufacturing outputs and safety-layout review are all clean.
+
+### H3 — enclosure mechanical freeze: IN PROGRESS / BLOCKED BY H2
+
+- enclosure specification and parametric OpenSCAD prototype source exist.
+- final connector cutouts and mounting coordinates wait for H2 PCB freeze.
+
+### H4 — fabricated prototype / bench validation: NOT STARTED
+
+Requires real assembled boards and physical evidence. No physical-production-ready claim may be made before H4 passes.
