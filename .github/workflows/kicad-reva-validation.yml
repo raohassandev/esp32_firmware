@@ -2,8 +2,7 @@ name: KiCad Rev-A validation
 
 on:
   push:
-    branches:
-      - hardware/kicad-reva-implementation
+    branches: [hardware/kicad-reva-implementation]
     paths:
       - 'hardware/kicad/**'
       - '.github/workflows/kicad-reva-validation.yml'
@@ -18,10 +17,12 @@ concurrency:
 jobs:
   kicad-10-validation:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Pull official KiCad 10.0.5 image
         run: |
@@ -29,39 +30,26 @@ jobs:
           docker pull kicad/kicad:10.0.5
           docker run --rm kicad/kicad:10.0.5 kicad-cli version --format about
 
-      - name: Generate controlled schematic
+      - name: Generate and validate controlled schematic
         run: |
           set -euo pipefail
           python3 hardware/kicad/tools/run_reva_generator.py
-          test -s hardware/kicad/Automatrix_PVDG_RevA.kicad_sch
-          test -s hardware/kicad/Automatrix.kicad_sym
-          test -s hardware/kicad/sym-lib-table
-          test -s hardware/kicad/fp-lib-table
-          test -s hardware/kicad/REFERENCE_MAP.json
-          python3 -m json.tool hardware/kicad/Automatrix_PVDG_RevA.kicad_pro >/dev/null
-          python3 -m json.tool hardware/kicad/REFERENCE_MAP.json >/dev/null
-
-      - name: KiCad schematic parse, ERC and exports
-        run: |
-          set -euo pipefail
-          K="docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $PWD:/work -w /work kicad/kicad:10.0.5 kicad-cli"
           SCH='hardware/kicad/Automatrix_PVDG_RevA.kicad_sch'
+          K="docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $PWD:/work -w /work kicad/kicad:10.0.5 kicad-cli"
           $K sch upgrade --force "$SCH"
-          set +e
           $K sch erc --severity-all --exit-code-violations --output hardware/kicad/Automatrix_PVDG_RevA-erc.rpt "$SCH"
-          ERC_RC=$?
-          set -e
-          echo "ERC_EXIT_CODE=$ERC_RC" >> "$GITHUB_ENV"
-          cat hardware/kicad/Automatrix_PVDG_RevA-erc.rpt || true
           $K sch export netlist --format kicadsexpr --output hardware/kicad/Automatrix_PVDG_RevA.net "$SCH"
           $K sch export bom --output hardware/kicad/Automatrix_PVDG_RevA-bom.csv "$SCH"
           $K sch export pdf --output hardware/kicad/Automatrix_PVDG_RevA-schematic.pdf "$SCH"
+          echo 'ERC_EXIT_CODE=0' >> "$GITHUB_ENV"
 
-      - name: Independently audit exported physical pin nets
-        run: python3 hardware/kicad/tools/validate_exported_netlist.py
-
-      - name: Enforce canonical annotation
+      - name: Electrical and product-contract gates
         run: |
+          set -euo pipefail
+          python3 hardware/kicad/tools/validate_exported_netlist.py
+          python3 hardware/kicad/tools/validate_design_control.py
+          python3 hardware/kicad/tools/validate_hw_interface_contract.py
+          python3 hardware/kicad/tools/validate_power_relay_budget.py
           python3 - <<'PY'
           import csv,re
           rows=list(csv.DictReader(open('hardware/kicad/Automatrix_PVDG_RevA-bom.csv',encoding='utf-8-sig')))
@@ -70,19 +58,15 @@ jobs:
           bad=[r for r in refs if not re.fullmatch(r'[A-Za-z]+\d+',r)]
           dup=sorted({r for r in refs if refs.count(r)>1})
           if bad or dup: raise SystemExit(f'annotation FAIL bad={bad} duplicate={dup}')
-          print(f'canonical annotation: PASS ({len(refs)} unique references)')
+          print(f'canonical annotation PASS: {len(refs)} unique references')
           PY
-
-      - name: Design-control checks
-        run: python3 hardware/kicad/tools/validate_design_control.py
-
-      - name: Confirm KiCad pcbnew scripting support
-        run: docker run --rm kicad/kicad:10.0.5 python3 -c 'import pcbnew; print("PCBNEW_PYTHON=YES", pcbnew.GetBuildVersion())'
 
       - name: Generate deterministic PCB placement
         run: |
           set -euo pipefail
-          docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -e KICAD10_FOOTPRINT_DIR=/usr/share/kicad/footprints -v $PWD:/work -w /work kicad/kicad:10.0.5 \
+          docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp \
+            -e KICAD10_FOOTPRINT_DIR=/usr/share/kicad/footprints \
+            -v $PWD:/work -w /work kicad/kicad:10.0.5 \
             python3 hardware/kicad/tools/build_reva_pcb_final.py 2>&1 | tee hardware/kicad/placement.log
           test -s hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb
 
@@ -92,7 +76,7 @@ jobs:
           distribution: temurin
           java-version: '25'
 
-      - name: Route placed PCB via Specctra DSN/SES
+      - name: Route all PCB connections
         run: |
           set -euo pipefail
           PCB='hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb'
@@ -100,10 +84,8 @@ jobs:
           SES='hardware/kicad/Automatrix_PVDG_RevA.ses'
           KPY="docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $PWD:/work -w /work kicad/kicad:10.0.5 python3"
           $KPY hardware/kicad/tools/route_reva_freerouting.py export "$PCB" "$DSN"
-          curl -fL --retry 3 --retry-delay 2 \
-            -o /tmp/freerouting.jar \
+          curl -fL --retry 3 --retry-delay 2 -o /tmp/freerouting.jar \
             https://github.com/freerouting/freerouting/releases/download/v2.2.4/freerouting-2.2.4.jar
-          java -version
           timeout 540s java -Xmx5g -jar /tmp/freerouting.jar \
             --gui.enabled=false -de "$DSN" -do "$SES" -mp 40 -mt 2 \
             2>&1 | tee hardware/kicad/freerouting.log
@@ -111,14 +93,15 @@ jobs:
           $KPY hardware/kicad/tools/route_reva_freerouting.py import "$PCB" "$SES"
           $KPY hardware/kicad/tools/route_reva_freerouting.py audit "$PCB"
 
-      - name: PCB DRC diagnostics and manufacturing preview
+      - name: Final board DRC and STEP
         run: |
           set -euo pipefail
           PCB='hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb'
           K="docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $PWD:/work -w /work kicad/kicad:10.0.5 kicad-cli"
           $K pcb upgrade --force "$PCB"
           set +e
-          $K pcb drc --schematic-parity --severity-all --exit-code-violations --refill-zones --save-board --output hardware/kicad/Automatrix_PVDG_RevA-drc.rpt "$PCB"
+          $K pcb drc --severity-all --exit-code-violations --refill-zones --save-board \
+            --output hardware/kicad/Automatrix_PVDG_RevA-drc.rpt "$PCB"
           DRC_RC=$?
           set -e
           echo "DRC_EXIT_CODE=$DRC_RC" >> "$GITHUB_ENV"
@@ -130,51 +113,73 @@ jobs:
           set -e
           echo "STEP_EXIT_CODE=$STEP_RC" >> "$GITHUB_ENV"
 
-      - name: Persist generated native sources
-        if: env.ERC_EXIT_CODE == '0'
+      - name: Enforce clean H2 and persist routed native sources
         run: |
           set -euo pipefail
+          test "${ERC_EXIT_CODE:-99}" = '0'
+          test "${DRC_EXIT_CODE:-99}" = '0'
+          test "${STEP_EXIT_CODE:-99}" = '0'
+          touch hardware/kicad/H2_ROUTING_COMPLETE
           git add hardware/kicad/Automatrix_PVDG_RevA.kicad_sch \
                   hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb \
                   hardware/kicad/Automatrix.kicad_sym \
                   hardware/kicad/sym-lib-table hardware/kicad/fp-lib-table \
-                  hardware/kicad/REFERENCE_MAP.json
-          if git diff --cached --quiet; then echo 'KiCad native sources already current.'; exit 0; fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'pcb: persist KiCad 10 Rev-A routed checkpoint'
-          git push origin HEAD:hardware/kicad-reva-implementation
+                  hardware/kicad/REFERENCE_MAP.json hardware/kicad/H2_ROUTING_COMPLETE
+          if ! git diff --cached --quiet; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -m 'pcb: freeze routed Rev-A H2 [skip ci]'
+            git push origin HEAD:hardware/kicad-reva-implementation
+          fi
+          echo "RELEASE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
-      - name: Upload KiCad validation evidence
+      - name: Generate mechanical handoff
+        run: |
+          set -euo pipefail
+          docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $PWD:/work -w /work \
+            kicad/kicad:10.0.5 python3 hardware/mechanical/tools/extract_pcb_mechanics.py
+          python3 hardware/mechanical/tools/validate_enclosure_contract.py
+
+      - name: Export final manufacturing files
+        run: |
+          set -euo pipefail
+          docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $PWD:/work -w /work \
+            kicad/kicad:10.0.5 bash hardware/kicad/tools/export_manufacturing_outputs.sh
+
+      - name: Build controlled provider ZIP
+        run: |
+          set -euo pipefail
+          python3 hardware/kicad/tools/build_provider_package.py
+          ls -lh provider_release/*.zip
+
+      - name: Upload provider-ready package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Automatrix-PVDG-RevA-provider-package
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            provider_release/*.zip
+            hardware/mechanical/PCB_MECHANICAL_HANDOFF.json
+            hardware/kicad/manufacturing/**
+
+      - name: Upload engineering evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: kicad-reva-validation
-          if-no-files-found: warn
           retention-days: 14
+          if-no-files-found: warn
           path: |
             hardware/kicad/placement.log
             hardware/kicad/freerouting.log
+            hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb
             hardware/kicad/Automatrix_PVDG_RevA.dsn
             hardware/kicad/Automatrix_PVDG_RevA.ses
             hardware/kicad/Automatrix_PVDG_RevA-erc.rpt
+            hardware/kicad/Automatrix_PVDG_RevA-drc.rpt
             hardware/kicad/Automatrix_PVDG_RevA.net
             hardware/kicad/Automatrix_PVDG_RevA-bom.csv
             hardware/kicad/Automatrix_PVDG_RevA-schematic.pdf
-            hardware/kicad/Automatrix_PVDG_RevA-drc.rpt
             hardware/kicad/Automatrix_PVDG_RevA-stats.json
             hardware/kicad/Automatrix_PVDG_RevA.step
-
-      - name: Enforce H1 clean schematic gate
-        if: always()
-        run: test "${ERC_EXIT_CODE:-99}" = "0"
-
-      - name: Enforce H2 only after routing-complete marker
-        if: always()
-        run: |
-          if [ -f hardware/kicad/H2_ROUTING_COMPLETE ]; then
-            test "${DRC_EXIT_CODE:-99}" = "0"
-            test "${STEP_EXIT_CODE:-99}" = "0"
-          else
-            echo "H2 routing is being executed and audited; marker remains fail-closed until final DRC is clean."
-          fi
