@@ -45,7 +45,20 @@ jobs:
               print('SYSTEM_PYTHON_PCBNEW=NO', repr(exc))
           PY
           echo '=== KiCad library roots ==='
-          find /Applications/KiCad/KiCad.app/Contents/SharedSupport -maxdepth 3 -type d \( -name '*.pretty' -o -name 'symbols' \) 2>/dev/null | head -20 || true
+          find /Applications/KiCad/KiCad.app/Contents/SharedSupport -maxdepth 4 -type d \( -name '*.pretty' -o -name 'symbols' \) 2>/dev/null | head -30 || true
+
+      - name: Probe legacy schematic upgrade behavior
+        run: |
+          set -euo pipefail
+          KICAD='/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli'
+          TMP="$(mktemp -d)"
+          cp hardware/kicad/tools/legacy_probe.sch "$TMP/legacy_probe.sch"
+          echo '=== before ==='
+          ls -la "$TMP"
+          "$KICAD" sch upgrade "$TMP/legacy_probe.sch"
+          echo '=== after ==='
+          ls -la "$TMP"
+          find "$TMP" -maxdepth 1 -type f -print
 
       - name: Project syntax and schematic ERC
         run: |
