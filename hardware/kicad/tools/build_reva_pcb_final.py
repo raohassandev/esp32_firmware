@@ -23,7 +23,10 @@ USB_CORRIDORS = (
     (132.0, 40.0, 143.5, 55.0),
 )
 ETH_CORRIDOR = (110.5, 56.0, 134.0, 70.0)
-USB_ALLOWED = {'U1','J_USB','R_MCU_DM_SER','R_MCU_DP_SER','C_MCU_DM_USB','C_MCU_DP_USB'}
+# RJ45 is an edge-mounted mechanical object; its courtyard may overlap the
+# abstract USB corridor rectangle even though its physical body does not. Keep
+# the ordinary physical collision check authoritative for J_ETH.
+USB_ALLOWED = {'U1','J_USB','J_ETH','R_MCU_DM_SER','R_MCU_DP_SER','C_MCU_DM_USB','C_MCU_DP_USB'}
 ETH_ALLOWED = {'U2','J_ETH'}
 
 b.FIXED.clear()
@@ -36,7 +39,6 @@ b.FIXED.update({
     'K1':(20.0,24.0,0), 'K2':(52.0,18.0,0), 'K3':(84.0,18.0,0), 'K4':(116.0,18.0,0),
     'Q1':(13.0,32.0,0), 'Q2':(52.0,35.0,0), 'Q3':(84.0,35.0,0), 'Q4':(109.0,32.0,0),
     'U3':(38.0,78.0,0), 'U4':(60.0,78.0,0),
-    # Proven mechanical anchor from the earlier clean-placement checkpoint.
     'U2':(116.0,64.0,0),
     'R_MCU_DM_SER':(20.0,64.0,0), 'R_MCU_DP_SER':(20.0,66.0,0),
     'C_MCU_DM_USB':(23.0,62.5,0), 'C_MCU_DP_USB':(23.0,67.5,0),
