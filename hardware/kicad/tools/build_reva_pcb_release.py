@@ -11,6 +11,8 @@ import build_reva_pcb as b
 import build_reva_pcb_final as final
 
 BASE_CANDIDATES = final._dense_zone_candidates
+BASE_CLUSTER = b.cluster_for
+SD_SIGNAL_PARTS = {'R_SDCS','R_SDMISO','R_SDMOSI','R_SDSCLK'}
 
 
 def grid(x0, y0, x1, y1, step=1.0):
@@ -25,36 +27,32 @@ def grid(x0, y0, x1, y1, step=1.0):
     return pts
 
 
+def release_cluster(old):
+    # SPI series/pull conditioning belongs on the controller side of the long
+    # MCU-to-socket run. Keeping it with U1 also frees the small edge socket
+    # region for the connector and local decoupling only.
+    if old in SD_SIGNAL_PARTS:
+        return 'U1'
+    return BASE_CLUSTER(old)
+
+
 def release_candidates(anchor_old, base):
     ax=pcbnew.ToMM(base.x); ay=pcbnew.ToMM(base.y)
     pts=list(BASE_CANDIDATES(anchor_old, base))
 
-    # Four isolated DI channels are one optional functional block. Channel-local
-    # tiny rectangles are too restrictive for optocoupler/TVS/resistor support.
     if anchor_old in ('U_DI1','U_DI2','U_DI3','U_DI4'):
         pts.extend(grid(94.0, 70.0, 136.0, 91.0, 1.0))
 
-    # Both RS485 transceivers share one protected field-comms block. Bias,
-    # termination and TVS parts may sit between channels while remaining close
-    # to both transceivers and their top-edge terminal blocks.
     if anchor_old in ('U3','U4'):
         pts.extend(grid(27.0, 69.0, 70.0, 88.0, 1.0))
 
-    # HMI TTL and optional RS232 are one service-interface block. The collision
-    # and corridor rules in the finalizer still protect connectors and routing.
     if anchor_old in ('J_HMI','U7'):
         pts.extend(grid(69.0, 68.0, 103.0, 88.0, 1.0))
 
-    # RTC and microSD are optional low-voltage functions; give each a controlled
-    # spill area rather than ever falling back across the board.
-    if anchor_old == 'U_RTC':
-        pts.extend(grid(72.0, 41.0, 105.0, 54.0, 1.0))
-    if anchor_old == 'J_SD':
-        pts.extend(grid(106.0, 38.0, 132.0, 54.0, 1.0))
+    # RTC + SD socket/decoupling share a compact optional-peripheral block.
+    if anchor_old in ('U_RTC','J_SD'):
+        pts.extend(grid(72.0, 38.0, 132.0, 51.0, 1.0))
 
-    # USB-C CC/ESD support can use the service strip immediately left/below the
-    # connector. _try_position() remains authoritative and rejects any point
-    # that overlaps the locked differential-pair corridor.
     if anchor_old == 'J_USB':
         pts.extend(grid(108.0, 31.0, 142.0, 39.0, 1.0))
         pts.extend(grid(108.0, 40.0, 125.0, 51.0, 1.0))
@@ -64,6 +62,7 @@ def release_candidates(anchor_old, base):
     return pts
 
 
+b.cluster_for = release_cluster
 b.zone_candidates = release_candidates
 b.SLOTS = []
 
