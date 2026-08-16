@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """Finalize Rev-A stack-up after signal routing.
 
-In1.Cu is reserved as the L2 GND reference layer. Three GND polygons cover the
-board while deliberately leaving the MagJack/transformer region unpoured. KiCad
-CLI refills the zones in the following workflow step, so embedded ESP32 antenna
-keepouts and footprint clearances remain authoritative.
+In1.Cu is the dedicated L2 GND reference. A single concave GND polygon covers
+all low-voltage board area while carving a deliberate no-plane notch under the
+integrated MagJack magnetics. One polygon avoids same-net zone intersections
+that KiCad correctly flags when multiple touching rectangles share a priority.
 """
 from pathlib import Path
 import sys
 import pcbnew
 
 EDGE = 0.50
-# Leave an intentional no-plane window beneath/around the integrated magnetics.
+BOARD_X = 145.0
+BOARD_Y = 95.0
 MAGJACK_X0 = 127.0
 MAGJACK_Y0 = 55.5
 MAGJACK_Y1 = 74.5
@@ -28,12 +29,21 @@ def gnd_netcode(board):
     raise RuntimeError('GND netcode not found')
 
 
-def add_rect_zone(board, layer, netcode, rect):
-    x0,y0,x1,y1=rect
+def add_notched_zone(board, layer, netcode):
     z=pcbnew.ZONE(board)
     z.SetLayer(layer)
     z.SetNetCode(netcode)
-    for x,y in ((x0,y0),(x1,y0),(x1,y1),(x0,y1)):
+    outline=(
+        (EDGE,EDGE),
+        (BOARD_X-EDGE,EDGE),
+        (BOARD_X-EDGE,MAGJACK_Y0),
+        (MAGJACK_X0,MAGJACK_Y0),
+        (MAGJACK_X0,MAGJACK_Y1),
+        (BOARD_X-EDGE,MAGJACK_Y1),
+        (BOARD_X-EDGE,BOARD_Y-EDGE),
+        (EDGE,BOARD_Y-EDGE),
+    )
+    for x,y in outline:
         if not z.AppendCorner(pt(x,y),-1):
             raise RuntimeError(f'failed to append GND-zone corner {(x,y)}')
     board.Add(z)
@@ -47,19 +57,12 @@ def main(board_path):
     layer=board.GetLayerID('In1.Cu')
     if layer < 0: raise SystemExit('In1.Cu layer missing')
 
-    # Fail closed if any routed signal segment leaked onto the reference layer.
     bad=[t for t in board.GetTracks() if not isinstance(t,pcbnew.PCB_VIA) and t.GetLayer()==layer]
     if bad: raise SystemExit(f'cannot create L2 GND reference: {len(bad)} In1.Cu signal tracks present')
 
-    netcode=gnd_netcode(board)
-    zones=[
-        (EDGE,EDGE,MAGJACK_X0,95.0-EDGE),
-        (MAGJACK_X0,EDGE,145.0-EDGE,MAGJACK_Y0),
-        (MAGJACK_X0,MAGJACK_Y1,145.0-EDGE,95.0-EDGE),
-    ]
-    for rect in zones: add_rect_zone(board,layer,netcode,rect)
+    add_notched_zone(board,layer,gnd_netcode(board))
     pcbnew.SaveBoard(str(path),board)
-    print(f'L2_GND_ZONE_GEOMETRY_PASS: zones={len(zones)} MagJack_window=({MAGJACK_X0},{MAGJACK_Y0})-({145.0},{MAGJACK_Y1})')
+    print(f'L2_GND_ZONE_GEOMETRY_PASS: zones=1 notched MagJack_window=({MAGJACK_X0},{MAGJACK_Y0})-({BOARD_X},{MAGJACK_Y1})')
 
 
 if __name__=='__main__':
