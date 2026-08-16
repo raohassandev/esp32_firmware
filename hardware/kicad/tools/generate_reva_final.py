@@ -27,6 +27,16 @@ def desired_pin_net_map(c):
     return {str(pin[0]): net for pin, net in zip(pins, c["nets"])}
 
 
+def set_desired_pin(ref, pin, net):
+    c = comp(ref)
+    pins = g.DEFS[c["sym"]]["pins"]
+    for idx, p in enumerate(pins):
+        if str(p[0]) == str(pin):
+            c["nets"][idx] = net
+            return
+    raise ValueError(f"{ref}: physical pin {pin} not present")
+
+
 def require(ref, pin, net):
     actual = desired_pin_net_map(comp(ref)).get(str(pin))
     if actual != net:
@@ -35,7 +45,7 @@ def require(ref, pin, net):
 
 # ---------------------------------------------------------------------------
 # Complete the USB-C symbol using the actual GCT USB4105 16-contact footprint
-# pad names.  SBU pads are explicitly unused; shell is chassis/shield.
+# pad names. SBU pads are explicitly unused; shell is chassis/shield.
 # ---------------------------------------------------------------------------
 g.DEFS["USB_C"]["pins"] = [
     ["A1", "GND_A1"], ["A4", "VBUS_A4"], ["A5", "CC1"], ["A6", "D+_A6"],
@@ -50,14 +60,28 @@ comp("J_USB")["nets"] = [
     "CHASSIS",
 ]
 
-# W5500 MagJack uses LINK/ACT LEDs only.  Speed and duplex indicator pins are
+# ESP32-S3 USB guidelines recommend reserving 22/33-ohm series resistors and
+# shunt-cap footprints close to the MCU. Split the MCU-side nets so the series
+# parts are electrically real rather than decorative footprints. Capacitors are
+# DNP by default and can be tuned only if prototype SI/EMC testing requires it.
+set_desired_pin("U1", "13", "USB_D-_MCU")
+set_desired_pin("U1", "14", "USB_D+_MCU")
+if not any(c["ref"] == "R_MCU_DM_SER" for c in g.COMPS):
+    g.COMPS.extend([
+        {"ref":"R_MCU_DM_SER","sym":"RES","value":"27R","footprint":"Resistor_SMD:R_0603_1608Metric","datasheet":"","dnp":False,"x":145,"y":135,"nets":["USB_D-_MCU","USB_D-"]},
+        {"ref":"R_MCU_DP_SER","sym":"RES","value":"27R","footprint":"Resistor_SMD:R_0603_1608Metric","datasheet":"","dnp":False,"x":145,"y":145,"nets":["USB_D+_MCU","USB_D+"]},
+        {"ref":"C_MCU_DM_USB","sym":"CAP","value":"22pF DNP","footprint":"Capacitor_SMD:C_0603_1608Metric","datasheet":"","dnp":True,"x":160,"y":135,"nets":["USB_D-_MCU","GND"]},
+        {"ref":"C_MCU_DP_USB","sym":"CAP","value":"22pF DNP","footprint":"Capacitor_SMD:C_0603_1608Metric","datasheet":"","dnp":True,"x":160,"y":145,"nets":["USB_D+_MCU","GND"]},
+    ])
+
+# W5500 MagJack uses LINK/ACT LEDs only. Speed and duplex indicator pins are
 # deliberately no-connect in base Rev-A instead of creating isolated nets.
 u2 = comp("U2")
 u2["nets"][23] = None  # physical pin 24 SPDLED
 u2["nets"][25] = None  # physical pin 26 DUPLED
 
 # ---------------------------------------------------------------------------
-# Complete optional RS232 HMI provision.  DNP in base BOM.
+# Complete optional RS232 HMI provision. DNP in base BOM.
 # MAX3232 charge-pump pins may not float merely because the option is DNP.
 # ---------------------------------------------------------------------------
 u7 = comp("U7")
@@ -78,13 +102,13 @@ if not any(c["ref"] == "J_RS232" for c in g.COMPS):
     ])
 
 
-# Desired physical-pad assertions.  This is intentionally independent from the
+# Desired physical-pad assertions. This is intentionally independent from the
 # connection-order compensation used by g.connections().
 def validate_desired_pinout():
     expected_u1 = {
         "1":"GND","2":"3V3","3":"ESP_EN","4":"RELAY1_CTL","5":"RELAY2_CTL",
         "6":"RELAY3_CTL","7":"RELAY4_CTL","8":"HMI_TX","9":"RS485B_DE",
-        "10":"RS485B_TX","11":"RS485B_RX","12":"ETH_RST","13":"USB_D-","14":"USB_D+",
+        "10":"RS485B_TX","11":"RS485B_RX","12":"ETH_RST","13":"USB_D-_MCU","14":"USB_D+_MCU",
         "17":"ETH_INT","18":"ETH_CS","19":"ETH_MOSI","20":"ETH_SCLK","21":"ETH_MISO",
         "22":"HMI_RX","24":"DI3_LOGIC","25":"DI4_LOGIC","27":"ESP_BOOT",
         "28":"STATUS_LED_CTL","29":"SD_CS","30":"SD_MISO","31":"RTC_SDA","32":"RTC_SCL",
@@ -144,7 +168,7 @@ def write_fp_lib_table():
 def main():
     g.main()
     write_fp_lib_table()
-    print("Rev-A final generator additions: USB-C physical pads, RS232 option, project footprint table")
+    print("Rev-A final generator additions: USB-C physical pads, ESP32 USB SI parts, RS232 option, project footprint table")
 
 
 if __name__ == "__main__":
