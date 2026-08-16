@@ -184,15 +184,23 @@ b.ZONE_BOUNDS.update({
     'J_SD':(108,40,131,50.8), 'J_USB':(126,31,143,50.8),
 })
 
+POWER5 = {
+    'D_OR_USB','D_OR_FIELD','DTVS1','DZREV','F1','L1','QREV','RREV',
+    'CIN1','CIN2','CINB','COUT1','COUT2','COUT3',
+    'C_BOOT1','C_COMP','C_COMP_HF','C_EN',
+    'R_COMP','R_EN1','R_EN2','R_FB1','R_FB2','R_RT',
+}
+POWER3V3 = {
+    'L2','C3_BOOT','C3_FB','C3_IN1','C3_IN2','C3_OUT1','C3_OUT2',
+}
+
 _ORIGINAL_CLUSTER = b.cluster_for
 
 def _cluster_for_final(old):
     u=old.upper()
-    # USB/field ideal-diode OR parts belong to the 5 V power architecture, not
-    # the USB data/ESD connector cluster.
-    if old in ('D_OR_USB','D_OR_FIELD') or '_OR_USB' in u or '_OR_FIELD' in u:
+    if old in POWER5 or '_OR_USB' in u or '_OR_FIELD' in u:
         return 'U5'
-    if old.startswith('C3_') or 'BUCK3' in u or old=='L2':
+    if old in POWER3V3 or old.startswith('C3_') or 'BUCK3' in u:
         return 'U6'
     for n in range(1,5):
         if re.search(rf'(FLY|LED|_G|_PD){n}(?:\D|$)',u):
@@ -200,15 +208,26 @@ def _cluster_for_final(old):
     return _ORIGINAL_CLUSTER(old)
 
 
+def _grid_rect(xmin,ymin,xmax,ymax,step=1.0):
+    pts=[]; x=xmin
+    while x<=xmax+1e-6:
+        y=ymin
+        while y<=ymax+1e-6:
+            pts.append((x,y)); y+=step
+        x+=step
+    return pts
+
+
 def _dense_zone_candidates(anchor_old,base):
     ax=pcbnew.ToMM(base.x); ay=pcbnew.ToMM(base.y)
     xmin,ymin,xmax,ymax=b.ZONE_BOUNDS.get(anchor_old,(3,30,b.BOARD_X-3,b.BOARD_Y-3))
     step=1.0 if anchor_old in ('U1','U2','U5','U6','U7','U_RTC','U_DI1','U_DI2','U_DI3','U_DI4','Q1','Q2','Q3','Q4') else 1.5
-    pts=[]; x=xmin
-    while x<=xmax+1e-6:
-        y=ymin
-        while y<=ymax+1e-6: pts.append((x,y)); y+=step
-        x+=step
+    pts=_grid_rect(xmin,ymin,xmax,ymax,step)
+    # Secondary power reserve gives bulky 5V input/output parts controlled room
+    # without allowing them into the relay-contact side or USB data corridor.
+    if anchor_old=='U5':
+        pts.extend(_grid_rect(31.0,55.5,45.5,68.0,1.0))
+    pts=list(dict.fromkeys((round(x,3),round(y,3)) for x,y in pts))
     pts.sort(key=lambda p:(abs(p[0]-ax)+abs(p[1]-ay),abs(p[1]-ay),abs(p[0]-ax),p[1],p[0]))
     return pts
 
