@@ -7,12 +7,6 @@ on:
     paths:
       - 'hardware/kicad/**'
       - '.github/workflows/kicad-reva-validation.yml'
-  pull_request:
-    branches:
-      - hardware/pcb-reva-plan
-    paths:
-      - 'hardware/kicad/**'
-      - '.github/workflows/kicad-reva-validation.yml'
 
 permissions:
   contents: write
@@ -85,7 +79,6 @@ jobs:
           python3 hardware/kicad/tools/validate_design_control.py
 
       - name: Persist validated native schematic
-        if: github.event_name == 'push' && github.ref_name == 'hardware/kicad-reva-implementation'
         run: |
           set -euo pipefail
           git add hardware/kicad/Automatrix_PVDG_RevA.kicad_sch
