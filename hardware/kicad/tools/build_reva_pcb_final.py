@@ -49,13 +49,6 @@ def _physical_box(fp):
 
 
 def _rf_body_box(fp):
-    """Approximate solid WROOM module body from copper-pad envelope.
-
-    WROOM side/bottom pads track the metal-can/module envelope closely. The
-    antenna end intentionally extends beyond the pad envelope and is handled as
-    RF keepout rather than a solid obstacle. A 2 mm body margin is conservative
-    for mechanical collision while still allowing the antenna end at the edge.
-    """
     pbox=_merge_pad_boxes(fp)
     if pbox is None: return fp.GetBoundingBox()
     return pbox.GetInflated(pcbnew.FromMM(RF_BODY_MARGIN))
@@ -81,6 +74,11 @@ def _hits_mount_keepout(box):
     return False
 
 
+def _is_mounting_hole(old,fp):
+    ref=fp.GetReference() or ''
+    return old.startswith('H') or ref.startswith('H') or 'MountingHole' in fp.GetFPIDAsString()
+
+
 def _try_position(fp,x,y,placed):
     fp.SetPosition(b.mm(x,y))
     old=b.INV_REF.get(fp.GetReference(),fp.GetReference())
@@ -89,7 +87,10 @@ def _try_position(fp,x,y,placed):
         pbox=_merge_pad_boxes(fp)
         if pbox is None or not _inside_board(pbox,PAD_EDGE_MARGIN): return False
     elif not _inside_board(box,b.EDGE_MARGIN): return False
-    if _hits_mount_keepout(box): return False
+    # Mounting-hole footprints are the reserved keepout centers themselves.
+    # Other footprints must avoid these circles; the holes must not reject
+    # themselves for occupying their own reserved keepout.
+    if not _is_mounting_hole(old,fp) and _hits_mount_keepout(box): return False
     for other in placed:
         oold=b.INV_REF.get(other.GetReference(),other.GetReference())
         if box.Intersects(_collision_box(other,oold)): return False
@@ -115,7 +116,6 @@ def _fixed_obstacle_boxes(exclude=None):
 def _autofit_esp32_rf_edge():
     fp=b.load_fp(_footprint_id('U1')); fp.SetReference('TMP')
     obstacles=_fixed_obstacle_boxes('U1')
-    # Print geometry once so future enclosure/antenna changes are evidence-based.
     fp.SetOrientationDegrees(0); fp.SetPosition(b.mm(50,50))
     pbox=_merge_pad_boxes(fp); cbox=_physical_box(fp)
     print('ESP32 geometry: pads=%.1fx%.1fmm courtyard=%.1fx%.1fmm' % (
