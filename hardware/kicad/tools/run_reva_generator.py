@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """Stable CI entrypoint for Rev-A generator composition.
 
-Applies KiCad-10 library compatibility, collision-free layout, and canonical
-annotation before the native generator runs. Electrical meaning remains in the
-controlled manifest/final wrapper; semantic references are preserved through a
-committed old->canonical mapping for auditability.
+Applies the production electrical wrappers, KiCad-10 library compatibility,
+collision-free layout, and canonical annotation before the native generator
+runs. Electrical meaning remains in the controlled generator wrappers; semantic
+references are preserved through a committed old->canonical mapping.
 """
 import json
 import re
 from pathlib import Path
-import generate_reva_final as final
+import generate_reva_reference_fix as final
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -48,9 +48,8 @@ final.g.generate_schematic = _a0_schematic
 # Validate all safety-critical semantic references BEFORE annotation changes.
 final.validate_desired_pinout()
 
-# Canonicalize references for KiCad/manufacturing output.  Existing already-
-# canonical refs (U1, K1, Q1, etc.) keep their numbers. Semantic refs such as
-# J_HMI or R_RS485A_TERM get the next unused number of their prefix.
+# Canonicalize references for KiCad/manufacturing output. Existing already-
+# canonical refs keep their numbers. Semantic refs get the next unused number.
 used_numbers = {}
 for c in final.g.COMPS:
     m = re.fullmatch(r"([A-Za-z]+)(\d+)", c["ref"])
@@ -82,8 +81,7 @@ for c in final.g.COMPS:
     json.dumps(ref_map, indent=2, sort_keys=True) + "\n", encoding="utf-8"
 )
 
-# The semantic physical-pin audit already ran against the unmodified references;
-# avoid rerunning it after annotation has deliberately renamed those references.
+# The semantic physical-pin audit already ran against unmodified references.
 final.g.validate_critical_pinout = lambda: print("desired physical pin manifest: PASS (pre-annotation)")
 
 if __name__ == "__main__":
