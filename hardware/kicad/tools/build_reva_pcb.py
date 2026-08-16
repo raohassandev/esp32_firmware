@@ -8,7 +8,7 @@ Python environment.
 """
 from __future__ import annotations
 from pathlib import Path
-from collections import defaultdict, deque
+from collections import defaultdict
 import json, os, re, sys
 import pcbnew
 
@@ -21,6 +21,8 @@ FP_ROOT = Path(os.environ.get("KICAD10_FOOTPRINT_DIR", "/usr/share/kicad/footpri
 
 BOARD_X = 145.0
 BOARD_Y = 95.0
+EDGE_MARGIN = 1.0
+PLACEMENT_CLEARANCE = 0.20
 
 
 def blocks(text, token):
@@ -92,6 +94,17 @@ FIXED={
  'SW_RESET':(68,51,0),'SW_BOOT':(76,51,0),
 }
 
+# Functional zones are deliberate overlapping search envelopes. Collision checks
+# still prevent physical overlap; the overlap lets related small passives pack
+# tightly without forcing the board larger than the 145 x 95 mm working target.
+ZONE_BOUNDS={
+ 'K1':(5,8,35,39),'K2':(36,8,67,39),'K3':(68,8,99,39),'K4':(100,8,140,39),
+ 'U5':(5,40,43,70),'U6':(38,42,62,69),'U1':(58,42,102,90),'U2':(98,42,140,78),
+ 'U3':(24,66,50,91),'U4':(48,66,72,91),'J_HMI':(70,70,101,92),'U7':(82,68,108,91),
+ 'U_DI1':(99,70,112,90),'U_DI2':(108,70,122,90),'U_DI3':(118,70,132,90),'U_DI4':(128,70,140,90),
+ 'U_RTC':(80,43,105,65),'J_SD':(108,40,139,57),'J_USB':(126,31,143,54),
+}
+
 
 def cluster_for(old):
     u=old.upper()
@@ -119,6 +132,37 @@ SLOTS=[
  (-13,-10),(-13,-5),(-13,0),(-13,5),(-13,10),(13,-10),(13,-5),(13,0),(13,5),(13,10),
  (-18,-10),(-18,-5),(-18,0),(-18,5),(18,-10),(18,-5),(18,0),(18,5),
 ]
+
+
+def bbox_fits_board(box):
+    x0=pcbnew.ToMM(box.GetX()); y0=pcbnew.ToMM(box.GetY())
+    x1=pcbnew.ToMM(box.GetRight()); y1=pcbnew.ToMM(box.GetBottom())
+    return x0>=EDGE_MARGIN and y0>=EDGE_MARGIN and x1<=BOARD_X-EDGE_MARGIN and y1<=BOARD_Y-EDGE_MARGIN
+
+
+def try_position(fp,x,y,placed):
+    fp.SetPosition(mm(x,y))
+    box=fp.GetBoundingBox().GetInflated(pcbnew.FromMM(PLACEMENT_CLEARANCE))
+    if not bbox_fits_board(box): return False
+    for other in placed:
+        ob=other.GetBoundingBox().GetInflated(pcbnew.FromMM(PLACEMENT_CLEARANCE))
+        if box.Intersects(ob): return False
+    return True
+
+
+def zone_candidates(anchor_old, base):
+    ax=pcbnew.ToMM(base.x); ay=pcbnew.ToMM(base.y)
+    xmin,ymin,xmax,ymax=ZONE_BOUNDS.get(anchor_old,(3,3,BOARD_X-3,BOARD_Y-3))
+    pts=[]
+    step=2.5
+    x=xmin
+    while x<=xmax+1e-6:
+        y=ymin
+        while y<=ymax+1e-6:
+            pts.append((x,y)); y+=step
+        x+=step
+    pts.sort(key=lambda p:(abs(p[0]-ax)+abs(p[1]-ay),abs(p[1]-ay),abs(p[0]-ax),p[1],p[0]))
+    return pts
 
 
 def main():
@@ -154,12 +198,16 @@ def main():
         for row in unresolved: print('UNRESOLVED_FOOTPRINT',*row,file=sys.stderr)
         raise SystemExit(f'{len(unresolved)} footprints unresolved')
 
-    # Place fixed anchors first.
+    # Place fixed anchors first and fail if the chosen industrial anchor layout
+    # itself physically collides or leaves the board working envelope.
     placed=[]
     for ref,fp in fps.items():
         old=INV_REF.get(ref,ref)
         if old in FIXED:
-            x,y,rot=FIXED[old]; fp.SetPosition(mm(x,y)); fp.SetOrientationDegrees(rot); placed.append(fp)
+            x,y,rot=FIXED[old]; fp.SetOrientationDegrees(rot)
+            if not try_position(fp,x,y,placed):
+                raise RuntimeError(f'fixed anchor collision/out-of-board: {ref}/{old} at {(x,y,rot)}')
+            placed.append(fp)
 
     # Deterministic satellite placement around the appropriate functional anchor.
     slot_used=defaultdict(int)
@@ -173,19 +221,23 @@ def main():
         for attempt in range(len(SLOTS)*3):
             dx,dy=SLOTS[(idx+attempt)%len(SLOTS)]; ring=1+(idx+attempt)//len(SLOTS)
             candidates.append((pcbnew.ToMM(base.x)+dx*ring, pcbnew.ToMM(base.y)+dy*ring))
+        candidates.extend(zone_candidates(anchor_old,base))
         chosen=None
+        seen=set()
         for x,y in candidates:
-            if not (3<x<BOARD_X-3 and 3<y<BOARD_Y-3): continue
-            fp.SetPosition(mm(x,y)); box=fp.GetBoundingBox().GetInflated(pcbnew.FromMM(0.4))
-            if all(not box.Intersects(other.GetBoundingBox().GetInflated(pcbnew.FromMM(0.4))) for other in placed):
-                chosen=(x,y); break
+            key=(round(x,3),round(y,3))
+            if key in seen: continue
+            seen.add(key)
+            if try_position(fp,x,y,placed): chosen=(x,y); break
         if chosen is None:
-            raise RuntimeError(f'no collision-free placement slot for {ref}/{old} near {anchor_old}')
+            raise RuntimeError(f'no collision-free placement slot for {ref}/{old} in functional zone {anchor_old}')
         placed.append(fp)
 
     # Board-only M3 mounting holes. Keep outside functional component area.
     for n,(x,y) in enumerate(((5,5),(140,5),(5,90),(140,90)),1):
-        fp=load_fp('MountingHole:MountingHole_3.2mm_M3'); fp.SetReference(f'H{n}'); fp.SetValue('M3'); fp.SetBoardOnly(True); fp.SetPosition(mm(x,y)); board.Add(fp)
+        fp=load_fp('MountingHole:MountingHole_3.2mm_M3'); fp.SetReference(f'H{n}'); fp.SetValue('M3'); fp.SetBoardOnly(True)
+        if not try_position(fp,x,y,placed): raise RuntimeError(f'M3 mounting hole H{n} collides at {(x,y)}')
+        board.Add(fp); placed.append(fp)
 
     board.BuildConnectivity()
     pcbnew.SaveBoard(str(OUT),board)
