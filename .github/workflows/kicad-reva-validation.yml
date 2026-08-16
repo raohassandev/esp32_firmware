@@ -19,14 +19,15 @@ jobs:
   kicad-10-validation:
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    container:
-      image: kicad/kicad:10.0.5
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: KiCad version
-        run: kicad-cli version --format about
+      - name: Pull official KiCad 10.0.5 image
+        run: |
+          set -euo pipefail
+          docker pull kicad/kicad:10.0.5
+          docker run --rm kicad/kicad:10.0.5 kicad-cli version --format about
 
       - name: Generate controlled schematic
         run: |
@@ -34,18 +35,18 @@ jobs:
           python3 hardware/kicad/tools/generate_reva_schematic.py
           test -s hardware/kicad/Automatrix_PVDG_RevA.kicad_sch
           echo "Generated schematic bytes: $(wc -c < hardware/kicad/Automatrix_PVDG_RevA.kicad_sch)"
+          python3 -m json.tool hardware/kicad/Automatrix_PVDG_RevA.kicad_pro >/dev/null
 
-      - name: Project syntax and schematic ERC
+      - name: KiCad schematic parse and ERC
         run: |
           set -euo pipefail
+          K="docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $PWD:/work -w /work kicad/kicad:10.0.5 kicad-cli"
           SCH='hardware/kicad/Automatrix_PVDG_RevA.kicad_sch'
-          PRO='hardware/kicad/Automatrix_PVDG_RevA.kicad_pro'
-          python3 -m json.tool "$PRO" >/dev/null
-          kicad-cli sch upgrade --force "$SCH"
-          kicad-cli sch erc --severity-all --exit-code-violations --output hardware/kicad/Automatrix_PVDG_RevA-erc.rpt "$SCH"
-          kicad-cli sch export netlist --format kicadsexpr --output hardware/kicad/Automatrix_PVDG_RevA.net "$SCH"
-          kicad-cli sch export bom --output hardware/kicad/Automatrix_PVDG_RevA-bom.csv "$SCH"
-          kicad-cli sch export pdf --output hardware/kicad/Automatrix_PVDG_RevA-schematic.pdf "$SCH"
+          $K sch upgrade --force "$SCH"
+          $K sch erc --severity-all --exit-code-violations --output hardware/kicad/Automatrix_PVDG_RevA-erc.rpt "$SCH"
+          $K sch export netlist --format kicadsexpr --output hardware/kicad/Automatrix_PVDG_RevA.net "$SCH"
+          $K sch export bom --output hardware/kicad/Automatrix_PVDG_RevA-bom.csv "$SCH"
+          $K sch export pdf --output hardware/kicad/Automatrix_PVDG_RevA-schematic.pdf "$SCH"
 
       - name: Design-control checks
         run: python3 hardware/kicad/tools/validate_design_control.py
@@ -55,10 +56,11 @@ jobs:
           set -euo pipefail
           PCB='hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb'
           if [ -f "$PCB" ]; then
-            kicad-cli pcb upgrade --force "$PCB"
-            kicad-cli pcb drc --schematic-parity --severity-all --exit-code-violations --refill-zones --save-board --output hardware/kicad/Automatrix_PVDG_RevA-drc.rpt "$PCB"
-            kicad-cli pcb export stats --format json --output hardware/kicad/Automatrix_PVDG_RevA-stats.json "$PCB"
-            kicad-cli pcb export step --force --no-dnp --output hardware/kicad/Automatrix_PVDG_RevA.step "$PCB"
+            K="docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $PWD:/work -w /work kicad/kicad:10.0.5 kicad-cli"
+            $K pcb upgrade --force "$PCB"
+            $K pcb drc --schematic-parity --severity-all --exit-code-violations --refill-zones --save-board --output hardware/kicad/Automatrix_PVDG_RevA-drc.rpt "$PCB"
+            $K pcb export stats --format json --output hardware/kicad/Automatrix_PVDG_RevA-stats.json "$PCB"
+            $K pcb export step --force --no-dnp --output hardware/kicad/Automatrix_PVDG_RevA.step "$PCB"
           else
             echo 'PCB file not present yet; schematic gate only.'
           fi
