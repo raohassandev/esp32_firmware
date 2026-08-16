@@ -4,8 +4,8 @@
 Field/user-facing connectors and safety-critical anchors are locked only after
 KiCad-10 geometry proof. ESP32-S3 is treated as an RF edge module: its physical
 body/pads stay clear of components while the antenna keepout/courtyard may
-project past the PCB edge. The antenna keepout is not misused as a solid-body
-collision rectangle.
+project past the PCB edge. Critical USB and Ethernet routing corridors are kept
+free of unrelated component bodies before routing starts.
 """
 import pcbnew
 import build_reva_pcb as b
@@ -17,6 +17,18 @@ MOUNTING_KEEP_OUTS = ((5.0,5.0,4.3),(140.0,5.0,4.3),(5.0,90.0,4.3),(140.0,90.0,4
 EDGE_OVERHANG = {'J_ETH','J_USB'}
 RF_EDGE = {'U1'}
 
+# Copper corridors are reserved at placement time so deterministic locked
+# high-speed routes cannot be boxed in by unrelated passives. Coordinates are
+# board mm rectangles: x0,y0,x1,y1.
+USB_CORRIDORS = (
+    (18.0, 51.5, 137.5, 54.8),   # long F.Cu pair corridor over L2 GND
+    (16.0, 51.5, 25.0, 68.5),    # MCU/series-resistor entry fanout
+    (132.0, 40.0, 143.5, 55.0),  # connector exit / symmetric via fanout
+)
+ETH_CORRIDOR = (114.5, 56.0, 134.0, 70.0)
+USB_ALLOWED = {'U1','J_USB','R_MCU_DM_SER','R_MCU_DP_SER','C_MCU_DM_USB','C_MCU_DP_USB'}
+ETH_ALLOWED = {'U2','J_ETH'}
+
 b.FIXED.clear()
 b.FIXED.update({
     'J_PWR':(14.0,87.5,0), 'J_RS485A':(37.0,87.5,0), 'J_RS485B':(59.0,87.5,0),
@@ -26,7 +38,14 @@ b.FIXED.update({
     'J_RLY3':(84.0,7.5,180), 'J_RLY4':(116.0,7.5,180),
     'K1':(20.0,24.0,0), 'K2':(52.0,18.0,0), 'K3':(84.0,18.0,0), 'K4':(116.0,18.0,0),
     'Q1':(13.0,32.0,0), 'Q2':(52.0,35.0,0), 'Q3':(84.0,35.0,0), 'Q4':(109.0,32.0,0),
-    'U3':(38.0,78.0,0), 'U4':(60.0,78.0,0), 'U2':(116.0,64.0,0),
+    'U3':(38.0,78.0,0), 'U4':(60.0,78.0,0),
+    # Move W5500 toward the MagJack. Its support passives are deliberately
+    # packed to the left; the MDI lane to J3 is reserved for controlled pairs.
+    'U2':(123.0,64.0,0),
+    # ESP32 USB series/tuning parts are fixed close to the module and before the
+    # long pair corridor. Capacitors are DNP tuning provisions.
+    'R_MCU_DM_SER':(20.0,64.0,0), 'R_MCU_DP_SER':(20.0,66.0,0),
+    'C_MCU_DM_USB':(23.0,62.5,0), 'C_MCU_DP_USB':(23.0,67.5,0),
 })
 
 
@@ -65,6 +84,13 @@ def _inside_board(box,margin):
             pcbnew.ToMM(box.GetRight())<=b.BOARD_X-margin and pcbnew.ToMM(box.GetBottom())<=b.BOARD_Y-margin)
 
 
+def _box_hits_rect(box, rect):
+    x0=pcbnew.ToMM(box.GetLeft()); y0=pcbnew.ToMM(box.GetTop())
+    x1=pcbnew.ToMM(box.GetRight()); y1=pcbnew.ToMM(box.GetBottom())
+    rx0,ry0,rx1,ry1=rect
+    return not (x1 <= rx0 or x0 >= rx1 or y1 <= ry0 or y0 >= ry1)
+
+
 def _hits_mount_keepout(box):
     x0=pcbnew.ToMM(box.GetLeft()); y0=pcbnew.ToMM(box.GetTop())
     x1=pcbnew.ToMM(box.GetRight()); y1=pcbnew.ToMM(box.GetBottom())
@@ -87,10 +113,12 @@ def _try_position(fp,x,y,placed):
         pbox=_merge_pad_boxes(fp)
         if pbox is None or not _inside_board(pbox,PAD_EDGE_MARGIN): return False
     elif not _inside_board(box,b.EDGE_MARGIN): return False
-    # Mounting-hole footprints are the reserved keepout centers themselves.
-    # Other footprints must avoid these circles; the holes must not reject
-    # themselves for occupying their own reserved keepout.
     if not _is_mounting_hole(old,fp) and _hits_mount_keepout(box): return False
+
+    # Keep unrelated component bodies out of the controlled high-speed paths.
+    if old not in USB_ALLOWED and any(_box_hits_rect(box,r) for r in USB_CORRIDORS): return False
+    if old not in ETH_ALLOWED and _box_hits_rect(box,ETH_CORRIDOR): return False
+
     for other in placed:
         oold=b.INV_REF.get(other.GetReference(),other.GetReference())
         if box.Intersects(_collision_box(other,oold)): return False
@@ -138,6 +166,8 @@ def _autofit_esp32_rf_edge():
         body=_rf_body_box(fp)
         if _hits_mount_keepout(body): continue
         if any(body.Intersects(ob) for _,ob in obstacles): continue
+        # U1 may overlap the dedicated USB entry corridor by design, but must
+        # remain clear of all fixed component bodies.
         b.FIXED['U1']=(round(x,3),round(y,3),rot)
         print(f'ESP32 RF-edge anchor: x={x:.1f} y={y:.1f} rot={rot} body/pads-clear=PASS')
         return
@@ -147,6 +177,8 @@ def _autofit_esp32_rf_edge():
 b.ZONE_BOUNDS.update({
     'U1':(2,36,58,80), 'U5':(28,40,60,68), 'U6':(42,40,74,67),
     'U7':(72,66,108,88), 'U_RTC':(72,42,108,67),
+    # W5500 support parts are kept left of the MDI corridor to J3.
+    'U2':(96,55,114,75),
     'U_DI1':(96,68,112,88), 'U_DI2':(104,68,121,88), 'U_DI3':(113,68,131,88), 'U_DI4':(122,68,139,88),
 })
 
@@ -154,7 +186,7 @@ b.ZONE_BOUNDS.update({
 def _dense_zone_candidates(anchor_old,base):
     ax=pcbnew.ToMM(base.x); ay=pcbnew.ToMM(base.y)
     xmin,ymin,xmax,ymax=b.ZONE_BOUNDS.get(anchor_old,(3,3,b.BOARD_X-3,b.BOARD_Y-3))
-    step=1.0 if anchor_old in ('U1','U5','U6','U7','U_RTC','U_DI1','U_DI2','U_DI3','U_DI4') else 2.0
+    step=1.0 if anchor_old in ('U1','U2','U5','U6','U7','U_RTC','U_DI1','U_DI2','U_DI3','U_DI4') else 2.0
     pts=[]; x=xmin
     while x<=xmax+1e-6:
         y=ymin
