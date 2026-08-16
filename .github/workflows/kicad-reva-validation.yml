@@ -144,7 +144,7 @@ jobs:
           test "${ERC_EXIT_CODE:-99}" = '0'
           test "${DRC_EXIT_CODE:-99}" = '0'
           test "${STEP_EXIT_CODE:-99}" = '0'
-          touch hardware/kicad/H2_ROUTING_COMPLETE
+          printf 'H2 routing complete\nERC=0\nDRC=0\nUNCONNECTED=0\nSTEP=0\n' > hardware/kicad/H2_ROUTING_COMPLETE
           git add hardware/kicad/Automatrix_PVDG_RevA.kicad_sch \
                   hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb \
                   hardware/kicad/Automatrix.kicad_sym \
