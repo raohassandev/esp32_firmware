@@ -37,13 +37,19 @@ jobs:
           echo "Generated schematic bytes: $(wc -c < hardware/kicad/Automatrix_PVDG_RevA.kicad_sch)"
           python3 -m json.tool hardware/kicad/Automatrix_PVDG_RevA.kicad_pro >/dev/null
 
-      - name: KiCad schematic parse and ERC
+      - name: KiCad schematic parse, ERC and exports
         run: |
           set -euo pipefail
           K="docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $PWD:/work -w /work kicad/kicad:10.0.5 kicad-cli"
           SCH='hardware/kicad/Automatrix_PVDG_RevA.kicad_sch'
           $K sch upgrade --force "$SCH"
+          set +e
           $K sch erc --severity-all --exit-code-violations --output hardware/kicad/Automatrix_PVDG_RevA-erc.rpt "$SCH"
+          ERC_RC=$?
+          set -e
+          echo "ERC_EXIT_CODE=$ERC_RC" >> "$GITHUB_ENV"
+          echo '=== ERC REPORT ==='
+          cat hardware/kicad/Automatrix_PVDG_RevA-erc.rpt || true
           $K sch export netlist --format kicadsexpr --output hardware/kicad/Automatrix_PVDG_RevA.net "$SCH"
           $K sch export bom --output hardware/kicad/Automatrix_PVDG_RevA-bom.csv "$SCH"
           $K sch export pdf --output hardware/kicad/Automatrix_PVDG_RevA-schematic.pdf "$SCH"
@@ -66,6 +72,7 @@ jobs:
           fi
 
       - name: Persist KiCad-validated native sources
+        if: env.ERC_EXIT_CODE == '0'
         run: |
           set -euo pipefail
           git add hardware/kicad/Automatrix_PVDG_RevA.kicad_sch
@@ -82,10 +89,11 @@ jobs:
           git push origin HEAD:hardware/kicad-reva-implementation
 
       - name: Upload KiCad validation evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: kicad-reva-validation
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14
           path: |
             hardware/kicad/Automatrix_PVDG_RevA-erc.rpt
@@ -95,3 +103,9 @@ jobs:
             hardware/kicad/Automatrix_PVDG_RevA-drc.rpt
             hardware/kicad/Automatrix_PVDG_RevA-stats.json
             hardware/kicad/Automatrix_PVDG_RevA.step
+
+      - name: Enforce clean ERC gate
+        if: always()
+        run: |
+          echo "ERC exit code: ${ERC_EXIT_CODE:-missing}"
+          test "${ERC_EXIT_CODE:-99}" = "0"
