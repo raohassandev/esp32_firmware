@@ -46,6 +46,7 @@ def add_notched_zone(board, layer, netcode):
         (MAGJACK_X0,MAGJACK_Y0),
         (MAGJACK_X0,MAGJACK_Y1),
         (BOARD_X-EDGE,MAGJACK_Y1),
+        (BOARD_X-EDGE,BOARD_Y-EDGE),
         (EDGE,BOARD_Y-EDGE),
     )
     for x,y in outline:
