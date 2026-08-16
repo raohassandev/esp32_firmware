@@ -89,6 +89,7 @@ jobs:
 
           : > hardware/kicad/freerouting.log
           $KPY hardware/kicad/tools/pre_route_critical_nets.py "$PCB" | tee -a hardware/kicad/placement.log
+          $KPY hardware/kicad/tools/route_reva_stragglers.py "$PCB" | tee -a hardware/kicad/placement.log
           $KPY hardware/kicad/tools/post_route_finalize.py "$PCB"
           $K pcb drc --severity-error --refill-zones --save-board \
             --output hardware/kicad/Automatrix_PVDG_RevA-pre-route-drc.rpt "$PCB" || true
@@ -99,15 +100,15 @@ jobs:
           curl -fL --retry 3 --retry-delay 2 -o /tmp/freerouting.jar \
             https://github.com/freerouting/freerouting/releases/download/v2.2.4/freerouting-2.2.4.jar
 
-          COMMON='-inc GND_PLANE --router.layers.routable=true,false,true,true --router.layers.preferred_direction_horizontal=true,false,false,true --router.plane_via_costs=1'
+          COMMON='-inc GND_PLANE'
           success=0
           for attempt in 1 2; do
             OUT="hardware/kicad/route-attempt-${attempt}.ses"
             rm -f "$OUT"
             cp "$PLACED" "$PCB"
             case "$attempt" in
-              1) LIMIT=240; OPTS='-mp 90 -mt 3 -oit 0 -is prioritized -us greedy' ;;
-              2) LIMIT=360; OPTS='-mp 150 -mt 3 -oit 0 -is sequential -us hybrid' ;;
+              1) LIMIT=240; OPTS='-mp 90 -mt 3 -oit 0.2 -is prioritized -us greedy' ;;
+              2) LIMIT=360; OPTS='-mp 150 -mt 3 -oit 0.1 -is sequential -us hybrid' ;;
             esac
             echo "=== FREEROUTING ATTEMPT $attempt limit=${LIMIT}s: $OPTS $COMMON ===" | tee -a hardware/kicad/freerouting.log
 
@@ -124,7 +125,8 @@ jobs:
 
             $KPY hardware/kicad/tools/route_reva_freerouting.py import "$PCB" "$OUT"
             python3 hardware/kicad/tools/strip_critical_tracks_text.py "$PCB" | tee -a hardware/kicad/freerouting.log
-            $KPY hardware/kicad/tools/restore_critical_and_ground.py "$PCB" | tee -a hardware/kicad/freerouting.log
+            $KPY hardware/kicad/tools/restore_controlled_routes.py "$PCB" | tee -a hardware/kicad/freerouting.log
+            $KPY hardware/kicad/tools/add_surface_ground.py "$PCB" | tee -a hardware/kicad/freerouting.log
             $K pcb drc --severity-error --refill-zones --save-board \
               --output "hardware/kicad/route-attempt-${attempt}-drc.rpt" "$PCB" || true
 
