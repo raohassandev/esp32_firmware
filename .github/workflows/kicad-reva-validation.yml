@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 concurrency:
   group: kicad-reva-implementation
@@ -70,13 +71,9 @@ jobs:
             python3 hardware/kicad/tools/build_reva_pcb_final.py 2>&1 | tee hardware/kicad/placement.log
           test -s hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb
 
-      - name: Set up Java 25 for Freerouting
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '25'
-
-      - name: Route PCB with locked USB Ethernet topology
+      - name: Route PCB from validated seed and restore controlled nets
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           PCB='hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb'
@@ -86,73 +83,35 @@ jobs:
           KPY="docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $PWD:/work -w /work kicad/kicad:10.0.5 python3"
           K="docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $PWD:/work -w /work kicad/kicad:10.0.5 kicad-cli"
 
-          # Own high-speed topology before the generic low-speed router.
+          : > hardware/kicad/freerouting.log
           $KPY hardware/kicad/tools/pre_route_critical_nets.py "$PCB" | tee -a hardware/kicad/placement.log
-
-          # Create and fill the dedicated L2 GND reference before DSN export.
           $KPY hardware/kicad/tools/post_route_finalize.py "$PCB"
           $K pcb drc --severity-error --refill-zones --save-board \
             --output hardware/kicad/Automatrix_PVDG_RevA-pre-route-drc.rpt "$PCB" || true
-
           cp "$PCB" "$PLACED"
           $KPY hardware/kicad/tools/route_reva_freerouting.py export "$PLACED" "$DSN"
-          python3 hardware/kicad/tools/prepare_dsn_plane_classes.py "$DSN"
 
-          : > hardware/kicad/freerouting.log
-          echo '=== DSN PLANE/LAYER CHECK ===' | tee -a hardware/kicad/freerouting.log
-          grep -n -E '\(plane|\(layer "?In1\.Cu"?|\(class GND_PLANE' "$DSN" | head -40 | tee -a hardware/kicad/freerouting.log || true
+          echo 'SEED_ROUTE_SOURCE: workflow run 31966461122 artifact 9268798467 route-attempt-3.ses' | tee -a hardware/kicad/freerouting.log
+          curl -fL --retry 3 --retry-delay 2 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            'https://api.github.com/repos/raohassandev/esp32_firmware/actions/artifacts/9268798467/zip' \
+            -o /tmp/route-seed.zip
+          unzip -p /tmp/route-seed.zip route-attempt-3.ses > "$SES"
+          test -s "$SES"
 
-          curl -fL --retry 3 --retry-delay 2 -o /tmp/freerouting.jar \
-            https://github.com/freerouting/freerouting/releases/download/v2.2.4/freerouting-2.2.4.jar
+          cp "$PLACED" "$PCB"
+          $KPY hardware/kicad/tools/route_reva_freerouting.py import "$PCB" "$SES"
 
-          COMMON='-inc GND_PLANE --router.layers.routable=true,false,true,true --router.layers.preferred_direction_horizontal=true,false,false,true --router.plane_via_costs=1'
-          success=0
-          for attempt in 1 2 3; do
-            OUT="hardware/kicad/route-attempt-${attempt}.ses"
-            rm -f "$OUT"
-            cp "$PLACED" "$PCB"
-            case "$attempt" in
-              1) LIMIT=150; OPTS='-mp 45 -mt 2 -is prioritized -us greedy' ;;
-              2) LIMIT=300; OPTS='-mp 100 -mt 3 -oit 0 -is random -us global' ;;
-              3) LIMIT=360; OPTS='-mp 140 -mt 3 -oit 0 -is sequential -us hybrid' ;;
-            esac
-            echo "=== FREEROUTING ATTEMPT $attempt limit=${LIMIT}s: $OPTS $COMMON ===" | tee -a hardware/kicad/freerouting.log
-
-            set +e
-            timeout "${LIMIT}s" java -Xmx5g -jar /tmp/freerouting.jar --gui.enabled=false \
-              -de "$DSN" -do "$OUT" $COMMON $OPTS 2>&1 | tee -a hardware/kicad/freerouting.log
-            ROUTER_RC=${PIPESTATUS[0]}
-            set -e
-            echo "FREEROUTING_ATTEMPT_${attempt}_EXIT=$ROUTER_RC" | tee -a hardware/kicad/freerouting.log
-
-            if [ ! -s "$OUT" ]; then
-              echo "Attempt $attempt produced no SES; continuing to next strategy." | tee -a hardware/kicad/freerouting.log
-              continue
-            fi
-
-            $KPY hardware/kicad/tools/route_reva_freerouting.py import "$PCB" "$OUT"
-
-            # SES import owns generic routes; restore the controlled USB/Ethernet
-            # paths and complete surface-to-L2 GND connectivity afterwards.
-            $KPY hardware/kicad/tools/restore_critical_and_ground.py "$PCB" | tee -a hardware/kicad/freerouting.log
-            $K pcb drc --severity-error --refill-zones --save-board \
-              --output "hardware/kicad/route-attempt-${attempt}-drc.rpt" "$PCB" || true
-
-            set +e
-            $KPY hardware/kicad/tools/route_reva_freerouting.py audit "$PCB" 2>&1 | tee -a hardware/kicad/freerouting.log
-            RC=${PIPESTATUS[0]}
-            set -e
-            if [ "$RC" = '0' ]; then
-              cp "$OUT" "$SES"
-              success=1
-              echo "ROUTING_COMPLETE_ATTEMPT=$attempt" | tee -a hardware/kicad/freerouting.log
-              break
-            fi
-            echo "Attempt $attempt post-plane board still has unrouted connections; trying fallback." | tee -a hardware/kicad/freerouting.log
-          done
-
-          test "$success" = '1'
-          $KPY hardware/kicad/tools/route_reva_freerouting.py audit "$PCB"
+          # Never delete BOARD tracks through pcbnew SWIG: strip only controlled
+          # route primitives as S-expressions, then rebuild them in a fresh process.
+          python3 hardware/kicad/tools/strip_critical_tracks_text.py "$PCB" | tee -a hardware/kicad/freerouting.log
+          $KPY hardware/kicad/tools/restore_critical_and_ground.py "$PCB" | tee -a hardware/kicad/freerouting.log
+          $K pcb drc --severity-error --refill-zones --save-board \
+            --output hardware/kicad/route-seed-repair-drc.rpt "$PCB" || true
+          $KPY hardware/kicad/tools/route_reva_freerouting.py audit "$PCB" | tee -a hardware/kicad/freerouting.log
+          echo 'ROUTING_SEED_REPAIR_COMPLETE=1' | tee -a hardware/kicad/freerouting.log
 
       - name: Final DRC L2 ground SI and STEP gates
         run: |
@@ -244,8 +203,7 @@ jobs:
             hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb
             hardware/kicad/Automatrix_PVDG_RevA.dsn
             hardware/kicad/Automatrix_PVDG_RevA.ses
-            hardware/kicad/route-attempt-*.ses
-            hardware/kicad/route-attempt-*-drc.rpt
+            hardware/kicad/route-seed-repair-drc.rpt
             hardware/kicad/Automatrix_PVDG_RevA-erc.rpt
             hardware/kicad/Automatrix_PVDG_RevA-pre-route-drc.rpt
             hardware/kicad/Automatrix_PVDG_RevA-drc.rpt
