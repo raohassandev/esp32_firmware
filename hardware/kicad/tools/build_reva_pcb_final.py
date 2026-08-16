@@ -17,15 +17,12 @@ MOUNTING_KEEP_OUTS = ((5.0,5.0,4.3),(140.0,5.0,4.3),(5.0,90.0,4.3),(140.0,90.0,4
 EDGE_OVERHANG = {'J_ETH','J_USB'}
 RF_EDGE = {'U1'}
 
-# Copper corridors are reserved at placement time so deterministic locked
-# high-speed routes cannot be boxed in by unrelated passives. Coordinates are
-# board mm rectangles: x0,y0,x1,y1.
 USB_CORRIDORS = (
-    (18.0, 51.5, 137.5, 54.8),   # long F.Cu pair corridor over L2 GND
-    (16.0, 51.5, 25.0, 68.5),    # MCU/series-resistor entry fanout
-    (132.0, 40.0, 143.5, 55.0),  # connector exit / symmetric via fanout
+    (18.0, 51.5, 137.5, 54.8),
+    (16.0, 51.5, 25.0, 68.5),
+    (132.0, 40.0, 143.5, 55.0),
 )
-ETH_CORRIDOR = (114.5, 56.0, 134.0, 70.0)
+ETH_CORRIDOR = (110.5, 56.0, 134.0, 70.0)
 USB_ALLOWED = {'U1','J_USB','R_MCU_DM_SER','R_MCU_DP_SER','C_MCU_DM_USB','C_MCU_DP_USB'}
 ETH_ALLOWED = {'U2','J_ETH'}
 
@@ -39,10 +36,8 @@ b.FIXED.update({
     'K1':(20.0,24.0,0), 'K2':(52.0,18.0,0), 'K3':(84.0,18.0,0), 'K4':(116.0,18.0,0),
     'Q1':(13.0,32.0,0), 'Q2':(52.0,35.0,0), 'Q3':(84.0,35.0,0), 'Q4':(109.0,32.0,0),
     'U3':(38.0,78.0,0), 'U4':(60.0,78.0,0),
-    # Keep W5500 close to the MagJack but leave verified courtyard clearance.
-    'U2':(121.0,64.0,0),
-    # ESP32 USB series/tuning parts are fixed close to the module and before the
-    # long pair corridor. Capacitors are DNP tuning provisions.
+    # Proven mechanical anchor from the earlier clean-placement checkpoint.
+    'U2':(116.0,64.0,0),
     'R_MCU_DM_SER':(20.0,64.0,0), 'R_MCU_DP_SER':(20.0,66.0,0),
     'C_MCU_DM_USB':(23.0,62.5,0), 'C_MCU_DP_USB':(23.0,67.5,0),
 })
@@ -113,11 +108,8 @@ def _try_position(fp,x,y,placed):
         if pbox is None or not _inside_board(pbox,PAD_EDGE_MARGIN): return False
     elif not _inside_board(box,b.EDGE_MARGIN): return False
     if not _is_mounting_hole(old,fp) and _hits_mount_keepout(box): return False
-
-    # Keep unrelated component bodies out of the controlled high-speed paths.
     if old not in USB_ALLOWED and any(_box_hits_rect(box,r) for r in USB_CORRIDORS): return False
     if old not in ETH_ALLOWED and _box_hits_rect(box,ETH_CORRIDOR): return False
-
     for other in placed:
         oold=b.INV_REF.get(other.GetReference(),other.GetReference())
         if box.Intersects(_collision_box(other,oold)): return False
@@ -174,7 +166,7 @@ def _autofit_esp32_rf_edge():
 b.ZONE_BOUNDS.update({
     'U1':(2,36,58,80), 'U5':(28,40,60,68), 'U6':(42,40,74,67),
     'U7':(72,66,108,88), 'U_RTC':(72,42,108,67),
-    'U2':(96,55,112,75),
+    'U2':(92,55,107,75),
     'U_DI1':(96,68,112,88), 'U_DI2':(104,68,121,88), 'U_DI3':(113,68,131,88), 'U_DI4':(122,68,139,88),
 })
 
