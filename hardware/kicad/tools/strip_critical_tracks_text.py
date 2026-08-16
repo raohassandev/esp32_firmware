@@ -15,7 +15,7 @@ TARGETS = {
     'ETH_TXP','ETH_TXN','ETH_RXP','ETH_RXN',
     'USB_D+','USB_D-','USB_D+_MCU','USB_D-_MCU',
 }
-USB_GND_STITCH = ((134.0,48.0),(137.5,48.0),(134.0,39.5),(137.5,39.5))
+USB_GND_STITCH = ((126.0,57.0),(130.0,57.0),(126.0,39.0),(130.0,39.0))
 START_RE = re.compile(r'^\s*\((segment|arc|via)\s*$')
 NET_RE = re.compile(r'\(net\s+"([^"]+)"\)')
 AT_RE = re.compile(r'\(at\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\)')
