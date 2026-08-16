@@ -9,12 +9,9 @@ K="docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $PWD:/work -w /work kica
 
 : > hardware/kicad/freerouting.log
 
-# Lock the controlled high-speed and stable known routes at the board minimum
-# before handing the remainder to the generic autorouter.
-$KPY hardware/kicad/tools/pre_route_critical_nets.py "$PCB" | tee -a hardware/kicad/placement.log
-$KPY hardware/kicad/tools/route_reva_stragglers.py "$PCB" | tee -a hardware/kicad/placement.log
-
-# Establish the dedicated L2 reference plane before Specctra export.
+# Establish the dedicated L2 reference plane before Specctra export.  L2 stays
+# power/non-signal; GND is still routed on the remaining copper layers so every
+# pad/island has deterministic electrical connectivity to the reference plane.
 $KPY hardware/kicad/tools/post_route_finalize.py "$PCB"
 $K pcb drc --severity-error --refill-zones --save-board \
   --output hardware/kicad/Automatrix_PVDG_RevA-pre-route-drc.rpt "$PCB" || true
@@ -30,24 +27,20 @@ for attempt in 1 2; do
   OUT="hardware/kicad/route-attempt-${attempt}.ses"
   rm -f "$OUT"; cp "$PLACED" "$PCB"
   case "$attempt" in
-    1) LIMIT=300; OPTS='-mp 120 -mt 3 -oit 0.15 -is prioritized -us greedy' ;;
-    2) LIMIT=420; OPTS='-mp 180 -mt 4 -oit 0.10 -is sequential -us hybrid' ;;
+    1) LIMIT=420; OPTS='-mp 180 -mt 4 -oit 0.15 -is prioritized -us greedy' ;;
+    2) LIMIT=600; OPTS='-mp 240 -mt 5 -oit 0.10 -is sequential -us hybrid' ;;
   esac
-  echo "=== FREEROUTING 2.3 ATTEMPT $attempt limit=${LIMIT}s ===" | tee -a hardware/kicad/freerouting.log
+  echo "=== FREEROUTING 2.3 ATTEMPT $attempt limit=${LIMIT}s GND=ROUTED FANOUT=OFF ===" | tee -a hardware/kicad/freerouting.log
   set +e
   timeout "${LIMIT}s" java -Xmx5g -jar /tmp/freerouting.jar --gui.enabled=false \
     --router.automatic_neckdown=false --router.fanout.enabled=false \
-    -de "$DSN" -do "$OUT" -inc GND_PLANE $OPTS 2>&1 | tee -a hardware/kicad/freerouting.log
+    -de "$DSN" -do "$OUT" $OPTS 2>&1 | tee -a hardware/kicad/freerouting.log
   ROUTER_RC=${PIPESTATUS[0]}
   set -e
   echo "FREEROUTING_ATTEMPT_${attempt}_EXIT=$ROUTER_RC" | tee -a hardware/kicad/freerouting.log
   [ -s "$OUT" ] || continue
 
   $KPY hardware/kicad/tools/route_reva_freerouting.py import "$PCB" "$OUT"
-  # Freerouting can re-express fixed Specctra traces. Replace those nets with
-  # the deterministic KiCad-native topology before final DRC/SI validation.
-  python3 hardware/kicad/tools/strip_critical_tracks_text.py "$PCB" | tee -a hardware/kicad/freerouting.log
-  $KPY hardware/kicad/tools/restore_controlled_routes.py "$PCB" | tee -a hardware/kicad/freerouting.log
   $KPY hardware/kicad/tools/add_surface_ground.py "$PCB"
   $K pcb drc --severity-error --refill-zones --save-board \
     --output "hardware/kicad/route-attempt-${attempt}-drc.rpt" "$PCB" || true
