@@ -131,8 +131,6 @@ def _autofit_bottom_anchor(old, x, rotation=180):
     fp = b.load_fp(fp_id)
     fp.SetReference('TMP')
     fp.SetOrientationDegrees(rotation)
-    # Keep relay groups visually aligned, but allow the corner groups to shift
-    # horizontally just enough to clear the M3 keepout. Prefer moving inward.
     dxs = [0.0]
     for d in (0.5,1.0,1.5,2.0,2.5,3.0,3.5,4.0,4.5,5.0,5.5,6.0,7.0,8.0):
         dxs.extend((d, -d))
@@ -244,14 +242,18 @@ def _local_candidates(px, py, span=8.0, step=1.0):
 
 
 def _resolve_all_fixed_anchor_collisions():
-    """Pairwise-solve all fixed anchors once, before b.main() sees them."""
+    """Pairwise-solve all fixed anchors once, before b.main() sees them.
+
+    Field transceivers and Ethernet/power controllers are placed before the MCU,
+    because short field/PHY connections are less negotiable than MCU position.
+    """
     connector_order = [
         'J_PWR','J_RS485A','J_RS485B','J_HMI','J_RS232','J_DI',
         'J_RLY1','J_RLY2','J_RLY3','J_RLY4','J_ETH','J_USB','J_SD',
     ]
     internal_order = [
         'K1','K2','K3','K4','Q1','Q2','Q3','Q4',
-        'U5','U6','U1','U2','U3','U4','U7','U_RTC',
+        'U5','U6','U3','U4','U2','U7','U1','U_RTC',
         'U_DI1','U_DI2','U_DI3','U_DI4','BT1','Y1','Y_RTC','SW_RESET','SW_BOOT',
     ]
     order = connector_order + internal_order
@@ -267,7 +269,7 @@ def _resolve_all_fixed_anchor_collisions():
         fp.SetOrientationDegrees(rot)
 
         locked = old in connector_order
-        candidates = [(px, py)] if locked else _local_candidates(px, py, span=12.0, step=1.0)
+        candidates = [(px, py)] if locked else _local_candidates(px, py, span=24.0, step=1.0)
         found = None
         for x, y in candidates:
             fp.SetPosition(b.mm(x, y))
