@@ -39,9 +39,8 @@ b.FIXED.update({
     'K1':(20.0,24.0,0), 'K2':(52.0,18.0,0), 'K3':(84.0,18.0,0), 'K4':(116.0,18.0,0),
     'Q1':(13.0,32.0,0), 'Q2':(52.0,35.0,0), 'Q3':(84.0,35.0,0), 'Q4':(109.0,32.0,0),
     'U3':(38.0,78.0,0), 'U4':(60.0,78.0,0),
-    # Move W5500 toward the MagJack. Its support passives are deliberately
-    # packed to the left; the MDI lane to J3 is reserved for controlled pairs.
-    'U2':(123.0,64.0,0),
+    # Keep W5500 close to the MagJack but leave verified courtyard clearance.
+    'U2':(121.0,64.0,0),
     # ESP32 USB series/tuning parts are fixed close to the module and before the
     # long pair corridor. Capacitors are DNP tuning provisions.
     'R_MCU_DM_SER':(20.0,64.0,0), 'R_MCU_DP_SER':(20.0,66.0,0),
@@ -166,8 +165,6 @@ def _autofit_esp32_rf_edge():
         body=_rf_body_box(fp)
         if _hits_mount_keepout(body): continue
         if any(body.Intersects(ob) for _,ob in obstacles): continue
-        # U1 may overlap the dedicated USB entry corridor by design, but must
-        # remain clear of all fixed component bodies.
         b.FIXED['U1']=(round(x,3),round(y,3),rot)
         print(f'ESP32 RF-edge anchor: x={x:.1f} y={y:.1f} rot={rot} body/pads-clear=PASS')
         return
@@ -177,8 +174,7 @@ def _autofit_esp32_rf_edge():
 b.ZONE_BOUNDS.update({
     'U1':(2,36,58,80), 'U5':(28,40,60,68), 'U6':(42,40,74,67),
     'U7':(72,66,108,88), 'U_RTC':(72,42,108,67),
-    # W5500 support parts are kept left of the MDI corridor to J3.
-    'U2':(96,55,114,75),
+    'U2':(96,55,112,75),
     'U_DI1':(96,68,112,88), 'U_DI2':(104,68,121,88), 'U_DI3':(113,68,131,88), 'U_DI4':(122,68,139,88),
 })
 
