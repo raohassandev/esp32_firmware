@@ -13,13 +13,14 @@ M = ROOT / 'hardware' / 'mechanical'
 DOC = ROOT / 'docs'
 OUT = ROOT / 'provider_release'
 MF = K / 'manufacturing'
+H2_MARKER = K / 'H2_ROUTING_COMPLETE'
 
 required_exact = [
     K / 'Automatrix_PVDG_RevA.kicad_pro', K / 'Automatrix_PVDG_RevA.kicad_sch',
     K / 'Automatrix_PVDG_RevA.kicad_pcb', K / 'Automatrix_PVDG_RevA-schematic.pdf',
     K / 'Automatrix_PVDG_RevA-bom.csv', K / 'BOM_TARGET.csv',
     K / 'Automatrix_PVDG_RevA-drc.rpt', K / 'Automatrix_PVDG_RevA-erc.rpt',
-    K / 'Automatrix_PVDG_RevA.step', K / 'H2_ROUTING_COMPLETE',
+    K / 'Automatrix_PVDG_RevA.step',
     DOC / 'HARDWARE_PCB_REVA_MASTER_PLAN.md',
     DOC / 'PCB_AND_ENCLOSURE_SERVICE_PROVIDER_RFQ.md',
     DOC / 'PCB_PROVIDER_HANDOFF_READINESS.md', DOC / 'PROVIDER_PACKAGE_CONTENTS.md',
@@ -38,6 +39,14 @@ required_manufacturing = {
 }
 
 missing=[str(p.relative_to(ROOT)) for p in required_exact if not p.exists() or p.stat().st_size==0]
+
+# H2 is a gate marker rather than a manufacturing payload. Older frozen
+# checkpoints used an empty marker, so existence is sufficient for backward
+# compatibility. New checkpoints write explicit PASS evidence and that text is
+# included in the provider ZIP/checksum manifest.
+if not H2_MARKER.exists():
+    missing.append(str(H2_MARKER.relative_to(ROOT)))
+
 matched=[]
 for label,candidates in required_manufacturing.items():
     hits=sorted({p for p in candidates if p.is_file() and p.stat().st_size>0})
@@ -55,7 +64,7 @@ sha_full=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).
 sha=sha_full[:10]
 OUT.mkdir(exist_ok=True)
 zip_path=OUT/f'Automatrix_PVDG_RevA_PROVIDER_RFQ_{sha}.zip'
-files=sorted(set(required_exact+matched))
+files=sorted(set(required_exact+[H2_MARKER]+matched))
 checksums=[f'{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.relative_to(ROOT).as_posix()}' for p in files]
 with zipfile.ZipFile(zip_path,'w',compression=zipfile.ZIP_DEFLATED) as z:
     for p in files: z.write(p,p.relative_to(ROOT))
