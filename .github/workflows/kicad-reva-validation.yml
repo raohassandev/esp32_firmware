@@ -1,0 +1,61 @@
+name: KiCad Rev-A validation
+
+on:
+  push:
+    branches:
+      - hardware/kicad-reva-implementation
+    paths:
+      - 'hardware/kicad/**'
+      - '.github/workflows/kicad-reva-validation.yml'
+  pull_request:
+    branches:
+      - hardware/pcb-reva-plan
+    paths:
+      - 'hardware/kicad/**'
+      - '.github/workflows/kicad-reva-validation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  kicad-parse-and-erc:
+    runs-on: [self-hosted, macOS, vems]
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: KiCad version
+        run: |
+          KICAD='/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli'
+          test -x "$KICAD"
+          "$KICAD" version --format about
+
+      - name: Project syntax and schematic ERC
+        run: |
+          set -euo pipefail
+          KICAD='/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli'
+          SCH='hardware/kicad/Automatrix_PVDG_RevA.kicad_sch'
+          PRO='hardware/kicad/Automatrix_PVDG_RevA.kicad_pro'
+          python3 -m json.tool "$PRO" >/dev/null
+          "$KICAD" sch upgrade --force "$SCH"
+          "$KICAD" sch erc --severity-all --exit-code-violations --output hardware/kicad/Automatrix_PVDG_RevA-erc.rpt "$SCH"
+          "$KICAD" sch export netlist --format kicadsexpr --output hardware/kicad/Automatrix_PVDG_RevA.net "$SCH"
+          "$KICAD" sch export bom --output hardware/kicad/Automatrix_PVDG_RevA-bom.csv "$SCH"
+          "$KICAD" sch export pdf --output hardware/kicad/Automatrix_PVDG_RevA-schematic.pdf "$SCH"
+
+      - name: Design-control checks
+        run: |
+          python3 hardware/kicad/tools/validate_design_control.py
+
+      - name: Upload KiCad validation evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: kicad-reva-validation
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            hardware/kicad/Automatrix_PVDG_RevA-erc.rpt
+            hardware/kicad/Automatrix_PVDG_RevA.net
+            hardware/kicad/Automatrix_PVDG_RevA-bom.csv
+            hardware/kicad/Automatrix_PVDG_RevA-schematic.pdf
