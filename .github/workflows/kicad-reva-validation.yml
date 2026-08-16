@@ -89,7 +89,7 @@ jobs:
         run: |
           set -euo pipefail
           docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -e KICAD10_FOOTPRINT_DIR=/usr/share/kicad/footprints -v $PWD:/work -w /work kicad/kicad:10.0.5 \
-            python3 hardware/kicad/tools/build_reva_pcb_final.py
+            python3 hardware/kicad/tools/build_reva_pcb_final.py 2>&1 | tee hardware/kicad/placement.log
           test -s hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb
 
       - name: PCB DRC diagnostics and manufacturing preview
@@ -140,6 +140,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
           path: |
+            hardware/kicad/placement.log
             hardware/kicad/Automatrix_PVDG_RevA-erc.rpt
             hardware/kicad/Automatrix_PVDG_RevA.net
             hardware/kicad/Automatrix_PVDG_RevA-bom.csv
