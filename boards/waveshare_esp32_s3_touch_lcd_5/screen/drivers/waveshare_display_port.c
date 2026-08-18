@@ -3,7 +3,6 @@
 #include <string.h>
 
 #include "driver/gpio.h"
-#include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_rgb.h"
 #include "esp_lcd_touch_gt911.h"
 #include "esp_log.h"
@@ -12,11 +11,10 @@
 
 #define CH422G_SYSTEM_ADDRESS 0x24U
 #define CH422G_OUTPUT_ADDRESS 0x38U
-#define CH422G_OUTPUT_ENABLE  0x01U
-#define CH422G_TOUCH_RESET_LOW  0x2CU
+#define CH422G_OUTPUT_ENABLE 0x01U
+#define CH422G_TOUCH_RESET_LOW 0x2CU
 #define CH422G_TOUCH_RESET_HIGH 0x2EU
-#define CH422G_BACKLIGHT_ON   0x1EU
-#define CH422G_BACKLIGHT_OFF  0x1CU
+#define CH422G_BACKLIGHT_ON 0x1EU
 #define RGB_DATA_WIDTH 16U
 #define RGB_BITS_PER_PIXEL 16U
 #define RGB_BOUNCE_LINES 10U
@@ -27,6 +25,7 @@ static const char *TAG = "waveshare_display";
 static i2c_master_bus_handle_t s_bus;
 static i2c_master_dev_handle_t s_ch422g_system;
 static i2c_master_dev_handle_t s_ch422g_output;
+static esp_lcd_touch_io_gt911_config_t s_gt911_io_cfg;
 static bool s_ready;
 
 static esp_err_t add_i2c_device(i2c_master_bus_handle_t bus,
@@ -182,20 +181,22 @@ static esp_err_t create_rgb_panel(const waveshare_display_port_config_t *config,
 }
 
 static esp_err_t create_touch(const waveshare_display_profile_t *profile,
+                              esp_lcd_panel_io_handle_t *touch_io,
                               esp_lcd_touch_handle_t *touch)
 {
+    if (!touch_io || !touch) return ESP_ERR_INVALID_ARG;
+    *touch_io = NULL;
+    *touch = NULL;
+
     esp_err_t err = reset_touch_controller(profile);
     if (err != ESP_OK) return err;
 
-    esp_lcd_panel_io_handle_t io = NULL;
     esp_lcd_panel_io_i2c_config_t io_cfg = ESP_LCD_TOUCH_IO_I2C_GT911_CONFIG();
     io_cfg.scl_speed_hz = profile->i2c_frequency_hz;
-    err = esp_lcd_new_panel_io_i2c(s_bus, &io_cfg, &io);
+    err = esp_lcd_new_panel_io_i2c(s_bus, &io_cfg, touch_io);
     if (err != ESP_OK) return err;
 
-    esp_lcd_touch_io_gt911_config_t gt911_cfg = {
-        .dev_addr = io_cfg.dev_addr,
-    };
+    s_gt911_io_cfg.dev_addr = io_cfg.dev_addr;
     const esp_lcd_touch_config_t touch_cfg = {
         .x_max = profile->width,
         .y_max = profile->height,
@@ -210,12 +211,13 @@ static esp_err_t create_touch(const waveshare_display_profile_t *profile,
             .mirror_x = 0,
             .mirror_y = 0,
         },
-        .driver_data = &gt911_cfg,
+        .driver_data = &s_gt911_io_cfg,
     };
 
-    err = esp_lcd_touch_new_i2c_gt911(io, &touch_cfg, touch);
+    err = esp_lcd_touch_new_i2c_gt911(*touch_io, &touch_cfg, touch);
     if (err != ESP_OK) {
-        (void)esp_lcd_panel_io_del(io);
+        (void)esp_lcd_panel_io_del(*touch_io);
+        *touch_io = NULL;
     }
     return err;
 }
@@ -229,6 +231,7 @@ esp_err_t waveshare_display_port_init(const waveshare_display_port_config_t *con
     if (s_ready) return ESP_ERR_INVALID_STATE;
 
     memset(out, 0, sizeof(*out));
+    memset(&s_gt911_io_cfg, 0, sizeof(s_gt911_io_cfg));
     s_bus = config->i2c_bus;
     if (!s_bus) {
         esp_err_t err = create_i2c_bus(config->profile, &s_bus);
@@ -244,7 +247,7 @@ esp_err_t waveshare_display_port_init(const waveshare_display_port_config_t *con
     if (err != ESP_OK) goto fail;
 
     if (config->enable_touch) {
-        err = create_touch(config->profile, &out->touch);
+        err = create_touch(config->profile, &out->touch_io, &out->touch);
         if (err != ESP_OK) goto fail;
     }
 
@@ -256,12 +259,12 @@ fail:
     return err;
 }
 
-esp_err_t waveshare_display_port_backlight_set(bool on)
+esp_err_t waveshare_display_port_backlight_on(void)
 {
     if (!s_ready) return ESP_ERR_INVALID_STATE;
     esp_err_t err = ch422g_output_enable();
     if (err != ESP_OK) return err;
-    return ch422g_write(s_ch422g_output, on ? CH422G_BACKLIGHT_ON : CH422G_BACKLIGHT_OFF);
+    return ch422g_write(s_ch422g_output, CH422G_BACKLIGHT_ON);
 }
 
 esp_err_t waveshare_display_port_deinit(waveshare_display_port_handles_t *handles)
@@ -273,6 +276,11 @@ esp_err_t waveshare_display_port_deinit(waveshare_display_port_handles_t *handle
         esp_err_t err = esp_lcd_touch_del(handles->touch);
         if (first_error == ESP_OK && err != ESP_OK) first_error = err;
         handles->touch = NULL;
+    }
+    if (handles->touch_io) {
+        esp_err_t err = esp_lcd_panel_io_del(handles->touch_io);
+        if (first_error == ESP_OK && err != ESP_OK) first_error = err;
+        handles->touch_io = NULL;
     }
     if (handles->panel) {
         esp_err_t err = esp_lcd_panel_del(handles->panel);
@@ -298,5 +306,6 @@ esp_err_t waveshare_display_port_deinit(waveshare_display_port_handles_t *handle
     handles->owns_i2c_bus = false;
     s_bus = NULL;
     s_ready = false;
+    memset(&s_gt911_io_cfg, 0, sizeof(s_gt911_io_cfg));
     return first_error;
 }
