@@ -4,6 +4,7 @@
 
 #include "driver/i2c_master.h"
 #include "esp_err.h"
+#include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_touch.h"
 #include "esp_lv_adapter.h"
@@ -26,6 +27,7 @@ typedef struct {
 
 typedef struct {
     esp_lcd_panel_handle_t panel;
+    esp_lcd_panel_io_handle_t touch_io;
     esp_lcd_touch_handle_t touch;
     i2c_master_bus_handle_t i2c_bus;
     bool owns_i2c_bus;
@@ -37,8 +39,10 @@ typedef struct {
 esp_err_t waveshare_display_port_init(const waveshare_display_port_config_t *config,
                                       waveshare_display_port_handles_t *out);
 
-/* CH422G-controlled display backlight. Requires a successful init. */
-esp_err_t waveshare_display_port_backlight_set(bool on);
+/* The pinned vendor baseline explicitly demonstrates only the ON command. Do
+ * not infer an OFF bit pattern that has not been qualified against the exact
+ * board/schematic. */
+esp_err_t waveshare_display_port_backlight_on(void);
 
 /* Releases only resources owned by this port. Panel/touch deletion is attempted
  * before a locally-created I2C bus is released. */
