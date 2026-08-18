@@ -69,3 +69,34 @@ jobs:
             exit 1
           fi
           echo 'Default build isolation: PASS'
+
+  idf6-qualification:
+    needs: screen-contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compile isolated product screen on project ESP-IDF 6.0.1
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD:/project" \
+            -w /project/boards/waveshare_esp32_s3_touch_lcd_5/screen/qualification \
+            espressif/idf:v6.0.1 \
+            bash -lc 'idf.py set-target esp32s3 && idf.py build'
+
+      - name: Compile pinned official Waveshare LVGL9 baseline on ESP-IDF 6.0.1
+        run: |
+          set -euo pipefail
+          docker run --rm espressif/idf:v6.0.1 bash -lc '
+            set -euo pipefail
+            git clone https://github.com/waveshareteam/ESP32-S3-Touch-LCD-5.git /tmp/waveshare
+            cd /tmp/waveshare
+            git checkout a7b179dbfccea8121c88770d8a3c53e5a84b1024
+            cd examples/ESP-IDF/09_lvgl_v9_demo
+            idf.py set-target esp32s3
+            idf.py build
+            echo "=== resolved vendor dependencies ==="
+            cat dependencies.lock
+          '
