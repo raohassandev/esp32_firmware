@@ -10,6 +10,7 @@ idf_component_register(
         "api/screen_api.c"
         "components/screen_widgets.c"
         "drivers/waveshare_display_profile.c"
+        "drivers/waveshare_display_port.c"
         "pages/overview_screen.c"
         "pages/grid_screen.c"
         "pages/solar_screen.c"
@@ -26,4 +27,9 @@ idf_component_register(
     REQUIRES
         cjson
         lvgl
+        esp_lvgl_adapter
+        esp_lcd_touch_gt911
+        esp_lcd
+        esp_driver_i2c
+        esp_driver_gpio
 )
