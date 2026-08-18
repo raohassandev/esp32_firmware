@@ -53,7 +53,6 @@ static lv_obj_t *make_value_card(lv_obj_t *parent, const char *title, lv_obj_t *
     lv_obj_t *value = lv_label_create(card);
     lv_label_set_text(value, "--");
     lv_obj_set_style_text_color(value, lv_color_hex(0xF2F6FA), LV_PART_MAIN);
-    lv_obj_set_style_text_font(value, &lv_font_montserrat_28, LV_PART_MAIN);
     if (value_out) *value_out = value;
     return card;
 }
@@ -122,7 +121,6 @@ lv_obj_t *overview_screen_create(lv_obj_t *parent)
     lv_obj_t *title = lv_label_create(header);
     lv_label_set_text(title, "Automatrix PV-DG");
     lv_obj_set_style_text_color(title, lv_color_hex(0xF2F6FA), LV_PART_MAIN);
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_24, LV_PART_MAIN);
 
     s_ui.backend_state = lv_label_create(header);
     lv_label_set_text(s_ui.backend_state, "BACKEND: WAITING");
@@ -195,7 +193,9 @@ void overview_screen_apply_live(const screen_live_snapshot_t *snapshot)
     set_kw(s_ui.requested_value, snapshot->has_requested_pv_kw, snapshot->requested_pv_kw);
     set_kw(s_ui.applied_value, snapshot->has_applied_pv_kw, snapshot->applied_pv_kw);
 
-    lv_label_set_text_fmt(s_ui.source, "Source: %s", safe_text(snapshot->source, "unknown"));
+    /* Deliberately do NOT render live.source here. /api/status publishes
+     * source.attributed_to, which is already fail-closed against stale/conflicting
+     * source evidence and is the authoritative field intended for screens. */
     lv_label_set_text_fmt(s_ui.control_mode, "Control: %s",
                           safe_text(snapshot->mode_label, "unknown"));
     lv_label_set_text(s_ui.meter_state, snapshot->meter_online ? "Online" : "Offline");
@@ -230,9 +230,8 @@ void overview_screen_apply_status(const screen_status_snapshot_t *snapshot)
         lv_label_set_text_fmt(s_ui.alarm_state, "0x%08lX", (unsigned long)snapshot->alarms);
     }
 
-    if (snapshot->source_attributed_to[0] != '\0') {
-        lv_label_set_text_fmt(s_ui.source, "Source: %s", snapshot->source_attributed_to);
-    }
+    lv_label_set_text_fmt(s_ui.source, "Source: %s",
+                          safe_text(snapshot->source_attributed_to, "unknown"));
 
     if (snapshot->control_mode_label[0] != '\0') {
         lv_label_set_text_fmt(s_ui.control_mode, "Control: %s", snapshot->control_mode_label);
