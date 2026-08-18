@@ -22,7 +22,7 @@ static screen_app_state_t s_app;
 static void nav_clicked(lv_event_t *event)
 {
     const uintptr_t raw = (uintptr_t)lv_event_get_user_data(event);
-    if (raw >= SCREEN_PAGE_COUNT) return;
+    if (raw >= (uintptr_t)SCREEN_PAGE_COUNT) return;
     screen_app_show_page((screen_page_t)raw);
 }
 
@@ -78,7 +78,7 @@ lv_obj_t *screen_app_create(lv_obj_t *parent)
     s_app.pages[SCREEN_PAGE_ALARMS] = alarms_screen_create(content);
     s_app.pages[SCREEN_PAGE_READINESS] = readiness_screen_create(content);
 
-    for (int i = 1; i < SCREEN_PAGE_COUNT; ++i) {
+    for (int i = 1; i < (int)SCREEN_PAGE_COUNT; ++i) {
         lv_obj_add_flag(s_app.pages[i], LV_OBJ_FLAG_HIDDEN);
     }
     return s_app.root;
@@ -86,8 +86,8 @@ lv_obj_t *screen_app_create(lv_obj_t *parent)
 
 void screen_app_show_page(screen_page_t page)
 {
-    if (!s_app.root || page < 0 || page >= SCREEN_PAGE_COUNT) return;
-    for (int i = 0; i < SCREEN_PAGE_COUNT; ++i) {
+    if (!s_app.root || (unsigned)page >= (unsigned)SCREEN_PAGE_COUNT) return;
+    for (int i = 0; i < (int)SCREEN_PAGE_COUNT; ++i) {
         if (!s_app.pages[i]) continue;
         if (i == (int)page) lv_obj_remove_flag(s_app.pages[i], LV_OBJ_FLAG_HIDDEN);
         else lv_obj_add_flag(s_app.pages[i], LV_OBJ_FLAG_HIDDEN);
