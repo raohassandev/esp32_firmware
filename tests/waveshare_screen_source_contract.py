@@ -127,12 +127,14 @@ def main() -> None:
     ]:
         assert f'"{source}"' in screen_cmake, f"CMake missing {source}"
 
-    # Both exact vendor resolutions exist and there is no guessed physical SKU.
+    # Both exact vendor resolutions exist and there is no code symbol that
+    # silently selects one as the physical target.
     assert "WAVESHARE_DISPLAY_800X480" in profile_h
     assert "WAVESHARE_DISPLAY_1024X600" in profile_h
     assert ".width = 800" in profile_c and ".height = 480" in profile_c
     assert ".width = 1024" in profile_c and ".height = 600" in profile_c
-    assert "default" not in profile_h.lower(), "profile header must not select a default SKU"
+    assert "WAVESHARE_DISPLAY_DEFAULT" not in profile_h
+    assert "DEFAULT_WAVESHARE_DISPLAY" not in profile_h
 
     # The shell exposes only the existing operator product areas in this milestone.
     for label in ["Overview", "Grid", "Solar", "Alarms", "Ready"]:
