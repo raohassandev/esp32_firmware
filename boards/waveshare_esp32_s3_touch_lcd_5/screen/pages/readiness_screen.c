@@ -1,6 +1,7 @@
 #include "readiness_screen.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #include "screen_widgets.h"
 
@@ -90,10 +91,12 @@ void readiness_screen_apply(const screen_telemetry_snapshot_t *snapshot,
         screen_ui_set_state_text(s_ui.controller, controller,
                                  !status->last_reboot_unexpected &&
                                  status->controller_state[0] != '\0');
+
+        const bool source_known = status->source_attributed_to[0] != '\0' &&
+                                  strcmp(status->source_attributed_to, "unknown") != 0;
         screen_ui_set_state_text(s_ui.source,
                                  screen_ui_safe_text(status->source_attributed_to, "unknown"),
-                                 status->source_attributed_to[0] != '\0' &&
-                                 status->source_attributed_to[0] != 'u');
+                                 source_known);
         screen_ui_set_state_text(s_ui.authority,
                                  screen_ui_safe_text(status->control_mode_label, "unknown"),
                                  status->control_mode_label[0] != '\0');
