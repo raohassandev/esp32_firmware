@@ -1,0 +1,110 @@
+#!/usr/bin/env python3
+from pathlib import Path
+import re
+
+ROOT = Path(__file__).resolve().parents[1]
+SCREEN = ROOT / "boards" / "waveshare_esp32_s3_touch_lcd_5" / "screen"
+
+
+def read(path: Path) -> str:
+    assert path.exists(), f"missing: {path.relative_to(ROOT)}"
+    return path.read_text(encoding="utf-8")
+
+
+def main() -> None:
+    root_cmake = read(ROOT / "CMakeLists.txt")
+    screen_cmake = read(SCREEN / "CMakeLists.txt")
+    api_h = read(SCREEN / "api" / "screen_api.h")
+    api_c = read(SCREEN / "api" / "screen_api.c")
+    overview = read(SCREEN / "pages" / "overview_screen.c")
+    app = read(SCREEN / "screen_app.c")
+
+    # The current site-tested build stays unchanged until the hardware/LVGL gate.
+    assert "waveshare_esp32_s3_touch_lcd_5/screen" not in root_cmake
+    assert "intentionally NOT added to root EXTRA_COMPONENT_DIRS" in screen_cmake
+
+    # Every screen contract must point at a route the existing backend already owns.
+    backend_sources = "\n".join(
+        read(p) for p in [
+            ROOT / "components" / "web_server" / "live_api.c",
+            ROOT / "components" / "web_server" / "web_api.c",
+            ROOT / "components" / "web_server" / "device_api.c",
+            ROOT / "components" / "web_server" / "operational_api.c",
+        ]
+    )
+    required_paths = [
+        "/api/live",
+        "/api/status",
+        "/api/meters",
+        "/api/inverters",
+        "/api/telemetry",
+        "/api/operator/events",
+        "/api/operator/alarms",
+    ]
+    for path in required_paths:
+        assert path in api_h, f"screen contract missing {path}"
+        assert path in backend_sources, f"backend does not own {path}"
+
+    # Local HMI must not grow a second product/backend implementation.
+    forbidden_headers = {
+        "control_engine.h",
+        "safety_manager.h",
+        "meter_manager.h",
+        "inverter_manager.h",
+        "config_manager.h",
+        "commissioning_gate.h",
+        "network_manager.h",
+        "modbus_tcp.h",
+    }
+    for source in SCREEN.rglob("*.c"):
+        text = read(source)
+        includes = set(re.findall(r'#include\s+[<\"]([^>\"]+)[>\"]', text))
+        overlap = forbidden_headers & includes
+        assert not overlap, f"{source.relative_to(ROOT)} bypasses backend boundary: {sorted(overlap)}"
+
+    # There are no local backend HTTP handlers or local HTTP write clients.
+    all_c = "\n".join(read(p) for p in SCREEN.rglob("*.c"))
+    assert "httpd_register_uri_handler" not in all_c
+    assert "HTTP_POST" not in all_c
+    assert "HTTP_PUT" not in all_c
+    assert "HTTP_DELETE" not in all_c
+
+    # The only event callbacks in this milestone are navigation callbacks.
+    callback_files = []
+    for source in SCREEN.rglob("*.c"):
+        if "lv_obj_add_event_cb" in read(source):
+            callback_files.append(source.relative_to(SCREEN).as_posix())
+    assert callback_files == ["screen_app.c"], callback_files
+
+    # Fail-closed source attribution: overview must never render live.source.
+    assert "snapshot->source" not in overview
+    assert "source_attributed_to" in overview
+
+    # Null numerics are represented by has_* flags and unavailable display text.
+    assert "has_grid_kw" in api_c
+    assert "has_solar_kw" in api_c
+    assert "cJSON_IsNumber" in api_c
+    assert '"-- kW"' in all_c
+    assert "no zero" in all_c.lower() or "no zero" in read(SCREEN / "README.md").lower()
+
+    # All parity pages are part of the isolated component manifest.
+    for source in [
+        "pages/overview_screen.c",
+        "pages/grid_screen.c",
+        "pages/solar_screen.c",
+        "pages/alarms_screen.c",
+        "pages/readiness_screen.c",
+        "components/screen_widgets.c",
+        "screen_app.c",
+    ]:
+        assert f'"{source}"' in screen_cmake, f"CMake missing {source}"
+
+    # The shell exposes only the existing operator product areas in this milestone.
+    for label in ["Overview", "Grid", "Solar", "Alarms", "Ready"]:
+        assert f'"{label}"' in app
+
+    print("waveshare screen source contract: PASS")
+
+
+if __name__ == "__main__":
+    main()
