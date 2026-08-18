@@ -8,8 +8,6 @@
 static screen_api_provider_t s_provider;
 static bool s_initialized;
 
-typedef bool (*parse_fn_t)(const char *json, void *out);
-
 static bool get_payload(const char *path, const char **json)
 {
     if (!s_initialized || !s_provider.acquire || !path || !json) return false;
