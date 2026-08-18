@@ -3,10 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
-/*
- * Presentation-only screen. No backend writes, no control decisions, no safety
- * policy. Labels come from the existing backend snapshot where available.
- */
+/* Presentation-only screen. No backend writes, control decisions or safety
+ * policy. Labels come from the existing backend snapshots. */
 typedef struct {
     lv_obj_t *root;
     lv_obj_t *backend_state;
@@ -177,7 +175,6 @@ lv_obj_t *overview_screen_create(lv_obj_t *parent)
     s_ui.firmware_version = lv_label_create(bottom);
     lv_label_set_text(s_ui.firmware_version, "Firmware: --");
     lv_obj_set_style_text_color(s_ui.firmware_version, lv_color_hex(0x7F8B99), LV_PART_MAIN);
-
     return root;
 }
 
@@ -187,15 +184,13 @@ void overview_screen_apply_live(const screen_live_snapshot_t *snapshot)
 
     lv_label_set_text(s_ui.backend_state, "BACKEND: ONLINE");
     lv_obj_set_style_text_color(s_ui.backend_state, lv_color_hex(0x62D28F), LV_PART_MAIN);
-
     set_kw(s_ui.grid_value, snapshot->has_grid_kw, snapshot->grid_kw);
     set_kw(s_ui.solar_value, snapshot->has_solar_kw, snapshot->solar_kw);
     set_kw(s_ui.requested_value, snapshot->has_requested_pv_kw, snapshot->requested_pv_kw);
     set_kw(s_ui.applied_value, snapshot->has_applied_pv_kw, snapshot->applied_pv_kw);
 
-    /* Deliberately do NOT render live.source here. /api/status publishes
-     * source.attributed_to, which is already fail-closed against stale/conflicting
-     * source evidence and is the authoritative field intended for screens. */
+    /* Do not render live.source. /api/status.source.attributed_to is already
+     * fail-closed against stale/conflicting source evidence and is authoritative. */
     lv_label_set_text_fmt(s_ui.control_mode, "Control: %s",
                           safe_text(snapshot->mode_label, "unknown"));
     lv_label_set_text(s_ui.meter_state, snapshot->meter_online ? "Online" : "Offline");
@@ -226,22 +221,25 @@ void overview_screen_apply_status(const screen_status_snapshot_t *snapshot)
 
     if (snapshot->alarms == 0U) {
         lv_label_set_text(s_ui.alarm_state, "None active");
+    } else if (snapshot->alarm_name_count == 1U) {
+        lv_label_set_text(s_ui.alarm_state, snapshot->alarm_names[0]);
+    } else if (snapshot->alarm_name_count > 1U) {
+        lv_label_set_text_fmt(s_ui.alarm_state, "%s +%u more",
+                              snapshot->alarm_names[0],
+                              (unsigned)(snapshot->alarm_name_count - 1U));
     } else {
-        lv_label_set_text_fmt(s_ui.alarm_state, "0x%08lX", (unsigned long)snapshot->alarms);
+        lv_label_set_text(s_ui.alarm_state, "Active alarm(s)");
     }
 
     lv_label_set_text_fmt(s_ui.source, "Source: %s",
                           safe_text(snapshot->source_attributed_to, "unknown"));
-
     if (snapshot->control_mode_label[0] != '\0') {
         lv_label_set_text_fmt(s_ui.control_mode, "Control: %s", snapshot->control_mode_label);
     }
-
     if (snapshot->control_inhibit_reason[0] != '\0') {
         lv_label_set_text_fmt(s_ui.inhibit_reason, "Control reason: %s",
                               snapshot->control_inhibit_reason);
     }
-
     lv_label_set_text_fmt(s_ui.firmware_version, "Firmware: %s",
                           safe_text(snapshot->firmware_version, "unknown"));
 
