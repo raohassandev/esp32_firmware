@@ -1,6 +1,6 @@
 # Waveshare ESP32-S3-Touch-LCD-5 — Master Plan
 
-Status: `FEATURE-PARITY PORT — NO NEW PRODUCT FEATURES`
+Status: `FEATURE-PARITY PORT + AUTHORIZED BOARD-LOCAL HMI — NO NEW CORE PRODUCT FEATURES`
 
 Date: 2026-08-18
 
@@ -12,20 +12,23 @@ Source baseline: `phase1-fix@3c486f0eb5595668c78af7491fa7a1550ab2bc71`
 
 AISH baseline: `raohassandev/AISH-OS@acaba0f5a06d2893d350cafd9d949cc068d6d6f1`
 
-Canonical architecture/execution plan:
-`docs/architecture/CORE_BOARD_EXECUTION_PLAN.md`
+Canonical architecture/execution plan: `docs/architecture/CORE_BOARD_EXECUTION_PLAN.md`
 
-Board execution TODO:
-`docs/boards/waveshare-esp32-s3-touch-lcd-5/TODO.md`
+Board execution TODO: `docs/boards/waveshare-esp32-s3-touch-lcd-5/TODO.md`
 
-Resume authority:
-`.aish/RESUME.md`
+Screen execution TODO: `boards/waveshare_esp32_s3_touch_lcd_5/screen/SCREEN_TODO.md`
+
+Resume authority: `.aish/RESUME.md`
 
 ## 1. Scope lock
 
 The existing real-site-tested firmware is the behavioral reference.
 
-This milestone does **not** add new product functionality. Its purpose is to establish a reusable multi-board architecture and run the same existing Core on the Waveshare ESP32-S3-Touch-LCD-5 target.
+This milestone does **not** add new Core/backend/control functionality. Its purposes are:
+
+1. establish the reusable Core + board-specific architecture;
+2. run the same existing product behavior on the Waveshare target;
+3. implement the Product Owner-authorized Waveshare local LCD/touch HMI as a **board-specific presentation of existing functionality using the existing backend/API authority**.
 
 Required invariants:
 
@@ -36,29 +39,33 @@ Required invariants:
 - board-specific functionality stays confined to that board;
 - existing Web UI remains shared and unchanged except defect fixes required for parity;
 - existing control/safety/configuration/commissioning/auth/alarm/source-detection/meter/inverter behavior remains authoritative;
+- local HMI may not duplicate backend/business/control truth;
+- current HMI milestone is read-only: no new control/write callbacks;
 - no Scheduler/automation scheduling;
 - no completion claim without AISH exact-head evidence.
 
-## 2. Current architectural decision
+## 2. Architecture
 
-Do not fork/copy the whole firmware per board.
-
-Use:
+Do not fork/copy the whole firmware per board and do not perform a big-bang Core rewrite.
 
 ```text
-Product Core
-    |
-    v
-Minimal Board Support Contract
-    |
-    +--> Waveshare board adapter
-    +--> Future board adapter A
-    +--> Future board adapter B
+Product Core / Existing Backend Authority
+                  |
+                  v
+       Minimal Board Support Contract
+                  |
+       +----------+----------+
+       |                     |
+       v                     v
+Waveshare Adapter       Future Board Adapter
+       |
+       +--> board-local LCD/touch presentation
+            consumes existing API/state contracts
 ```
 
-The Core owns product behavior. The Board Adapter owns only physical-board identity, resources, safe init and board-specific implementation details.
+The Core owns product behavior. Board adapters own physical identity/resources/safe init/board-local implementation. The Waveshare HMI owns presentation only.
 
-Existing field-proven components remain in place. No big-bang directory rewrite is authorized.
+Existing field-proven Core components stay in their current locations unless a bounded portability seam is actually required.
 
 ## 3. Core propagation rule
 
@@ -78,27 +85,31 @@ A generic Core defect may not remain permanently fixed only in one board branch.
 
 Board-only changes remain on `board/<id>` and are never merged wholesale into Core or another board branch.
 
-## 4. Waveshare hardware scope
+## 4. Waveshare capability scope
 
 The exact physical SKU/revision must still be frozen.
 
-The board family exposes LCD/touch, RS485, SD/TF, RTC, CAN/TWAI and isolated I/O. These are **hardware capabilities only** in the current milestone.
-
 Current milestone state:
 
-- LCD/LVGL HMI: `RESERVED_NOT_ACTIVE`
-- Touch application UI: `RESERVED_NOT_ACTIVE`
-- onboard RS485/Modbus RTU product transport: `RESERVED_NOT_ACTIVE`
-- SD application logging/history: `RESERVED_NOT_ACTIVE`
-- RTC application integration: `RESERVED_NOT_ACTIVE`
-- CAN/TWAI product integration: `RESERVED_NOT_ACTIVE`
-- isolated DI/DO product logic: `RESERVED_NOT_ACTIVE`
+- LCD/LVGL HMI: `AUTHORIZED_BOARD_SPECIFIC_PRESENTATION` — read-only existing-product parity surface;
+- touch navigation: `AUTHORIZED_BOARD_SPECIFIC_PRESENTATION` — no new control/write semantics;
+- onboard RS485/Modbus RTU product transport: `RESERVED_NOT_ACTIVE`;
+- SD application logging/history: `RESERVED_NOT_ACTIVE`;
+- RTC application integration: `RESERVED_NOT_ACTIVE`;
+- CAN/TWAI product integration: `RESERVED_NOT_ACTIVE`;
+- isolated DI/DO product logic: `RESERVED_NOT_ACTIVE`.
 
-They may be documented, conflict-checked, or placed into safe board states where boot/electrical safety requires it. They are not authorized product features.
+The screen workspace is:
+
+`boards/waveshare_esp32_s3_touch_lcd_5/screen/**`
+
+Its backend contracts are existing routes only: `/api/live`, `/api/status`, `/api/meters`, `/api/inverters`, `/api/telemetry`, `/api/operator/events`, `/api/operator/alarms`.
+
+No screen-specific backend route or control policy is authorized.
 
 ## 5. Product parity target
 
-The Waveshare port must preserve the current product surface:
+The Waveshare port must preserve:
 
 - safe boot behavior;
 - current configuration and migration semantics;
@@ -115,92 +126,102 @@ The Waveshare port must preserve the current product surface:
 - current persistence expectations;
 - current automatic-control default/authority semantics.
 
-Any unexplained behavioral difference is a defect until reconciled.
+The board-local screen may visualize those existing states but cannot redefine them.
 
-## 6. Execution phases
+Any unexplained Core behavioral difference is a defect until reconciled.
 
-1. **P0 — Freeze working Core**
-   - exact SHA/toolchain/config/API/Web/safety baseline;
-   - Core-vs-board ownership map;
-   - current evidence reconciliation.
+## 6. Screen-specific safety rules
 
-2. **P1 — Minimal Board Support Contract**
-   - board ID/capabilities/safe init/build selection/resource ownership;
-   - no speculative peripheral APIs.
+- `null`, missing, stale or unavailable measurement is never rendered as measured `0`.
+- source attribution shown to the operator comes from backend fail-closed `source.attributed_to`.
+- control mode/inhibit reasons use backend wording.
+- no local UI callback may write configuration or command plant equipment in the current milestone.
+- one failed API contract degrades only its owned surface where possible.
+- screen runtime creates no hidden scheduler/task; the qualified board integration owns cadence/locking.
+- large bounded snapshots may not consume unsafe LVGL task stack.
+- display/touch/API failure may not change control authority.
 
-3. **P2 — Repository board structure**
-   - `components/board_support/**`;
-   - `boards/waveshare_esp32_s3_touch_lcd_5/**`;
-   - compile-time containment.
+## 7. Execution phases
 
-4. **P3 — Exact Waveshare hardware baseline**
-   - model/SKU/revision/vendor source/pins/resources;
-   - safe-state and conflict proof.
+1. **P0 — Freeze working Core** — exact SHA/toolchain/config/API/Web/safety baseline and Core-vs-board ownership.
+2. **P1 — Minimal Board Support Contract** — board ID/capabilities/safe init/build selection/resource ownership; no speculative peripheral APIs.
+3. **P2 — Repository board structure** — shared board boundary + `boards/waveshare_esp32_s3_touch_lcd_5/**` containment.
+4. **P3 — Exact Waveshare hardware baseline** — model/SKU/revision/vendor source/pins/resources/safe-state proof.
+5. **P4 — Feature-parity board port** — same Core on Waveshare; current behavior only.
+6. **P5 — Golden regression** — deterministic tests, API/config/Web parity and safety contracts.
+7. **P6 — Exact-target runtime proof** — boot, PSRAM, stacks, heap, Wi-Fi, HTTP, current Modbus TCP and product runtime.
+8. **P7 — HIL/safety equivalence** — current fault/recovery/write-gate/control failure surfaces.
+9. **P8 — Establish canonical shared Core line** — one generic merge destination after baseline reconciliation.
+10. **P9 — Board Sync Gate** — supported-board registry plus `core_head`/`synced_core_sha` release gate.
+11. **P10 — Prove propagation** — one real Core change propagated to every supported board.
+12. **P11 — Branch cleanup** — canonical/supported/active/trace/archive/delete classification.
+13. **P12 — Final parity release** — exact-head Quality-360 + target/HIL evidence + no unauthorized feature.
 
-5. **P4 — Feature-parity port**
-   - build and run existing Core on Waveshare;
-   - current behavior only.
+Screen sub-plan S0-S6 is authoritative in `screen/SCREEN_TODO.md` and runs in parallel where dependencies allow.
 
-6. **P5 — Golden regression**
-   - deterministic tests, API/config/Web parity and safety contracts.
+## 8. Current screen implementation checkpoint
 
-7. **P6 — Exact-target runtime proof**
-   - boot, PSRAM, stacks, heap, Wi-Fi, HTTP, current Modbus TCP and product runtime.
+Software source now exists for:
 
-8. **P7 — HIL/safety equivalence**
-   - current fault/recovery/write-gate/control failure surfaces.
+- bounded existing-API models/parsers;
+- provider-injected read-only runtime refresh bridge;
+- shared LVGL widgets;
+- Overview;
+- Grid/Meters;
+- Solar/Inverters;
+- Alarms/Events;
+- Readiness;
+- touch navigation shell;
+- exact pure-C display timing/pin profiles for both 800x480 and 1024x600 variants;
+- host parser/profile tests and screen isolation source contract;
+- dedicated board-screen CI workflow.
 
-9. **P8 — Establish `core/stable`**
-   - reconcile approved Core head;
-   - one generic merge destination.
+The root/default firmware build still intentionally excludes this screen component until exact-target display/LVGL qualification is complete.
 
-10. **P9 — Board Sync Gate**
-    - supported-board registry;
-    - `core_head` / `synced_core_sha` ledger;
-    - stale-board release block.
+## 9. Waveshare upstream qualification
 
-11. **P10 — Prove propagation**
-    - one real Core change propagated end-to-end to every supported board.
+Pinned review baseline:
 
-12. **P11 — Branch cleanup**
-    - canonical/supported/active/trace/archive/delete classification.
+`waveshareteam/ESP32-S3-Touch-LCD-5@a7b179dbfccea8121c88770d8a3c53e5a84b1024`
 
-13. **P12 — Final parity release**
-    - exact-head Quality-360 + target/HIL evidence + no unauthorized feature.
+The official LVGL v9 example is the hardware bring-up reference. It is not product acceptance and its dependency ranges must be qualified against the project's ESP-IDF 6.0.1 before board integration is enabled.
 
-Detailed checkboxes and acceptance gates are in `TODO.md`.
+Both vendor resolution/timing profiles are recorded without selecting a default physical SKU. Physical SKU/revision remains an exact-target gate.
 
-## 7. Parallel lanes
+## 10. Parallel lanes
 
 - L0 Integration/Governance
 - L1 Baseline/Architecture
-- L2 Waveshare Board Adapter
+- L2 Waveshare Board Adapter + display/touch integration
 - L3 Core Portability
-- L4 Regression/Web Parity QA
+- L4 Regression/Web + screen contract QA
 - L5 Safety/Functional QA
-- L6 Hardware/HIL
+- L6 Hardware/HIL/resource proof
 - L7 Release/Branch Hygiene
 
-Implementation WIP is limited to useful non-overlapping work. QA starts in parallel when contracts are stable. Planned lanes are not reported as executing without repository/tool evidence.
+Implementation WIP is limited to useful non-overlapping work. Planned lanes are not reported as executing without repository/tool evidence.
 
-## 8. Completion rule
+## 11. Completion rules
 
-Final state may be called:
+`LOCAL_SCREEN_COMPLETE — EXACT WAVESHARE TARGET` requires:
 
-`FEATURE_PARITY_COMPLETE — WAVESHARE BOARD`
+- exact physical SKU/revision;
+- qualified/pinned display/LVGL/touch dependencies on ESP-IDF 6.0.1;
+- exact board compile/flash/render/touch evidence;
+- API/runtime failure behavior evidence;
+- PSRAM/DMA/heap/stack/watchdog/control-jitter evidence;
+- display/touch fault isolation from control authority;
+- applicable Quality-360 gates PASS at exact head.
 
-only when:
+`FEATURE_PARITY_COMPLETE — WAVESHARE BOARD` additionally requires:
 
-- the same approved Core is shared;
-- board-specific code is contained;
-- no new product feature was introduced;
-- exact Waveshare build/runtime evidence passes;
-- required HIL/bench evidence passes;
-- Web/API/config/control/safety behavior remains regression-green;
-- Quality-360 required dimensions PASS;
-- Core/Board propagation workflow is proven;
-- board sync ledger and repo resume context are current.
+- the same approved shared Core;
+- board-specific containment;
+- exact Waveshare board runtime/HIL evidence;
+- Web/API/config/control/safety regression green;
+- Core/Board propagation workflow proven;
+- board sync ledger and repo resume context current.
 
-## 9. Future features
+## 12. Future features outside current authorization
 
-LCD HMI, direct RS485/Modbus RTU, SD logging, RTC, CAN and isolated DI/DO remain future candidates only. Each requires a new Product Owner authorization and AISH work packet before implementation.
+Direct onboard RS485/Modbus RTU product transport, SD logging/history, RTC application behavior, CAN/TWAI product behavior and isolated DI/DO product logic remain future candidates. Each requires explicit Product Owner authorization and a bounded AISH work packet before implementation.
