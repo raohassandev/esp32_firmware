@@ -1,8 +1,5 @@
 #include "screen_widgets.h"
 
-#include <string.h>
-
-static const uint32_t BG = 0x0B1017;
 static const uint32_t PANEL = 0x151B24;
 static const uint32_t BORDER = 0x2E3948;
 static const uint32_t TEXT = 0xF2F6FA;
