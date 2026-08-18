@@ -26,6 +26,14 @@ void screen_app_apply_inverters(const screen_inverters_snapshot_t *snapshot);
 void screen_app_apply_telemetry(const screen_telemetry_snapshot_t *snapshot);
 void screen_app_apply_events(const screen_events_snapshot_t *snapshot);
 void screen_app_apply_alarms(const screen_alarms_snapshot_t *snapshot);
+
+/* Per-contract unavailable states let one failed endpoint degrade only the
+ * surface it owns instead of erasing healthy data from unrelated pages. */
+void screen_app_show_live_unavailable(void);
+void screen_app_show_meters_unavailable(void);
+void screen_app_show_inverters_unavailable(void);
+void screen_app_show_operations_unavailable(void);
+void screen_app_show_readiness_unavailable(void);
 void screen_app_show_backend_unavailable(void);
 
 #ifdef __cplusplus
