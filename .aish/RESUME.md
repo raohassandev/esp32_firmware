@@ -2,7 +2,7 @@
 
 Updated: 2026-08-18
 
-Lifecycle: `PLANNING / OWNER INPUTS PENDING`
+Lifecycle: `PLANNED — FEATURE PARITY ONLY`
 
 ## Canonical execution target
 
@@ -12,72 +12,143 @@ Branch: `board/waveshare-esp32-s3-touch-lcd-5`
 
 Branch origin: `phase1-fix@3c486f0eb5595668c78af7491fa7a1550ab2bc71`
 
-Planning commit: `326e97122a94f802c01f8cc1080d6da80cbf74cb`
-
 AISH baseline: `raohassandev/AISH-OS@acaba0f5a06d2893d350cafd9d949cc068d6d6f1`
 
 Master plan: `docs/boards/waveshare-esp32-s3-touch-lcd-5/MASTER_PLAN.md`
 
-## Current verified repository facts
+Architecture plan: `docs/architecture/CORE_BOARD_EXECUTION_PLAN.md`
 
-- `main`/`dev` are behind the actual product-development line.
-- `phase1-fix` is the selected board-port baseline and includes later field-verified safety/network/control fixes.
-- The existing target configuration has ESP32-S3, 16 MB flash, 8 MB octal PSRAM, 240 MHz CPU, 1 kHz FreeRTOS tick and resource tuning that was originally justified for a DevKitC-1 N16R8.
-- The current components include Modbus TCP but no first-class project Modbus RTU/RS485 component.
-- Existing web, control, safety, source-detection, commissioning and profile logic are to remain authoritative shared product layers.
-- A draft operator-UI refinement branch is diverged from the current safety baseline; it is not the base for this board port.
+Execution TODO: `docs/boards/waveshare-esp32-s3-touch-lcd-5/TODO.md`
 
-## Waveshare upstream facts recorded for planning
+## Product Owner scope lock
 
-Family: Waveshare ESP32-S3-Touch-LCD-5 / -5B.
+- One authoritative shared Product Core.
+- Every supported hardware board gets a dedicated adapter/integration area and dedicated long-lived `board/<board-id>` branch.
+- Generic Core fixes/improvements must propagate to every supported board.
+- Board-specific functionality must remain confined to that board.
+- Existing real-site-tested product behavior is the reference.
+- Existing Web UI remains shared.
+- No new product feature/functionality is authorized in this milestone.
+- Scheduler/automation scheduling is not authorized.
 
-Known official family capabilities: ESP32-S3-WROOM-1-N16R8, RGB LCD, GT911 touch, CH422G expander, SP3485 RS485, TF/SD, PCF85063 RTC, TJA1051 CAN, isolated DI/DO, USB-C 5V and DC 7-36V input.
+## Current architecture decision
 
-Exact physical SKU and PCB revision are still `OWNER_INPUT_PENDING`; no board-dependent code may be called verified before this is frozen.
+Do not copy/fork the entire firmware per board and do not perform a big-bang refactor.
 
-## Work packet state
+Existing product components remain Core-owned in their current locations. Introduce a minimal Board Support Contract only where needed to remove physical-board assumptions.
 
-- WP0 Canonical baseline/governance bootstrap — `IN_PROGRESS`: branch + master plan + resume context created; owner inputs and branch inventory classification remain.
-- WP1 Exact Waveshare upstream baseline — `READY_AFTER_OWNER_SKU`: official docs/repo located; exact SKU/revision and physical demo evidence pending.
-- WP2 Board-support abstraction — `WAITING_DEPENDENCY: WP1`
-- WP3 Display/touch foundation — `WAITING_DEPENDENCY: WP1/WP2`
-- WP4 RS485/Modbus RTU read-only — `WAITING_DEPENDENCY: WP1/WP2`
-- WP5 SD/RTC/isolated-I/O — `WAITING_DEPENDENCY: WP1/WP2`
-- WP6 Core/application integration — `WAITING_DEPENDENCY: WP2/WP4`
-- WP7 Web parity/local HMI — `WAITING_DEPENDENCY: WP2/WP3/WP6`
-- WP8 Physical write/control qualification — `WAITING_DEPENDENCY: WP4/WP6 + real peer hardware/manual evidence`
-- WP9 HIL/fault/reliability — `WAITING_DEPENDENCY: integrated RC`
-- WP10 Shadow/pilot — `ENVIRONMENT_WAIT until RC + owner/site authority`
-- WP11 Release/cleanup/future-board baseline — `WAITING_DEPENDENCY`
+Planned board-specific path:
 
-## Planned lanes (not background workers)
+`boards/waveshare_esp32_s3_touch_lcd_5/**`
 
-L0 integration/governance; L1 upstream qualification; L2 BSP/display/touch; L3 RS485/Modbus RTU; L4 SD/RTC/DI-DO/CAN; L5 core portability; L6 web regression; L7 independent QA/safety; L8 hardware/HIL/reliability; L9 release/audit.
+Planned shared boundary:
 
-Only lanes with READY work and non-overlapping write scopes may be activated. No Scheduler is authorized. A lane is not reported as executing without repository/tool evidence of execution.
+`components/board_support/**`
 
-## Current bottleneck
+The Core owns product behavior. Board adapters own physical-board identity/resources/safe initialization only.
 
-Exact physical board identity/revision and intended production role are not frozen. These decisions affect display timings, environmental acceptance, HMI scope and field-control release depth.
+## Current product parity surface
 
-## Owner inputs required
+Must remain unchanged unless a real defect is independently proven:
 
-1. Exact board: `ESP32-S3-Touch-LCD-5` 800x480 / SKU 28117 OR `ESP32-S3-Touch-LCD-5B` 1024x600 / SKU 28151; provide PCB revision or rear-board photo if possible.
-2. RS485 policy: primary field transport + keep TCP, or RS485-only on this board.
-3. Local LCD scope: full native HMI, limited status/commissioning HMI, or bring-up only.
-4. Deployment role: final production field controller vs prototype/pilot before custom hardened PCB.
-5. Available bench equipment/peer devices.
-6. Field environmental envelope if production use is intended.
+- configuration/migration/persistence;
+- Wi-Fi/network/recovery behavior;
+- Modbus TCP path;
+- meter/inverter behavior;
+- source detection;
+- control/safety/fail-closed behavior;
+- commissioning/write gates;
+- auth/session/RBAC;
+- alarms/audit/provenance;
+- HTTP APIs;
+- Web UI/browser behavior;
+- automatic-control default/authority semantics.
 
-## Next safe execution after owner inputs
+## Waveshare extra capabilities
 
-1. Refresh exact branch heads and AISH main head.
-2. Update this checkpoint with confirmed SKU/revision and deployment role.
-3. Pin the exact Waveshare vendor repository/example revision and record upstream qualification decisions.
-4. Run/prepare the vendor minimal-baseline matrix for display/touch, I2C/CH422G, RS485, SD, RTC and isolated I/O.
-5. Create the dependency DAG/control-plane records and activate only non-overlapping READY implementation/QA lanes.
-6. Start the board-support skeleton and exact Waveshare target build without enabling production physical writes.
+Current milestone state:
+
+- LCD/LVGL HMI — `RESERVED_NOT_ACTIVE`
+- touch application UI — `RESERVED_NOT_ACTIVE`
+- onboard RS485/Modbus RTU product transport — `RESERVED_NOT_ACTIVE`
+- SD application logging/history — `RESERVED_NOT_ACTIVE`
+- RTC application integration — `RESERVED_NOT_ACTIVE`
+- CAN/TWAI product integration — `RESERVED_NOT_ACTIVE`
+- isolated DI/DO product logic — `RESERVED_NOT_ACTIVE`
+
+These may be hardware-inventoried/conflict-checked or placed into safe board states when required, but they are not current product features.
+
+## Core branch model to establish
+
+Future canonical generic branch: `core/stable`.
+
+Until reconciled and created, the migration source remains:
+
+`phase1-fix@3c486f0eb5595668c78af7491fa7a1550ab2bc71`
+
+Generic fix flow:
+
+`work/core/<issue> -> verify -> core/stable -> Board Sync Gate -> every SUPPORTED board -> per-board evidence`
+
+Board-only flow:
+
+`work/board/<id>/<issue> -> verify -> board/<id>`
+
+Never merge one full board branch into another. Never merge a full board branch wholesale into Core.
+
+## Work state
+
+- P0 Freeze current working Core — `READY`
+- P1 Minimal Board Support Contract — `WAITING_DEPENDENCY: P0 ownership/baseline`
+- P2 Repository board structure — `WAITING_DEPENDENCY: P1`
+- P3 Exact Waveshare hardware baseline — `READY_AFTER_OWNER_SKU`
+- P4 Feature-parity Waveshare port — `WAITING_DEPENDENCY: P1/P2/P3`
+- P5 Golden regression — `PARALLEL_READY once parity head exists; baseline capture can start in P0`
+- P6 Exact Waveshare runtime proof — `WAITING_DEPENDENCY: P4`
+- P7 Current-product HIL/safety equivalence — `WAITING_DEPENDENCY: P4/P6`
+- P8 Establish `core/stable` — `READY_AFTER_P0 reconciliation`
+- P9 Board Sync Gate — `WAITING_DEPENDENCY: P8`
+- P10 Prove Core propagation — `WAITING_DEPENDENCY: P9 + legitimate Core change`
+- P11 Branch cleanup — `PARALLEL_READY classification only; destructive cleanup later`
+- P12 Final parity release — `WAITING_DEPENDENCY`
+
+## Planned lanes
+
+- L0 Integration/Governance
+- L1 Baseline/Architecture
+- L2 Waveshare Board Adapter
+- L3 Core Portability
+- L4 Regression/Web Parity QA
+- L5 Safety/Functional QA
+- L6 Hardware/HIL
+- L7 Release/Branch Hygiene
+
+Only dependency-valid non-overlapping lanes may execute. Planned lanes are not described as active/executing without evidence.
+
+## Immediate execution order
+
+1. P0: freeze exact current behavior, tests, schemas, build assumptions and Core ownership.
+2. P3 in parallel: freeze exact Waveshare model/SKU/PCB revision and board resource map.
+3. P11 classification-only lane in parallel: classify existing branches/PRs without deletion.
+4. After P0: define the minimal board contract and create board structure.
+5. Build the same Core on Waveshare with no new product capabilities enabled.
+6. Run golden regression and exact hardware/runtime/HIL parity gates.
+7. Reconcile and establish `core/stable`.
+8. Implement and prove Board Sync Gate.
+9. Clean branches only after canonical Core/supported-board lines are stable.
+
+## Current owner input required
+
+Only one input is materially blocking exact board work:
+
+- confirm exact physical target: `ESP32-S3-Touch-LCD-5` or `ESP32-S3-Touch-LCD-5B`, plus PCB revision/rear-board photo if available.
+
+Other feature questions are intentionally deferred because new features are not in scope.
 
 ## Completion vocabulary
 
-Use AISH evidence states exactly. In particular, compile/host/simulation/vendor-demo states may not be called project hardware complete. Hardware-dependent work remains `HARDWARE_VALIDATION_PENDING` until exact-target/HIL evidence closes the required failure surface.
+Do not call the board port complete from code/compile/vendor-demo evidence alone.
+
+Final allowed state after applicable AISH gates:
+
+`FEATURE_PARITY_COMPLETE — WAVESHARE BOARD`
