@@ -1,6 +1,7 @@
 #include "solar_screen.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #include "screen_widgets.h"
 
@@ -12,6 +13,16 @@ typedef struct {
 } solar_ui_t;
 
 static solar_ui_t s_ui;
+
+static bool inverter_state_healthy(const screen_inverter_row_t *row)
+{
+    if (!row || !row->enabled) return false;
+    /* Preserve backend wording. Only states that represent a successful/usable
+     * runtime are coloured healthy; command absence/failure is not guessed green. */
+    return strcmp(row->state, "last_write_ok") == 0 ||
+           (row->telemetry_supported && row->has_measured_power_kw &&
+            strcmp(row->state, "initialization_failed") != 0);
+}
 
 lv_obj_t *solar_screen_create(lv_obj_t *parent)
 {
@@ -47,10 +58,16 @@ void solar_screen_apply(const screen_inverters_snapshot_t *snapshot)
                           (unsigned long)snapshot->online_count,
                           snapshot->truncated ? " | list truncated" : "");
 
-    if (snapshot->has_enabled_rated_kw || snapshot->has_commandable_rated_kw) {
+    if (snapshot->has_enabled_rated_kw && snapshot->has_commandable_rated_kw) {
         lv_label_set_text_fmt(s_ui.capacity, "Enabled %.1f kW | Commandable %.1f kW",
-                              snapshot->has_enabled_rated_kw ? snapshot->enabled_rated_kw : 0.0,
-                              snapshot->has_commandable_rated_kw ? snapshot->commandable_rated_kw : 0.0);
+                              snapshot->enabled_rated_kw,
+                              snapshot->commandable_rated_kw);
+    } else if (snapshot->has_enabled_rated_kw) {
+        lv_label_set_text_fmt(s_ui.capacity, "Enabled %.1f kW | Commandable --",
+                              snapshot->enabled_rated_kw);
+    } else if (snapshot->has_commandable_rated_kw) {
+        lv_label_set_text_fmt(s_ui.capacity, "Enabled -- | Commandable %.1f kW",
+                              snapshot->commandable_rated_kw);
     } else {
         lv_label_set_text(s_ui.capacity, "Capacity: unavailable");
     }
@@ -87,8 +104,7 @@ void solar_screen_apply(const screen_inverters_snapshot_t *snapshot)
 
         lv_obj_t *state = screen_ui_value_label(line, screen_ui_safe_text(row->state, "unknown"));
         screen_ui_set_state_text(state, screen_ui_safe_text(row->state, "unknown"),
-                                 row->enabled && row->state[0] != '\0' &&
-                                 row->state[0] != 'i');
+                                 inverter_state_healthy(row));
         lv_obj_t *power = screen_ui_value_label(line, "-- kW");
         screen_ui_set_kw(power, row->has_measured_power_kw, row->measured_power_kw);
 
