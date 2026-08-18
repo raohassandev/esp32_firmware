@@ -7,14 +7,14 @@ on:
     paths:
       - 'boards/waveshare_esp32_s3_touch_lcd_5/screen/**'
       - 'components/web_server/**'
-      - 'tests/waveshare_screen_*'
+      - 'tests/waveshare_*'
       - '.github/workflows/waveshare-screen-checks.yml'
       - 'CMakeLists.txt'
   pull_request:
     paths:
       - 'boards/waveshare_esp32_s3_touch_lcd_5/screen/**'
       - 'components/web_server/**'
-      - 'tests/waveshare_screen_*'
+      - 'tests/waveshare_*'
       - '.github/workflows/waveshare-screen-checks.yml'
       - 'CMakeLists.txt'
   workflow_dispatch:
@@ -30,7 +30,19 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Verify screen isolation and existing API ownership
-        run: python3 tests/waveshare_screen_source_contract.py
+        run: |
+          python3 -m py_compile tests/waveshare_screen_source_contract.py
+          python3 tests/waveshare_screen_source_contract.py
+
+      - name: Compile display profile tests with warnings as errors
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -Wall -Wextra -Werror \
+            -Iboards/waveshare_esp32_s3_touch_lcd_5/screen/drivers \
+            tests/waveshare_display_profile_test.c \
+            boards/waveshare_esp32_s3_touch_lcd_5/screen/drivers/waveshare_display_profile.c \
+            -o /tmp/waveshare_display_profile_test
+          /tmp/waveshare_display_profile_test
 
       - name: Install cJSON host headers
         run: |
