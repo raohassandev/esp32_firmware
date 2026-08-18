@@ -13,7 +13,7 @@ extern "C" {
  *
  * IMPORTANT:
  * - These are not new backend endpoints.
- * - The source of truth remains components/web_server/*.c.
+ * - The source of truth remains the components/web_server C sources.
  * - Null numeric values remain explicit through has_* flags; the screen must
  *   never convert "unknown" into a measured zero.
  * - The local HMI is read-only in the current milestone.
