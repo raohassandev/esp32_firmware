@@ -9,6 +9,7 @@ idf_component_register(
     SRCS
         "api/screen_api.c"
         "components/screen_widgets.c"
+        "drivers/waveshare_display_profile.c"
         "pages/overview_screen.c"
         "pages/grid_screen.c"
         "pages/solar_screen.c"
@@ -20,6 +21,7 @@ idf_component_register(
         "."
         "api"
         "components"
+        "drivers"
         "pages"
     REQUIRES
         cjson
