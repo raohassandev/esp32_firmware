@@ -135,13 +135,38 @@ void screen_app_apply_alarms(const screen_alarms_snapshot_t *snapshot)
     alarms_screen_apply_alarms(snapshot);
 }
 
-void screen_app_show_backend_unavailable(void)
+void screen_app_show_live_unavailable(void)
+{
+    overview_screen_show_backend_unavailable();
+}
+
+void screen_app_show_meters_unavailable(void)
+{
+    grid_screen_show_unavailable();
+}
+
+void screen_app_show_inverters_unavailable(void)
+{
+    solar_screen_show_unavailable();
+}
+
+void screen_app_show_operations_unavailable(void)
+{
+    alarms_screen_show_unavailable();
+}
+
+void screen_app_show_readiness_unavailable(void)
 {
     memset(&s_app.status, 0, sizeof(s_app.status));
     memset(&s_app.telemetry, 0, sizeof(s_app.telemetry));
-    overview_screen_show_backend_unavailable();
-    grid_screen_show_unavailable();
-    solar_screen_show_unavailable();
-    alarms_screen_show_unavailable();
     readiness_screen_show_unavailable();
+}
+
+void screen_app_show_backend_unavailable(void)
+{
+    screen_app_show_live_unavailable();
+    screen_app_show_meters_unavailable();
+    screen_app_show_inverters_unavailable();
+    screen_app_show_operations_unavailable();
+    screen_app_show_readiness_unavailable();
 }
