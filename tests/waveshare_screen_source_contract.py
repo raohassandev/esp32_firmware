@@ -100,9 +100,10 @@ def main() -> None:
     )
     assert callback_files == ["screen_app.c"], callback_files
 
-    # Fail-closed source attribution: overview must never render live.source,
-    # and readiness compares the authoritative "unknown" value exactly.
-    assert "snapshot->source" not in overview
+    # Fail-closed source attribution: overview must never render the raw
+    # screen_live_snapshot_t.source field. The negative lookahead deliberately
+    # permits snapshot->source_attributed_to from the status snapshot.
+    assert re.search(r"snapshot->source(?!_)", overview) is None
     assert "source_attributed_to" in overview
     assert 'strcmp(status->source_attributed_to, "unknown")' in readiness
 
