@@ -15,6 +15,7 @@ idf_component_register(
         "pages/alarms_screen.c"
         "pages/readiness_screen.c"
         "screen_app.c"
+        "screen_runtime.c"
     INCLUDE_DIRS
         "."
         "api"
