@@ -8,9 +8,17 @@
 idf_component_register(
     SRCS
         "api/screen_api.c"
+        "components/screen_widgets.c"
         "pages/overview_screen.c"
+        "pages/grid_screen.c"
+        "pages/solar_screen.c"
+        "pages/alarms_screen.c"
+        "pages/readiness_screen.c"
+        "screen_app.c"
     INCLUDE_DIRS
+        "."
         "api"
+        "components"
         "pages"
     REQUIRES
         cjson
