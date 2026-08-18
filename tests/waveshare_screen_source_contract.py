@@ -22,6 +22,8 @@ def main() -> None:
     runtime = read(SCREEN / "screen_runtime.c")
     profile_h = read(SCREEN / "drivers" / "waveshare_display_profile.h")
     profile_c = read(SCREEN / "drivers" / "waveshare_display_profile.c")
+    display_port_h = read(SCREEN / "drivers" / "waveshare_display_port.h")
+    display_port_c = read(SCREEN / "drivers" / "waveshare_display_port.c")
 
     # The current site-tested build stays unchanged until the hardware/LVGL gate.
     assert "waveshare_esp32_s3_touch_lcd_5/screen" not in root_cmake
@@ -114,7 +116,7 @@ def main() -> None:
     assert '"-- kW"' in all_c
     assert "no zero" in all_c.lower() or "no zero" in read(SCREEN / "README.md").lower()
 
-    # All parity/runtime/profile sources are part of the isolated component manifest.
+    # All parity/runtime/profile/physical-port sources are part of the isolated component manifest.
     for source in [
         "pages/overview_screen.c",
         "pages/grid_screen.c",
@@ -123,6 +125,7 @@ def main() -> None:
         "pages/readiness_screen.c",
         "components/screen_widgets.c",
         "drivers/waveshare_display_profile.c",
+        "drivers/waveshare_display_port.c",
         "screen_app.c",
         "screen_runtime.c",
     ]:
@@ -136,6 +139,18 @@ def main() -> None:
     assert ".width = 1024" in profile_c and ".height = 600" in profile_c
     assert "WAVESHARE_DISPLAY_DEFAULT" not in profile_h
     assert "DEFAULT_WAVESHARE_DISPLAY" not in profile_h
+
+    # IDF6 port must use the new master-bus API, preserve shared-bus injection,
+    # and keep the vendor CH422G touch-reset sequence visible in board-local code.
+    assert '"driver/i2c_master.h"' in display_port_h
+    assert '"driver/i2c.h"' not in display_port_c
+    assert "i2c_new_master_bus" in display_port_c
+    assert "i2c_master_bus_add_device" in display_port_c
+    assert "i2c_master_transmit" in display_port_c
+    assert "config->i2c_bus" in display_port_c
+    assert "CH422G_TOUCH_RESET_LOW" in display_port_c
+    assert "CH422G_TOUCH_RESET_HIGH" in display_port_c
+    assert "esp_lcd_touch_new_i2c_gt911" in display_port_c
 
     # The shell exposes only the existing operator product areas in this milestone.
     for label in ["Overview", "Grid", "Solar", "Alarms", "Ready"]:
