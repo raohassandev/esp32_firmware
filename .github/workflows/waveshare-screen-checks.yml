@@ -73,7 +73,7 @@ jobs:
   idf6-qualification:
     needs: screen-contracts
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -85,6 +85,15 @@ jobs:
             -w /project/boards/waveshare_esp32_s3_touch_lcd_5/screen/qualification \
             espressif/idf:v6.0.1 \
             bash -lc 'idf.py set-target esp32s3 && idf.py build'
+
+      - name: Compile real 800x480 LCD/touch HIL image on ESP-IDF 6.0.1
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD:/project" \
+            -w /project/boards/waveshare_esp32_s3_touch_lcd_5/screen/hil_800x480 \
+            espressif/idf:v6.0.1 \
+            bash -lc 'idf.py set-target esp32s3 && idf.py build && test -f build/waveshare_screen_hil_800x480.bin'
 
       - name: Verify pinned Waveshare hardware reference provenance
         run: |
