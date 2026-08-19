@@ -74,7 +74,7 @@ TSSOP14 = "Package_SO:TSSOP-14_4.4x5mm_P0.65mm"
 # Physical pins: 1A/1Y=A-TX, 2A/2Y=A-RX, 3A/3Y=B-TX,
 # 4A/4Y=B-RX, 5A/5Y=RUN green, 6A/6Y=FAULT red.
 add(
-    "U_DIAG", "LVC14", "SN74LVC14APWR", TSSOP14,
+    "U_LEDLOGIC", "LVC14", "SN74LVC14APWR", TSSOP14,
     [
         "RS485A_TX", "DIAG_A_TX_DRV",
         "RS485A_RX", "DIAG_A_RX_DRV",
@@ -85,7 +85,7 @@ add(
     ],
     datasheet="https://www.ti.com/product/SN74LVC14A",
 )
-add("C_DIAG", "CAP", "0.1uF", C0603, ["3V3", "GND"])
+add("C_LEDLOGIC", "CAP", "0.1uF", C0603, ["3V3", "GND"])
 
 # High-impedance logic-side activity sensing: UART idle-high becomes inverter
 # output low, so LEDs are dark at idle and flash on low data bits.
@@ -126,10 +126,10 @@ def validate_desired_pinout():
         "10":"STATUS_GREEN_DRV", "11":"STATUS_LED_CTL",
         "12":"STATUS_RED_DRV", "13":"STATUS_ALERT_CTL", "14":"3V3",
     }
-    actual = _desired_map(comp("U_DIAG"))
+    actual = _desired_map(comp("U_LEDLOGIC"))
     for pin, net in expected.items():
         if actual.get(pin) != net:
-            raise ValueError(f"U_DIAG pin {pin}: expected {net}, got {actual.get(pin)}")
+            raise ValueError(f"U_LEDLOGIC pin {pin}: expected {net}, got {actual.get(pin)}")
     if any(c["ref"] in {"D_STATUS", "R_STATUS"} for c in g.COMPS):
         raise ValueError("legacy single-colour status LED still present")
     print("diagnostic physical-pin manifest: PASS")

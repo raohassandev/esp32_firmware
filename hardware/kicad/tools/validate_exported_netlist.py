@@ -98,7 +98,7 @@ check("J_RS232", {"1":"GND","2":"HMI_RS232_TX","3":"HMI_RS232_RX"})
 
 # Diagnostic buffer and LEDs are validated from exported KiCad connectivity,
 # not only from generator-side intent.
-check("U_DIAG", {
+check("U_LEDLOGIC", {
     "1":"RS485A_TX", "2":"DIAG_A_TX_DRV",
     "3":"RS485A_RX", "4":"DIAG_A_RX_DRV",
     "5":"RS485B_TX", "6":"DIAG_B_TX_DRV",
@@ -120,7 +120,7 @@ check("R_STATUS_GREEN", {"1":"STATUS_GREEN_DRV","2":"STATUS_GREEN_K"})
 check("D_STATUS_GREEN", {"1":"STATUS_GREEN_K","2":"3V3"})
 check("R_STATUS_RED", {"1":"STATUS_RED_DRV","2":"STATUS_RED_K"})
 check("D_STATUS_RED", {"1":"STATUS_RED_K","2":"3V3"})
-check("C_DIAG", {"1":"3V3","2":"GND"})
+check("C_LEDLOGIC", {"1":"3V3","2":"GND"})
 
 for ref,pin in [("U2","24"),("U2","26"),("J_USB","A8"),("J_USB","B8")]: check_nc(ref,pin)
 
