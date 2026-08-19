@@ -53,6 +53,11 @@ def add(ref, sym, value, footprint, nets, dnp=False, datasheet=""):
         "datasheet": datasheet, "dnp": dnp, "x": 0, "y": 0, "nets": nets,
     })
 
+# Strengthen the four relay gate pull-downs for a firmer hardware-OFF state in
+# noisy industrial wiring while adding only ~0.33 mA GPIO load when driven high.
+for _ref in ("R_PD1", "R_PD2", "R_PD3", "R_PD4"):
+    comp(_ref)["value"] = "10k"
+
 # GPIO21 is physical module pin 23 on ESP32-S3-WROOM-1 and was unconnected in
 # Rev-A. Reserve it as the second status control; no existing interface moves.
 set_desired_pin("U1", "23", "STATUS_ALERT_CTL")

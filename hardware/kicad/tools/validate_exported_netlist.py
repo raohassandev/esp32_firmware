@@ -45,7 +45,7 @@ def check_nc(ref,pin):
 check("U1", {
     "1":"GND","2":"3V3","3":"ESP_EN","4":"RELAY1_CTL","5":"RELAY2_CTL","6":"RELAY3_CTL","7":"RELAY4_CTL",
     "8":"HMI_TX","9":"RS485B_DE","10":"RS485B_TX","11":"RS485B_RX","12":"ETH_RST","13":"USB_D-_MCU","14":"USB_D+_MCU",
-    "17":"ETH_INT","18":"ETH_CS","19":"ETH_MOSI","20":"ETH_SCLK","21":"ETH_MISO","22":"HMI_RX",
+    "17":"ETH_INT","18":"ETH_CS","19":"ETH_MOSI","20":"ETH_SCLK","21":"ETH_MISO","22":"HMI_RX","23":"STATUS_ALERT_CTL",
     "24":"DI3_LOGIC","25":"DI4_LOGIC","27":"ESP_BOOT","28":"STATUS_LED_CTL","29":"SD_CS","30":"SD_MISO",
     "31":"RTC_SDA","32":"RTC_SCL","33":"SD_SCLK","34":"SD_MOSI","35":"RS485A_DE","36":"RS485A_RX","37":"RS485A_TX",
     "38":"DI2_LOGIC","39":"DI1_LOGIC","40":"GND","41":"GND",
@@ -96,6 +96,32 @@ for n in range(1,5):
 check("U7", {"1":"RS232_C1P","2":"RS232_VPLUS","3":"RS232_C1M","4":"RS232_C2P","5":"RS232_C2M","6":"RS232_VMINUS","11":"HMI_TX","12":"HMI_RX","13":"HMI_RS232_RX","14":"HMI_RS232_TX","15":"GND","16":"3V3"})
 check("J_RS232", {"1":"GND","2":"HMI_RS232_TX","3":"HMI_RS232_RX"})
 
+# Diagnostic buffer and LEDs are validated from exported KiCad connectivity,
+# not only from generator-side intent.
+check("U_DIAG", {
+    "1":"RS485A_TX", "2":"DIAG_A_TX_DRV",
+    "3":"RS485A_RX", "4":"DIAG_A_RX_DRV",
+    "5":"RS485B_TX", "6":"DIAG_B_TX_DRV",
+    "7":"GND", "8":"DIAG_B_RX_DRV", "9":"RS485B_RX",
+    "10":"STATUS_GREEN_DRV", "11":"STATUS_LED_CTL",
+    "12":"STATUS_RED_DRV", "13":"STATUS_ALERT_CTL", "14":"3V3",
+})
+for ref, drv, lednet in (
+    ("RS485A_TX","DIAG_A_TX_DRV","LED_A_TX_A"),
+    ("RS485A_RX","DIAG_A_RX_DRV","LED_A_RX_A"),
+    ("RS485B_TX","DIAG_B_TX_DRV","LED_B_TX_A"),
+    ("RS485B_RX","DIAG_B_RX_DRV","LED_B_RX_A"),
+):
+    check(f"R_{ref}_ACT", {"1":drv,"2":lednet})
+    check(f"D_{ref}_ACT", {"1":"GND","2":lednet})
+check("R_STATUS_RUN_PD", {"1":"STATUS_LED_CTL","2":"GND"})
+check("R_STATUS_ALERT_PD", {"1":"STATUS_ALERT_CTL","2":"GND"})
+check("R_STATUS_GREEN", {"1":"STATUS_GREEN_DRV","2":"STATUS_GREEN_K"})
+check("D_STATUS_GREEN", {"1":"STATUS_GREEN_K","2":"3V3"})
+check("R_STATUS_RED", {"1":"STATUS_RED_DRV","2":"STATUS_RED_K"})
+check("D_STATUS_RED", {"1":"STATUS_RED_K","2":"3V3"})
+check("C_DIAG", {"1":"3V3","2":"GND"})
+
 for ref,pin in [("U2","24"),("U2","26"),("J_USB","A8"),("J_USB","B8")]: check_nc(ref,pin)
 
-print(f"exported physical pin/net audit: PASS ({len(pin_to_net)} connected pins indexed; canonical refs applied; W5500 reference network verified)")
+print(f"exported physical pin/net audit: PASS ({len(pin_to_net)} connected pins indexed; canonical refs applied; communications and diagnostics verified)")
