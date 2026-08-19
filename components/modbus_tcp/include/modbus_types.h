@@ -1,8 +1,17 @@
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>
+
+/* ESP-IDF owns the real semaphore type on firmware builds. Host-only pure-logic
+ * tests never use the semaphore APIs, but config_types.h still exposes this
+ * transport struct transitively. Keep the handle opaque there so those tests do
+ * not require an ESP-IDF/FreeRTOS SDK just to compile configuration data types. */
+#ifdef ESP_PLATFORM
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#else
+typedef void *SemaphoreHandle_t;
+#endif
 
 #define MODBUS_HOST_MAX_LEN 64
 
