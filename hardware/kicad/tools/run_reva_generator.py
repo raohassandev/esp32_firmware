@@ -9,7 +9,7 @@ references are preserved through a committed old->canonical mapping.
 import json
 import re
 from pathlib import Path
-import generate_reva_reference_fix as final
+import generate_reva_diagnostics as final
 
 ROOT = Path(__file__).resolve().parents[1]
 

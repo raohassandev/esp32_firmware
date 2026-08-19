@@ -9,6 +9,7 @@
     "ethernet_w5500": {"sclk": 12, "mosi": 11, "miso": 13, "cs": 10, "int": 9, "reset": 8},
     "relay_outputs": {"relay1": 4, "relay2": 5, "relay3": 6, "relay4": 7},
     "status_led": 35,
+    "status_alert": 21,
     "boot": 0
   },
   "optional": {
@@ -53,6 +54,7 @@
     "add transport-neutral device configuration for TCP versus direct RTU",
     "add relay GPIO safe-default initialization before application control",
     "add HMI UART configuration using dedicated UART",
+    "drive GPIO35/GPIO21 status pair: RUN=green, WARNING=green+red, FAULT=red",
     "add optional DI/RTC/microSD drivers only when populated"
   ]
 }
