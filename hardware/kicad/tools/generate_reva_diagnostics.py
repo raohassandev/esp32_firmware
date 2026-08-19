@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""Rev-A diagnostic-indicator completion layered over reference-circuit fixes.
+"""Rev-A pre-fabrication electrical completion layered over reference fixes.
 
-Adds non-loading logic-side RS485 TX/RX activity indication and a two-channel
-system status indicator without touching the RS485 A/B field pair. GPIO35 stays
-the RUN/status control; previously unused ESP32-S3-WROOM-1 GPIO21 becomes the
-second status control. RUN=green, FAULT=red, WARNING=red+green.
+Adds buffered service indication, exact USB ESD parts, and a partial-power-safe
+5 V HMI RX front end while preserving the frozen external interfaces.
 """
 import generate_reva_reference_fix as base
 
@@ -25,20 +23,37 @@ g.DEFS.setdefault("LVC14", {
     ],
 })
 
-# Dedicated 0805 indicator symbol. KiCad LED_0805 pad 1 is cathode, pad 2 anode.
+# TI SN74LVC1G17DBVR physical DBV pins: 1 NC, 2 A, 3 GND, 4 Y, 5 VCC.
+g.DEFS.setdefault("LVC1G17", {
+    "prefix": "U",
+    "description": "SN74LVC1G17 single Schmitt-trigger buffer with Ioff",
+    "pins": [["1","NC"],["2","A"],["3","GND"],["4","Y"],["5","VCC"]],
+})
+
+# Two-pin protection/indicator symbols use physical pad numbering directly.
 g.DEFS.setdefault("LED0805_DIAG", {
     "prefix": "D",
     "description": "0805 diagnostic LED, pin 1 cathode / pin 2 anode",
     "pins": [["1","K"],["2","A"]],
 })
+g.DEFS.setdefault("ESD1_UNI", {
+    "prefix": "D",
+    "description": "Single-channel unidirectional ESD protector, pin 1 I/O / pin 2 GND",
+    "pins": [["1","IO"],["2","GND"]],
+})
+g.DEFS.setdefault("ESD1_BI", {
+    "prefix": "D",
+    "description": "Single-channel bidirectional ESD protector, pin 1 I/O / pin 2 GND",
+    "pins": [["1","IO"],["2","GND"]],
+})
 
-# The generic generator reverses rectangular multi-pin symbols by side because
-# the legacy manifest stores visual-order nets. Diagnostic components below are
-# authored directly in physical pin order, so keep LVC14 pins in physical order.
+# The generic generator reverses multi-pin rectangular symbol halves because
+# the legacy manifest stores visual-order nets. These parts are authored in
+# actual physical-pin order, so bypass that transformation for them.
 _orig_manifest_pin_order = g.manifest_pin_order
 
 def _diag_manifest_pin_order(sym):
-    if sym == "LVC14":
+    if sym in {"LVC14", "LVC1G17"}:
         return g.DEFS[sym]["pins"][:]
     return _orig_manifest_pin_order(sym)
 
@@ -53,25 +68,54 @@ def add(ref, sym, value, footprint, nets, dnp=False, datasheet=""):
         "datasheet": datasheet, "dnp": dnp, "x": 0, "y": 0, "nets": nets,
     })
 
-# Strengthen the four relay gate pull-downs for a firmer hardware-OFF state in
-# noisy industrial wiring while adding only ~0.33 mA GPIO load when driven high.
-for _ref in ("R_PD1", "R_PD2", "R_PD3", "R_PD4"):
-    comp(_ref)["value"] = "10k"
-
-# GPIO21 is physical module pin 23 on ESP32-S3-WROOM-1 and was unconnected in
-# Rev-A. Reserve it as the second status control; no existing interface moves.
-set_desired_pin("U1", "23", "STATUS_ALERT_CTL")
-
-# Replace the original one-colour firmware status LED with a two-colour state
-# pair. Keeping two ordinary 0805 LEDs avoids a custom multi-colour footprint.
-g.COMPS[:] = [c for c in g.COMPS if c["ref"] not in {"D_STATUS", "R_STATUS"}]
-
 R0603 = "Resistor_SMD:R_0603_1608Metric"
 C0603 = "Capacitor_SMD:C_0603_1608Metric"
 LED0805 = "LED_SMD:LED_0805_2012Metric"
 TSSOP14 = "Package_SO:TSSOP-14_4.4x5mm_P0.65mm"
+SOT235 = "Package_TO_SOT_SMD:SOT-23-5"
+SOD523 = "Diode_SMD:D_SOD-523"
 
-# Physical pins: 1A/1Y=A-TX, 2A/2Y=A-RX, 3A/3Y=B-TX,
+# Stronger relay gate pull-downs give a firmer OFF state during reset/brownout
+# with only ~0.33 mA additional load per GPIO when driven high.
+for _ref in ("R_PD1", "R_PD2", "R_PD3", "R_PD4"):
+    comp(_ref)["value"] = "10k"
+
+# Freeze the USB D+/D- protection to a high-speed, low-capacitance exact part.
+# TPD1E05U06 DYA: pin 1 I/O, pin 2 GND.
+for _ref, _net in (("D_USB_DN", "USB_D-"), ("D_USB_DP", "USB_D+")):
+    _c = comp(_ref)
+    _c["sym"] = "ESD1_UNI"
+    _c["value"] = "TPD1E05U06DYAR"
+    _c["footprint"] = SOD523
+    _c["datasheet"] = "https://www.ti.com/product/TPD1E05U06"
+    _c["nets"] = [_net, "GND"]
+
+# Replace the passive 5 V HMI RX divider with a 3.3 V-powered Schmitt buffer.
+# SN74LVC1G17 accepts inputs to 5.5 V and provides Ioff partial-power/back-drive
+# protection, so a powered HMI cannot inject through the MCU input when 3V3 is
+# absent. A bidirectional TVS remains on the connector-side UART signal.
+g.COMPS[:] = [c for c in g.COMPS if c["ref"] not in {"R_HMIRX_TOP", "R_HMIRX_BOT"}]
+add(
+    "U_HMIBUF", "LVC1G17", "SN74LVC1G17DBVR", SOT235,
+    [None, "HMI_RX_IN", "GND", "HMI_RX", "3V3"],
+    datasheet="https://www.ti.com/product/SN74LVC1G17",
+)
+add("C_HMIBUF", "CAP", "0.1uF", C0603, ["3V3", "GND"])
+add(
+    "D_HMI_RX_ESD", "ESD1_BI", "TPD1E10B06DYAR", SOD523,
+    ["HMI_RX_IN", "GND"],
+    datasheet="https://www.ti.com/product/TPD1E10B06",
+)
+
+# GPIO21 is physical module pin 23 and was unconnected in Rev-A. Reserve it as
+# the second system-state control; no existing interface moves.
+set_desired_pin("U1", "23", "STATUS_ALERT_CTL")
+
+# Replace the original one-colour firmware status LED with green + red. Combined
+# illumination represents WARNING; red alone represents FAULT.
+g.COMPS[:] = [c for c in g.COMPS if c["ref"] not in {"D_STATUS", "R_STATUS"}]
+
+# Physical LVC14 pins: 1A/1Y=A-TX, 2A/2Y=A-RX, 3A/3Y=B-TX,
 # 4A/4Y=B-RX, 5A/5Y=RUN green, 6A/6Y=FAULT red.
 add(
     "U_LEDLOGIC", "LVC14", "SN74LVC14APWR", TSSOP14,
@@ -87,8 +131,8 @@ add(
 )
 add("C_LEDLOGIC", "CAP", "0.1uF", C0603, ["3V3", "GND"])
 
-# High-impedance logic-side activity sensing: UART idle-high becomes inverter
-# output low, so LEDs are dark at idle and flash on low data bits.
+# Logic-side activity sensing only: UART idle-high becomes inverter output low,
+# so LEDs are dark at idle and flash on low data bits. Field A/B is untouched.
 for ref, drv, lednet, color, mpn in (
     ("RS485A_TX", "DIAG_A_TX_DRV", "LED_A_TX_A", "AMBER", "150080AS75000"),
     ("RS485A_RX", "DIAG_A_RX_DRV", "LED_A_RX_A", "GREEN", "150080VS75000"),
@@ -98,8 +142,8 @@ for ref, drv, lednet, color, mpn in (
     add(f"R_{ref}_ACT", "RES", "680R", R0603, [drv, lednet])
     add(f"D_{ref}_ACT", "LED0805_DIAG", f"{color} {mpn}", LED0805, ["GND", lednet])
 
-# Status controls are active-high at the MCU. Inverter outputs sink the LED
-# cathodes. 100k pulldowns make both indicators OFF while the MCU is reset.
+# Status controls are active-high at the MCU. Inverter outputs sink LED
+# cathodes. Pull-downs make both status LEDs OFF while the MCU is reset.
 add("R_STATUS_RUN_PD", "RES", "100k", R0603, ["STATUS_LED_CTL", "GND"])
 add("R_STATUS_ALERT_PD", "RES", "100k", R0603, ["STATUS_ALERT_CTL", "GND"])
 add("R_STATUS_GREEN", "RES", "680R", R0603, ["STATUS_GREEN_DRV", "STATUS_GREEN_K"])
@@ -118,7 +162,8 @@ def _desired_map(c):
 def validate_desired_pinout():
     base.validate_desired_pinout()
     require("U1", "23", "STATUS_ALERT_CTL")
-    expected = {
+
+    expected_diag = {
         "1":"RS485A_TX", "2":"DIAG_A_TX_DRV",
         "3":"RS485A_RX", "4":"DIAG_A_RX_DRV",
         "5":"RS485B_TX", "6":"DIAG_B_TX_DRV",
@@ -127,12 +172,24 @@ def validate_desired_pinout():
         "12":"STATUS_RED_DRV", "13":"STATUS_ALERT_CTL", "14":"3V3",
     }
     actual = _desired_map(comp("U_LEDLOGIC"))
-    for pin, net in expected.items():
+    for pin, net in expected_diag.items():
         if actual.get(pin) != net:
             raise ValueError(f"U_LEDLOGIC pin {pin}: expected {net}, got {actual.get(pin)}")
-    if any(c["ref"] in {"D_STATUS", "R_STATUS"} for c in g.COMPS):
-        raise ValueError("legacy single-colour status LED still present")
-    print("diagnostic physical-pin manifest: PASS")
+
+    expected_hmi = {"1":None, "2":"HMI_RX_IN", "3":"GND", "4":"HMI_RX", "5":"3V3"}
+    actual_hmi = _desired_map(comp("U_HMIBUF"))
+    for pin, net in expected_hmi.items():
+        if actual_hmi.get(pin) != net:
+            raise ValueError(f"U_HMIBUF pin {pin}: expected {net}, got {actual_hmi.get(pin)}")
+
+    for ref, net in (("D_USB_DN","USB_D-"),("D_USB_DP","USB_D+")):
+        c = comp(ref)
+        if _desired_map(c) != {"1":net, "2":"GND"}:
+            raise ValueError(f"{ref}: exact USB ESD physical mapping failed")
+
+    if any(c["ref"] in {"D_STATUS", "R_STATUS", "R_HMIRX_TOP", "R_HMIRX_BOT"} for c in g.COMPS):
+        raise ValueError("superseded status/divider components still present")
+    print("diagnostic, USB ESD, and HMI partial-power physical-pin manifest: PASS")
 
 # Make both direct wrapper validation and the lower generator use the augmented
 # product-wide physical-pin assertions.

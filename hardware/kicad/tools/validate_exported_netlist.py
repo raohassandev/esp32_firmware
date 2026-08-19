@@ -54,6 +54,8 @@ check("R_MCU_DM_SER", {"1":"USB_D-_MCU","2":"USB_D-"})
 check("R_MCU_DP_SER", {"1":"USB_D+_MCU","2":"USB_D+"})
 check("C_MCU_DM_USB", {"1":"USB_D-_MCU","2":"GND"})
 check("C_MCU_DP_USB", {"1":"USB_D+_MCU","2":"GND"})
+check("D_USB_DN", {"1":"USB_D-","2":"GND"})
+check("D_USB_DP", {"1":"USB_D+","2":"GND"})
 
 check("U2", {
     "1":"ETH_TXN","2":"ETH_TXP","3":"GND","4":"3V3A","5":"ETH_RXN","6":"ETH_RXP","8":"3V3A","9":"GND",
@@ -85,7 +87,13 @@ check("C_ETH_CHASSIS", {"1":"GND","2":"CHASSIS"})
 
 for ref, pfx in (("U3","RS485A"),("U4","RS485B")):
     check(ref, {"1":f"{pfx}_RX","2":f"{pfx}_DE","3":f"{pfx}_DE","4":f"{pfx}_TX","5":"GND","6":f"{pfx}_A","7":f"{pfx}_B","8":"3V3"})
+
 check("J_HMI", {"1":"5V_HMI","2":"GND","3":"HMI_TX_OUT","4":"HMI_RX_IN"})
+check("U_HMIBUF", {"2":"HMI_RX_IN","3":"GND","4":"HMI_RX","5":"3V3"})
+check_nc("U_HMIBUF","1")
+check("C_HMIBUF", {"1":"3V3","2":"GND"})
+check("D_HMI_RX_ESD", {"1":"HMI_RX_IN","2":"GND"})
+
 check("J_USB", {
     "A1":"GND","A4":"USB_5V","A5":"USB_CC1","A6":"USB_D+","A7":"USB_D-","A9":"USB_5V","A12":"GND",
     "B1":"GND","B4":"USB_5V","B5":"USB_CC2","B6":"USB_D+","B7":"USB_D-","B9":"USB_5V","B12":"GND","SH":"CHASSIS",
@@ -96,8 +104,7 @@ for n in range(1,5):
 check("U7", {"1":"RS232_C1P","2":"RS232_VPLUS","3":"RS232_C1M","4":"RS232_C2P","5":"RS232_C2M","6":"RS232_VMINUS","11":"HMI_TX","12":"HMI_RX","13":"HMI_RS232_RX","14":"HMI_RS232_TX","15":"GND","16":"3V3"})
 check("J_RS232", {"1":"GND","2":"HMI_RS232_TX","3":"HMI_RS232_RX"})
 
-# Diagnostic buffer and LEDs are validated from exported KiCad connectivity,
-# not only from generator-side intent.
+# Diagnostic buffer and LEDs are validated from exported KiCad connectivity.
 check("U_LEDLOGIC", {
     "1":"RS485A_TX", "2":"DIAG_A_TX_DRV",
     "3":"RS485A_RX", "4":"DIAG_A_RX_DRV",
@@ -124,4 +131,4 @@ check("C_LEDLOGIC", {"1":"3V3","2":"GND"})
 
 for ref,pin in [("U2","24"),("U2","26"),("J_USB","A8"),("J_USB","B8")]: check_nc(ref,pin)
 
-print(f"exported physical pin/net audit: PASS ({len(pin_to_net)} connected pins indexed; canonical refs applied; communications and diagnostics verified)")
+print(f"exported physical pin/net audit: PASS ({len(pin_to_net)} connected pins indexed; communications, USB/HMI protection and diagnostics verified)")
