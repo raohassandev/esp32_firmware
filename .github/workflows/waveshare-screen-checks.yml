@@ -70,14 +70,12 @@ jobs:
           fi
           echo 'Default build isolation: PASS'
 
-  idf6-qualification:
-    needs: screen-contracts
+  screen-software-build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-
-      - name: Compile isolated product screen on project ESP-IDF 6.0.1
+      - name: Compile isolated product screen on ESP-IDF 6.0.1
         run: |
           set -euo pipefail
           docker run --rm \
@@ -86,7 +84,12 @@ jobs:
             espressif/idf:v6.0.1 \
             bash -lc 'idf.py set-target esp32s3 && idf.py build'
 
-      - name: Compile real 800x480 LCD/touch HIL image on ESP-IDF 6.0.1
+  hil-800x480-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile real LCD/touch HIL image on ESP-IDF 6.0.1
         run: |
           set -euo pipefail
           docker run --rm \
@@ -95,6 +98,11 @@ jobs:
             espressif/idf:v6.0.1 \
             bash -lc 'idf.py set-target esp32s3 && idf.py build && test -f build/waveshare_screen_hil_800x480.bin'
 
+  vendor-provenance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
       - name: Verify pinned Waveshare hardware reference provenance
         run: |
           set -euo pipefail
