@@ -36,7 +36,10 @@ def point_seg_dist(px,py,ax,ay,bx,by):
 
 
 def safe(board,x,y,gcode):
-    if x<EDGE or x>145.0-EDGE or y<LOGIC_Y0+0.6 or y>95.0-EDGE: return False
+    # The F.Cu logic pour itself begins at Y=30.0. A 0.60 mm via centred at
+    # Y>=30.35 remains inside the intended low-voltage surface-copper region
+    # while giving small boundary islands a realistic stitch candidate.
+    if x<EDGE or x>145.0-EDGE or y<LOGIC_Y0+0.35 or y>95.0-EDGE: return False
     if x>MAG_X0-0.6 and MAG_Y0-0.6<y<MAG_Y1+0.6: return False
     radius=VIA_D/2+CLEAR
     pos=pt(x,y)
@@ -61,19 +64,24 @@ def safe(board,x,y,gcode):
     return True
 
 
-def candidates(outline):
+def bounds(outline):
     pts=[xy(outline.CPoint(i)) for i in range(outline.PointCount())]
     xs=[p[0] for p in pts]; ys=[p[1] for p in pts]
-    minx,maxx=min(xs),max(xs); miny,maxy=min(ys),max(ys)
+    return min(xs),max(xs),min(ys),max(ys)
+
+
+def candidates(outline, step=0.5, inset=0.35):
+    minx,maxx,miny,maxy=bounds(outline)
     cx=(minx+maxx)/2; cy=(miny+maxy)/2
-    # Centre-out deterministic 0.5mm scan within this specific filled outline.
     cand=[]
-    x=minx+0.35
-    while x<=maxx-0.35+1e-9:
-        y=miny+0.35
-        while y<=maxy-0.35+1e-9:
-            cand.append((math.hypot(x-cx,y-cy),x,y)); y+=0.5
-        x+=0.5
+    x=minx+inset
+    while x<=maxx-inset+1e-9:
+        y=miny+inset
+        while y<=maxy-inset+1e-9:
+            cand.append((math.hypot(x-cx,y-cy),x,y)); y+=step
+        x+=step
+    # Always try the bounding-box centre first when it lies inside the outline.
+    cand.append((0.0,cx,cy))
     cand.sort()
     for _,x,y in cand:
         p=pt(x,y)
@@ -82,6 +90,15 @@ def candidates(outline):
         except Exception:
             inside=False
         if inside: yield x,y
+
+
+def choose_candidate(board,outline,gcode):
+    # Fast first pass, then a fine deterministic search for narrow fragments.
+    for x,y in candidates(outline,0.5,0.35):
+        if safe(board,x,y,gcode): return (x,y)
+    for x,y in candidates(outline,0.20,0.31):
+        if safe(board,x,y,gcode): return (x,y)
+    return None
 
 
 def add_via(board,x,y,net):
@@ -111,11 +128,13 @@ def main(board_path):
     for z in gz:
         polys=z.GetFilledPolysList(layer)
         for idx in range(polys.OutlineCount()):
-            outlines+=1; outline=polys.COutline(idx); chosen=None
-            for x,y in candidates(outline):
-                if safe(board,x,y,gcode): chosen=(x,y); break
+            outlines+=1; outline=polys.COutline(idx)
+            chosen=choose_candidate(board,outline,gcode)
             if chosen is None:
-                skipped+=1; continue
+                skipped+=1
+                minx,maxx,miny,maxy=bounds(outline)
+                print(f'GND_ISLAND_SKIP idx={idx} bounds=({minx:.3f},{miny:.3f})-({maxx:.3f},{maxy:.3f})')
+                continue
             add_via(board,chosen[0],chosen[1],gnet); added+=1
     if added==0: raise SystemExit(f'GND stitch failed: outlines={outlines} no safe candidates')
     pcbnew.SaveBoard(str(path),board)
