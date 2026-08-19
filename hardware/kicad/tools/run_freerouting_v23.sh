@@ -41,10 +41,11 @@ for attempt in 1 2; do
 
   $KPY hardware/kicad/tools/route_reva_freerouting.py import "$PCB" "$OUT"
 
-  # Replace the one repeatable local autorouter conflict with a controlled
-  # 0.20mm route across F/B/In2 layers.
-  python3 hardware/kicad/tools/strip_net_tracks_text.py "$PCB" SD_SCLK | tee -a hardware/kicad/freerouting.log
-  $KPY hardware/kicad/tools/repair_sd_sclk.py "$PCB" | tee -a hardware/kicad/freerouting.log
+  # Keep Freerouting's native SD_SCLK route. Run #147 proved the former
+  # deterministic replacement was the source of the final 12 DRC collisions;
+  # the imported SES route itself uses a separated F/B corridor and must be
+  # validated by KiCad DRC instead of being overwritten after import.
+  echo 'SD_SCLK_ROUTE_SOURCE=FREEROUTING_SES' | tee -a hardware/kicad/freerouting.log
 
   # Add surface copper, fill once so islands are measurable, stitch every safe
   # F.Cu GND island to L2, then refill for the authoritative DRC/audit.
