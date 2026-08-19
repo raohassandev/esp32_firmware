@@ -495,20 +495,28 @@ static void test_prerequisite_predicate_fails_closed(void)
 }
 
 /* The shipped catalogue, executed rather than asserted about: every profile that
- * says the device needs a prerequisite must agree with the rule. Written as an
- * equivalence rather than a flat "must be forbidden", so it stays true when a
- * profile gains a properly cited enable register. */
+ * says the device needs a prerequisite must agree with the rule. The catalogue
+ * also deliberately retains prerequisite register descriptions on exactly two
+ * field-decided exceptions: Solis (commissioning-owned) and the measured Sungrow
+ * model (the direct setpoint worked while the old enable address rejected FC06).
+ * Keeping the descriptions preserves evidence without silently restoring a gate. */
 static void test_shipped_prerequisite_profiles_follow_the_rule(void)
 {
     size_t declaring = 0;
+    size_t explicit_exceptions = 0;
     for (size_t i = 0; i < inverter_profiles_count(); ++i) {
         const inverter_profile_t *shipped = inverter_profiles_get(i);
         assert(shipped != NULL);
         if (!shipped->requires_prerequisite_enable) {
-            /* A profile must not describe a prerequisite it does not need: that
-             * would be a write to an enable register on a device whose manual
-             * does not call for one. */
-            assert(!shipped->has_prerequisite_enable);
+            if (shipped->has_prerequisite_enable) {
+                const bool intentional =
+                    strcmp(shipped->id, "solis.commercial.pending") == 0 ||
+                    strcmp(shipped->id, "sungrow.string.documented") == 0;
+                assert(intentional);
+                assert(shipped->has_prerequisite_readback);
+                assert(!inverter_profile_prerequisite_blocks_write(shipped));
+                explicit_exceptions++;
+            }
             continue;
         }
         declaring++;
@@ -527,9 +535,9 @@ static void test_shipped_prerequisite_profiles_follow_the_rule(void)
             assert(shipped->has_prerequisite_readback);
         }
     }
-    /* The catalogue must still carry the brands that have this hazard. If this
-     * fires, the flag was dropped from Solis, Growatt, Sungrow or Chint/CPS and
-     * the hazard is now invisible. */
+    /* A new bypass must be added here deliberately; an accidental third profile
+     * carrying a prerequisite description without the gate fails the test. */
+    assert(explicit_exceptions == 2);
     assert(declaring > 0);
 }
 
