@@ -16,7 +16,7 @@
 #define CH422G_TOUCH_RESET_HIGH 0x2EU
 #define CH422G_BACKLIGHT_ON 0x1EU
 #define RGB_DATA_WIDTH 16U
-#define RGB_BITS_PER_PIXEL 16U
+#define RGB_DMA_BURST_SIZE 64U
 #define RGB_BOUNCE_LINES 10U
 #define I2C_TIMEOUT_MS 1000
 
@@ -145,11 +145,11 @@ static esp_err_t create_rgb_panel(const waveshare_display_port_config_t *config,
             },
         },
         .data_width = RGB_DATA_WIDTH,
-        .bits_per_pixel = RGB_BITS_PER_PIXEL,
+        .in_color_format = LCD_COLOR_FMT_RGB565,
+        .out_color_format = LCD_COLOR_FMT_RGB565,
         .num_fbs = frame_buffers,
         .bounce_buffer_size_px = (size_t)p->width * RGB_BOUNCE_LINES,
-        .sram_trans_align = 4,
-        .psram_trans_align = 64,
+        .dma_burst_size = RGB_DMA_BURST_SIZE,
         .hsync_gpio_num = p->hsync_gpio,
         .vsync_gpio_num = p->vsync_gpio,
         .de_gpio_num = p->de_gpio,
