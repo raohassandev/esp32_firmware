@@ -161,6 +161,8 @@ jobs:
           set -euo pipefail
           gcc -std=c11 -Wall -Wextra -Werror \
             -Icomponents/control_engine/include \
+            -Icomponents/config_manager/include \
+            -Icomponents/modbus_tcp/include \
             tests/generator_fleet_limit_test.c \
             components/control_engine/generator_fleet_limit.c \
             components/control_engine/source_mode.c \
