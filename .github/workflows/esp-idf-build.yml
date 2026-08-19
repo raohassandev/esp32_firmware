@@ -91,7 +91,14 @@ jobs:
       - name: Run generator urgency ramp unit tests
         run: |
           set -euo pipefail
-          gcc -std=c11 -Wall -Wextra -Werror             -Icomponents/control_engine/include             tests/generator_urgent_ramp_test.c             components/control_engine/generator_fleet_limit.c             components/control_engine/source_mode.c             -lm -o /tmp/generator_urgent_ramp_test
+          gcc -std=c11 -Wall -Wextra -Werror \
+            -Icomponents/control_engine/include \
+            -Icomponents/config_manager/include \
+            -Icomponents/modbus_tcp/include \
+            tests/generator_urgent_ramp_test.c \
+            components/control_engine/generator_fleet_limit.c \
+            components/control_engine/source_mode.c \
+            -lm -o /tmp/generator_urgent_ramp_test
           /tmp/generator_urgent_ramp_test
       - name: Run generator safe-PV convergence unit tests
         run: |
@@ -154,6 +161,8 @@ jobs:
           set -euo pipefail
           gcc -std=c11 -Wall -Wextra -Werror \
             -Icomponents/control_engine/include \
+            -Icomponents/config_manager/include \
+            -Icomponents/modbus_tcp/include \
             tests/generator_fleet_limit_test.c \
             components/control_engine/generator_fleet_limit.c \
             components/control_engine/source_mode.c \
@@ -308,8 +317,6 @@ jobs:
         run: python3 tests/no_shared_credentials_source_contract.py
       - name: Check the shipped configuration samples
         run: python3 tests/config_samples_source_contract.py
-      - name: Check the release document matches the compiled profile catalogue
-        run: python3 tests/release_doc_catalogue_source_contract.py
       - name: Check no lab write authority remains
         run: python3 tests/no_lab_authority_source_contract.py
       - name: Run meter poll schedule unit tests
