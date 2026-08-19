@@ -1,35 +1,43 @@
 Designator,Qty,Populate_Base,Populate_Full,Function,Manufacturer,MPN_or_Class,Package_or_Footprint,Notes
 U1,1,YES,YES,MCU,Espressif,ESP32-S3-WROOM-1-N8,ESP32-S3-WROOM-1,8MB flash; antenna keepout mandatory
 U2,1,YES,YES,Ethernet controller,WIZnet,W5500,LQFP-48_7x7mm_P0.5mm,3.3V SPI Ethernet
-J1,1,YES,YES,Ethernet MagJack,CETUS,J1B1211CCD,Integrated_RJ45_MagJack,WIZnet-approved prototype target
-Y1,1,YES,YES,W5500 crystal,Multiple,25MHz crystal,Crystal_SMD,CL to be matched to final part/layout
-U3,1,YES,YES,RS485 A,Texas Instruments,THVD1410D,SOIC-8,Non-isolated base Rev-A
-U4,1,YES,YES,RS485 B,Texas Instruments,THVD1410D,SOIC-8,Non-isolated base Rev-A
-D_RS485A,1,YES,YES,RS485 A TVS,Multiple,SM712-class,SOT-23_or_equiv,Low-capacitance RS485 protection
-D_RS485B,1,YES,YES,RS485 B TVS,Multiple,SM712-class,SOT-23_or_equiv,Low-capacitance RS485 protection
-U5,1,YES,YES,Field 12/24V to 5V buck,Texas Instruments,TPS54360B,DDA_HSOIC-8_PowerPAD,5V 3.5A class
-L1,1,YES,YES,5V buck inductor,Wurth_or_equiv,8.2uH >=5A,Power_Inductor,Starting target from TPS54360EVM-182
-CIN1-CIN2,2,YES,YES,5V buck input ceramic,Multiple,2.2uF 100V X7R,1210,Place at U5 VIN/GND
-COUT1-COUT2,2,YES,YES,5V buck output ceramic,Multiple,47uF 10V X5R/X7R,1210,Starting target from EVM
-U6,1,YES,YES,5V to 3.3V buck,Diodes Incorporated,AP63203WU-7,TSOT26,Fixed 3.3V 2A
+J1,1,YES,YES,Ethernet MagJack,CETUS,J1B1211CCD,Integrated_RJ45_MagJack,WIZnet-approved prototype target; exact mechanical/LED pinout gate remains
+Y1,1,YES,YES,W5500 crystal,Multiple,25MHz crystal,Crystal_SMD,Exact MPN/CL to be frozen with final oscillator load-cap calculation
+U3-U4,2,YES,YES,RS485 transceiver,Texas Instruments,THVD1410D,SOIC-8,Independent non-isolated half-duplex ports
+D_RS485A-D_RS485B,2,YES,YES,RS485 field TVS,Semtech,SM712.TCT,SOT-23,Asymmetric RS485 TVS at connector side
+U5,1,YES,YES,Field input to 5V buck,Texas Instruments,TPS54360B,DDA_HSOIC-8_PowerPAD,60V input 3.5A class
+L1,1,YES,YES,5V buck inductor,Wurth_or_equiv,8.2uH >=5A,Power_Inductor,TPS54360EVM-derived starting target; exact MPN to freeze with thermal review
+CIN1-CIN2,2,YES,YES,5V buck input ceramic,Multiple,2.2uF 100V X7R,1210,Effective capacitance under 30V DC bias must be checked
+COUT1-COUT2,2,YES,YES,5V buck output ceramic,Multiple,47uF 10V X5R/X7R,1210,Effective capacitance at 5V must be checked
+U6,1,YES,YES,5V to 3.3V buck,Diodes Incorporated,AP63203WU-7,TSOT26,Fixed 3.3V 2A synchronous buck
 K1-K4,4,YES,YES,Relay,Hongfa,HF3FF/005-1ZST,THT_Custom_HF3FF,5V coil Form-C dry contact
-Q1-Q4,4,YES,YES,Relay driver,Multiple,AO3400A-class,SOT-23,NMOS low-side driver
-D1-D4,4,YES,YES,Relay flyback,Multiple,SS14-class,SMA_or_SOD123,Across relay coil
+Q1-Q4,4,YES,YES,Relay driver,Multiple,AO3400A-class,SOT-23,NMOS low-side driver; must be fully enhanced at 3.3V gate
+D_FLY1-D_FLY4,4,YES,YES,Relay flyback,Multiple,SS14-class,SMA_or_SOD123,Across relay coil
+R_PD1-R_PD4,4,YES,YES,Relay gate pulldown,Multiple,10k,0603,Stronger hardware OFF bias during reset/brownout
 LED1-LED4,4,YES,YES,Relay indication,Multiple,LED,0603_or_0805,One per relay
-J_RELAY1-J_RELAY4,4,YES,YES,Relay field terminal,Multiple,3P 5.08mm field terminal,THT_P5.08,NC COM NO
+J_RELAY1-J_RELAY4,4,YES,YES,Relay field terminal,Multiple,3P 5.08mm field terminal,THT_P5.08,NC COM NO; exact rated vendor MPN remains mechanical/safety gate
 J_PWR,1,YES,YES,Field power terminal,Multiple,2P 5.08mm field terminal,THT_P5.08,VIN+ VIN-
 J_RS485A-J_RS485B,2,YES,YES,RS485 terminal,Multiple,3P 5.08mm field terminal,THT_P5.08,A B GND
 J_HMI,1,YES,YES,Serial HMI,JST,B4B-XH-A,JST_XH_B4B-XH-A,+5V GND TX RX
-J_USB,1,YES,YES,USB service,Prototype_stocked,USB-C 16-pin USB2 device receptacle,USB_C_Custom,Final footprint to verify on Mac/supplier CAD
-D_USB,1,YES,YES,USB ESD,Multiple,USB2 low-capacitance ESD,SOT-23-6_or_equiv,Close to connector
+U_HMIBUF,1,YES,YES,HMI 5V RX protection/buffer,Texas Instruments,SN74LVC1G17DBVR,SOT-23-5,3.3V powered; accepts input to 5.5V; Ioff partial-power/back-drive protection
+D_HMI_RX_ESD,1,YES,YES,HMI RX ESD,Texas Instruments,TPD1E10B06DYAR,SOD-523,Bidirectional 5.5V UART/GPIO protection at connector side
+C_HMIBUF,1,YES,YES,HMI buffer decoupling,Multiple,0.1uF,0603,Place at U_HMIBUF VCC/GND
+J_USB,1,YES,YES,USB service,GCT,USB4105-family,USB_C_16pin_THT_shell,USB2 device-only; exact stake-length suffix remains mechanical gate
+D_USB_DN-D_USB_DP,2,YES,YES,USB D-/D+ ESD,Texas Instruments,TPD1E05U06DYAR,SOD-523,0.5pF-class high-speed ESD; place at connector
 R_CC1-R_CC2,2,YES,YES,USB Type-C CC,Multiple,5.1k 1%,0603,Rd to GND
 SW_RESET,1,YES,YES,Reset button,Multiple,Momentary tact switch,THT_or_SMD,Accessible service control
 SW_BOOT,1,YES,YES,Boot button,Multiple,Momentary tact switch,THT_or_SMD,GPIO0 boot strap
-LED_PWR,1,YES,YES,Power indication,Multiple,LED,0603_or_0805,3V3 or protected power indication
-LED_STATUS,1,YES,YES,System status,Multiple,LED,0603_or_0805,GPIO35
+LED_PWR,1,YES,YES,Power indication,Multiple,LED,0603_or_0805,Hardware-derived power indication
+U_LEDLOGIC,1,YES,YES,RS485 activity and system-status buffer,Texas Instruments,SN74LVC14APWR,TSSOP-14,Four UART activity channels plus green/red status drive
+C_LEDLOGIC,1,YES,YES,Diagnostic buffer decoupling,Multiple,0.1uF,0603,Place at U_LEDLOGIC VCC/GND
+D_RS485A_TX_ACT-D_RS485B_TX_ACT,2,YES,YES,RS485 TX activity LED,Wurth Elektronik,150080AS75000,LED_0805,Amber logic-side activity; never connected to A/B field pair
+D_RS485A_RX_ACT-D_RS485B_RX_ACT,2,YES,YES,RS485 RX activity LED,Wurth Elektronik,150080VS75000,LED_0805,Green logic-side activity
+D_STATUS_GREEN,1,YES,YES,RUN/healthy LED,Wurth Elektronik,150080VS75000,LED_0805,GPIO35 through U_LEDLOGIC; green
+D_STATUS_RED,1,YES,YES,FAULT/WARNING LED,Wurth Elektronik,150080RS75000,LED_0805,GPIO21 through U_LEDLOGIC; red; both status LEDs on = warning
+R_ACTIVITY_STATUS,8,YES,YES,Diagnostic LED current/control resistors,Multiple,680R or 100k per schematic,0603,680R LED current resistors; 100k status-control reset pulldowns
 U_RS232,1,NO,OPTIONAL,RS232 HMI option,Multiple,MAX3232-class,SOIC-16,DNP base
 U_DI1-U_DI4,4,NO,YES,Isolated digital input,Lite-On_or_equiv,LTV-817/PC817-class,DIP-4_or_SMD_optocoupler,Optional full BOM
-R_DI1-R_DI4,4,NO,YES,DI input resistor,Multiple,3.3k >=0.25W,1206_or_THT,Starting value for 12/24V
+R_DI1-R_DI4,4,NO,YES,DI input resistor,Multiple,3.3k >=0.25W,1206_or_THT,Starting value for 12/24V; final dissipation/threshold review required
 D_DI1-D_DI4,4,NO,YES,DI reverse protection,Multiple,1N4148-class,SOD-123_or_THT,Across opto LED reverse direction
 J_DI,1,NO,YES,Digital input terminal,Multiple,5P 5.08mm field terminal,THT_P5.08,DI1 DI2 DI3 DI4 COM
 U_RTC,1,NO,YES,RTC,NXP_or_equiv,PCF8563-class,SOIC-8_or_TSSOP,Optional full BOM
