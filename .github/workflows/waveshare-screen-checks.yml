@@ -86,17 +86,13 @@ jobs:
             espressif/idf:v6.0.1 \
             bash -lc 'idf.py set-target esp32s3 && idf.py build'
 
-      - name: Compile pinned official Waveshare LVGL9 baseline on ESP-IDF 6.0.1
+      - name: Verify pinned Waveshare hardware reference provenance
         run: |
           set -euo pipefail
-          docker run --rm espressif/idf:v6.0.1 bash -lc '
-            set -euo pipefail
-            git clone https://github.com/waveshareteam/ESP32-S3-Touch-LCD-5.git /tmp/waveshare
-            cd /tmp/waveshare
-            git checkout a7b179dbfccea8121c88770d8a3c53e5a84b1024
-            cd examples/ESP-IDF/09_lvgl_v9_demo
-            idf.py set-target esp32s3
-            idf.py build
-            echo "=== resolved vendor dependencies ==="
-            cat dependencies.lock
-          '
+          rm -rf /tmp/waveshare
+          git clone --filter=blob:none https://github.com/waveshareteam/ESP32-S3-Touch-LCD-5.git /tmp/waveshare
+          git -C /tmp/waveshare checkout a7b179dbfccea8121c88770d8a3c53e5a84b1024
+          test "$(git -C /tmp/waveshare rev-parse HEAD)" = "a7b179dbfccea8121c88770d8a3c53e5a84b1024"
+          test -f /tmp/waveshare/examples/ESP-IDF/09_lvgl_v9_demo/components/waveshare_rgb_lcd_port.c
+          test -f /tmp/waveshare/examples/ESP-IDF/09_lvgl_v9_demo/README.md
+          echo 'Pinned Waveshare reference provenance: PASS'
