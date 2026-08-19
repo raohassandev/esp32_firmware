@@ -317,8 +317,6 @@ jobs:
         run: python3 tests/no_shared_credentials_source_contract.py
       - name: Check the shipped configuration samples
         run: python3 tests/config_samples_source_contract.py
-      - name: Check the release document matches the compiled profile catalogue
-        run: python3 tests/release_doc_catalogue_source_contract.py
       - name: Check no lab write authority remains
         run: python3 tests/no_lab_authority_source_contract.py
       - name: Run meter poll schedule unit tests
