@@ -19,6 +19,17 @@ typedef struct {
 
 static screen_app_state_t s_app;
 
+/* The local HMI uses fixed, kiosk-style pages. LVGL objects created with
+ * lv_obj_create() are scrollable by default; on a touch panel that can turn a
+ * small finger movement during a navigation tap into a visible viewport shift.
+ * Keep navigation/page surfaces fixed and switch pages only through HIDDEN. */
+static void make_fixed_surface(lv_obj_t *obj)
+{
+    if (!obj) return;
+    lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(obj, LV_SCROLLBAR_MODE_OFF);
+}
+
 static void nav_clicked(lv_event_t *event)
 {
     const uintptr_t raw = (uintptr_t)lv_event_get_user_data(event);
@@ -29,6 +40,7 @@ static void nav_clicked(lv_event_t *event)
 static lv_obj_t *nav_button(lv_obj_t *parent, const char *text, screen_page_t page)
 {
     lv_obj_t *button = lv_button_create(parent);
+    make_fixed_surface(button);
     lv_obj_set_height(button, 40);
     lv_obj_set_flex_grow(button, 1);
     lv_obj_add_event_cb(button, nav_clicked, LV_EVENT_CLICKED, (void *)(uintptr_t)page);
@@ -44,6 +56,7 @@ lv_obj_t *screen_app_create(lv_obj_t *parent)
     s_app.active = SCREEN_PAGE_OVERVIEW;
 
     s_app.root = lv_obj_create(parent ? parent : lv_screen_active());
+    make_fixed_surface(s_app.root);
     lv_obj_set_size(s_app.root, LV_PCT(100), LV_PCT(100));
     lv_obj_set_style_bg_color(s_app.root, lv_color_hex(0x0B1017), LV_PART_MAIN);
     lv_obj_set_style_border_width(s_app.root, 0, LV_PART_MAIN);
@@ -55,6 +68,7 @@ lv_obj_t *screen_app_create(lv_obj_t *parent)
 
     lv_obj_t *nav = lv_obj_create(s_app.root);
     lv_obj_remove_style_all(nav);
+    make_fixed_surface(nav);
     lv_obj_set_width(nav, LV_PCT(100));
     lv_obj_set_height(nav, 44);
     lv_obj_set_layout(nav, LV_LAYOUT_FLEX);
@@ -69,6 +83,7 @@ lv_obj_t *screen_app_create(lv_obj_t *parent)
 
     lv_obj_t *content = lv_obj_create(s_app.root);
     lv_obj_remove_style_all(content);
+    make_fixed_surface(content);
     lv_obj_set_width(content, LV_PCT(100));
     lv_obj_set_flex_grow(content, 1);
 
@@ -78,8 +93,11 @@ lv_obj_t *screen_app_create(lv_obj_t *parent)
     s_app.pages[SCREEN_PAGE_ALARMS] = alarms_screen_create(content);
     s_app.pages[SCREEN_PAGE_READINESS] = readiness_screen_create(content);
 
-    for (int i = 1; i < (int)SCREEN_PAGE_COUNT; ++i) {
-        lv_obj_add_flag(s_app.pages[i], LV_OBJ_FLAG_HIDDEN);
+    for (int i = 0; i < (int)SCREEN_PAGE_COUNT; ++i) {
+        make_fixed_surface(s_app.pages[i]);
+        if (i != (int)SCREEN_PAGE_OVERVIEW) {
+            lv_obj_add_flag(s_app.pages[i], LV_OBJ_FLAG_HIDDEN);
+        }
     }
     return s_app.root;
 }
