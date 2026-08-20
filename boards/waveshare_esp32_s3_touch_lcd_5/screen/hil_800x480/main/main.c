@@ -28,6 +28,8 @@ void app_main(void)
         .tear_mode = tear_mode,
         .rotation = rotation,
         .enable_touch = true,
+        .bounce_buffer_lines = WAVESHARE_RGB_DEFAULT_BOUNCE_LINES,
+        .allow_no_bounce_fallback = false,
     };
 
     ESP_LOGI(TAG, "HIL target: Waveshare ESP32-S3-Touch-LCD-5 800x480");
