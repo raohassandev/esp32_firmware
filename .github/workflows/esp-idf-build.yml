@@ -2,6 +2,17 @@ name: Firmware and web checks
 
 on:
   pull_request:
+    paths-ignore:
+      - 'hardware/**'
+      - 'docs/HARDWARE_PCB_REVA_MASTER_PLAN.md'
+      - 'docs/PCB_AND_ENCLOSURE_SERVICE_PROVIDER_RFQ.md'
+      - 'docs/PCB_PROVIDER_HANDOFF_READINESS.md'
+      - 'docs/PROVIDER_PACKAGE_CONTENTS.md'
+      - '.github/workflows/kicad-reva-pr-validation.yml'
+      - '.github/workflows/kicad-reva-validation.yml'
+      - '.github/workflows/reva-enclosure-contract.yml'
+      - '.github/workflows/reva-provider-package-gate.yml'
+      - '.github/workflows/repo-maintenance.yml'
   push:
     branches:
       - fix/pvdg-reconnect-admission-gate
@@ -18,6 +29,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: firmware-web-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   web:
