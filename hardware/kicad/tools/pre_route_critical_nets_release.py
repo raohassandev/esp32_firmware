@@ -84,16 +84,18 @@ def route_ethernet(board):
     base.add_via(board,v,base.net_from_pad(r_txp_m))
     base.add_track(board,v,d,IN2,base.net_from_pad(r_txp_m),base.WIDTH_ETH_MM)
 
-    # Run #35 proved DRC=0 but TX skew was 5.09 mm, only 0.09 mm above the
-    # frozen 5 mm gate. The old TXN In2 dogleg was unnecessary: a direct segment
-    # from its single via to the MagJack pin stays separated from the TXP In2
-    # segment and removes >2 mm of excess path without relaxing any SI limit.
+    # Run #35 had DRC=0 with the TXN dogleg at x=127.20 but TX skew was
+    # 5.09 mm. Run #36 shortened TXN too aggressively with a direct segment,
+    # which crossed J3 pad 2 (ETH_TCT). Move the old dogleg only 0.40 mm toward
+    # J3. This keeps the horizontal final approach centered between J3 pads 2/4,
+    # preserves >0.2 mm copper clearance, and shortens the proven DRC-clean path
+    # enough to bring TX skew below the frozen 5.0 mm limit without relaxing it.
     s=_xy(r_txn_m); d=_xy(j_tx_n); v=(125.40,s[1])
     base.add_track(board,s,v,F,base.net_from_pad(r_txn_m),base.WIDTH_ETH_MM)
     base.add_via(board,v,base.net_from_pad(r_txn_m))
-    base.add_track(board,v,d,IN2,base.net_from_pad(r_txn_m),base.WIDTH_ETH_MM)
+    base.add_polyline(board,[v,(127.60,d[1]),d],IN2,base.net_from_pad(r_txn_m),base.WIDTH_ETH_MM)
 
-    print('ETHERNET_CRITICAL_PREROUTE: PASS DRC-clean RX doglegs + TXN direct SI trim')
+    print('ETHERNET_CRITICAL_PREROUTE: PASS DRC-clean RX doglegs + TXN skew trim')
 
 
 def _usb_mcu_stub(board, src, dst, via1, via2):
