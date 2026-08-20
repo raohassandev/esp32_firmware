@@ -1,0 +1,3 @@
+# Reuse the authoritative Product Core project configuration.  This board build
+# must not fork or duplicate CONFIG_PVDG_* definitions/defaults.
+rsource "../../../../../main/Kconfig.projbuild"
