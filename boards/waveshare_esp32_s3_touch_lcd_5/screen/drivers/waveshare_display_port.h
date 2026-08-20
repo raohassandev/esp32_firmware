@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #include "driver/i2c_master.h"
 #include "esp_err.h"
@@ -14,6 +15,8 @@
 extern "C" {
 #endif
 
+#define WAVESHARE_RGB_DEFAULT_BOUNCE_LINES 10U
+
 typedef struct {
     const waveshare_display_profile_t *profile;
     /* Optional board-owned shared I2C bus. When NULL, this port creates and owns
@@ -23,6 +26,12 @@ typedef struct {
     esp_lv_adapter_tear_avoid_mode_t tear_mode;
     esp_lv_adapter_rotation_t rotation;
     bool enable_touch;
+    /* Non-zero enables ESP-IDF's two internal-DRAM RGB bounce buffers. The
+     * product image may allow a one-time retry with zero lines when the shared
+     * Core has already fragmented internal DMA-capable memory. Frame buffers
+     * remain in PSRAM in both modes. */
+    uint16_t bounce_buffer_lines;
+    bool allow_no_bounce_fallback;
 } waveshare_display_port_config_t;
 
 typedef struct {
