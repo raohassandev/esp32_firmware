@@ -24,6 +24,12 @@ def main() -> None:
     profile_c = read(SCREEN / "drivers" / "waveshare_display_profile.c")
     display_port_h = read(SCREEN / "drivers" / "waveshare_display_port.h")
     display_port_c = read(SCREEN / "drivers" / "waveshare_display_port.c")
+    product_provider = read(
+        SCREEN / "product_800x480" / "main" / "local_backend_provider.c"
+    )
+    source_attribution = read(
+        ROOT / "components" / "source_detection" / "source_attribution.c"
+    )
 
     # The current site-tested build stays unchanged until the hardware/LVGL gate.
     assert "waveshare_esp32_s3_touch_lcd_5/screen" not in root_cmake
@@ -51,7 +57,10 @@ def main() -> None:
         assert path in api_h, f"screen contract missing {path}"
         assert path in backend_sources, f"backend does not own {path}"
 
-    # Local HMI must not grow a second product/backend implementation.
+    # UI/runtime/parsers stay backend-agnostic.  The exact-board product adapter
+    # is the one deliberate boundary exception: HIL proved same-device HTTP
+    # loopback unusable, so that adapter may read cached Core snapshots in-process.
+    # It still has no write authority and cannot own Modbus or safety decisions.
     forbidden_headers = {
         "control_engine.h",
         "safety_manager.h",
@@ -62,13 +71,47 @@ def main() -> None:
         "network_manager.h",
         "modbus_tcp.h",
     }
+    product_adapter = (
+        SCREEN / "product_800x480" / "main" / "local_backend_provider.c"
+    ).resolve()
     for source in SCREEN.rglob("*.c"):
+        if source.resolve() == product_adapter:
+            continue
         text = read(source)
         includes = set(re.findall(r'#include\s+[<\"]([^>\"]+)[>\"]', text))
         overlap = forbidden_headers & includes
         assert not overlap, f"{source.relative_to(ROOT)} bypasses backend boundary: {sorted(overlap)}"
 
-    # There are no local backend HTTP handlers or local HTTP write clients.
+    # The board adapter is read-only cached-state projection only.  No socket
+    # self-call remains, no synchronous Modbus transaction is allowed, and none
+    # of the product write/configuration entry points may appear here.
+    for forbidden in [
+        "esp_http_client",
+        "http://127.0.0.1",
+        "WIFI_AP_DEF",
+        "meter_manager_read_registers",
+        "inverter_manager_set_total_power_kw",
+        "control_engine_set_enabled",
+        "control_engine_force_disable",
+        "config_manager_save",
+        "config_manager_import_json",
+        "config_manager_restore_defaults",
+        "httpd_register_uri_handler",
+        "HTTP_POST",
+        "HTTP_PUT",
+        "HTTP_DELETE",
+    ]:
+        assert forbidden not in product_provider, f"product adapter gained forbidden authority: {forbidden}"
+    assert "source_detection_attributed_to(&source)" in product_provider
+    assert "source_detection_attributed_to" in source_attribution
+    assert "status->configured" in source_attribution
+    assert "status->evidence_fresh" in source_attribution
+    assert "!status->conflict" in source_attribution
+    assert 'return "unknown"' in source_attribution
+    assert "socket/TCP self-transport removed" in product_provider
+
+    # There are no local backend HTTP handlers or local HTTP write clients in the
+    # screen workspace at all.
     all_c = "\n".join(read(p) for p in SCREEN.rglob("*.c"))
     assert "httpd_register_uri_handler" not in all_c
     assert "HTTP_POST" not in all_c
