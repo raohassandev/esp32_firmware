@@ -121,9 +121,7 @@ def route_usb(board):
     _usb_mcu_stub(board,mcu_dp,rdp_mcu,(17.25,67.80),(21.20,66.60))
 
     # A 16-contact USB-C receptacle exposes both A- and B-side USB2 contacts.
-    # Run #37 proved that routing only A6/A7 leaves B6 as a real ratsnest item;
-    # B7 happened to be joined by generic routing, which is not a controlled
-    # release topology. Lock all four contacts here. The alternate contacts use
+    # Lock all four data contacts before Specctra export. Alternate contacts use
     # one additional symmetric via per conductor, keeping external D+/D- at
     # three vias each and below the frozen <=4 USB limit.
     a6=_require_net(base.pad_number(j2,'A6'),'USB_D+')
@@ -133,10 +131,11 @@ def route_usb(board):
     sdm=_xy(rdm_ext); sdp=_xy(rdp_ext)
     dm_v1=(26.0,sdm[1]); dp_v1=(26.0,sdp[1])
 
-    # D-: the primary A7 transition is outside the connector courtyard. The B7
-    # branch via lies exactly on the final In2 trunk segment, so it adds no
-    # unnecessary inner-layer path length and the branch approaches B7 from
-    # above, away from the interleaved D+ contacts.
+    # D-: branch via lies on the final In2 trunk. Run #39 proved a direct
+    # diagonal dm_b->B7 clips the adjacent A5/CC1 pad. Transition vertically at
+    # x=132.2, well left of the Type-C row, then make the final exact-Y approach
+    # at B7 y=42.75. The 0.5 mm pad-row spacing then leaves the intended 0.2 mm
+    # copper-edge gap to A6/A5.
     dm_a=(135.0,41.75)
     dm_b=(132.2,45.15)
     dm_net=base.net_from_pad(rdm_ext)
@@ -146,12 +145,12 @@ def route_usb(board):
     base.add_via(board,dm_b,dm_net)
     base.add_via(board,dm_a,dm_net)
     base.add_track(board,dm_a,_xy(a7),F,dm_net,base.WIDTH_USB_MM)
-    base.add_track(board,dm_b,_xy(b7),F,dm_net,base.WIDTH_USB_MM)
+    base.add_polyline(board,[dm_b,(dm_b[0],_xy(b7)[1]),_xy(b7)],F,dm_net,base.WIDTH_USB_MM)
 
-    # D+: A6 uses an exact-Y final approach so its track stays centered in the
-    # 0.20 mm copper gap between the adjacent Type-C pads. B6 escapes down-left
-    # to a separate via, then joins A6 on B.Cu; this avoids the unavoidable
-    # A7/B6 crossing on F.Cu without using the reserved L2 GND plane.
+    # D+: A6 uses an exact-Y final approach. Run #39 proved a direct diagonal
+    # dp_b->B6 clips the unused A8 pad. Transition vertically at x=136.0, then
+    # approach B6 horizontally on its exact y=41.25; this also keeps 0.5 mm
+    # centre spacing to the interleaved D- A7 track.
     dp_a=(136.0,42.90)
     dp_b=(136.0,40.30)
     dp_net=base.net_from_pad(rdp_ext)
@@ -161,10 +160,10 @@ def route_usb(board):
     base.add_via(board,dp_a,dp_net)
     base.add_polyline(board,[dp_a,(dp_a[0],_xy(a6)[1]),_xy(a6)],F,dp_net,base.WIDTH_USB_MM)
     base.add_via(board,dp_b,dp_net)
-    base.add_track(board,dp_b,_xy(b6),F,dp_net,base.WIDTH_USB_MM)
+    base.add_polyline(board,[dp_b,(dp_b[0],_xy(b6)[1]),_xy(b6)],F,dp_net,base.WIDTH_USB_MM)
     base.add_track(board,dp_b,dp_a,B,dp_net,base.WIDTH_USB_MM)
 
-    print('USB_CRITICAL_PREROUTE: PASS all A6/B6/A7/B7 contacts tied with symmetric 3-via topology')
+    print('USB_CRITICAL_PREROUTE: PASS all A6/B6/A7/B7 contacts tied with exact-Y B-side approaches')
 
 
 def main(board_path):
