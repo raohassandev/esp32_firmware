@@ -33,10 +33,10 @@ def _chip_escape(board, src, dst, x_escape=121.45):
     base.add_track(board,e,d,pcbnew.F_Cu,base.net_from_pad(src),base.WIDTH_ETH_MM)
 
 
-def _via_route(board, src, via, points, dst, net):
-    base.add_track(board,_xy(src),via,pcbnew.F_Cu,net,base.WIDTH_ETH_MM)
-    base.add_via(board,via,net)
-    base.add_polyline(board,[via]+list(points)+[_xy(dst)],board.GetLayerID('In2.Cu'),net,base.WIDTH_ETH_MM)
+def _chip_dogleg(board, src, dst, x_escape):
+    """Orthogonal fan-out used where adjacent 0.5-mm MDI escapes converge."""
+    s=_xy(src); d=_xy(dst); net=base.net_from_pad(src)
+    base.add_polyline(board,[s,(x_escape,s[1]),(x_escape,d[1]),d],pcbnew.F_Cu,net,base.WIDTH_ETH_MM)
 
 
 def route_ethernet(board):
@@ -59,40 +59,39 @@ def route_ethernet(board):
     j_rx_p=_require_net(base.pad_number(j3,4),'ETH_RXP_MAG')
     j_rx_n=_require_net(base.pad_number(j3,6),'ETH_RXN_MAG')
 
-    # Horizontal dampers have pad1 on the U2 side. Source and damper Y order is
-    # monotonic, so these short F.Cu fanouts do not cross or touch pad2.
-    for src,dst in ((rx_p,r_rxp_c),(rx_n,r_rxn_c),(tx_p,r_txp_c),(tx_n,r_txn_c)):
-        _chip_escape(board,src,dst)
+    # Run #32 left one DRC error only: the two RX diagonals converged to 0.081 mm.
+    # Separate them with non-overlapping orthogonal columns. TX already passed
+    # DRC with the compact diagonal escape and is intentionally left unchanged.
+    _chip_dogleg(board,rx_p,r_rxp_c,121.00)
+    _chip_dogleg(board,rx_n,r_rxn_c,121.80)
+    _chip_escape(board,tx_p,r_txp_c)
+    _chip_escape(board,tx_n,r_txn_c)
 
     # Each conductor uses exactly one via, satisfying pair symmetry and the
     # frozen <=1-via Ethernet policy. Within each pair, one conductor stays on
     # F.Cu until near its destination while the order-reversing conductor moves
     # to In2 early. Their crossings therefore occur on different layers.
-    # RXP: F.Cu almost to J3, then one short In2 finish.
     s=_xy(r_rxp_m); d=_xy(j_rx_p); v=(128.15,s[1])
     base.add_track(board,s,v,F,base.net_from_pad(r_rxp_m),base.WIDTH_ETH_MM)
     base.add_via(board,v,base.net_from_pad(r_rxp_m))
     base.add_track(board,v,d,IN2,base.net_from_pad(r_rxp_m),base.WIDTH_ETH_MM)
 
-    # RXN: transition immediately, climb above RXP on In2, then enter exact PTH Y.
     s=_xy(r_rxn_m); d=_xy(j_rx_n); v=(125.40,s[1])
     base.add_track(board,s,v,F,base.net_from_pad(r_rxn_m),base.WIDTH_ETH_MM)
     base.add_via(board,v,base.net_from_pad(r_rxn_m))
     base.add_polyline(board,[v,(126.30,d[1]),d],IN2,base.net_from_pad(r_rxn_m),base.WIDTH_ETH_MM)
 
-    # TXP: F.Cu almost to J3, then one short In2 finish.
     s=_xy(r_txp_m); d=_xy(j_tx_p); v=(130.70,s[1])
     base.add_track(board,s,v,F,base.net_from_pad(r_txp_m),base.WIDTH_ETH_MM)
     base.add_via(board,v,base.net_from_pad(r_txp_m))
     base.add_track(board,v,d,IN2,base.net_from_pad(r_txp_m),base.WIDTH_ETH_MM)
 
-    # TXN: transition immediately and use a separate In2 vertical corridor.
     s=_xy(r_txn_m); d=_xy(j_tx_n); v=(125.40,s[1])
     base.add_track(board,s,v,F,base.net_from_pad(r_txn_m),base.WIDTH_ETH_MM)
     base.add_via(board,v,base.net_from_pad(r_txn_m))
     base.add_polyline(board,[v,(127.20,d[1]),d],IN2,base.net_from_pad(r_txn_m),base.WIDTH_ETH_MM)
 
-    print('ETHERNET_CRITICAL_PREROUTE: PASS horizontal dampers + one-via/layer-separated pair crossings')
+    print('ETHERNET_CRITICAL_PREROUTE: PASS separated RX doglegs + one-via/layer-separated pair crossings')
 
 
 def _usb_mcu_stub(board, src, dst, via1, via2):
@@ -116,19 +115,12 @@ def route_usb(board):
     rdm_mcu=base.pad_net(rdm,'USB_D-_MCU'); rdm_ext=base.pad_net(rdm,'USB_D-')
     rdp_mcu=base.pad_net(rdp,'USB_D+_MCU'); rdp_ext=base.pad_net(rdp,'USB_D+')
 
-    # Run #29 showed the two F.Cu MCU stubs crossed. Give both short stubs a
-    # symmetric two-via In2 detour; these vias belong to the *_MCU nets and are
-    # outside the external-pair <=4-via policy.
     _usb_mcu_stub(board,mcu_dm,rdm_mcu,(15.98,66.40),(21.20,63.40))
     _usb_mcu_stub(board,mcu_dp,rdp_mcu,(17.25,67.80),(21.20,66.60))
 
     a6=_require_net(base.pad_number(j2,'A6'),'USB_D+')
     a7=_require_net(base.pad_number(j2,'A7'),'USB_D-')
     sdm=_xy(rdm_ext); sdp=_xy(rdp_ext)
-
-    # Long external pair: two matched vias per conductor and a parallel In2
-    # trunk under the continuous L2 GND plane. Local B6/B7 + ESD branches remain
-    # for Freerouting.
     dm_v1=(26.0,sdm[1]); dp_v1=(26.0,sdp[1])
     dm_v2=(134.0,40.50); dp_v2=(135.5,43.50)
 
