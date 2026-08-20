@@ -7,6 +7,7 @@
 #include "esp_heap_caps.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
+#include "esp_netif.h"
 #include "screen_api.h"
 #include "sdkconfig.h"
 
@@ -16,7 +17,7 @@
 
 #define LOCAL_API_TIMEOUT_MS 1500
 #define LOCAL_API_URL_MAX 96
-#define LOCAL_API_HOST "127.0.0.1"
+#define LOCAL_API_HOST_MAX 16
 
 typedef struct {
     const char *path;
@@ -40,7 +41,9 @@ static local_api_slot_t s_slots[] = {
 };
 
 static const char *TAG = "screen_backend";
+static char s_last_target[LOCAL_API_HOST_MAX];
 static bool s_logged_first_success;
+static bool s_warned_no_target;
 
 static local_api_slot_t *slot_for(const char *path)
 {
@@ -49,6 +52,31 @@ static local_api_slot_t *slot_for(const char *path)
         if (strcmp(path, s_slots[i].path) == 0) return &s_slots[i];
     }
     return NULL;
+}
+
+static bool host_from_netif(const char *if_key, char *host, size_t capacity)
+{
+    if (!if_key || !host || capacity == 0U) return false;
+
+    esp_netif_t *netif = esp_netif_get_handle_from_ifkey(if_key);
+    if (!netif || !esp_netif_is_netif_up(netif)) return false;
+
+    esp_netif_ip_info_t info = {0};
+    if (esp_netif_get_ip_info(netif, &info) != ESP_OK || info.ip.addr == 0U) return false;
+    return esp_ip4addr_ntoa(&info.ip, host, (int)capacity) != NULL;
+}
+
+/* CONFIG_LWIP_NETIF_LOOPBACK is per-interface loopback: packets addressed to a
+ * netif's OWN IPv4 address are delivered back through that netif. Use the
+ * always-present recovery AP first because it gives the native screen a stable
+ * self-address even while STA association changes. STA is a safe fallback if
+ * AP is unavailable. */
+static bool resolve_self_host(char *host, size_t capacity)
+{
+    if (host_from_netif("WIFI_AP_DEF", host, capacity)) return true;
+    if (host_from_netif("WIFI_STA_DEF", host, capacity)) return true;
+    if (host && capacity > 0U) host[0] = '\0';
+    return false;
 }
 
 static void note_failure(local_api_slot_t *slot, const char *reason)
@@ -86,7 +114,9 @@ bool local_backend_provider_init(screen_api_provider_t *provider)
 {
     if (!provider) return false;
 
+    s_last_target[0] = '\0';
     s_logged_first_success = false;
+    s_warned_no_target = false;
 
     for (size_t i = 0; i < sizeof(s_slots) / sizeof(s_slots[0]); ++i) {
         local_api_slot_t *slot = &s_slots[i];
@@ -107,8 +137,7 @@ bool local_backend_provider_init(screen_api_provider_t *provider)
     provider->context = NULL;
     provider->acquire = provider_acquire;
     provider->release = provider_release;
-    ESP_LOGI(TAG, "Read-only localhost API provider ready at http://%s (lwIP loopback enabled)",
-             LOCAL_API_HOST);
+    ESP_LOGI(TAG, "Read-only self-API provider ready; lwIP per-interface loopback enabled");
     return true;
 }
 
@@ -119,10 +148,26 @@ bool local_backend_provider_fetch(const char *path)
     slot->valid = false;
     slot->json[0] = '\0';
 
+    char host[LOCAL_API_HOST_MAX];
+    if (!resolve_self_host(host, sizeof(host))) {
+        if (!s_warned_no_target) {
+            ESP_LOGW(TAG, "No active AP/STA own-IP loopback target yet; screen backend remains unavailable");
+            s_warned_no_target = true;
+        }
+        note_failure(slot, "no active self IPv4 target");
+        return false;
+    }
+    s_warned_no_target = false;
+
+    if (strcmp(s_last_target, host) != 0) {
+        snprintf(s_last_target, sizeof(s_last_target), "%s", host);
+        ESP_LOGI(TAG, "Using controller own-IP loopback target http://%s", s_last_target);
+    }
+
     char url[LOCAL_API_URL_MAX];
-    int written = snprintf(url, sizeof(url), "http://%s%s", LOCAL_API_HOST, path);
+    int written = snprintf(url, sizeof(url), "http://%s%s", host, path);
     if (written <= 0 || (size_t)written >= sizeof(url)) {
-        note_failure(slot, "localhost URL too long");
+        note_failure(slot, "self URL too long");
         return false;
     }
 
@@ -145,7 +190,7 @@ bool local_backend_provider_fetch(const char *path)
     esp_err_t err = esp_http_client_open(client, 0);
     if (err != ESP_OK) {
         char reason[64];
-        snprintf(reason, sizeof(reason), "localhost open failed: %s", esp_err_to_name(err));
+        snprintf(reason, sizeof(reason), "open failed: %s", esp_err_to_name(err));
         note_failure(slot, reason);
         goto done;
     }
@@ -154,7 +199,7 @@ bool local_backend_provider_fetch(const char *path)
     const int status = esp_http_client_get_status_code(client);
     if (status != 200) {
         char reason[48];
-        snprintf(reason, sizeof(reason), "localhost HTTP %d", status);
+        snprintf(reason, sizeof(reason), "HTTP %d", status);
         note_failure(slot, reason);
         goto close_client;
     }
@@ -165,7 +210,7 @@ bool local_backend_provider_fetch(const char *path)
                                          slot->json + total,
                                          (int)(slot->capacity - 1U - total));
         if (count < 0) {
-            note_failure(slot, "localhost read failed");
+            note_failure(slot, "read failed");
             goto close_client;
         }
         if (count == 0) break;
@@ -174,7 +219,7 @@ bool local_backend_provider_fetch(const char *path)
     slot->json[total] = '\0';
 
     if (!esp_http_client_is_complete_data_received(client)) {
-        note_failure(slot, "localhost response incomplete or over bounded capacity");
+        note_failure(slot, "response incomplete or over bounded capacity");
         goto close_client;
     }
 
@@ -182,7 +227,7 @@ bool local_backend_provider_fetch(const char *path)
     slot->consecutive_failures = 0U;
     ok = true;
     if (!s_logged_first_success) {
-        ESP_LOGI(TAG, "Existing Core API reachable on localhost; screen data path online");
+        ESP_LOGI(TAG, "Existing Core API reachable through per-interface loopback; screen data path online");
         s_logged_first_success = true;
     }
 
@@ -201,5 +246,7 @@ void local_backend_provider_deinit(void)
         s_slots[i].valid = false;
         s_slots[i].consecutive_failures = 0U;
     }
+    s_last_target[0] = '\0';
     s_logged_first_success = false;
+    s_warned_no_target = false;
 }
