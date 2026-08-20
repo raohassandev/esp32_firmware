@@ -11,29 +11,28 @@ comp = base.comp
 set_desired_pin = base.set_desired_pin
 require = base.require
 
-# The base generator's connection compensator reverses each rectangular-symbol
-# side before attaching physical-order nets. New rectangular symbols therefore
-# store their pin-definition list in the inverse visual order so that
-# g.manifest_pin_order() returns actual physical pin order at connection time.
-# This keeps c['nets'] in physical pad-number order, matching the rest of Rev-A.
+# New symbols keep their real physical pad numbering. The legacy generator
+# connects rectangular symbols in visual-side order (reverse each side), so
+# multi-pin component net arrays below are explicitly stored in that visual
+# connection order. CI then checks the exported KiCad physical pin/net mapping.
 g.DEFS.setdefault("LVC14", {
     "prefix": "U",
     "description": "SN74LVC14A hex Schmitt-trigger inverter",
     "pins": [
-        ["7","GND"],["6","3Y"],["5","3A"],["4","2Y"],["3","2A"],["2","1Y"],["1","1A"],
-        ["14","VCC"],["13","6A"],["12","6Y"],["11","5A"],["10","5Y"],["9","4A"],["8","4Y"],
+        ["1","1A"],["2","1Y"],["3","2A"],["4","2Y"],
+        ["5","3A"],["6","3Y"],["7","GND"],["8","4Y"],
+        ["9","4A"],["10","5Y"],["11","5A"],["12","6Y"],
+        ["13","6A"],["14","VCC"],
     ],
 })
 
-# TI SN74LVC1G17DBVR physical DBV pins: 1 NC, 2 A, 3 GND, 4 Y, 5 VCC.
-# Stored inverse-per-side for the same generator compensation described above.
 g.DEFS.setdefault("LVC1G17", {
     "prefix": "U",
     "description": "SN74LVC1G17 single Schmitt-trigger buffer with Ioff",
-    "pins": [["3","GND"],["2","A"],["1","NC"],["5","VCC"],["4","Y"]],
+    "pins": [["1","NC"],["2","A"],["3","GND"],["4","Y"],["5","VCC"]],
 })
 
-# Two-pin protection/indicator symbols need no side-order compensation.
+# Two-pin protection/indicator symbols need no visual-order permutation.
 g.DEFS.setdefault("LED0805_DIAG", {
     "prefix": "D",
     "description": "0805 diagnostic LED, pin 1 cathode / pin 2 anode",
@@ -86,9 +85,11 @@ for _ref, _net in (("D_USB_DN", "USB_D-"), ("D_USB_DP", "USB_D+")):
 # protection, so a powered HMI cannot inject through the MCU input when 3V3 is
 # absent. A bidirectional TVS remains on the connector-side UART signal.
 g.COMPS[:] = [c for c in g.COMPS if c["ref"] not in {"R_HMIRX_TOP", "R_HMIRX_BOT"}]
+# Physical intent: 1=NC, 2=HMI_RX_IN, 3=GND, 4=HMI_RX, 5=3V3.
+# Generator visual order for a 5-pin rectangle is [3,2,1,5,4].
 add(
     "U_HMIBUF", "LVC1G17", "SN74LVC1G17DBVR", SOT235,
-    [None, "HMI_RX_IN", "GND", "HMI_RX", "3V3"],
+    ["GND", "HMI_RX_IN", None, "3V3", "HMI_RX"],
     datasheet="https://www.ti.com/product/SN74LVC1G17",
 )
 add("C_HMIBUF", "CAP", "0.1uF", C0603, ["3V3", "GND"])
@@ -106,18 +107,17 @@ set_desired_pin("U1", "23", "STATUS_ALERT_CTL")
 # illumination represents WARNING; red alone represents FAULT.
 g.COMPS[:] = [c for c in g.COMPS if c["ref"] not in {"D_STATUS", "R_STATUS"}]
 
-# c['nets'] below stays in physical pin-number order 1..14; the pin-definition
-# order above is intentionally inverse-per-side so the base generator connects
-# those nets back onto physical pads 1..14 after its visual-order compensation.
+# Physical intent by pin:
+# 1 A-TX, 2 A-TX-DRV, 3 A-RX, 4 A-RX-DRV, 5 B-TX, 6 B-TX-DRV,
+# 7 GND, 8 B-RX-DRV, 9 B-RX, 10 green-DRV, 11 RUN, 12 red-DRV,
+# 13 ALERT, 14 3V3. Generator visual order is [7..1,14..8].
 add(
     "U_LEDLOGIC", "LVC14", "SN74LVC14APWR", TSSOP14,
     [
-        "RS485A_TX", "DIAG_A_TX_DRV",
-        "RS485A_RX", "DIAG_A_RX_DRV",
-        "RS485B_TX", "DIAG_B_TX_DRV",
-        "GND", "DIAG_B_RX_DRV", "RS485B_RX",
-        "STATUS_GREEN_DRV", "STATUS_LED_CTL",
-        "STATUS_RED_DRV", "STATUS_ALERT_CTL", "3V3",
+        "GND", "DIAG_B_TX_DRV", "RS485B_TX", "DIAG_A_RX_DRV",
+        "RS485A_RX", "DIAG_A_TX_DRV", "RS485A_TX",
+        "3V3", "STATUS_ALERT_CTL", "STATUS_RED_DRV", "STATUS_LED_CTL",
+        "STATUS_GREEN_DRV", "RS485B_RX", "DIAG_B_RX_DRV",
     ],
     datasheet="https://www.ti.com/product/SN74LVC14A",
 )
@@ -144,10 +144,8 @@ add("R_STATUS_RED", "RES", "680R", R0603, ["STATUS_RED_DRV", "STATUS_RED_K"])
 add("D_STATUS_RED", "LED0805_DIAG", "RED 150080RS75000", LED0805, ["STATUS_RED_K", "3V3"])
 
 
-def _desired_map(c):
-    # c['nets'] is always physical-order intent. For compensated local symbols,
-    # g.manifest_pin_order() resolves back to physical pin order; for two-pin
-    # symbols it is naturally unchanged.
+def _exported_intent_map(c):
+    # The base generator connects c['nets'] using this exact visual pin order.
     pins = g.manifest_pin_order(c["sym"])
     if len(pins) != len(c["nets"]):
         raise ValueError(f"{c['ref']}: pin/net length mismatch")
@@ -166,28 +164,28 @@ def validate_desired_pinout():
         "10":"STATUS_GREEN_DRV", "11":"STATUS_LED_CTL",
         "12":"STATUS_RED_DRV", "13":"STATUS_ALERT_CTL", "14":"3V3",
     }
-    actual = _desired_map(comp("U_LEDLOGIC"))
+    actual = _exported_intent_map(comp("U_LEDLOGIC"))
     for pin, net in expected_diag.items():
         if actual.get(pin) != net:
             raise ValueError(f"U_LEDLOGIC pin {pin}: expected {net}, got {actual.get(pin)}")
 
     expected_hmi = {"1":None, "2":"HMI_RX_IN", "3":"GND", "4":"HMI_RX", "5":"3V3"}
-    actual_hmi = _desired_map(comp("U_HMIBUF"))
+    actual_hmi = _exported_intent_map(comp("U_HMIBUF"))
     for pin, net in expected_hmi.items():
         if actual_hmi.get(pin) != net:
             raise ValueError(f"U_HMIBUF pin {pin}: expected {net}, got {actual_hmi.get(pin)}")
 
     for ref, net in (("D_USB_DN","USB_D-"),("D_USB_DP","USB_D+")):
         c = comp(ref)
-        if _desired_map(c) != {"1":net, "2":"GND"}:
+        if _exported_intent_map(c) != {"1":net, "2":"GND"}:
             raise ValueError(f"{ref}: exact USB ESD physical mapping failed")
 
     if any(c["ref"] in {"D_STATUS", "R_STATUS", "R_HMIRX_TOP", "R_HMIRX_BOT"} for c in g.COMPS):
         raise ValueError("superseded status/divider components still present")
-    print("diagnostic, USB ESD, and HMI partial-power physical-pin manifest: PASS")
+    print("diagnostic, USB ESD, and HMI partial-power exported-pin intent: PASS")
 
 # Make both direct wrapper validation and the lower generator use the augmented
-# product-wide physical-pin assertions.
+# product-wide assertions.
 g.validate_critical_pinout = validate_desired_pinout
 
 
