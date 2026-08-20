@@ -1,23 +1,38 @@
 #include "local_backend_provider.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "cJSON.h"
+#include "config_manager.h"
+#include "control_engine.h"
+#include "esp_app_desc.h"
 #include "esp_heap_caps.h"
-#include "esp_http_client.h"
 #include "esp_log.h"
-#include "esp_netif.h"
+#include "esp_timer.h"
+#include "inverter_manager.h"
+#include "meter_manager.h"
+#include "network_manager.h"
+#include "safety_manager.h"
 #include "screen_api.h"
-#include "sdkconfig.h"
+#include "source_detection.h"
+#include "system_resource_api.h"
 
-#ifndef CONFIG_LWIP_NETIF_LOOPBACK
-#error "Waveshare product screen self-API provider requires CONFIG_LWIP_NETIF_LOOPBACK"
-#endif
-
-#define LOCAL_API_TIMEOUT_MS 1500
-#define LOCAL_API_URL_MAX 96
-#define LOCAL_API_HOST_MAX 16
+/*
+ * The native LCD runs on the same MCU as the Product Core.  Self-HTTP looked
+ * attractive because it reused the browser routes verbatim, but ESP-IDF HIL
+ * proved that neither 127.0.0.1 nor the AP's own address was a reliable
+ * controller-to-itself transport in this product: connect/select timed out while
+ * the web server itself was healthy.
+ *
+ * This adapter therefore reads ONLY existing Core snapshots and projects the
+ * subset of the established API contracts that screen_api.c already parses.
+ * There is no Modbus I/O, no write path, no control decision and no socket/TCP
+ * dependency here.  The authoritative source attribution is also not re-derived
+ * here: source_detection_attributed_to() is owned by shared Product Core.
+ */
 
 typedef struct {
     const char *path;
@@ -27,23 +42,27 @@ typedef struct {
     uint32_t consecutive_failures;
 } local_api_slot_t;
 
-/* Capacities are bounded deliberately. The screen parser itself is bounded, and
- * an unexpectedly huge response is treated as unavailable instead of consuming
- * unbounded controller memory. Buffers live in PSRAM on this N16R8 board. */
 static local_api_slot_t s_slots[] = {
     {SCREEN_API_LIVE_PATH,       4096U,  NULL, false, 0U},
-    {SCREEN_API_STATUS_PATH,    16384U,  NULL, false, 0U},
-    {SCREEN_API_METERS_PATH,    32768U,  NULL, false, 0U},
-    {SCREEN_API_INVERTERS_PATH, 49152U,  NULL, false, 0U},
-    {SCREEN_API_TELEMETRY_PATH, 16384U,  NULL, false, 0U},
-    {SCREEN_API_EVENTS_PATH,    49152U,  NULL, false, 0U},
-    {SCREEN_API_ALARMS_PATH,    49152U,  NULL, false, 0U},
+    {SCREEN_API_STATUS_PATH,     8192U,  NULL, false, 0U},
+    {SCREEN_API_METERS_PATH,    12288U,  NULL, false, 0U},
+    {SCREEN_API_INVERTERS_PATH, 24576U,  NULL, false, 0U},
+    {SCREEN_API_TELEMETRY_PATH,  8192U,  NULL, false, 0U},
+    /* The current alarm/event lifecycle is private to operational_api.c.  Do
+     * not fabricate an empty alarm system. These two stay unavailable until the
+     * Core exposes an authoritative in-process snapshot/builder. */
+    {SCREEN_API_EVENTS_PATH,        0U,  NULL, false, 0U},
+    {SCREEN_API_ALARMS_PATH,        0U,  NULL, false, 0U},
 };
 
 static const char *TAG = "screen_backend";
-static char s_last_target[LOCAL_API_HOST_MAX];
 static bool s_logged_first_success;
-static bool s_warned_no_target;
+static bool s_logged_operations_boundary;
+
+static uint32_t now_ms(void)
+{
+    return (uint32_t)(esp_timer_get_time() / 1000ULL);
+}
 
 static local_api_slot_t *slot_for(const char *path)
 {
@@ -54,34 +73,10 @@ static local_api_slot_t *slot_for(const char *path)
     return NULL;
 }
 
-static bool host_from_netif(const char *if_key, char *host, size_t capacity)
-{
-    if (!if_key || !host || capacity == 0U) return false;
-
-    esp_netif_t *netif = esp_netif_get_handle_from_ifkey(if_key);
-    if (!netif || !esp_netif_is_netif_up(netif)) return false;
-
-    esp_netif_ip_info_t info = {0};
-    if (esp_netif_get_ip_info(netif, &info) != ESP_OK || info.ip.addr == 0U) return false;
-    return esp_ip4addr_ntoa(&info.ip, host, (int)capacity) != NULL;
-}
-
-/* CONFIG_LWIP_NETIF_LOOPBACK is per-interface loopback: packets addressed to a
- * netif's OWN IPv4 address are delivered back through that netif. Use the
- * always-present recovery AP first because it gives the native screen a stable
- * self-address even while STA association changes. STA is a safe fallback if
- * AP is unavailable. */
-static bool resolve_self_host(char *host, size_t capacity)
-{
-    if (host_from_netif("WIFI_AP_DEF", host, capacity)) return true;
-    if (host_from_netif("WIFI_STA_DEF", host, capacity)) return true;
-    if (host && capacity > 0U) host[0] = '\0';
-    return false;
-}
-
 static void note_failure(local_api_slot_t *slot, const char *reason)
 {
     if (!slot) return;
+    slot->valid = false;
     slot->consecutive_failures++;
     if (slot->consecutive_failures == 1U || (slot->consecutive_failures % 20U) == 0U) {
         ESP_LOGW(TAG, "%s unavailable (%s), consecutive failures=%u",
@@ -107,24 +102,453 @@ static void provider_release(void *context, const char *path, const char *json)
     (void)context;
     (void)path;
     (void)json;
-    /* Slot storage is persistent and owned by this adapter. */
+    /* Persistent provider-owned PSRAM slot. */
+}
+
+static bool finish_json(local_api_slot_t *slot, cJSON *root)
+{
+    if (!slot || !slot->json || !root) {
+        cJSON_Delete(root);
+        note_failure(slot, "in-process JSON allocation failed");
+        return false;
+    }
+
+    const cJSON_bool printed = cJSON_PrintPreallocated(
+        root, slot->json, (int)slot->capacity, false);
+    cJSON_Delete(root);
+    if (!printed) {
+        slot->json[0] = '\0';
+        note_failure(slot, "in-process JSON exceeds bounded capacity");
+        return false;
+    }
+
+    slot->valid = true;
+    slot->consecutive_failures = 0U;
+    if (!s_logged_first_success) {
+        ESP_LOGI(TAG, "Core read models reachable in-process; screen data path online");
+        s_logged_first_success = true;
+    }
+    return true;
+}
+
+static void add_number_or_null(cJSON *object, const char *name, double value, bool valid)
+{
+    if (valid && isfinite(value)) cJSON_AddNumberToObject(object, name, value);
+    else cJSON_AddNullToObject(object, name);
+}
+
+static uint32_t meter_stale_after_ms(const app_config_t *config, uint8_t index)
+{
+    const meter_config_t *meter = &config->meters[index];
+    if (index == 0U && config->control.meter_stale_timeout_ms > 0U) {
+        return config->control.meter_stale_timeout_ms;
+    }
+    uint64_t derived = (uint64_t)meter->poll_interval_ms * 3ULL;
+    if (derived < 1000ULL) derived = 1000ULL;
+    if (derived > UINT32_MAX) derived = UINT32_MAX;
+    return (uint32_t)derived;
+}
+
+typedef struct {
+    bool runtime_available;
+    bool connection_initialized;
+    bool initialization_failed;
+    bool has_data;
+    bool stale;
+    bool online;
+    uint32_t data_age_ms;
+    const char *state;
+} meter_view_t;
+
+static meter_view_t meter_view(const app_config_t *config,
+                               uint8_t index,
+                               const meter_data_t *data,
+                               bool runtime_available,
+                               uint32_t current_ms)
+{
+    const meter_config_t *meter = &config->meters[index];
+    meter_view_t view = {0};
+    view.runtime_available = runtime_available;
+    view.connection_initialized = runtime_available && data->connection_initialized;
+    view.initialization_failed = meter->enabled &&
+        (!view.connection_initialized ||
+         (data->last_attempt_ms == 0U && data->last_error != ESP_OK));
+    view.has_data = runtime_available && data->last_update_ms != 0U;
+    view.data_age_ms = view.has_data ? current_ms - data->last_update_ms : 0U;
+    const uint32_t stale_after = meter_stale_after_ms(config, index);
+    view.stale = meter->enabled && !view.initialization_failed &&
+                 (!view.has_data || view.data_age_ms > stale_after);
+    view.online = meter->enabled && !view.initialization_failed &&
+                  runtime_available && data->online && !view.stale;
+    view.state = !meter->enabled ? "disabled" :
+                 view.initialization_failed ? "initialization_failed" :
+                 view.online ? "online" :
+                 view.has_data ? "stale" : "unavailable";
+    return view;
+}
+
+typedef struct {
+    bool runtime_available;
+    bool connection_initialized;
+    bool initialization_failed;
+    bool has_command;
+    bool last_write_ok;
+    bool online;
+    const char *state;
+} inverter_view_t;
+
+static inverter_view_t inverter_view(const inverter_config_t *config,
+                                     const inverter_data_t *data,
+                                     bool runtime_available)
+{
+    inverter_view_t view = {0};
+    view.runtime_available = runtime_available;
+    view.connection_initialized = runtime_available && data->connection_initialized;
+    view.initialization_failed = config->enabled && !view.connection_initialized;
+    view.has_command = runtime_available && data->has_command;
+    view.last_write_ok = view.has_command && data->online;
+    view.online = runtime_available && config->enabled && data->online;
+    view.state = !config->enabled ? "disabled" :
+                 view.initialization_failed ? "initialization_failed" :
+                 !view.has_command ? "not_tested" :
+                 view.last_write_ok ? "last_write_ok" : "last_write_failed";
+    return view;
+}
+
+static bool build_live(local_api_slot_t *slot)
+{
+    cJSON *root = cJSON_CreateObject();
+    if (!root) return finish_json(slot, NULL);
+
+    control_status_t control = {0};
+    control_engine_get_status(&control);
+    add_number_or_null(root, "grid_kw", control.grid_power_kw, isfinite(control.grid_power_kw));
+    add_number_or_null(root, "requested_pv_kw", control.requested_pv_kw,
+                       isfinite(control.requested_pv_kw));
+    add_number_or_null(root, "applied_pv_kw", control.applied_pv_kw,
+                       isfinite(control.applied_pv_kw));
+    cJSON_AddBoolToObject(root, "control_enabled", control.enabled);
+    cJSON_AddStringToObject(root, "mode_label",
+                            !control.enabled ? "Monitoring only" :
+                            control.command_authority ? "Commanding" : "Inhibited");
+    cJSON_AddStringToObject(root, "inhibit_reason", control.inhibit_reason);
+
+    source_detection_status_t source = {0};
+    if (source_detection_get_status(&source) == ESP_OK) {
+        cJSON_AddStringToObject(root, "source", source_detection_state_name(source.state));
+    }
+
+    float solar_kw = 0.0f;
+    bool solar_known = false;
+    const uint8_t inverter_count = inverter_manager_get_count();
+    for (uint8_t i = 0U; i < inverter_count; ++i) {
+        inverter_data_t data = {0};
+        if (!inverter_manager_get_data(i, &data)) continue;
+        if (!data.telemetry_valid || data.telemetry_stale || !isfinite(data.measured_power_kw)) continue;
+        solar_kw += data.measured_power_kw;
+        solar_known = true;
+    }
+    add_number_or_null(root, "solar_kw", solar_kw, solar_known);
+    add_number_or_null(root, "commandable_kw", inverter_manager_get_total_rated_kw(), true);
+
+    cJSON *command = cJSON_AddObjectToObject(root, "command");
+    if (command) {
+        inverter_command_preview_t preview = {0};
+        bool have = false;
+        bool in_force = inverter_count > 0U;
+        float percent = 0.0f;
+        const char *blocked_by = NULL;
+        for (uint8_t i = 0U; i < inverter_count; ++i) {
+            if (!inverter_manager_preview_command(i, control.requested_pv_kw, &preview)) continue;
+            if (!preview.available) continue;
+            if (!have || preview.percent > percent) percent = preview.percent;
+            have = true;
+            if (!preview.would_write) {
+                in_force = false;
+                if (!blocked_by) blocked_by = preview.blocked_by;
+            }
+        }
+        if (have) {
+            cJSON_AddNumberToObject(command, "percent", round((double)percent));
+            cJSON_AddBoolToObject(command, "in_force", in_force);
+            if (blocked_by) cJSON_AddStringToObject(command, "blocked_by", blocked_by);
+        }
+    }
+
+    meter_data_t meter = {0};
+    cJSON_AddBoolToObject(root, "meter_online",
+                          meter_manager_get_data(0U, &meter) && meter.online);
+    return finish_json(slot, root);
+}
+
+static bool build_status(local_api_slot_t *slot)
+{
+    cJSON *root = cJSON_CreateObject();
+    if (!root) return finish_json(slot, NULL);
+
+    network_status_t network = {0};
+    network_manager_get_status(&network);
+    cJSON_AddBoolToObject(root, "network_online", network.network_ready);
+    cJSON_AddNumberToObject(root, "rssi", network.rssi);
+
+    const esp_app_desc_t *build = esp_app_get_description();
+    cJSON_AddStringToObject(root, "firmware_version", build ? build->version : "");
+
+    source_detection_status_t source = {0};
+    cJSON *source_json = cJSON_AddObjectToObject(root, "source");
+    if (source_detection_get_status(&source) == ESP_OK) {
+        cJSON_AddStringToObject(source_json, "attributed_to",
+                                source_detection_attributed_to(&source));
+    } else {
+        cJSON_AddStringToObject(source_json, "attributed_to", "unknown");
+    }
+
+    const system_resource_health_t health = system_resource_health();
+    cJSON *controller = cJSON_AddObjectToObject(root, "controller");
+    cJSON_AddNumberToObject(controller, "uptime_ms", (double)health.uptime_ms);
+    cJSON_AddStringToObject(controller, "state", health.state ? health.state : "unknown");
+    cJSON_AddBoolToObject(controller, "last_reboot_unexpected", health.last_reboot_unexpected);
+
+    meter_data_t meter = {0};
+    const bool have_meter = meter_manager_get_data(0U, &meter);
+    const uint32_t current_ms = now_ms();
+    const bool meter_has_data = have_meter && meter.last_update_ms != 0U &&
+                                isfinite(meter.active_power_kw);
+    const uint32_t meter_age_ms = meter_has_data ? current_ms - meter.last_update_ms : 0U;
+    const bool meter_stale = !meter_has_data ||
+        meter_age_ms > safety_manager_meter_stale_timeout_ms();
+    cJSON_AddBoolToObject(root, "meter_online", have_meter && meter.online);
+    cJSON_AddBoolToObject(root, "meter_has_data", meter_has_data);
+    cJSON_AddBoolToObject(root, "meter_stale", meter_stale);
+
+    control_status_t control = {0};
+    control_engine_get_status(&control);
+    cJSON *authority = cJSON_AddObjectToObject(root, "control_authority");
+    cJSON_AddStringToObject(authority, "mode_label",
+                            !control.enabled ? "Monitoring only" :
+                            control.command_authority ? "Commanding" : "Inhibited");
+    cJSON_AddStringToObject(authority, "inhibit_reason", control.inhibit_reason);
+
+    const uint32_t alarms = safety_manager_get_alarm_flags();
+    cJSON_AddNumberToObject(root, "alarms", alarms);
+    cJSON *alarm_names = cJSON_AddArrayToObject(root, "alarm_names");
+    if (alarms & SAFETY_ALARM_METER_OFFLINE) {
+        cJSON_AddItemToArray(alarm_names, cJSON_CreateString("Meter offline"));
+    }
+    if (alarms & SAFETY_ALARM_METER_STALE) {
+        cJSON_AddItemToArray(alarm_names, cJSON_CreateString("Meter data stale"));
+    }
+    return finish_json(slot, root);
+}
+
+static bool build_meters(local_api_slot_t *slot)
+{
+    app_config_t config = {0};
+    if (config_manager_get_snapshot(&config) != ESP_OK) {
+        note_failure(slot, "Core configuration snapshot unavailable");
+        return false;
+    }
+
+    cJSON *root = cJSON_CreateObject();
+    if (!root) return finish_json(slot, NULL);
+    const uint32_t current_ms = now_ms();
+    uint32_t enabled = 0U;
+    uint32_t online = 0U;
+    uint32_t stale_or_unavailable = 0U;
+    uint32_t initialization_failed = 0U;
+
+    cJSON_AddNumberToObject(root, "configured_count", config.meter_count);
+    cJSON *items = cJSON_AddArrayToObject(root, "meters");
+    for (uint8_t i = 0U; i < config.meter_count && i < APP_MAX_METERS; ++i) {
+        const meter_config_t *meter = &config.meters[i];
+        meter_data_t data = {0};
+        const bool runtime_available = i < meter_manager_get_count() &&
+                                       meter_manager_get_data(i, &data);
+        const meter_view_t view = meter_view(&config, i, &data, runtime_available, current_ms);
+        if (meter->enabled) enabled++;
+        if (view.online) online++;
+        if (meter->enabled && !view.online) stale_or_unavailable++;
+        if (view.initialization_failed) initialization_failed++;
+
+        cJSON *item = cJSON_CreateObject();
+        if (!item) break;
+        cJSON_AddNumberToObject(item, "index", i);
+        cJSON_AddBoolToObject(item, "enabled", meter->enabled);
+        cJSON_AddStringToObject(item, "name", meter->name);
+        cJSON_AddStringToObject(item, "role_name", meter_role_name(meter->role));
+        cJSON *runtime = cJSON_AddObjectToObject(item, "runtime");
+        cJSON_AddBoolToObject(runtime, "online", view.online);
+        cJSON_AddBoolToObject(runtime, "stale", view.stale);
+        cJSON_AddStringToObject(runtime, "state", view.state);
+        add_number_or_null(runtime, "active_power_kw", data.active_power_kw,
+                           view.has_data && isfinite(data.active_power_kw));
+        add_number_or_null(runtime, "data_age_ms", view.data_age_ms, view.has_data);
+        cJSON_AddItemToArray(items, item);
+    }
+
+    cJSON *summary = cJSON_AddObjectToObject(root, "summary");
+    cJSON_AddNumberToObject(summary, "enabled", enabled);
+    cJSON_AddNumberToObject(summary, "online", online);
+    cJSON_AddNumberToObject(summary, "stale_or_unavailable", stale_or_unavailable);
+    cJSON_AddNumberToObject(summary, "initialization_failed", initialization_failed);
+    return finish_json(slot, root);
+}
+
+static bool build_inverters(local_api_slot_t *slot)
+{
+    app_config_t config = {0};
+    if (config_manager_get_snapshot(&config) != ESP_OK) {
+        note_failure(slot, "Core configuration snapshot unavailable");
+        return false;
+    }
+
+    cJSON *root = cJSON_CreateObject();
+    if (!root) return finish_json(slot, NULL);
+    const uint32_t current_ms = now_ms();
+    uint32_t enabled = 0U;
+    uint32_t online = 0U;
+    uint32_t initialization_failed = 0U;
+    double configured_rated_kw = 0.0;
+    double enabled_rated_kw = 0.0;
+
+    cJSON_AddNumberToObject(root, "configured_count", config.inverter_count);
+    cJSON *items = cJSON_AddArrayToObject(root, "inverters");
+    for (uint8_t i = 0U; i < config.inverter_count && i < APP_MAX_INVERTERS; ++i) {
+        const inverter_config_t *inverter = &config.inverters[i];
+        inverter_data_t data = {0};
+        const bool runtime_available = i < inverter_manager_get_count() &&
+                                       inverter_manager_get_data(i, &data);
+        const inverter_view_t view = inverter_view(inverter, &data, runtime_available);
+        configured_rated_kw += inverter->rated_power_kw;
+        if (inverter->enabled) {
+            enabled++;
+            enabled_rated_kw += inverter->rated_power_kw;
+        }
+        if (view.online) online++;
+        if (view.initialization_failed) initialization_failed++;
+
+        cJSON *item = cJSON_CreateObject();
+        if (!item) break;
+        cJSON_AddNumberToObject(item, "index", i);
+        cJSON_AddBoolToObject(item, "enabled", inverter->enabled);
+        cJSON_AddStringToObject(item, "name", inverter->name);
+        cJSON_AddBoolToObject(item, "telemetry_supported", data.telemetry_supported);
+        const bool measured_valid = runtime_available && data.telemetry_valid &&
+                                    !data.telemetry_stale && isfinite(data.measured_power_kw);
+        add_number_or_null(item, "measured_power_kw", data.measured_power_kw, measured_valid);
+        add_number_or_null(item, "measured_age_ms",
+                           data.last_telemetry_ms ? current_ms - data.last_telemetry_ms : 0U,
+                           data.last_telemetry_ms != 0U);
+        cJSON *runtime = cJSON_AddObjectToObject(item, "runtime");
+        cJSON_AddStringToObject(runtime, "state", view.state);
+        add_number_or_null(runtime, "commanded_percent", data.commanded_percent, view.has_command);
+        cJSON_AddItemToArray(items, item);
+    }
+
+    cJSON *summary = cJSON_AddObjectToObject(root, "summary");
+    cJSON_AddNumberToObject(summary, "enabled", enabled);
+    cJSON_AddNumberToObject(summary, "online", online);
+    cJSON_AddNumberToObject(summary, "initialization_failed", initialization_failed);
+    cJSON_AddNumberToObject(summary, "configured_rated_kw", configured_rated_kw);
+    cJSON_AddNumberToObject(summary, "enabled_rated_kw", enabled_rated_kw);
+    cJSON_AddNumberToObject(summary, "commandable_rated_kw",
+                            inverter_manager_get_total_rated_kw());
+    return finish_json(slot, root);
+}
+
+static bool build_telemetry(local_api_slot_t *slot)
+{
+    app_config_t config = {0};
+    if (config_manager_get_snapshot(&config) != ESP_OK) {
+        note_failure(slot, "Core configuration snapshot unavailable");
+        return false;
+    }
+
+    cJSON *root = cJSON_CreateObject();
+    if (!root) return finish_json(slot, NULL);
+    const uint32_t current_ms = now_ms();
+
+    network_status_t network = {0};
+    network_manager_get_status(&network);
+    cJSON *network_json = cJSON_AddObjectToObject(root, "network");
+    cJSON_AddBoolToObject(network_json, "online", network.network_ready);
+    cJSON_AddNumberToObject(network_json, "rssi", network.rssi);
+
+    uint32_t enabled_meters = 0U;
+    uint32_t online_meters = 0U;
+    uint32_t initialization_failed_meters = 0U;
+    bool primary_meter_fresh = false;
+    float primary_meter_kw = 0.0f;
+    const char *primary_meter_state = config.meter_count > 0U ? "unavailable" : "not_configured";
+    for (uint8_t i = 0U; i < config.meter_count && i < APP_MAX_METERS; ++i) {
+        meter_data_t data = {0};
+        const bool runtime_available = i < meter_manager_get_count() &&
+                                       meter_manager_get_data(i, &data);
+        const meter_view_t view = meter_view(&config, i, &data, runtime_available, current_ms);
+        if (config.meters[i].enabled) enabled_meters++;
+        if (view.online) online_meters++;
+        if (view.initialization_failed) initialization_failed_meters++;
+        if (i == 0U) {
+            primary_meter_fresh = view.online;
+            primary_meter_kw = data.active_power_kw;
+            primary_meter_state = view.state;
+        }
+    }
+    cJSON *meters = cJSON_AddObjectToObject(root, "meters");
+    cJSON_AddNumberToObject(meters, "configured", config.meter_count);
+    cJSON_AddNumberToObject(meters, "enabled", enabled_meters);
+    cJSON_AddNumberToObject(meters, "online", online_meters);
+    cJSON_AddNumberToObject(meters, "initialization_failed", initialization_failed_meters);
+
+    cJSON *grid = cJSON_AddObjectToObject(root, "grid_meter");
+    cJSON_AddStringToObject(grid, "state", primary_meter_state);
+    add_number_or_null(grid, "active_power_kw", primary_meter_kw,
+                       primary_meter_fresh && isfinite(primary_meter_kw));
+
+    uint32_t enabled_inverters = 0U;
+    uint32_t online_inverters = 0U;
+    uint32_t initialization_failed_inverters = 0U;
+    for (uint8_t i = 0U; i < config.inverter_count && i < APP_MAX_INVERTERS; ++i) {
+        inverter_data_t data = {0};
+        const bool runtime_available = i < inverter_manager_get_count() &&
+                                       inverter_manager_get_data(i, &data);
+        const inverter_view_t view = inverter_view(&config.inverters[i], &data, runtime_available);
+        if (config.inverters[i].enabled) enabled_inverters++;
+        if (view.online) online_inverters++;
+        if (view.initialization_failed) initialization_failed_inverters++;
+    }
+    cJSON *inverters = cJSON_AddObjectToObject(root, "inverters");
+    cJSON_AddNumberToObject(inverters, "configured", config.inverter_count);
+    cJSON_AddNumberToObject(inverters, "enabled", enabled_inverters);
+    cJSON_AddNumberToObject(inverters, "online", online_inverters);
+    cJSON_AddNumberToObject(inverters, "initialization_failed", initialization_failed_inverters);
+
+    control_status_t control = {0};
+    control_engine_get_status(&control);
+    cJSON *availability = cJSON_AddObjectToObject(root, "availability");
+    cJSON_AddBoolToObject(availability, "monitoring_ready",
+                          network.network_ready && primary_meter_fresh);
+    cJSON_AddBoolToObject(availability, "command_path_ready",
+                          inverter_manager_get_total_rated_kw() > 0.0f);
+    cJSON_AddBoolToObject(availability, "automatic_control_active", control.enabled);
+    return finish_json(slot, root);
 }
 
 bool local_backend_provider_init(screen_api_provider_t *provider)
 {
     if (!provider) return false;
-
-    s_last_target[0] = '\0';
     s_logged_first_success = false;
-    s_warned_no_target = false;
+    s_logged_operations_boundary = false;
 
     for (size_t i = 0; i < sizeof(s_slots) / sizeof(s_slots[0]); ++i) {
         local_api_slot_t *slot = &s_slots[i];
         slot->valid = false;
         slot->consecutive_failures = 0U;
-        if (slot->json) continue;
-        slot->json = heap_caps_malloc(slot->capacity, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        if (!slot->json) slot->json = malloc(slot->capacity);
+        if (slot->capacity == 0U) continue;
+        if (!slot->json) {
+            slot->json = heap_caps_malloc(slot->capacity, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+            if (!slot->json) slot->json = malloc(slot->capacity);
+        }
         if (!slot->json) {
             ESP_LOGE(TAG, "Unable to allocate %u bytes for %s",
                      (unsigned)slot->capacity, slot->path);
@@ -137,105 +561,34 @@ bool local_backend_provider_init(screen_api_provider_t *provider)
     provider->context = NULL;
     provider->acquire = provider_acquire;
     provider->release = provider_release;
-    ESP_LOGI(TAG, "Read-only self-API provider ready; lwIP per-interface loopback enabled");
+    ESP_LOGI(TAG, "Read-only in-process Core provider ready; socket/TCP self-transport removed");
     return true;
 }
 
 bool local_backend_provider_fetch(const char *path)
 {
     local_api_slot_t *slot = slot_for(path);
-    if (!slot || !slot->json) return false;
+    if (!slot) return false;
+    if (slot->capacity == 0U) {
+        slot->valid = false;
+        if (!s_logged_operations_boundary) {
+            ESP_LOGW(TAG,
+                     "Alarms/events remain conservative-unavailable until Core exports authoritative operational snapshots");
+            s_logged_operations_boundary = true;
+        }
+        return false;
+    }
+    if (!slot->json) return false;
     slot->valid = false;
     slot->json[0] = '\0';
 
-    char host[LOCAL_API_HOST_MAX];
-    if (!resolve_self_host(host, sizeof(host))) {
-        if (!s_warned_no_target) {
-            ESP_LOGW(TAG, "No active AP/STA own-IP loopback target yet; screen backend remains unavailable");
-            s_warned_no_target = true;
-        }
-        note_failure(slot, "no active self IPv4 target");
-        return false;
-    }
-    s_warned_no_target = false;
-
-    if (strcmp(s_last_target, host) != 0) {
-        snprintf(s_last_target, sizeof(s_last_target), "%s", host);
-        ESP_LOGI(TAG, "Using controller own-IP loopback target http://%s", s_last_target);
-    }
-
-    char url[LOCAL_API_URL_MAX];
-    int written = snprintf(url, sizeof(url), "http://%s%s", host, path);
-    if (written <= 0 || (size_t)written >= sizeof(url)) {
-        note_failure(slot, "self URL too long");
-        return false;
-    }
-
-    const esp_http_client_config_t config = {
-        .url = url,
-        .method = HTTP_METHOD_GET,
-        .timeout_ms = LOCAL_API_TIMEOUT_MS,
-        .keep_alive_enable = false,
-        .buffer_size = 1024,
-        .buffer_size_tx = 512,
-    };
-
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-    if (!client) {
-        note_failure(slot, "HTTP client init failed");
-        return false;
-    }
-
-    bool ok = false;
-    esp_err_t err = esp_http_client_open(client, 0);
-    if (err != ESP_OK) {
-        char reason[64];
-        snprintf(reason, sizeof(reason), "open failed: %s", esp_err_to_name(err));
-        note_failure(slot, reason);
-        goto done;
-    }
-
-    (void)esp_http_client_fetch_headers(client);
-    const int status = esp_http_client_get_status_code(client);
-    if (status != 200) {
-        char reason[48];
-        snprintf(reason, sizeof(reason), "HTTP %d", status);
-        note_failure(slot, reason);
-        goto close_client;
-    }
-
-    size_t total = 0U;
-    while (total < slot->capacity - 1U) {
-        int count = esp_http_client_read(client,
-                                         slot->json + total,
-                                         (int)(slot->capacity - 1U - total));
-        if (count < 0) {
-            note_failure(slot, "read failed");
-            goto close_client;
-        }
-        if (count == 0) break;
-        total += (size_t)count;
-    }
-    slot->json[total] = '\0';
-
-    if (!esp_http_client_is_complete_data_received(client)) {
-        note_failure(slot, "response incomplete or over bounded capacity");
-        goto close_client;
-    }
-
-    slot->valid = true;
-    slot->consecutive_failures = 0U;
-    ok = true;
-    if (!s_logged_first_success) {
-        ESP_LOGI(TAG, "Existing Core API reachable through per-interface loopback; screen data path online");
-        s_logged_first_success = true;
-    }
-
-close_client:
-    (void)esp_http_client_close(client);
-done:
-    esp_http_client_cleanup(client);
-    return ok;
+    if (strcmp(path, SCREEN_API_LIVE_PATH) == 0) return build_live(slot);
+    if (strcmp(path, SCREEN_API_STATUS_PATH) == 0) return build_status(slot);
+    if (strcmp(path, SCREEN_API_METERS_PATH) == 0) return build_meters(slot);
+    if (strcmp(path, SCREEN_API_INVERTERS_PATH) == 0) return build_inverters(slot);
+    if (strcmp(path, SCREEN_API_TELEMETRY_PATH) == 0) return build_telemetry(slot);
+    note_failure(slot, "unsupported in-process read model");
+    return false;
 }
 
 void local_backend_provider_deinit(void)
@@ -246,7 +599,6 @@ void local_backend_provider_deinit(void)
         s_slots[i].valid = false;
         s_slots[i].consecutive_failures = 0U;
     }
-    s_last_target[0] = '\0';
     s_logged_first_success = false;
-    s_warned_no_target = false;
+    s_logged_operations_boundary = false;
 }
