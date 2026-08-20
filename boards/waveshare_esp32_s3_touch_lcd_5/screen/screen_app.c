@@ -79,7 +79,7 @@ lv_obj_t *screen_app_create(lv_obj_t *parent)
     nav_button(nav, "Grid", SCREEN_PAGE_GRID);
     nav_button(nav, "Solar", SCREEN_PAGE_SOLAR);
     nav_button(nav, "Alarms", SCREEN_PAGE_ALARMS);
-    nav_button(nav, "Ready", SCREEN_PAGE_READINESS);
+    nav_button(nav, "Commission", SCREEN_PAGE_READINESS);
 
     lv_obj_t *content = lv_obj_create(s_app.root);
     lv_obj_remove_style_all(content);
@@ -143,6 +143,11 @@ void screen_app_apply_telemetry(const screen_telemetry_snapshot_t *snapshot)
                            s_app.status.valid ? &s_app.status : NULL);
 }
 
+void screen_app_apply_commissioning(const screen_commissioning_snapshot_t *snapshot)
+{
+    readiness_screen_apply_commissioning(snapshot);
+}
+
 void screen_app_apply_events(const screen_events_snapshot_t *snapshot)
 {
     alarms_screen_apply_events(snapshot);
@@ -180,6 +185,11 @@ void screen_app_show_readiness_unavailable(void)
     readiness_screen_show_unavailable();
 }
 
+void screen_app_show_commissioning_unavailable(void)
+{
+    readiness_screen_show_commissioning_unavailable();
+}
+
 void screen_app_show_backend_unavailable(void)
 {
     screen_app_show_live_unavailable();
@@ -187,4 +197,5 @@ void screen_app_show_backend_unavailable(void)
     screen_app_show_inverters_unavailable();
     screen_app_show_operations_unavailable();
     screen_app_show_readiness_unavailable();
+    screen_app_show_commissioning_unavailable();
 }

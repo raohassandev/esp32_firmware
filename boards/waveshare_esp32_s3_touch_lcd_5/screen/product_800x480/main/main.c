@@ -1,7 +1,10 @@
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <string.h>
 
 #include "app_core.h"
+#include "commissioning_gate.h"
 #include "esp_err.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -27,6 +30,7 @@ static const char *TAG = "waveshare_product";
 static waveshare_display_port_handles_t s_display;
 static const waveshare_display_profile_t *s_profile;
 static const esp_lv_adapter_rotation_t s_rotation = ESP_LV_ADAPTER_ROTATE_0;
+static screen_commissioning_snapshot_t s_commissioning;
 
 static void log_dma_headroom(const char *stage)
 {
@@ -35,6 +39,54 @@ static void log_dma_headroom(const char *stage)
              stage,
              (unsigned)heap_caps_get_free_size(caps),
              (unsigned)heap_caps_get_largest_free_block(caps));
+}
+
+static void copy_bounded(char *destination, size_t capacity, const char *source)
+{
+    if (!destination || capacity == 0U) return;
+    if (!source) source = "";
+    snprintf(destination, capacity, "%s", source);
+}
+
+/* Native commissioning is a READ MODEL of the exact Core authority behind
+ * GET /api/commissioning/gate. Do not duplicate any prerequisite or safety
+ * decision here. In particular, no HTTP loopback and no Modbus/config write is
+ * introduced: the same commissioning_gate result and control status are merely
+ * projected into bounded screen-owned strings. */
+static bool read_commissioning_snapshot(screen_commissioning_snapshot_t *out)
+{
+    if (!out) return false;
+    memset(out, 0, sizeof(*out));
+
+    commissioning_status_t status = {0};
+    control_engine_get_commissioning(&status);
+    control_status_t control = {0};
+    control_engine_get_status(&control);
+
+    out->commissioned = status.commissioned;
+    copy_bounded(out->scope, sizeof(out->scope), commissioning_scope_label(status.scope));
+    out->production_qualified = status.scope == COMMISSIONING_SCOPE_PRODUCTION;
+    out->automatic_control_permitted = status.commissioned && control.command_authority;
+    out->command_authority = control.command_authority;
+    out->prerequisite_count = COMMISSIONING_PREREQ_COUNT;
+    out->satisfied_count = status.satisfied_count;
+    out->unmet_count = status.unmet_count;
+    copy_bounded(out->summary, sizeof(out->summary), commissioning_gate_summary(&status));
+    copy_bounded(out->inhibit_reason, sizeof(out->inhibit_reason), control.inhibit_reason);
+
+    if (!status.commissioned && status.first_unmet < COMMISSIONING_PREREQ_COUNT) {
+        copy_bounded(out->first_unmet, sizeof(out->first_unmet),
+                     commissioning_prereq_id(status.first_unmet));
+        copy_bounded(out->first_unmet_title, sizeof(out->first_unmet_title),
+                     commissioning_prereq_title(status.first_unmet));
+        const commissioning_reason_t reason =
+            (commissioning_reason_t)status.results[status.first_unmet].reason;
+        copy_bounded(out->first_unmet_detail, sizeof(out->first_unmet_detail),
+                     commissioning_reason_message(reason));
+    }
+
+    out->valid = true;
+    return true;
 }
 
 /* Reserve only the board resources that MUST win the scarce DMA-capable DRAM
@@ -132,8 +184,11 @@ static void refresh_status(void)
 {
     (void)local_backend_provider_fetch(SCREEN_API_STATUS_PATH);
     (void)local_backend_provider_fetch(SCREEN_API_TELEMETRY_PATH);
+    const bool commissioning_ok = read_commissioning_snapshot(&s_commissioning);
     if (esp_lv_adapter_lock(-1) == ESP_OK) {
         (void)screen_runtime_refresh_status();
+        if (commissioning_ok) screen_app_apply_commissioning(&s_commissioning);
+        else screen_app_show_commissioning_unavailable();
         esp_lv_adapter_unlock();
     }
 }

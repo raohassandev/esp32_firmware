@@ -30,6 +30,7 @@ extern "C" {
 #define SCREEN_API_REASON_MAX      128U
 #define SCREEN_API_VERSION_MAX      40U
 #define SCREEN_API_NAME_MAX         48U
+#define SCREEN_API_TITLE_MAX        72U
 #define SCREEN_API_ALARM_NAME_MAX   64U
 #define SCREEN_API_EVENT_TEXT_MAX  112U
 #define SCREEN_API_MAX_METERS       16U
@@ -164,6 +165,26 @@ typedef struct {
     double grid_power_kw;
     char grid_state[SCREEN_API_LABEL_MAX];
 } screen_telemetry_snapshot_t;
+
+/* Read-only projection of the existing GET /api/commissioning/gate authority.
+ * The product build fills this from the same commissioning_gate/control_engine
+ * state used by that endpoint; the screen never re-evaluates prerequisites. */
+typedef struct {
+    bool valid;
+    bool commissioned;
+    char scope[SCREEN_API_LABEL_MAX];
+    bool production_qualified;
+    bool automatic_control_permitted;
+    bool command_authority;
+    uint32_t prerequisite_count;
+    uint32_t satisfied_count;
+    uint32_t unmet_count;
+    char first_unmet[SCREEN_API_LABEL_MAX];
+    char first_unmet_title[SCREEN_API_TITLE_MAX];
+    char first_unmet_detail[SCREEN_API_REASON_MAX];
+    char summary[SCREEN_API_REASON_MAX];
+    char inhibit_reason[SCREEN_API_REASON_MAX];
+} screen_commissioning_snapshot_t;
 
 typedef struct {
     uint32_t sequence;

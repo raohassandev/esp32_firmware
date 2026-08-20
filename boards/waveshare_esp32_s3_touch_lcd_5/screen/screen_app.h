@@ -24,6 +24,7 @@ void screen_app_apply_status(const screen_status_snapshot_t *snapshot);
 void screen_app_apply_meters(const screen_meters_snapshot_t *snapshot);
 void screen_app_apply_inverters(const screen_inverters_snapshot_t *snapshot);
 void screen_app_apply_telemetry(const screen_telemetry_snapshot_t *snapshot);
+void screen_app_apply_commissioning(const screen_commissioning_snapshot_t *snapshot);
 void screen_app_apply_events(const screen_events_snapshot_t *snapshot);
 void screen_app_apply_alarms(const screen_alarms_snapshot_t *snapshot);
 
@@ -34,6 +35,7 @@ void screen_app_show_meters_unavailable(void);
 void screen_app_show_inverters_unavailable(void);
 void screen_app_show_operations_unavailable(void);
 void screen_app_show_readiness_unavailable(void);
+void screen_app_show_commissioning_unavailable(void);
 void screen_app_show_backend_unavailable(void);
 
 #ifdef __cplusplus

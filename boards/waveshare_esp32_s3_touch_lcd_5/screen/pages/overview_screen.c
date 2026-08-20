@@ -34,12 +34,24 @@ static void style_panel(lv_obj_t *obj)
     lv_obj_set_style_pad_all(obj, 12, LV_PART_MAIN);
 }
 
+static void make_fixed_surface(lv_obj_t *obj)
+{
+    if (!obj) return;
+    lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(obj, LV_SCROLLBAR_MODE_OFF);
+}
+
 static lv_obj_t *make_value_card(lv_obj_t *parent, const char *title, lv_obj_t **value_out)
 {
     lv_obj_t *card = lv_obj_create(parent);
     style_panel(card);
+    make_fixed_surface(card);
+    /* Four equal, explicit widths keep changing numeric label widths out of the
+     * flex sizing equation. On hardware only Overview moved while the other
+     * pages were stable; its four live values were the unique layout that could
+     * continuously reflow as 9.9 -> 10.0 -> 100.0 kW changed text width. */
+    lv_obj_set_width(card, LV_PCT(24));
     lv_obj_set_height(card, 112);
-    lv_obj_set_flex_grow(card, 1);
     lv_obj_set_layout(card, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(card, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_START,
@@ -47,10 +59,14 @@ static lv_obj_t *make_value_card(lv_obj_t *parent, const char *title, lv_obj_t *
 
     lv_obj_t *title_label = lv_label_create(card);
     lv_label_set_text(title_label, title);
+    lv_obj_set_width(title_label, LV_PCT(100));
+    lv_label_set_long_mode(title_label, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_color(title_label, lv_color_hex(0x9EADBF), LV_PART_MAIN);
 
     lv_obj_t *value = lv_label_create(card);
     lv_label_set_text(value, "--");
+    lv_obj_set_width(value, LV_PCT(100));
+    lv_label_set_long_mode(value, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_color(value, lv_color_hex(0xF2F6FA), LV_PART_MAIN);
     if (value_out) *value_out = value;
     return card;
@@ -60,6 +76,7 @@ static lv_obj_t *make_state_row(lv_obj_t *parent, const char *name, lv_obj_t **v
 {
     lv_obj_t *row = lv_obj_create(parent);
     lv_obj_remove_style_all(row);
+    make_fixed_surface(row);
     lv_obj_set_width(row, LV_PCT(100));
     lv_obj_set_height(row, LV_SIZE_CONTENT);
     lv_obj_set_layout(row, LV_LAYOUT_FLEX);
@@ -127,6 +144,7 @@ lv_obj_t *overview_screen_create(lv_obj_t *parent)
 
     lv_obj_t *root = lv_obj_create(parent ? parent : lv_screen_active());
     s_ui.root = root;
+    make_fixed_surface(root);
     lv_obj_set_size(root, LV_PCT(100), LV_PCT(100));
     lv_obj_set_style_bg_color(root, lv_color_hex(0x0B1017), LV_PART_MAIN);
     lv_obj_set_style_border_width(root, 0, LV_PART_MAIN);
@@ -138,6 +156,7 @@ lv_obj_t *overview_screen_create(lv_obj_t *parent)
 
     lv_obj_t *header = lv_obj_create(root);
     lv_obj_remove_style_all(header);
+    make_fixed_surface(header);
     lv_obj_set_width(header, LV_PCT(100));
     lv_obj_set_height(header, 54);
     lv_obj_set_layout(header, LV_LAYOUT_FLEX);
@@ -155,6 +174,7 @@ lv_obj_t *overview_screen_create(lv_obj_t *parent)
 
     lv_obj_t *chips = lv_obj_create(root);
     lv_obj_remove_style_all(chips);
+    make_fixed_surface(chips);
     lv_obj_set_width(chips, LV_PCT(100));
     lv_obj_set_height(chips, 34);
     lv_obj_set_layout(chips, LV_LAYOUT_FLEX);
@@ -171,11 +191,14 @@ lv_obj_t *overview_screen_create(lv_obj_t *parent)
 
     lv_obj_t *values = lv_obj_create(root);
     lv_obj_remove_style_all(values);
+    make_fixed_surface(values);
     lv_obj_set_width(values, LV_PCT(100));
     lv_obj_set_height(values, 112);
     lv_obj_set_layout(values, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(values, LV_FLEX_FLOW_ROW);
-    lv_obj_set_style_pad_column(values, 10, LV_PART_MAIN);
+    lv_obj_set_flex_align(values, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_column(values, 0, LV_PART_MAIN);
 
     make_value_card(values, "GRID / ACTIVE SOURCE", &s_ui.grid_value);
     make_value_card(values, "SOLAR", &s_ui.solar_value);
@@ -184,6 +207,7 @@ lv_obj_t *overview_screen_create(lv_obj_t *parent)
 
     lv_obj_t *bottom = lv_obj_create(root);
     style_panel(bottom);
+    make_fixed_surface(bottom);
     lv_obj_set_width(bottom, LV_PCT(100));
     lv_obj_set_flex_grow(bottom, 1);
     lv_obj_set_layout(bottom, LV_LAYOUT_FLEX);
