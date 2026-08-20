@@ -20,20 +20,6 @@ SD_SIGNAL_PARTS = {'R_SDCS','R_SDMISO','R_SDMOSI','R_SDSCLK'}
 # restores coil-driver service space while increasing terminal/relay separation.
 b.FIXED['K1'] = (28.0, 24.0, 0)
 
-# W5500 MDI pins must face the MagJack, not the board interior. Rotate U2 so the
-# four MDI pins are on its right edge and the XI/XO pins face the nearby crystal.
-# Put the four 0R MDI damping resistors immediately outside those MDI pins. They
-# are deliberate critical-path components, so permit only these parts inside the
-# reserved Ethernet corridor; unrelated parts remain excluded by the finalizer.
-b.FIXED['U2'] = (116.0, 64.0, 180)
-b.FIXED['R_ETH_RXP_DAMP'] = (122.5, 63.2, 0)
-b.FIXED['R_ETH_RXN_DAMP'] = (122.5, 64.6, 0)
-b.FIXED['R_ETH_TXP_DAMP'] = (122.5, 66.2, 0)
-b.FIXED['R_ETH_TXN_DAMP'] = (122.5, 67.6, 0)
-final.ETH_ALLOWED.update({
-    'R_ETH_RXP_DAMP','R_ETH_RXN_DAMP','R_ETH_TXP_DAMP','R_ETH_TXN_DAMP',
-})
-
 
 def grid(x0, y0, x1, y1, step=1.0):
     pts=[]
