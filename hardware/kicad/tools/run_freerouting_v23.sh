@@ -29,61 +29,55 @@ curl -fL --retry 3 --retry-delay 2 -o /tmp/freerouting.jar \
 # decide whether the remaining items were only the intentionally ignored plane.
 # Bound the pass count so Freerouting exits normally and writes the SES; KiCad,
 # not the router score, is the final connectivity/DRC authority.
+#
+# Run 32339166203 proved fanout=true is not a valid fallback on this board: it
+# generated 72 x 0.15 mm tracks below the 0.20 mm board minimum. Keep the proven
+# fanout-disabled route and solve residual GND closure deterministically.
 success=0
-for attempt in 1 2; do
-  OUT="hardware/kicad/route-attempt-${attempt}.ses"
-  rm -f "$OUT"; cp "$PLACED" "$PCB"
-  case "$attempt" in
-    1)
-      LIMIT=420
-      FANOUT=false
-      OPTS='-mp 10 -mt 3 -oit 0.15 -is prioritized -us greedy'
-      ;;
-    2)
-      # Escape pass: allow SMD fanout and a different optimization ordering if
-      # the first completed session still leaves non-GND ratsnest after fill.
-      LIMIT=600
-      FANOUT=true
-      OPTS='-mp 18 -mt 4 -oit 0.05 -is random -us hybrid -hr 2:1'
-      ;;
-  esac
-  echo "=== FREEROUTING 2.3 ATTEMPT $attempt limit=${LIMIT}s fanout=${FANOUT} GND=IGNORED_PLANE ===" | tee -a hardware/kicad/freerouting.log
-  set +e
-  timeout "${LIMIT}s" java -Xmx5g -jar /tmp/freerouting.jar --gui.enabled=false \
-    --router.automatic_neckdown=false --router.fanout.enabled="$FANOUT" \
-    -de "$DSN" -do "$OUT" -inc GND_PLANE $OPTS 2>&1 | tee -a hardware/kicad/freerouting.log
-  ROUTER_RC=${PIPESTATUS[0]}
-  set -e
-  echo "FREEROUTING_ATTEMPT_${attempt}_EXIT=$ROUTER_RC" | tee -a hardware/kicad/freerouting.log
-  [ "$ROUTER_RC" = 0 ] || continue
-  [ -s "$OUT" ] || continue
+attempt=1
+OUT="hardware/kicad/route-attempt-${attempt}.ses"
+rm -f "$OUT"; cp "$PLACED" "$PCB"
+LIMIT=420
+FANOUT=false
+OPTS='-mp 10 -mt 3 -oit 0.15 -is prioritized -us greedy'
+echo "=== FREEROUTING 2.3 ATTEMPT $attempt limit=${LIMIT}s fanout=${FANOUT} GND=IGNORED_PLANE ===" | tee -a hardware/kicad/freerouting.log
+set +e
+timeout "${LIMIT}s" java -Xmx5g -jar /tmp/freerouting.jar --gui.enabled=false \
+  --router.automatic_neckdown=false --router.fanout.enabled="$FANOUT" \
+  -de "$DSN" -do "$OUT" -inc GND_PLANE $OPTS 2>&1 | tee -a hardware/kicad/freerouting.log
+ROUTER_RC=${PIPESTATUS[0]}
+set -e
+echo "FREEROUTING_ATTEMPT_${attempt}_EXIT=$ROUTER_RC" | tee -a hardware/kicad/freerouting.log
+test "$ROUTER_RC" = 0
+test -s "$OUT"
 
-  $KPY hardware/kicad/tools/route_reva_freerouting.py import "$PCB" "$OUT"
+$KPY hardware/kicad/tools/route_reva_freerouting.py import "$PCB" "$OUT"
 
-  # Keep Freerouting's native SD_SCLK route. Run #147 proved the former
-  # deterministic replacement was the source of the final 12 DRC collisions;
-  # the imported SES route itself must be validated by KiCad DRC.
-  echo 'SD_SCLK_ROUTE_SOURCE=FREEROUTING_SES' | tee -a hardware/kicad/freerouting.log
+# Keep Freerouting's native SD_SCLK route. Run #147 proved the former
+# deterministic replacement was the source of the final 12 DRC collisions;
+# the imported SES route itself must be validated by KiCad DRC.
+echo 'SD_SCLK_ROUTE_SOURCE=FREEROUTING_SES' | tee -a hardware/kicad/freerouting.log
 
-  # Add surface copper, fill once so islands are measurable, stitch every safe
-  # F.Cu GND island to L2, then refill for the authoritative DRC/audit.
-  $KPY hardware/kicad/tools/add_surface_ground.py "$PCB"
-  $K pcb drc --severity-error --refill-zones --save-board \
-    --output "hardware/kicad/route-attempt-${attempt}-pre-stitch-drc.rpt" "$PCB" || true
-  $KPY hardware/kicad/tools/stitch_ground_islands.py "$PCB" | tee -a hardware/kicad/freerouting.log
-  $K pcb drc --severity-error --refill-zones --save-board \
-    --output "hardware/kicad/route-attempt-${attempt}-drc.rpt" "$PCB" || true
+# Add surface copper, fill once so islands are measurable, stitch every safe
+# pad-connected F.Cu GND island to L2, then refill for authoritative DRC/audit.
+$KPY hardware/kicad/tools/add_surface_ground.py "$PCB"
+$K pcb drc --severity-error --refill-zones --save-board \
+  --output "hardware/kicad/route-attempt-${attempt}-pre-stitch-drc.rpt" "$PCB" || true
+$KPY hardware/kicad/tools/stitch_ground_islands.py "$PCB" | tee -a hardware/kicad/freerouting.log
 
-  set +e
-  $KPY hardware/kicad/tools/route_reva_freerouting.py audit "$PCB" 2>&1 | tee -a hardware/kicad/freerouting.log
-  RC=${PIPESTATUS[0]}
-  set -e
-  if [ "$RC" = 0 ]; then
-    cp "$OUT" "$SES"; success=1
-    echo "ROUTING_COMPLETE_ATTEMPT=$attempt" | tee -a hardware/kicad/freerouting.log
-    break
-  fi
-done
+set +e
+$K pcb drc --severity-error --exit-code-violations --refill-zones --save-board \
+  --output "hardware/kicad/route-attempt-${attempt}-drc.rpt" "$PCB"
+DRC_RC=$?
+$KPY hardware/kicad/tools/route_reva_freerouting.py audit "$PCB" 2>&1 | tee -a hardware/kicad/freerouting.log
+AUDIT_RC=${PIPESTATUS[0]}
+set -e
+echo "POST_ROUTE_DRC_EXIT=$DRC_RC AUDIT_EXIT=$AUDIT_RC" | tee -a hardware/kicad/freerouting.log
+
+if [ "$DRC_RC" = 0 ] && [ "$AUDIT_RC" = 0 ]; then
+  cp "$OUT" "$SES"; success=1
+  echo "ROUTING_COMPLETE_ATTEMPT=$attempt" | tee -a hardware/kicad/freerouting.log
+fi
 
 test "$success" = 1
 $KPY hardware/kicad/tools/route_reva_freerouting.py audit "$PCB"
