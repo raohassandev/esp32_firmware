@@ -16,8 +16,8 @@
 #include "waveshare_display_port.h"
 #include "waveshare_display_profile.h"
 
-#define BOOTSTRAP_STACK_BYTES 16384
 #define SCREEN_REFRESH_STACK_BYTES 12288
+#define PRODUCT_RGB_BOUNCE_LINES 4U
 #define SCREEN_FAST_MS 500U
 #define SCREEN_STATUS_MS 5000U
 #define SCREEN_DEVICES_MS 10000U
@@ -25,6 +25,8 @@
 
 static const char *TAG = "waveshare_product";
 static waveshare_display_port_handles_t s_display;
+static const waveshare_display_profile_t *s_profile;
+static const esp_lv_adapter_rotation_t s_rotation = ESP_LV_ADAPTER_ROTATE_0;
 
 static void log_dma_headroom(const char *stage)
 {
@@ -35,43 +37,58 @@ static void log_dma_headroom(const char *stage)
              (unsigned)heap_caps_get_largest_free_block(caps));
 }
 
-static esp_err_t native_screen_init(void)
+/* Reserve only the board resources that MUST win the scarce DMA-capable DRAM
+ * race before Wi-Fi/httpd/control tasks start. Full LVGL/UI creation is delayed
+ * until after the unchanged shared Core has created its safety-critical tasks.
+ *
+ * Four bounce lines use 12.8 kB for the driver's two RGB565 bounce buffers at
+ * 800 px width, versus 32 kB at the vendor/HIL 10-line qualification setting.
+ * The standalone HIL image remains pinned to 10 lines; this smaller product
+ * budget is hardware-validated separately under the real Core load. */
+static esp_err_t native_screen_reserve(void)
 {
-    const waveshare_display_profile_t *profile =
-        waveshare_display_profile(WAVESHARE_DISPLAY_800X480);
-    if (!profile || profile->width != 800U || profile->height != 480U) {
+    s_profile = waveshare_display_profile(WAVESHARE_DISPLAY_800X480);
+    if (!s_profile || s_profile->width != 800U || s_profile->height != 480U) {
         return ESP_ERR_INVALID_STATE;
     }
 
-    const esp_lv_adapter_rotation_t rotation = ESP_LV_ADAPTER_ROTATE_0;
     const esp_lv_adapter_tear_avoid_mode_t tear_mode =
         ESP_LV_ADAPTER_TEAR_AVOID_MODE_DEFAULT_RGB;
     const waveshare_display_port_config_t display_config = {
-        .profile = profile,
+        .profile = s_profile,
         .i2c_bus = NULL,
         .tear_mode = tear_mode,
-        .rotation = rotation,
+        .rotation = s_rotation,
         .enable_touch = true,
-        .bounce_buffer_lines = WAVESHARE_RGB_DEFAULT_BOUNCE_LINES,
+        .bounce_buffer_lines = PRODUCT_RGB_BOUNCE_LINES,
         .allow_no_bounce_fallback = true,
     };
 
-    ESP_LOGI(TAG, "Initializing native 800x480 Waveshare LCD/touch before Core");
-    log_dma_headroom("Before LCD allocation");
+    ESP_LOGI(TAG, "Reserving native 800x480 Waveshare LCD/touch DMA before Core");
+    log_dma_headroom("Before LCD DMA reservation");
     esp_err_t err = waveshare_display_port_init(&display_config, &s_display);
     if (err != ESP_OK) return err;
-    err = waveshare_display_port_backlight_on();
-    if (err != ESP_OK) return err;
+    log_dma_headroom("After LCD DMA reservation");
+    ESP_LOGI(TAG, "Native screen DMA resources reserved before Core startup");
+    return ESP_OK;
+}
+
+/* Everything here can wait until the shared Core has finished allocating its
+ * internal task stacks and service objects. The LVGL adapter stack and display
+ * draw buffers are explicitly PSRAM-backed. */
+static esp_err_t native_screen_activate(void)
+{
+    if (!s_display.panel || !s_profile) return ESP_ERR_INVALID_STATE;
 
     esp_lv_adapter_config_t adapter_config = ESP_LV_ADAPTER_DEFAULT_CONFIG();
     adapter_config.task_stack_size = 12 * 1024;
     adapter_config.stack_in_psram = true;
-    err = esp_lv_adapter_init(&adapter_config);
+    esp_err_t err = esp_lv_adapter_init(&adapter_config);
     if (err != ESP_OK) return err;
 
     esp_lv_adapter_display_config_t lv_display_config =
         ESP_LV_ADAPTER_DISPLAY_RGB_DEFAULT_CONFIG(
-            s_display.panel, NULL, profile->width, profile->height, rotation);
+            s_display.panel, NULL, s_profile->width, s_profile->height, s_rotation);
     lv_display_config.profile.use_psram = true;
 
     lv_display_t *display = esp_lv_adapter_register_display(&lv_display_config);
@@ -93,8 +110,11 @@ static esp_err_t native_screen_init(void)
     esp_lv_adapter_unlock();
     if (!root) return ESP_ERR_NO_MEM;
 
-    log_dma_headroom("After LCD/LVGL allocation");
-    ESP_LOGI(TAG, "Native LCD/LVGL/touch ready; backend remains unavailable until Core starts");
+    err = waveshare_display_port_backlight_on();
+    if (err != ESP_OK) return err;
+
+    log_dma_headroom("After LVGL/UI activation");
+    ESP_LOGI(TAG, "Native LCD/LVGL/touch ready; awaiting existing Core API data");
     return ESP_OK;
 }
 
@@ -143,8 +163,6 @@ static void screen_refresh_task(void *argument)
     TickType_t wake = xTaskGetTickCount();
     uint32_t elapsed_ms = 0U;
 
-    /* First pass populates every page; subsequent passes keep the fast lane at
-     * 500 ms while slower operator surfaces are deliberately less frequent. */
     refresh_status();
     refresh_devices();
     refresh_operations();
@@ -161,21 +179,15 @@ static void screen_refresh_task(void *argument)
     }
 }
 
-static void bootstrap_task(void *argument)
+void app_main(void)
 {
-    (void)argument;
-
-    /* The RGB peripheral needs DMA-capable internal memory for bounce buffers
-     * and/or GDMA descriptor link lists. The shared Product Core starts Wi-Fi,
-     * HTTP and background jobs which legitimately consume most of that scarce
-     * internal memory. Reserve the board-specific display resources first, as
-     * proven by the standalone HIL path, then start the unchanged Core. */
-    esp_err_t screen_err = native_screen_init();
-    if (screen_err != ESP_OK) {
-        ESP_LOGE(TAG, "Native screen pre-allocation failed: %s; continuing to Core headless",
-                 esp_err_to_name(screen_err));
-    } else {
-        ESP_LOGI(TAG, "Native screen DMA resources reserved before Core startup");
+    /* Use ESP-IDF's main task instead of allocating a second 16 kB internal
+     * bootstrap stack. sdkconfig gives main enough measured headroom, and the
+     * task is released automatically when app_main returns. */
+    esp_err_t screen_reserve_err = native_screen_reserve();
+    if (screen_reserve_err != ESP_OK) {
+        ESP_LOGE(TAG, "Native screen DMA reservation failed: %s; Core continues headless",
+                 esp_err_to_name(screen_reserve_err));
     }
 
     log_dma_headroom("Before Product Core init");
@@ -188,47 +200,42 @@ static void bootstrap_task(void *argument)
     }
     log_dma_headroom("After Product Core init");
 
-    if (screen_err == ESP_OK && core_err == ESP_OK) {
+    esp_err_t screen_activate_err = screen_reserve_err;
+    if (screen_reserve_err == ESP_OK) {
+        screen_activate_err = native_screen_activate();
+        if (screen_activate_err != ESP_OK) {
+            ESP_LOGE(TAG, "Native screen LVGL/UI activation failed: %s; Core continues headless",
+                     esp_err_to_name(screen_activate_err));
+        }
+    }
+
+    if (screen_activate_err == ESP_OK && core_err == ESP_OK) {
         screen_api_provider_t provider = {0};
         if (local_backend_provider_init(&provider) && screen_runtime_init(&provider)) {
-            BaseType_t created = xTaskCreate(
+            /* This task performs only read-only HTTP fetches and LVGL updates; it
+             * never writes flash/NVS. Keep its large stack in PSRAM so the
+             * safety/control/httpd tasks retain internal DRAM. */
+            BaseType_t created = xTaskCreateWithCaps(
                 screen_refresh_task,
                 "screen_refresh",
                 SCREEN_REFRESH_STACK_BYTES,
                 NULL,
                 5,
-                NULL);
+                NULL,
+                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
             if (created == pdPASS) {
-                ESP_LOGI(TAG, "Screen bound read-only to existing Core API over loopback");
+                ESP_LOGI(TAG, "Screen refresh task created in PSRAM");
+                ESP_LOGI(TAG, "Screen bound read-only to existing Core API over controller self-address");
             } else {
-                ESP_LOGE(TAG, "Unable to create screen refresh task; UI stays unavailable");
+                ESP_LOGE(TAG, "Unable to create PSRAM screen refresh task; UI stays unavailable");
             }
         } else {
             ESP_LOGE(TAG, "Screen backend provider initialization failed; UI stays unavailable");
         }
     }
 
-    ESP_LOGI(TAG, "Bootstrap headroom %u bytes; free heap %u (minimum %u)",
+    ESP_LOGI(TAG, "Main-task headroom %u bytes; free heap %u (minimum %u)",
              (unsigned)uxTaskGetStackHighWaterMark(NULL),
              (unsigned)esp_get_free_heap_size(),
              (unsigned)esp_get_minimum_free_heap_size());
-
-    if (core_err != ESP_OK) {
-        for (;;) vTaskDelay(pdMS_TO_TICKS(10000));
-    }
-    vTaskDelete(NULL);
-}
-
-void app_main(void)
-{
-    BaseType_t created = xTaskCreate(
-        bootstrap_task,
-        "waveshare_bootstrap",
-        BOOTSTRAP_STACK_BYTES,
-        NULL,
-        10,
-        NULL);
-    if (created != pdPASS) {
-        ESP_LOGE(TAG, "Unable to create Waveshare product bootstrap task");
-    }
 }
