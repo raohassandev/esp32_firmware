@@ -6,11 +6,11 @@ all low-voltage board area while carving a deliberate no-plane notch under the
 integrated MagJack magnetics. One polygon avoids same-net zone intersections
 that KiCad correctly flags when multiple touching rectangles share a priority.
 
-Before Specctra export, reserve short locked GND escape spokes for the handful
-of dense SMD ground pads that Run #24 proved cannot accept a through-via after
-autorouting because B.Cu/In2 signal traces cross directly underneath them.
-These fixed spokes/vias are exported in the DSN as pre-existing wiring so the
-autorouter must route signals around the required L2 return-path access.
+Before Specctra export, reserve short locked GND escape spokes for dense SMD
+ground pads that cannot accept a through-via after autorouting because signal
+traces occupy the required vertical clearance. These fixed spokes/vias are
+exported in the DSN as pre-existing wiring so the autorouter must route around
+the required L2 return-path access.
 """
 from pathlib import Path
 import sys
@@ -29,16 +29,19 @@ VIA_CLEAR = 0.24
 TRACK_W = 0.20
 TRACK_CLEAR = 0.24
 
-# Run #24 exact residual GND-pad islands. All five pads use a deterministic
-# +X escape because the paired signal/power pad is on the -X side in the frozen
-# Rev-A placement. 0.90 mm keeps the through-via close to the pad while leaving
-# 0.15 mm of explicit same-net copper between the 0.9 mm pad edge and 0.6 mm via.
+# Run #24 exact residual GND-pad islands plus Run #37's final W5500 pad-9
+# sliver. The passive escapes use +0.90 mm. U2:9 is a 1.475 x 0.30 mm edge
+# pad; +1.285 mm places the 0.60/0.30 via just beyond the adjacent-pad
+# conservative via envelope while the horizontal 0.20 mm spoke remains in the
+# real 0.25 mm copper corridor between U2 pads 8 and 10. Final KiCad DRC is the
+# authority for this intentionally tight but standards-compliant escape.
 PRE_ROUTE_GND_ESCAPES = (
     ("C14", "2", 0.90, 0.00),
     ("C16", "2", 0.90, 0.00),
     ("C31", "2", 0.90, 0.00),
     ("C28", "2", 0.90, 0.00),
     ("R69", "2", 0.90, 0.00),
+    ("U2", "9", 1.285, 0.00),
 )
 
 
@@ -95,10 +98,12 @@ def assert_escape_clear(board, pad, via_xy, gcode):
     if vx >= MAGJACK_X0 - via_r and MAGJACK_Y0 - via_r <= vy <= MAGJACK_Y1 + via_r:
         raise RuntimeError(f"pre-route GND via enters MagJack exclusion at {(vx, vy)}")
 
-    # Fixed +X spokes are horizontal. Use the same conservative bbox clearance
-    # model as the post-route stitcher so a reserved escape cannot depend on
-    # optimistic pad-shape geometry.
-    corridor = (min(px, vx), max(px, vx), py - track_r, py + track_r)
+    # Escape spokes are horizontal. Test the track centerline against pads
+    # inflated once by (half track width + clearance). The older implementation
+    # inflated both the spoke bbox and the pad bbox, double-counting the track
+    # radius and falsely rejecting the valid 0.25 mm U2 edge-pad corridor.
+    # The generated board is immediately checked by KiCad DRC before routing.
+    corridor = (min(px, vx), max(px, vx), py, py)
     for fp in board.Footprints():
         for other in fp.Pads():
             if other.GetNetCode() == gcode:
@@ -172,9 +177,6 @@ def add_notched_zone(board, layer, netcode):
     z = pcbnew.ZONE(board)
     z.SetLayer(layer)
     z.SetNetCode(netcode)
-    # L2 is the authoritative low-impedance GND reference. Solid pad
-    # connection avoids thermal-spoke starvation and lets PTH/via GND pads
-    # close connectivity through the plane rather than through routed traces.
     z.SetPadConnection(pcbnew.ZONE_CONNECTION_FULL)
     z.SetMinThickness(pcbnew.FromMM(0.20))
     z.SetLocalClearance(pcbnew.FromMM(0.20))
