@@ -27,20 +27,18 @@ b.FIXED['K1'] = (28.0, 24.0, 0)
 # the four MDI pins toward the MagJack.
 b.FIXED['U2'] = (116.0, 64.0, 180)
 
-# The four 0R MDI damping resistors are part of the Ethernet transmission path
-# and therefore have controlled placement in the reserved U2<->MagJack corridor.
-# Runs #28/#29 proved that alternating 90/270-degree parts force chip-side traces
-# through the opposite pad of the same/adjacent resistor. Keep every resistor
-# horizontal instead: pad 1 faces U2 (left), pad 2 faces J3 (right). The Y order
-# follows the W5500 MDI source order, making the chip-side fanout planar; the
-# release critical router uses the single permitted via per conductor where the
-# MagJack pin order reverses a pair.
+# Controlled W5500 MDI damping placement. All four 0R parts are horizontal:
+# pad1 faces U2, pad2 faces J3. Run #31 proved 1.8 mm row spacing was smaller
+# than the real KiCad courtyard+placement-clearance envelope, so the rows are
+# spaced by 2.5 mm. This still fits the reserved Ethernet corridor while leaving
+# enough room for the single-via pair-crossing strategy used by the critical
+# router.
 final.ETH_ALLOWED.update(ETH_DAMPERS)
 b.FIXED.update({
-    'R_ETH_RXP_DAMP': (123.6, 61.3, 0),
-    'R_ETH_RXN_DAMP': (123.6, 63.1, 0),
+    'R_ETH_RXP_DAMP': (123.6, 60.3, 0),
+    'R_ETH_RXN_DAMP': (123.6, 62.8, 0),
     'R_ETH_TXP_DAMP': (123.6, 65.3, 0),
-    'R_ETH_TXN_DAMP': (123.6, 67.1, 0),
+    'R_ETH_TXN_DAMP': (123.6, 67.8, 0),
 })
 
 
@@ -57,9 +55,6 @@ def grid(x0, y0, x1, y1, step=1.0):
 
 
 def release_cluster(old):
-    # SPI series/pull conditioning belongs on the controller side of the long
-    # MCU-to-socket run. Keeping it with U1 also frees the small edge socket
-    # region for the connector and local decoupling only.
     if old in SD_SIGNAL_PARTS:
         return 'U1'
     return BASE_CLUSTER(old)
@@ -69,9 +64,6 @@ def release_candidates(anchor_old, base):
     ax=pcbnew.ToMM(base.x); ay=pcbnew.ToMM(base.y)
     pts=list(BASE_CANDIDATES(anchor_old, base))
 
-    # The 5 V field-power block needs a third compact reserve below the USB
-    # horizontal corridor. Earlier H2 routing used this same low-voltage area;
-    # it remains above the relay-contact zone and outside the protected USB path.
     if anchor_old == 'U5':
         pts.extend(grid(31.0, 40.0, 50.0, 51.0, 1.0))
 
@@ -84,7 +76,6 @@ def release_candidates(anchor_old, base):
     if anchor_old in ('J_HMI','U7'):
         pts.extend(grid(69.0, 68.0, 103.0, 88.0, 1.0))
 
-    # RTC + SD socket/decoupling share a compact optional-peripheral block.
     if anchor_old in ('U_RTC','J_SD'):
         pts.extend(grid(72.0, 38.0, 132.0, 51.0, 1.0))
 
