@@ -6,8 +6,16 @@ idf_component_register(
     REQUIRES
         app_core
         screen
-        esp_http_client
-        esp_netif
+        config_manager
+        control_engine
+        inverter_manager
+        meter_manager
+        network_manager
+        safety_manager
+        source_detection
+        web_server
+        cjson
+        esp_app_format
         esp_lvgl_adapter
         esp_lcd_touch_gt911
         esp_lcd
