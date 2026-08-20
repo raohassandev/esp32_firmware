@@ -11,26 +11,29 @@ comp = base.comp
 set_desired_pin = base.set_desired_pin
 require = base.require
 
-# SN74LVC14APWR: six Schmitt-trigger inverters, 3.3 V, TSSOP-14.
+# The base generator's connection compensator reverses each rectangular-symbol
+# side before attaching physical-order nets. New rectangular symbols therefore
+# store their pin-definition list in the inverse visual order so that
+# g.manifest_pin_order() returns actual physical pin order at connection time.
+# This keeps c['nets'] in physical pad-number order, matching the rest of Rev-A.
 g.DEFS.setdefault("LVC14", {
     "prefix": "U",
     "description": "SN74LVC14A hex Schmitt-trigger inverter",
     "pins": [
-        ["1","1A"],["2","1Y"],["3","2A"],["4","2Y"],
-        ["5","3A"],["6","3Y"],["7","GND"],["8","4Y"],
-        ["9","4A"],["10","5Y"],["11","5A"],["12","6Y"],
-        ["13","6A"],["14","VCC"],
+        ["7","GND"],["6","3Y"],["5","3A"],["4","2Y"],["3","2A"],["2","1Y"],["1","1A"],
+        ["14","VCC"],["13","6A"],["12","6Y"],["11","5A"],["10","5Y"],["9","4A"],["8","4Y"],
     ],
 })
 
 # TI SN74LVC1G17DBVR physical DBV pins: 1 NC, 2 A, 3 GND, 4 Y, 5 VCC.
+# Stored inverse-per-side for the same generator compensation described above.
 g.DEFS.setdefault("LVC1G17", {
     "prefix": "U",
     "description": "SN74LVC1G17 single Schmitt-trigger buffer with Ioff",
-    "pins": [["1","NC"],["2","A"],["3","GND"],["4","Y"],["5","VCC"]],
+    "pins": [["3","GND"],["2","A"],["1","NC"],["5","VCC"],["4","Y"]],
 })
 
-# Two-pin protection/indicator symbols use physical pad numbering directly.
+# Two-pin protection/indicator symbols need no side-order compensation.
 g.DEFS.setdefault("LED0805_DIAG", {
     "prefix": "D",
     "description": "0805 diagnostic LED, pin 1 cathode / pin 2 anode",
@@ -46,18 +49,6 @@ g.DEFS.setdefault("ESD1_BI", {
     "description": "Single-channel bidirectional ESD protector, pin 1 I/O / pin 2 GND",
     "pins": [["1","IO"],["2","GND"]],
 })
-
-# The generic generator reverses multi-pin rectangular symbol halves because
-# the legacy manifest stores visual-order nets. These parts are authored in
-# actual physical-pin order, so bypass that transformation for them.
-_orig_manifest_pin_order = g.manifest_pin_order
-
-def _diag_manifest_pin_order(sym):
-    if sym in {"LVC14", "LVC1G17"}:
-        return g.DEFS[sym]["pins"][:]
-    return _orig_manifest_pin_order(sym)
-
-g.manifest_pin_order = _diag_manifest_pin_order
 
 
 def add(ref, sym, value, footprint, nets, dnp=False, datasheet=""):
@@ -81,7 +72,7 @@ for _ref in ("R_PD1", "R_PD2", "R_PD3", "R_PD4"):
     comp(_ref)["value"] = "10k"
 
 # Freeze the USB D+/D- protection to a high-speed, low-capacitance exact part.
-# TPD1E05U06 DYA: pin 1 I/O, pin 2 GND.
+# TPD1E05U06 DYA is the SOD-523/SOT-5X3 two-pin package: pin 1 I/O, pin 2 GND.
 for _ref, _net in (("D_USB_DN", "USB_D-"), ("D_USB_DP", "USB_D+")):
     _c = comp(_ref)
     _c["sym"] = "ESD1_UNI"
@@ -115,8 +106,9 @@ set_desired_pin("U1", "23", "STATUS_ALERT_CTL")
 # illumination represents WARNING; red alone represents FAULT.
 g.COMPS[:] = [c for c in g.COMPS if c["ref"] not in {"D_STATUS", "R_STATUS"}]
 
-# Physical LVC14 pins: 1A/1Y=A-TX, 2A/2Y=A-RX, 3A/3Y=B-TX,
-# 4A/4Y=B-RX, 5A/5Y=RUN green, 6A/6Y=FAULT red.
+# c['nets'] below stays in physical pin-number order 1..14; the pin-definition
+# order above is intentionally inverse-per-side so the base generator connects
+# those nets back onto physical pads 1..14 after its visual-order compensation.
 add(
     "U_LEDLOGIC", "LVC14", "SN74LVC14APWR", TSSOP14,
     [
@@ -153,7 +145,10 @@ add("D_STATUS_RED", "LED0805_DIAG", "RED 150080RS75000", LED0805, ["STATUS_RED_K
 
 
 def _desired_map(c):
-    pins = g.DEFS[c["sym"]]["pins"]
+    # c['nets'] is always physical-order intent. For compensated local symbols,
+    # g.manifest_pin_order() resolves back to physical pin order; for two-pin
+    # symbols it is naturally unchanged.
+    pins = g.manifest_pin_order(c["sym"])
     if len(pins) != len(c["nets"]):
         raise ValueError(f"{c['ref']}: pin/net length mismatch")
     return {str(pin[0]): net for pin, net in zip(pins, c["nets"])}
