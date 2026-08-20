@@ -2,9 +2,9 @@
 """Tie every safe F.Cu GND fill island to the solid L2 GND reference.
 
 Surface pours are intentionally allowed to fracture around dense signal routing.
-Each resulting filled outline receives one ordinary through-via where clearance
-permits, so it is electrically tied to the continuous In1.Cu reference instead
-of remaining a same-net isolated copper island.
+Each remaining pad-connected filled outline receives one ordinary through-via
+where clearance permits, so it is electrically tied to the continuous In1.Cu
+reference instead of remaining a same-net isolated copper island.
 """
 from pathlib import Path
 import math
@@ -35,14 +35,42 @@ def point_seg_dist(px,py,ax,ay,bx,by):
     return math.hypot(px-qx,py-qy)
 
 
-def safe(board,x,y,gcode):
+def via_keepouts(board):
+    """Return rule-area zones that prohibit vias, including footprint zones."""
+    out=[]
+    try:
+        zones=list(board.Zones())
+    except Exception:
+        zones=[board.GetArea(i) for i in range(board.GetAreaCount())]
+    for fp in board.Footprints():
+        try:
+            zones.extend(list(fp.Zones()))
+        except Exception:
+            pass
+    for z in zones:
+        try:
+            if z.GetIsRuleArea() and z.GetDoNotAllowVias(): out.append(z)
+        except Exception:
+            continue
+    return out
+
+
+def safe(board,x,y,gcode,keepouts):
     # The F.Cu logic pour itself begins at Y=30.0. A 0.60 mm via centred at
     # Y>=30.35 remains inside the intended low-voltage surface-copper region
     # while giving small boundary islands a realistic stitch candidate.
     if x<EDGE or x>145.0-EDGE or y<LOGIC_Y0+0.35 or y>95.0-EDGE: return False
     if x>MAG_X0-0.6 and MAG_Y0-0.6<y<MAG_Y1+0.6: return False
-    radius=VIA_D/2+CLEAR
     pos=pt(x,y)
+    # KiCad rule areas are authoritative. Inflate their bounding boxes by the
+    # via radius so neither annulus nor drill can overlap a via keepout. This
+    # specifically prevents the J12 microSD keepout violation seen in run
+    # 32339166203 while remaining generic for future footprint keepouts.
+    for z in keepouts:
+        bb=z.GetBoundingBox()
+        bb.Inflate(mm(VIA_D/2))
+        if bb.Contains(pos): return False
+    radius=VIA_D/2+CLEAR
     # Avoid non-GND pads on every layer. Bounding-box expansion is deliberately
     # conservative; DRC remains the final authority.
     for fp in board.Footprints():
@@ -92,12 +120,12 @@ def candidates(outline, step=0.5, inset=0.35):
         if inside: yield x,y
 
 
-def choose_candidate(board,outline,gcode):
+def choose_candidate(board,outline,gcode,keepouts):
     # Fast first pass, then a fine deterministic search for narrow fragments.
     for x,y in candidates(outline,0.5,0.35):
-        if safe(board,x,y,gcode): return (x,y)
+        if safe(board,x,y,gcode,keepouts): return (x,y)
     for x,y in candidates(outline,0.20,0.31):
-        if safe(board,x,y,gcode): return (x,y)
+        if safe(board,x,y,gcode,keepouts): return (x,y)
     return None
 
 
@@ -123,13 +151,14 @@ def main(board_path):
     except Exception: zones=[board.GetArea(i) for i in range(board.GetAreaCount())]
     gz=[z for z in zones if z.GetNetCode()==gcode and z.GetLayer()==layer and z.HasFilledPolysForLayer(layer)]
     if not gz: raise SystemExit('filled F.Cu GND zone missing; refill zones before stitching')
+    keepouts=via_keepouts(board)
 
     added=0; skipped=0; outlines=0
     for z in gz:
         polys=z.GetFilledPolysList(layer)
         for idx in range(polys.OutlineCount()):
             outlines+=1; outline=polys.COutline(idx)
-            chosen=choose_candidate(board,outline,gcode)
+            chosen=choose_candidate(board,outline,gcode,keepouts)
             if chosen is None:
                 skipped+=1
                 minx,maxx,miny,maxy=bounds(outline)
@@ -138,7 +167,7 @@ def main(board_path):
             add_via(board,chosen[0],chosen[1],gnet); added+=1
     if added==0: raise SystemExit(f'GND stitch failed: outlines={outlines} no safe candidates')
     pcbnew.SaveBoard(str(path),board)
-    print(f'GND_ISLAND_STITCH: outlines={outlines} vias_added={added} skipped={skipped}')
+    print(f'GND_ISLAND_STITCH: outlines={outlines} vias_added={added} skipped={skipped} via_keepouts={len(keepouts)}')
 
 
 if __name__=='__main__':
