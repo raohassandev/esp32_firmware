@@ -27,20 +27,20 @@ b.FIXED['K1'] = (28.0, 24.0, 0)
 # the four MDI pins toward the MagJack.
 b.FIXED['U2'] = (116.0, 64.0, 180)
 
-# Run #24 proved that leaving the four 0R MDI damping resistors to the generic
-# U2-zone placer makes the frozen 45 mm Ethernet conductor limit impossible:
-# their old x=94..99 mm positions alone impose >56 mm straight-line endpoint
-# distance. Place them in the intentionally reserved Ethernet corridor between
-# U2 and J3. Alternating 270/90 degree orientations reorder each pair across the
-# two resistors without crossing F.Cu chip-side stubs; the MagJack-side pads then
-# follow J3's fixed 90-degree pin order. The resulting controlled pre-route is
-# ~11-14 mm per conductor, with <1.2 mm pair skew and <=1 via/conductor.
+# The four 0R MDI damping resistors are part of the Ethernet transmission path
+# and therefore have controlled placement in the reserved U2<->MagJack corridor.
+# Runs #28/#29 proved that alternating 90/270-degree parts force chip-side traces
+# through the opposite pad of the same/adjacent resistor. Keep every resistor
+# horizontal instead: pad 1 faces U2 (left), pad 2 faces J3 (right). The Y order
+# follows the W5500 MDI source order, making the chip-side fanout planar; the
+# release critical router uses the single permitted via per conductor where the
+# MagJack pin order reverses a pair.
 final.ETH_ALLOWED.update(ETH_DAMPERS)
 b.FIXED.update({
-    'R_ETH_RXP_DAMP': (123.2, 61.5, 270),
-    'R_ETH_RXN_DAMP': (125.7, 61.7, 90),
-    'R_ETH_TXP_DAMP': (123.2, 66.0, 270),
-    'R_ETH_TXN_DAMP': (125.7, 66.2, 90),
+    'R_ETH_RXP_DAMP': (123.6, 61.3, 0),
+    'R_ETH_RXN_DAMP': (123.6, 63.1, 0),
+    'R_ETH_TXP_DAMP': (123.6, 65.3, 0),
+    'R_ETH_TXN_DAMP': (123.6, 67.1, 0),
 })
 
 
