@@ -23,12 +23,15 @@ curl -fL --retry 3 --retry-delay 2 -o /tmp/freerouting.jar \
 
 # Freerouting's -inc option intentionally ignores GND_PLANE. Those ignored GND
 # ratsnest items remain visible in Freerouting's "unrouted" score even though
-# they are closed later by KiCad surface copper + L2 stitching. Previous runs
-# timed out while Freerouting kept optimizing an already-stable score, so no SES
-# was written and the authoritative KiCad post-fill audit never got a chance to
-# decide whether the remaining items were only the intentionally ignored plane.
-# Bound the pass count so Freerouting exits normally and writes the SES; KiCad,
+# they are closed later by KiCad surface copper + L2 stitching. The pass count
+# remains bounded at 10 so Freerouting exits normally and writes the SES; KiCad,
 # not the router score, is the final connectivity/DRC authority.
+#
+# Run #19 proved the former 420 s shell timeout was too tight for the same
+# bounded 10-pass job: pass #8 completed successfully, then timeout killed Java
+# with exit 124 before an SES could be written, so the new GND-tail closure code
+# never ran. Keep the quality bound (-mp 10) and give it deterministic headroom
+# to exit normally; the enclosing Actions job still has its own 35 minute cap.
 #
 # Run 32339166203 proved fanout=true is not a valid fallback on this board: it
 # generated 72 x 0.15 mm tracks below the 0.20 mm board minimum. Keep the proven
@@ -37,7 +40,7 @@ success=0
 attempt=1
 OUT="hardware/kicad/route-attempt-${attempt}.ses"
 rm -f "$OUT"; cp "$PLACED" "$PCB"
-LIMIT=420
+LIMIT=600
 FANOUT=false
 OPTS='-mp 10 -mt 3 -oit 0.15 -is prioritized -us greedy'
 echo "=== FREEROUTING 2.3 ATTEMPT $attempt limit=${LIMIT}s fanout=${FANOUT} GND=IGNORED_PLANE ===" | tee -a hardware/kicad/freerouting.log
