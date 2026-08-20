@@ -121,9 +121,9 @@ def route_usb(board):
     _usb_mcu_stub(board,mcu_dp,rdp_mcu,(17.25,67.80),(21.20,66.60))
 
     # A 16-contact USB-C receptacle exposes both A- and B-side USB2 contacts.
-    # Lock all four data contacts before Specctra export. Alternate contacts use
-    # one additional symmetric via per conductor, keeping external D+/D- at
-    # three vias each and below the frozen <=4 USB limit.
+    # Lock all four data contacts before Specctra export. D+ uses three vias;
+    # D- uses a fourth right-side transfer via, still inside the frozen <=4 USB
+    # limit, so B7 can approach on F.Cu without crossing the A6 branch.
     a6=_require_net(base.pad_number(j2,'A6'),'USB_D+')
     b6=_require_net(base.pad_number(j2,'B6'),'USB_D+')
     a7=_require_net(base.pad_number(j2,'A7'),'USB_D-')
@@ -131,13 +131,13 @@ def route_usb(board):
     sdm=_xy(rdm_ext); sdp=_xy(rdp_ext)
     dm_v1=(26.0,sdm[1]); dp_v1=(26.0,sdp[1])
 
-    # D-: branch via lies on the final In2 trunk. Run #39 proved a direct
-    # diagonal dm_b->B7 clips the adjacent A5/CC1 pad. Transition vertically at
-    # x=132.2, well left of the Type-C row, then make the final exact-Y approach
-    # at B7 y=42.75. The 0.5 mm pad-row spacing then leaves the intended 0.2 mm
-    # copper-edge gap to A6/A5.
+    # D-: Run #40 proved the left-side exact-Y B7 approach crosses D+'s A6
+    # vertical stub at x=136. Move the B7 branch onto B.Cu, stay above the D+
+    # B.Cu transfer, then return to F.Cu at x=137.0 on B7's exact y. The final
+    # F.Cu segment is entirely to the right of A6's vertical stub.
     dm_a=(135.0,41.75)
     dm_b=(132.2,45.15)
+    dm_b_final=(137.0,_xy(b7)[1])
     dm_net=base.net_from_pad(rdm_ext)
     base.add_track(board,sdm,dm_v1,F,dm_net,base.WIDTH_USB_MM)
     base.add_via(board,dm_v1,dm_net)
@@ -145,7 +145,9 @@ def route_usb(board):
     base.add_via(board,dm_b,dm_net)
     base.add_via(board,dm_a,dm_net)
     base.add_track(board,dm_a,_xy(a7),F,dm_net,base.WIDTH_USB_MM)
-    base.add_polyline(board,[dm_b,(dm_b[0],_xy(b7)[1]),_xy(b7)],F,dm_net,base.WIDTH_USB_MM)
+    base.add_via(board,dm_b_final,dm_net)
+    base.add_polyline(board,[dm_b,(134.6,45.15),dm_b_final],B,dm_net,base.WIDTH_USB_MM)
+    base.add_track(board,dm_b_final,_xy(b7),F,dm_net,base.WIDTH_USB_MM)
 
     # D+: A6 uses an exact-Y final approach. Run #39 proved a direct diagonal
     # dp_b->B6 clips the unused A8 pad. Transition vertically at x=136.0, then
@@ -163,7 +165,7 @@ def route_usb(board):
     base.add_polyline(board,[dp_b,(dp_b[0],_xy(b6)[1]),_xy(b6)],F,dp_net,base.WIDTH_USB_MM)
     base.add_track(board,dp_b,dp_a,B,dp_net,base.WIDTH_USB_MM)
 
-    print('USB_CRITICAL_PREROUTE: PASS all A6/B6/A7/B7 contacts tied with exact-Y B-side approaches')
+    print('USB_CRITICAL_PREROUTE: PASS B7 B.Cu transfer + all A6/B6/A7/B7 contacts tied')
 
 
 def main(board_path):
