@@ -7,6 +7,7 @@ idf_component_register(
         app_core
         screen
         esp_http_client
+        esp_netif
         esp_lvgl_adapter
         esp_lcd_touch_gt911
         esp_lcd
