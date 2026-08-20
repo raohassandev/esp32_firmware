@@ -59,20 +59,16 @@ def route_ethernet(board):
     j_rx_p=_require_net(base.pad_number(j3,4),'ETH_RXP_MAG')
     j_rx_n=_require_net(base.pad_number(j3,6),'ETH_RXN_MAG')
 
-    # Run #33 left one DRC error only: the RXP vertical dogleg at x=121.00
-    # intersected U2 pad 7 (no-net). Shift the RX pair together to the right
-    # while preserving conductor order. RXP remains the left column so the RXN
-    # source escape at y=64.75 never crosses the RXP vertical, whose upper end is
-    # y=64.25. The 0.80 mm column spacing comfortably exceeds track+clearance.
+    # RX doglegs are shifted clear of the W5500 no-net/GND pads. RXP remains
+    # the left column so the RXN source escape never crosses its vertical leg.
     _chip_dogleg(board,rx_p,r_rxp_c,121.65)
     _chip_dogleg(board,rx_n,r_rxn_c,122.45)
     _chip_escape(board,tx_p,r_txp_c)
     _chip_escape(board,tx_n,r_txn_c)
 
-    # Each conductor uses exactly one via, satisfying pair symmetry and the
-    # frozen <=1-via Ethernet policy. Within each pair, one conductor stays on
-    # F.Cu until near its destination while the order-reversing conductor moves
-    # to In2 early. Their crossings therefore occur on different layers.
+    # Each Ethernet conductor uses exactly one via, satisfying pair symmetry and
+    # the frozen <=1-via policy. Layer-separated pair crossings avoid F.Cu
+    # conflicts around the alternating MagJack PTH order.
     s=_xy(r_rxp_m); d=_xy(j_rx_p); v=(128.15,s[1])
     base.add_track(board,s,v,F,base.net_from_pad(r_rxp_m),base.WIDTH_ETH_MM)
     base.add_via(board,v,base.net_from_pad(r_rxp_m))
@@ -88,12 +84,16 @@ def route_ethernet(board):
     base.add_via(board,v,base.net_from_pad(r_txp_m))
     base.add_track(board,v,d,IN2,base.net_from_pad(r_txp_m),base.WIDTH_ETH_MM)
 
+    # Run #35 proved DRC=0 but TX skew was 5.09 mm, only 0.09 mm above the
+    # frozen 5 mm gate. The old TXN In2 dogleg was unnecessary: a direct segment
+    # from its single via to the MagJack pin stays separated from the TXP In2
+    # segment and removes >2 mm of excess path without relaxing any SI limit.
     s=_xy(r_txn_m); d=_xy(j_tx_n); v=(125.40,s[1])
     base.add_track(board,s,v,F,base.net_from_pad(r_txn_m),base.WIDTH_ETH_MM)
     base.add_via(board,v,base.net_from_pad(r_txn_m))
-    base.add_polyline(board,[v,(127.20,d[1]),d],IN2,base.net_from_pad(r_txn_m),base.WIDTH_ETH_MM)
+    base.add_track(board,v,d,IN2,base.net_from_pad(r_txn_m),base.WIDTH_ETH_MM)
 
-    print('ETHERNET_CRITICAL_PREROUTE: PASS shifted RX doglegs + one-via/layer-separated pair crossings')
+    print('ETHERNET_CRITICAL_PREROUTE: PASS DRC-clean RX doglegs + TXN direct SI trim')
 
 
 def _usb_mcu_stub(board, src, dst, via1, via2):
