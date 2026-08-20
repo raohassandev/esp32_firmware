@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "cJSON.h"
+#include "commissioning_gate.h"
 #include "config_manager.h"
 #include "control_engine.h"
 #include "esp_app_desc.h"
@@ -135,6 +136,13 @@ static void add_number_or_null(cJSON *object, const char *name, double value, bo
 {
     if (valid && isfinite(value)) cJSON_AddNumberToObject(object, name, value);
     else cJSON_AddNullToObject(object, name);
+}
+
+static void copy_bounded(char *destination, size_t capacity, const char *source)
+{
+    if (!destination || capacity == 0U) return;
+    if (!source) source = "";
+    snprintf(destination, capacity, "%s", source);
 }
 
 static uint32_t meter_stale_after_ms(const app_config_t *config, uint8_t index)
@@ -589,6 +597,42 @@ bool local_backend_provider_fetch(const char *path)
     if (strcmp(path, SCREEN_API_TELEMETRY_PATH) == 0) return build_telemetry(slot);
     note_failure(slot, "unsupported in-process read model");
     return false;
+}
+
+bool local_backend_provider_read_commissioning(screen_commissioning_snapshot_t *out)
+{
+    if (!out) return false;
+    memset(out, 0, sizeof(*out));
+
+    /* Exact authority behind GET /api/commissioning/gate. This adapter projects
+     * the result; it never evaluates prerequisites itself. */
+    commissioning_status_t status = {0};
+    control_engine_get_commissioning(&status);
+    control_status_t control = {0};
+    control_engine_get_status(&control);
+
+    out->commissioned = status.commissioned;
+    copy_bounded(out->scope, sizeof(out->scope), commissioning_scope_label(status.scope));
+    out->production_qualified = status.scope == COMMISSIONING_SCOPE_PRODUCTION;
+    out->automatic_control_permitted = status.commissioned && control.command_authority;
+    out->command_authority = control.command_authority;
+    out->prerequisite_count = COMMISSIONING_PREREQ_COUNT;
+    out->satisfied_count = status.satisfied_count;
+    out->unmet_count = status.unmet_count;
+    copy_bounded(out->summary, sizeof(out->summary), commissioning_gate_summary(&status));
+    copy_bounded(out->inhibit_reason, sizeof(out->inhibit_reason), control.inhibit_reason);
+
+    if (!status.commissioned && status.first_unmet < COMMISSIONING_PREREQ_COUNT) {
+        copy_bounded(out->first_unmet, sizeof(out->first_unmet),
+                     commissioning_prereq_id(status.first_unmet));
+        copy_bounded(out->first_unmet_title, sizeof(out->first_unmet_title),
+                     commissioning_prereq_title(status.first_unmet));
+        copy_bounded(out->first_unmet_detail, sizeof(out->first_unmet_detail),
+                     commissioning_reason_message(status.results[status.first_unmet].reason));
+    }
+
+    out->valid = true;
+    return true;
 }
 
 void local_backend_provider_deinit(void)

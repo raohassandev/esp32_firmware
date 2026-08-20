@@ -6,7 +6,6 @@ idf_component_register(
     REQUIRES
         app_core
         screen
-        commissioning_gate
         config_manager
         control_engine
         inverter_manager
