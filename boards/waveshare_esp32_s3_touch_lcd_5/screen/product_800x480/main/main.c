@@ -114,7 +114,7 @@ static esp_err_t native_screen_activate(void)
     if (err != ESP_OK) return err;
 
     log_dma_headroom("After LVGL/UI activation");
-    ESP_LOGI(TAG, "Native LCD/LVGL/touch ready; awaiting existing Core API data");
+    ESP_LOGI(TAG, "Native LCD/LVGL/touch ready; awaiting existing Core data");
     return ESP_OK;
 }
 
@@ -212,8 +212,9 @@ void app_main(void)
     if (screen_activate_err == ESP_OK && core_err == ESP_OK) {
         screen_api_provider_t provider = {0};
         if (local_backend_provider_init(&provider) && screen_runtime_init(&provider)) {
-            /* This task performs only read-only HTTP fetches and LVGL updates; it
-             * never writes flash/NVS. Keep its large stack in PSRAM so the
+            /* This task performs only read-only in-process Core snapshot
+             * projections and LVGL updates; it never performs Modbus I/O or
+             * writes flash/NVS. Keep its large stack in PSRAM so the
              * safety/control/httpd tasks retain internal DRAM. */
             BaseType_t created = xTaskCreateWithCaps(
                 screen_refresh_task,
@@ -225,7 +226,7 @@ void app_main(void)
                 MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
             if (created == pdPASS) {
                 ESP_LOGI(TAG, "Screen refresh task created in PSRAM");
-                ESP_LOGI(TAG, "Screen bound read-only to existing Core API over controller self-address");
+                ESP_LOGI(TAG, "Screen bound read-only through in-process Product Core read models");
             } else {
                 ESP_LOGE(TAG, "Unable to create PSRAM screen refresh task; UI stays unavailable");
             }
