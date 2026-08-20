@@ -54,6 +54,11 @@ void source_detection_notify_config_changed(void);
 const char *source_detection_reason_message(source_reason_t reason);
 const char *source_detection_mode_name(source_detection_mode_t mode);
 
+/* One fail-closed source-attribution verdict for every operator surface.
+ * Returns "grid" or "generator" only when the resolved source is configured,
+ * fresh and conflict-free; every other state returns "unknown". */
+const char *source_detection_attributed_to(const source_detection_status_t *status);
+
 #ifdef __cplusplus
 }
 #endif
