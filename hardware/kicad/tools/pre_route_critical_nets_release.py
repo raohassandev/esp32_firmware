@@ -131,13 +131,13 @@ def route_usb(board):
     sdm=_xy(rdm_ext); sdp=_xy(rdp_ext)
     dm_v1=(26.0,sdm[1]); dp_v1=(26.0,sdp[1])
 
-    # D-: Run #40 proved the left-side exact-Y B7 approach crosses D+'s A6
-    # vertical stub at x=136. Move the B7 branch onto B.Cu, stay above the D+
-    # B.Cu transfer, then return to F.Cu at x=137.0 on B7's exact y. The final
-    # F.Cu segment is entirely to the right of A6's vertical stub.
+    # D-: Run #41 proved a transfer via at x=137.0 still sat only 0.10 mm from
+    # D+'s A6 horizontal trunk because both contacts are separated by 0.50 mm
+    # in Y. Keep the B.Cu branch above D+'s transfer, pass under the connector,
+    # and return to F.Cu beyond the A6 trunk at x=140.0 on B7's exact Y.
     dm_a=(135.0,41.75)
     dm_b=(132.2,45.15)
-    dm_b_final=(137.0,_xy(b7)[1])
+    dm_b_final=(140.0,_xy(b7)[1])
     dm_net=base.net_from_pad(rdm_ext)
     base.add_track(board,sdm,dm_v1,F,dm_net,base.WIDTH_USB_MM)
     base.add_via(board,dm_v1,dm_net)
@@ -146,7 +146,7 @@ def route_usb(board):
     base.add_via(board,dm_a,dm_net)
     base.add_track(board,dm_a,_xy(a7),F,dm_net,base.WIDTH_USB_MM)
     base.add_via(board,dm_b_final,dm_net)
-    base.add_polyline(board,[dm_b,(134.6,45.15),dm_b_final],B,dm_net,base.WIDTH_USB_MM)
+    base.add_polyline(board,[dm_b,(134.6,45.15),(137.0,_xy(b7)[1]),dm_b_final],B,dm_net,base.WIDTH_USB_MM)
     base.add_track(board,dm_b_final,_xy(b7),F,dm_net,base.WIDTH_USB_MM)
 
     # D+: A6 uses an exact-Y final approach. Run #39 proved a direct diagonal
@@ -165,7 +165,7 @@ def route_usb(board):
     base.add_polyline(board,[dp_b,(dp_b[0],_xy(b6)[1]),_xy(b6)],F,dp_net,base.WIDTH_USB_MM)
     base.add_track(board,dp_b,dp_a,B,dp_net,base.WIDTH_USB_MM)
 
-    print('USB_CRITICAL_PREROUTE: PASS B7 B.Cu transfer + all A6/B6/A7/B7 contacts tied')
+    print('USB_CRITICAL_PREROUTE: PASS right-side B7 transfer + all A6/B6/A7/B7 contacts tied')
 
 
 def main(board_path):
