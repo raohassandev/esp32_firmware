@@ -29,12 +29,14 @@ VIA_CLEAR = 0.24
 TRACK_W = 0.20
 TRACK_CLEAR = 0.24
 
-# Run #24 exact residual GND-pad islands plus Run #37's final W5500 pad-9
-# sliver. The passive escapes use +0.90 mm. U2:9 is a 1.475 x 0.30 mm edge
-# pad; +1.285 mm places the 0.60/0.30 via just beyond the adjacent-pad
-# conservative via envelope while the horizontal 0.20 mm spoke remains in the
-# real 0.25 mm copper corridor between U2 pads 8 and 10. Final KiCad DRC is the
-# authority for this intentionally tight but standards-compliant escape.
+# Recurring post-router GND islands are reserved before Specctra export so the
+# signal router must leave legal vertical access to the solid L2 reference.
+# Run #42 proved the final two floating islands were C35:1 and U2:23 while the
+# previously reserved U2:9 island was already electrically closed. C35 escapes
+# left, away from CHASSIS pad 2. U2:23 escapes perpendicular to the 0.5-mm-pitch
+# top pad row; the 0.20-mm spoke retains >=0.20-mm real copper clearance and the
+# via is placed beyond the adjacent-pad envelope. KiCad pre-route DRC remains
+# the release authority for these intentionally dense escapes.
 PRE_ROUTE_GND_ESCAPES = (
     ("C14", "2", 0.90, 0.00),
     ("C16", "2", 0.90, 0.00),
@@ -42,6 +44,8 @@ PRE_ROUTE_GND_ESCAPES = (
     ("C28", "2", 0.90, 0.00),
     ("R69", "2", 0.90, 0.00),
     ("U2", "9", 1.285, 0.00),
+    ("C35", "1", -0.90, 0.00),
+    ("U2", "23", 0.00, -1.50),
 )
 
 
@@ -98,12 +102,11 @@ def assert_escape_clear(board, pad, via_xy, gcode):
     if vx >= MAGJACK_X0 - via_r and MAGJACK_Y0 - via_r <= vy <= MAGJACK_Y1 + via_r:
         raise RuntimeError(f"pre-route GND via enters MagJack exclusion at {(vx, vy)}")
 
-    # Escape spokes are horizontal. Test the track centerline against pads
-    # inflated once by (half track width + clearance). The older implementation
-    # inflated both the spoke bbox and the pad bbox, double-counting the track
-    # radius and falsely rejecting the valid 0.25 mm U2 edge-pad corridor.
-    # The generated board is immediately checked by KiCad DRC before routing.
-    corridor = (min(px, vx), max(px, vx), py, py)
+    # All controlled escapes are axis-aligned. Test the spoke centreline bbox
+    # against pads inflated once by half-track-width + clearance. This supports
+    # both horizontal passive escapes and the vertical W5500 pad-23 escape
+    # without double-counting the track radius. Immediate KiCad DRC is final.
+    corridor = (min(px, vx), max(px, vx), min(py, vy), max(py, vy))
     for fp in board.Footprints():
         for other in fp.Pads():
             if other.GetNetCode() == gcode:
