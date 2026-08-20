@@ -1,5 +1,6 @@
 #include "overview_screen.h"
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -77,14 +78,42 @@ static lv_obj_t *make_state_row(lv_obj_t *parent, const char *name, lv_obj_t **v
     return row;
 }
 
+/* LVGL invalidates a label when lv_label_set_text() is called even when the
+ * visible string is identical.  The live lane runs continuously, so repeated
+ * writes of unchanged text needlessly force redraw traffic from PSRAM to the RGB
+ * panel.  On the physical 800x480 board that traffic showed up as visible
+ * scanout movement under full Core load.  Suppress no-op writes at the UI edge;
+ * actual value changes still repaint immediately. */
+static bool set_text_if_changed(lv_obj_t *label, const char *text)
+{
+    if (!label || !text) return false;
+    const char *current = lv_label_get_text(label);
+    if (current && strcmp(current, text) == 0) return false;
+    lv_label_set_text(label, text);
+    return true;
+}
+
+static bool set_text_fmt_if_changed(lv_obj_t *label, const char *format, ...)
+{
+    if (!label || !format) return false;
+    char text[256];
+    va_list args;
+    va_start(args, format);
+    const int written = vsnprintf(text, sizeof(text), format, args);
+    va_end(args);
+    if (written < 0) return false;
+    text[sizeof(text) - 1U] = '\0';
+    return set_text_if_changed(label, text);
+}
+
 static void set_kw(lv_obj_t *label, bool available, double value)
 {
     if (!label) return;
     if (!available) {
-        lv_label_set_text(label, "-- kW");
+        (void)set_text_if_changed(label, "-- kW");
         return;
     }
-    lv_label_set_text_fmt(label, "%.1f kW", value);
+    (void)set_text_fmt_if_changed(label, "%.1f kW", value);
 }
 
 static const char *safe_text(const char *value, const char *fallback)
@@ -182,8 +211,9 @@ void overview_screen_apply_live(const screen_live_snapshot_t *snapshot)
 {
     if (!snapshot || !snapshot->valid || !s_ui.root) return;
 
-    lv_label_set_text(s_ui.backend_state, "BACKEND: ONLINE");
-    lv_obj_set_style_text_color(s_ui.backend_state, lv_color_hex(0x62D28F), LV_PART_MAIN);
+    if (set_text_if_changed(s_ui.backend_state, "BACKEND: ONLINE")) {
+        lv_obj_set_style_text_color(s_ui.backend_state, lv_color_hex(0x62D28F), LV_PART_MAIN);
+    }
     set_kw(s_ui.grid_value, snapshot->has_grid_kw, snapshot->grid_kw);
     set_kw(s_ui.solar_value, snapshot->has_solar_kw, snapshot->solar_kw);
     set_kw(s_ui.requested_value, snapshot->has_requested_pv_kw, snapshot->requested_pv_kw);
@@ -191,16 +221,18 @@ void overview_screen_apply_live(const screen_live_snapshot_t *snapshot)
 
     /* Do not render live.source. /api/status.source.attributed_to is already
      * fail-closed against stale/conflicting source evidence and is authoritative. */
-    lv_label_set_text_fmt(s_ui.control_mode, "Control: %s",
-                          safe_text(snapshot->mode_label, "unknown"));
-    lv_label_set_text(s_ui.meter_state, snapshot->meter_online ? "Online" : "Offline");
+    (void)set_text_fmt_if_changed(s_ui.control_mode, "Control: %s",
+                                  safe_text(snapshot->mode_label, "unknown"));
+    (void)set_text_if_changed(s_ui.meter_state, snapshot->meter_online ? "Online" : "Offline");
 
     if (snapshot->inhibit_reason[0] != '\0') {
-        lv_label_set_text_fmt(s_ui.inhibit_reason, "Control reason: %s", snapshot->inhibit_reason);
+        (void)set_text_fmt_if_changed(s_ui.inhibit_reason, "Control reason: %s",
+                                      snapshot->inhibit_reason);
     } else if (snapshot->command_blocked_by[0] != '\0') {
-        lv_label_set_text_fmt(s_ui.inhibit_reason, "Control reason: %s", snapshot->command_blocked_by);
+        (void)set_text_fmt_if_changed(s_ui.inhibit_reason, "Control reason: %s",
+                                      snapshot->command_blocked_by);
     } else {
-        lv_label_set_text(s_ui.inhibit_reason, "Control reason: --");
+        (void)set_text_if_changed(s_ui.inhibit_reason, "Control reason: --");
     }
 }
 
@@ -208,62 +240,65 @@ void overview_screen_apply_status(const screen_status_snapshot_t *snapshot)
 {
     if (!snapshot || !snapshot->valid || !s_ui.root) return;
 
-    lv_label_set_text_fmt(s_ui.network_state, "%s  %d dBm",
-                          snapshot->network_online ? "Online" : "Offline", snapshot->rssi);
+    (void)set_text_fmt_if_changed(s_ui.network_state, "%s  %d dBm",
+                                  snapshot->network_online ? "Online" : "Offline", snapshot->rssi);
 
     if (snapshot->controller_state[0] != '\0') {
-        lv_label_set_text_fmt(s_ui.controller_state, "%s%s",
-                              snapshot->controller_state,
-                              snapshot->last_reboot_unexpected ? " / unexpected reboot" : "");
+        (void)set_text_fmt_if_changed(s_ui.controller_state, "%s%s",
+                                      snapshot->controller_state,
+                                      snapshot->last_reboot_unexpected ? " / unexpected reboot" : "");
     } else {
-        lv_label_set_text(s_ui.controller_state, "Unknown");
+        (void)set_text_if_changed(s_ui.controller_state, "Unknown");
     }
 
     if (snapshot->alarms == 0U) {
-        lv_label_set_text(s_ui.alarm_state, "None active");
+        (void)set_text_if_changed(s_ui.alarm_state, "None active");
     } else if (snapshot->alarm_name_count == 1U) {
-        lv_label_set_text(s_ui.alarm_state, snapshot->alarm_names[0]);
+        (void)set_text_if_changed(s_ui.alarm_state, snapshot->alarm_names[0]);
     } else if (snapshot->alarm_name_count > 1U) {
-        lv_label_set_text_fmt(s_ui.alarm_state, "%s +%u more",
-                              snapshot->alarm_names[0],
-                              (unsigned)(snapshot->alarm_name_count - 1U));
+        (void)set_text_fmt_if_changed(s_ui.alarm_state, "%s +%u more",
+                                      snapshot->alarm_names[0],
+                                      (unsigned)(snapshot->alarm_name_count - 1U));
     } else {
-        lv_label_set_text(s_ui.alarm_state, "Active alarm(s)");
+        (void)set_text_if_changed(s_ui.alarm_state, "Active alarm(s)");
     }
 
-    lv_label_set_text_fmt(s_ui.source, "Source: %s",
-                          safe_text(snapshot->source_attributed_to, "unknown"));
+    (void)set_text_fmt_if_changed(s_ui.source, "Source: %s",
+                                  safe_text(snapshot->source_attributed_to, "unknown"));
     if (snapshot->control_mode_label[0] != '\0') {
-        lv_label_set_text_fmt(s_ui.control_mode, "Control: %s", snapshot->control_mode_label);
+        (void)set_text_fmt_if_changed(s_ui.control_mode, "Control: %s",
+                                      snapshot->control_mode_label);
     }
     if (snapshot->control_inhibit_reason[0] != '\0') {
-        lv_label_set_text_fmt(s_ui.inhibit_reason, "Control reason: %s",
-                              snapshot->control_inhibit_reason);
+        (void)set_text_fmt_if_changed(s_ui.inhibit_reason, "Control reason: %s",
+                                      snapshot->control_inhibit_reason);
     }
-    lv_label_set_text_fmt(s_ui.firmware_version, "Firmware: %s",
-                          safe_text(snapshot->firmware_version, "unknown"));
+    (void)set_text_fmt_if_changed(s_ui.firmware_version, "Firmware: %s",
+                                  safe_text(snapshot->firmware_version, "unknown"));
 
     if (snapshot->meter_stale) {
-        lv_label_set_text(s_ui.meter_state, "Stale / unavailable");
+        (void)set_text_if_changed(s_ui.meter_state, "Stale / unavailable");
     } else {
-        lv_label_set_text(s_ui.meter_state, snapshot->meter_online ? "Online" : "Offline");
+        (void)set_text_if_changed(s_ui.meter_state,
+                                  snapshot->meter_online ? "Online" : "Offline");
     }
 }
 
 void overview_screen_show_backend_unavailable(void)
 {
     if (!s_ui.root) return;
-    lv_label_set_text(s_ui.backend_state, "BACKEND: UNAVAILABLE");
-    lv_obj_set_style_text_color(s_ui.backend_state, lv_color_hex(0xF07178), LV_PART_MAIN);
+    if (set_text_if_changed(s_ui.backend_state, "BACKEND: UNAVAILABLE")) {
+        lv_obj_set_style_text_color(s_ui.backend_state, lv_color_hex(0xF07178), LV_PART_MAIN);
+    }
     set_kw(s_ui.grid_value, false, 0.0);
     set_kw(s_ui.solar_value, false, 0.0);
     set_kw(s_ui.requested_value, false, 0.0);
     set_kw(s_ui.applied_value, false, 0.0);
-    lv_label_set_text(s_ui.source, "Source: unknown");
-    lv_label_set_text(s_ui.control_mode, "Control: unknown");
-    lv_label_set_text(s_ui.meter_state, "Unavailable");
-    lv_label_set_text(s_ui.network_state, "Unavailable");
-    lv_label_set_text(s_ui.controller_state, "Unavailable");
-    lv_label_set_text(s_ui.alarm_state, "Unknown");
-    lv_label_set_text(s_ui.inhibit_reason, "Control reason: backend unavailable");
+    (void)set_text_if_changed(s_ui.source, "Source: unknown");
+    (void)set_text_if_changed(s_ui.control_mode, "Control: unknown");
+    (void)set_text_if_changed(s_ui.meter_state, "Unavailable");
+    (void)set_text_if_changed(s_ui.network_state, "Unavailable");
+    (void)set_text_if_changed(s_ui.controller_state, "Unavailable");
+    (void)set_text_if_changed(s_ui.alarm_state, "Unknown");
+    (void)set_text_if_changed(s_ui.inhibit_reason, "Control reason: backend unavailable");
 }
