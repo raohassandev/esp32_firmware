@@ -29,16 +29,16 @@ b.FIXED['U2'] = (116.0, 64.0, 180)
 
 # Controlled W5500 MDI damping placement. All four 0R parts are horizontal:
 # pad1 faces U2, pad2 faces J3. Run #31 proved 1.8 mm row spacing was smaller
-# than the real KiCad courtyard+placement-clearance envelope, so the rows are
-# spaced by 2.5 mm. This still fits the reserved Ethernet corridor while leaving
-# enough room for the single-via pair-crossing strategy used by the critical
-# router.
+# than the real KiCad courtyard+placement-clearance envelope. Runs #33/#34 then
+# proved the RXN chip escape also needs more vertical separation from the TXP
+# damper pad. Keep the RX pair fixed and shift the TX pair down while retaining
+# >=2.5 mm damper-row spacing. This stays inside the reserved Ethernet corridor.
 final.ETH_ALLOWED.update(ETH_DAMPERS)
 b.FIXED.update({
     'R_ETH_RXP_DAMP': (123.6, 60.3, 0),
     'R_ETH_RXN_DAMP': (123.6, 62.8, 0),
-    'R_ETH_TXP_DAMP': (123.6, 65.3, 0),
-    'R_ETH_TXN_DAMP': (123.6, 67.8, 0),
+    'R_ETH_TXP_DAMP': (123.6, 66.0, 0),
+    'R_ETH_TXN_DAMP': (123.6, 68.5, 0),
 })
 
 
