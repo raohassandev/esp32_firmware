@@ -13,6 +13,9 @@ import build_reva_pcb_final as final
 BASE_CANDIDATES = final._dense_zone_candidates
 BASE_CLUSTER = b.cluster_for
 SD_SIGNAL_PARTS = {'R_SDCS','R_SDMISO','R_SDMOSI','R_SDSCLK'}
+ETH_DAMPERS = {
+    'R_ETH_TXP_DAMP','R_ETH_TXN_DAMP','R_ETH_RXP_DAMP','R_ETH_RXN_DAMP',
+}
 
 # Exact Phoenix MKDS-3 terminal is slightly deeper than the earlier generic
 # prototype body. J_RLY1 must remain clear of the H1 mounting keep-out, so keep
@@ -21,10 +24,24 @@ SD_SIGNAL_PARTS = {'R_SDCS','R_SDMISO','R_SDMOSI','R_SDSCLK'}
 b.FIXED['K1'] = (28.0, 24.0, 0)
 
 # Rotate W5500 only. This brings XI/XO toward the nearby 25 MHz crystal and puts
-# the four MDI pins toward the MagJack. Do not force the MDI damping resistors to
-# absolute coordinates: run #15 proved those hard placements collide. Their
-# deterministic cluster placement remains owned by the normal U2-zone placer.
+# the four MDI pins toward the MagJack.
 b.FIXED['U2'] = (116.0, 64.0, 180)
+
+# Run #24 proved that leaving the four 0R MDI damping resistors to the generic
+# U2-zone placer makes the frozen 45 mm Ethernet conductor limit impossible:
+# their old x=94..99 mm positions alone impose >56 mm straight-line endpoint
+# distance. Place them in the intentionally reserved Ethernet corridor between
+# U2 and J3. Alternating 270/90 degree orientations reorder each pair across the
+# two resistors without crossing F.Cu chip-side stubs; the MagJack-side pads then
+# follow J3's fixed 90-degree pin order. The resulting controlled pre-route is
+# ~11-14 mm per conductor, with <1.2 mm pair skew and <=1 via/conductor.
+final.ETH_ALLOWED.update(ETH_DAMPERS)
+b.FIXED.update({
+    'R_ETH_RXP_DAMP': (123.2, 61.5, 270),
+    'R_ETH_RXN_DAMP': (125.7, 61.7, 90),
+    'R_ETH_TXP_DAMP': (123.2, 66.0, 270),
+    'R_ETH_TXN_DAMP': (125.7, 66.2, 90),
+})
 
 
 def grid(x0, y0, x1, y1, step=1.0):
