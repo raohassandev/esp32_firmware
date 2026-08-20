@@ -26,6 +26,15 @@
 static const char *TAG = "waveshare_product";
 static waveshare_display_port_handles_t s_display;
 
+static void log_dma_headroom(const char *stage)
+{
+    const uint32_t caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA;
+    ESP_LOGI(TAG, "%s: internal DMA free=%u largest=%u",
+             stage,
+             (unsigned)heap_caps_get_free_size(caps),
+             (unsigned)heap_caps_get_largest_free_block(caps));
+}
+
 static esp_err_t native_screen_init(void)
 {
     const waveshare_display_profile_t *profile =
@@ -47,7 +56,8 @@ static esp_err_t native_screen_init(void)
         .allow_no_bounce_fallback = true,
     };
 
-    ESP_LOGI(TAG, "Initializing native 800x480 Waveshare LCD/touch");
+    ESP_LOGI(TAG, "Initializing native 800x480 Waveshare LCD/touch before Core");
+    log_dma_headroom("Before LCD allocation");
     esp_err_t err = waveshare_display_port_init(&display_config, &s_display);
     if (err != ESP_OK) return err;
     err = waveshare_display_port_backlight_on();
@@ -83,7 +93,8 @@ static esp_err_t native_screen_init(void)
     esp_lv_adapter_unlock();
     if (!root) return ESP_ERR_NO_MEM;
 
-    ESP_LOGI(TAG, "Native LCD/LVGL/touch ready");
+    log_dma_headroom("After LCD/LVGL allocation");
+    ESP_LOGI(TAG, "Native LCD/LVGL/touch ready; backend remains unavailable until Core starts");
     return ESP_OK;
 }
 
@@ -154,6 +165,20 @@ static void bootstrap_task(void *argument)
 {
     (void)argument;
 
+    /* The RGB peripheral needs DMA-capable internal memory for bounce buffers
+     * and/or GDMA descriptor link lists. The shared Product Core starts Wi-Fi,
+     * HTTP and background jobs which legitimately consume most of that scarce
+     * internal memory. Reserve the board-specific display resources first, as
+     * proven by the standalone HIL path, then start the unchanged Core. */
+    esp_err_t screen_err = native_screen_init();
+    if (screen_err != ESP_OK) {
+        ESP_LOGE(TAG, "Native screen pre-allocation failed: %s; continuing to Core headless",
+                 esp_err_to_name(screen_err));
+    } else {
+        ESP_LOGI(TAG, "Native screen DMA resources reserved before Core startup");
+    }
+
+    log_dma_headroom("Before Product Core init");
     esp_err_t core_err = app_core_init();
     if (core_err != ESP_OK) {
         ESP_LOGE(TAG, "Product Core initialization failed: %s; controller remains fail-safe",
@@ -161,12 +186,9 @@ static void bootstrap_task(void *argument)
     } else {
         ESP_LOGI(TAG, "Shared Product Core started");
     }
+    log_dma_headroom("After Product Core init");
 
-    esp_err_t screen_err = native_screen_init();
-    if (screen_err != ESP_OK) {
-        ESP_LOGE(TAG, "Native screen initialization failed: %s; Core continues headless",
-                 esp_err_to_name(screen_err));
-    } else if (core_err == ESP_OK) {
+    if (screen_err == ESP_OK && core_err == ESP_OK) {
         screen_api_provider_t provider = {0};
         if (local_backend_provider_init(&provider) && screen_runtime_init(&provider)) {
             BaseType_t created = xTaskCreate(
