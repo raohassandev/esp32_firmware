@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "driver/gpio.h"
+#include "esp_heap_caps.h"
 #include "esp_lcd_panel_rgb.h"
 #include "esp_lcd_touch_gt911.h"
 #include "esp_log.h"
@@ -17,7 +18,6 @@
 #define CH422G_BACKLIGHT_ON 0x1EU
 #define RGB_DATA_WIDTH 16U
 #define RGB_DMA_BURST_SIZE 64U
-#define RGB_BOUNCE_LINES 10U
 #define I2C_TIMEOUT_MS 1000
 
 static const char *TAG = "waveshare_display";
@@ -121,9 +121,11 @@ static esp_err_t create_ch422g_devices(const waveshare_display_profile_t *profil
     return ESP_OK;
 }
 
-static esp_err_t create_rgb_panel(const waveshare_display_port_config_t *config,
-                                  esp_lcd_panel_handle_t *panel)
+static esp_err_t create_rgb_panel_attempt(const waveshare_display_port_config_t *config,
+                                          uint16_t bounce_lines,
+                                          esp_lcd_panel_handle_t *panel)
 {
+    if (!config || !panel) return ESP_ERR_INVALID_ARG;
     const waveshare_display_profile_t *p = config->profile;
     const uint8_t frame_buffers =
         esp_lv_adapter_get_required_frame_buffer_count(config->tear_mode, config->rotation);
@@ -148,7 +150,7 @@ static esp_err_t create_rgb_panel(const waveshare_display_port_config_t *config,
         .in_color_format = LCD_COLOR_FMT_RGB565,
         .out_color_format = LCD_COLOR_FMT_RGB565,
         .num_fbs = frame_buffers,
-        .bounce_buffer_size_px = (size_t)p->width * RGB_BOUNCE_LINES,
+        .bounce_buffer_size_px = (size_t)p->width * bounce_lines,
         .dma_burst_size = RGB_DMA_BURST_SIZE,
         .hsync_gpio_num = p->hsync_gpio,
         .vsync_gpio_num = p->vsync_gpio,
@@ -166,16 +168,34 @@ static esp_err_t create_rgb_panel(const waveshare_display_port_config_t *config,
         },
     };
 
-    ESP_LOGI(TAG, "RGB %ux%u pclk=%lu Hz frame_buffers=%u",
+    const size_t dma_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
+    const size_t dma_largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
+    ESP_LOGI(TAG,
+             "RGB %ux%u pclk=%lu Hz frame_buffers=%u bounce_lines=%u internal_dma_free=%u largest=%u",
              (unsigned)p->width, (unsigned)p->height,
-             (unsigned long)p->pixel_clock_hz, (unsigned)frame_buffers);
+             (unsigned long)p->pixel_clock_hz, (unsigned)frame_buffers,
+             (unsigned)bounce_lines, (unsigned)dma_free, (unsigned)dma_largest);
 
+    *panel = NULL;
     esp_err_t err = esp_lcd_new_rgb_panel(&panel_cfg, panel);
     if (err != ESP_OK) return err;
     err = esp_lcd_panel_init(*panel);
     if (err != ESP_OK) {
         (void)esp_lcd_panel_del(*panel);
         *panel = NULL;
+    }
+    return err;
+}
+
+static esp_err_t create_rgb_panel(const waveshare_display_port_config_t *config,
+                                  esp_lcd_panel_handle_t *panel)
+{
+    const uint16_t requested_lines = config->bounce_buffer_lines;
+    esp_err_t err = create_rgb_panel_attempt(config, requested_lines, panel);
+    if (err == ESP_ERR_NO_MEM && requested_lines > 0U && config->allow_no_bounce_fallback) {
+        ESP_LOGW(TAG,
+                 "RGB bounce allocation unavailable; retrying direct PSRAM framebuffer mode");
+        err = create_rgb_panel_attempt(config, 0U, panel);
     }
     return err;
 }
