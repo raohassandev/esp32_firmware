@@ -40,6 +40,12 @@ def release_candidates(anchor_old, base):
     ax=pcbnew.ToMM(base.x); ay=pcbnew.ToMM(base.y)
     pts=list(BASE_CANDIDATES(anchor_old, base))
 
+    # The 5 V field-power block needs a third compact reserve below the USB
+    # horizontal corridor. Earlier H2 routing used this same low-voltage area;
+    # it remains above the relay-contact zone and outside the protected USB path.
+    if anchor_old == 'U5':
+        pts.extend(grid(31.0, 40.0, 50.0, 51.0, 1.0))
+
     if anchor_old in ('U_DI1','U_DI2','U_DI3','U_DI4'):
         pts.extend(grid(94.0, 70.0, 136.0, 91.0, 1.0))
 
