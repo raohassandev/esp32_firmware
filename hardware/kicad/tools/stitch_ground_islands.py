@@ -4,8 +4,10 @@
 Surface pours are intentionally allowed to fracture around dense signal routing.
 Each pad-connected filled outline receives either an ordinary through-via inside
 the island or, for narrow fragments, a short DRC-aware F.Cu GND tail to a safe
-through-via. This closes the island onto the continuous In1.Cu reference without
-placing vias inside footprint/rule-area keepouts.
+through-via. For fragments with no pad centre inside the polygon, the tail starts
+from verified copper inside the filled outline itself. This closes the island onto
+the continuous In1.Cu reference without placing vias inside footprint/rule-area
+keepouts.
 """
 from pathlib import Path
 import math
@@ -193,6 +195,26 @@ def gnd_pads_in_outline(board,outline,gcode):
     return out
 
 
+def copper_tail_origins(outline):
+    """Yield a small deterministic set of points proven inside this filled island."""
+    minx,maxx,miny,maxy=bounds(outline); cx=(minx+maxx)/2; cy=(miny+maxy)/2
+    cand=[(0.0,cx,cy)]
+    step=0.20; inset=0.05; x=minx+inset
+    while x<=maxx-inset+1e-9:
+        y=miny+inset
+        while y<=maxy-inset+1e-9:
+            cand.append((math.hypot(x-cx,y-cy),x,y)); y+=step
+        x+=step
+    cand.sort()
+    emitted=0
+    for _,x,y in cand:
+        try: inside=outline.PointInside(pt(x,y))
+        except Exception: inside=False
+        if not inside: continue
+        yield (x,y); emitted+=1
+        if emitted>=20: return
+
+
 def tail_points(px,py):
     cand=[]; dx=-TAIL_RADIUS
     while dx<=TAIL_RADIUS+1e-9:
@@ -207,13 +229,20 @@ def tail_points(px,py):
 
 
 def choose_tail(board,outline,gcode,via_keepouts,track_keepouts):
+    origins=[]
     for pad in gnd_pads_in_outline(board,outline,gcode):
-        a=xy(pad.GetPosition())
+        origins.append((pad,xy(pad.GetPosition())))
+    origins.extend((None,a) for a in copper_tail_origins(outline))
+    seen=set()
+    for source,a in origins:
+        key=(round(a[0],3),round(a[1],3))
+        if key in seen: continue
+        seen.add(key)
         for x,y in tail_points(*a):
             b=(x,y)
             if not safe(board,x,y,gcode,via_keepouts): continue
             if not track_safe(board,a,b,gcode,track_keepouts): continue
-            return pad,a,b
+            return source,a,b
     return None
 
 
@@ -259,9 +288,10 @@ def main(board_path):
                 add_via(board,chosen[0],chosen[1],gnet); added+=1; continue
             tail=choose_tail(board,outline,gcode,via_keepouts,track_keepouts)
             if tail is not None:
-                pad,a,b=tail; add_track(board,a,b,gnet); add_via(board,b[0],b[1],gnet)
+                source,a,b=tail; add_track(board,a,b,gnet); add_via(board,b[0],b[1],gnet)
                 added+=1; tails+=1
-                print(f'GND_ISLAND_TAIL idx={idx} pad={pad_label(pad)} from=({a[0]:.3f},{a[1]:.3f}) via=({b[0]:.3f},{b[1]:.3f})')
+                source_label=pad_label(source) if source is not None else 'filled-copper'
+                print(f'GND_ISLAND_TAIL idx={idx} source={source_label} from=({a[0]:.3f},{a[1]:.3f}) via=({b[0]:.3f},{b[1]:.3f})')
                 continue
             skipped+=1; minx,maxx,miny,maxy=bounds(outline)
             print(f'GND_ISLAND_SKIP idx={idx} bounds=({minx:.3f},{miny:.3f})-({maxx:.3f},{maxy:.3f})')
