@@ -17,7 +17,7 @@
 #include "waveshare_display_profile.h"
 
 #define SCREEN_REFRESH_STACK_BYTES 12288
-#define PRODUCT_RGB_BOUNCE_LINES 5U
+#define PRODUCT_RGB_BOUNCE_LINES 6U
 #define SCREEN_FAST_MS 1000U
 #define SCREEN_STATUS_MS 5000U
 #define SCREEN_DEVICES_MS 10000U
@@ -41,12 +41,11 @@ static void log_dma_headroom(const char *stage)
  * race before Wi-Fi/httpd/control tasks start. Full LVGL/UI creation is delayed
  * until after the unchanged shared Core has created its safety-critical tasks.
  *
- * Five bounce lines use 16 kB for the driver's two RGB565 bounce buffers at
- * 800 px width. The previous four-line product budget was enough to boot Core
- * but showed visible scanout instability once live data was updating. Five is
- * the smallest bounded increase (+3.2 kB) before considering a larger memory
- * rebalance. The standalone HIL image remains pinned to the vendor 10-line
- * qualification setting. */
+ * Six bounce lines use 19.2 kB for the driver's two RGB565 bounce buffers at
+ * 800 px width. The five-line product budget still showed visible scanout
+ * instability on the physical board after no-op LVGL label redraws were
+ * suppressed, so this is the next bounded +3.2 kB increment. The standalone
+ * HIL image remains pinned to the vendor 10-line qualification setting. */
 static esp_err_t native_screen_reserve(void)
 {
     s_profile = waveshare_display_profile(WAVESHARE_DISPLAY_800X480);
