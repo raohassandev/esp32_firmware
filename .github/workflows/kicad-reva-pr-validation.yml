@@ -38,6 +38,8 @@ jobs:
           set -euo pipefail
           python3 hardware/kicad/tools/run_reva_generator.py
           SCH='hardware/kicad/Automatrix_PVDG_RevA.kicad_sch'
+          cp "$SCH" hardware/kicad/Automatrix_PVDG_RevA-preupgrade.kicad_sch
+          cp hardware/kicad/Automatrix.kicad_sym hardware/kicad/Automatrix-preupgrade.kicad_sym
           K="docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $PWD:/work -w /work kicad/kicad:10.0.5 kicad-cli"
           $K sch upgrade --force "$SCH"
           $K sch erc --severity-all --exit-code-violations --output hardware/kicad/Automatrix_PVDG_RevA-erc.rpt "$SCH"
@@ -110,6 +112,11 @@ jobs:
             hardware/kicad/Automatrix_PVDG_RevA.ses
             hardware/kicad/route-attempt-*.ses
             hardware/kicad/route-attempt-*-drc.rpt
+            hardware/kicad/Automatrix_PVDG_RevA-preupgrade.kicad_sch
+            hardware/kicad/Automatrix-preupgrade.kicad_sym
+            hardware/kicad/Automatrix_PVDG_RevA.kicad_sch
+            hardware/kicad/Automatrix.kicad_sym
+            hardware/kicad/REFERENCE_MAP.json
             hardware/kicad/Automatrix_PVDG_RevA-erc.rpt
             hardware/kicad/Automatrix_PVDG_RevA-drc.rpt
             hardware/kicad/Automatrix_PVDG_RevA-si.rpt
