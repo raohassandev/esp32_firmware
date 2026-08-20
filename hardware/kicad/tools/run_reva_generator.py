@@ -30,6 +30,16 @@ FP = {
 for c in final.g.COMPS:
     c["footprint"] = FP.get(c["footprint"], c["footprint"])
 
+# Relay contact terminals are no longer a generic 5.08 mm family placeholder.
+# Freeze the exact Phoenix Contact 1712193 / MKDS 3/3-5.08 mechanical part and
+# its stock KiCad footprint before final routing so provider geometry is stable.
+RELAY_TERM_FP = "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-3-3-5.08_1x03_P5.08mm_Horizontal"
+for c in final.g.COMPS:
+    if c["ref"] in {"J_RLY1", "J_RLY2", "J_RLY3", "J_RLY4"}:
+        c["value"] = "Phoenix MKDS 3/3-5.08 BK 1712193"
+        c["footprint"] = RELAY_TERM_FP
+        c["datasheet"] = "https://www.phoenixcontact.com/en-in/products/printed-circuit-board-terminal-mkds-3-3-508-bk-1712193"
+
 # Re-layout the generated engineering schematic on an A0 collision-free grid.
 COLS = 12
 X0, Y0 = 45.0, 60.0
