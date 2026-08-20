@@ -15,7 +15,7 @@ Q1-Q4,4,YES,YES,Relay driver,Multiple,AO3400A-class,SOT-23,NMOS low-side driver;
 D_FLY1-D_FLY4,4,YES,YES,Relay flyback,Multiple,SS14-class,SMA_or_SOD123,Across relay coil
 R_PD1-R_PD4,4,YES,YES,Relay gate pulldown,Multiple,10k,0603,Stronger hardware OFF bias during reset/brownout
 LED1-LED4,4,YES,YES,Relay indication,Multiple,LED,0603_or_0805,One per relay
-J_RELAY1-J_RELAY4,4,YES,YES,Relay field terminal,Multiple,3P 5.08mm field terminal,THT_P5.08,NC COM NO; exact rated vendor MPN remains mechanical/safety gate
+J_RELAY1-J_RELAY4,4,YES,YES,Relay field terminal,Phoenix Contact,MKDS 3/ 3-5.08 BK 1712193,TerminalBlock_Phoenix_MKDS-3-3-5.08_1x03_P5.08mm_Horizontal,NC COM NO; exact 3-position 5.08mm terminal; 24A nominal manufacturer rating; board contact path remains limited to 5A target
 J_PWR,1,YES,YES,Field power terminal,Multiple,2P 5.08mm field terminal,THT_P5.08,VIN+ VIN-
 J_RS485A-J_RS485B,2,YES,YES,RS485 terminal,Multiple,3P 5.08mm field terminal,THT_P5.08,A B GND
 J_HMI,1,YES,YES,Serial HMI,JST,B4B-XH-A,JST_XH_B4B-XH-A,+5V GND TX RX

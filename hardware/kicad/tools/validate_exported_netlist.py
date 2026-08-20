@@ -98,9 +98,15 @@ check("J_USB", {
     "A1":"GND","A4":"USB_5V","A5":"USB_CC1","A6":"USB_D+","A7":"USB_D-","A9":"USB_5V","A12":"GND",
     "B1":"GND","B4":"USB_5V","B5":"USB_CC2","B6":"USB_D+","B7":"USB_D-","B9":"USB_5V","B12":"GND","SH":"CHASSIS",
 })
+
+# Relay coil/contact devices and the external NC/COM/NO terminal order are all
+# checked from the exported physical netlist. This prevents a mechanically valid
+# terminal substitution from silently swapping field wiring semantics.
 for n in range(1,5):
     check(f"K{n}", {"A1":"5V_FIELD","A2":f"RELAY{n}_COIL","11":f"RLY{n}_COM","14":f"RLY{n}_NO","12":f"RLY{n}_NC"})
     check(f"Q{n}", {"1":f"RELAY{n}_GATE","2":"GND","3":f"RELAY{n}_COIL"})
+    check(f"J_RLY{n}", {"1":f"RLY{n}_NC","2":f"RLY{n}_COM","3":f"RLY{n}_NO"})
+
 check("U7", {"1":"RS232_C1P","2":"RS232_VPLUS","3":"RS232_C1M","4":"RS232_C2P","5":"RS232_C2M","6":"RS232_VMINUS","11":"HMI_TX","12":"HMI_RX","13":"HMI_RS232_RX","14":"HMI_RS232_TX","15":"GND","16":"3V3"})
 check("J_RS232", {"1":"GND","2":"HMI_RS232_TX","3":"HMI_RS232_RX"})
 
@@ -131,4 +137,4 @@ check("C_LEDLOGIC", {"1":"3V3","2":"GND"})
 
 for ref,pin in [("U2","24"),("U2","26"),("J_USB","A8"),("J_USB","B8")]: check_nc(ref,pin)
 
-print(f"exported physical pin/net audit: PASS ({len(pin_to_net)} connected pins indexed; communications, USB/HMI protection and diagnostics verified)")
+print(f"exported physical pin/net audit: PASS ({len(pin_to_net)} connected pins indexed; communications, USB/HMI protection, relay terminals and diagnostics verified)")

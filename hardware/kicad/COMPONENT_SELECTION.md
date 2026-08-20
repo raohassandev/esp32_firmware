@@ -16,7 +16,7 @@ This file controls major-component choices for the KiCad implementation. `FROZEN
 | 3.3 V logic rail | Diodes Inc. AP63203WU-7, fixed 3.3 V / 2 A synchronous buck | FROZEN FOR PROTOTYPE | Manufacturer documentation identifies AP63203 as the fixed 3.3 V member; 5 V-to-3.3 V conversion leaves useful current margin. |
 | Relay | Hongfa HF3FF/005-1ZST, 5 V coil, 1 Form C / SPDT | FROZEN FOR PROTOTYPE | Compact Form-C relay; board/contact copper is independently limited to the declared 5 A target pending validation. |
 | Relay driver | AO3400A-class N-MOSFET + SS14-class flyback + 100 Ω gate resistor + 10 kΩ gate pulldown | FROZEN FUNCTION / SOURCE-ALTERNATE | 10 kΩ pulldown strengthens OFF-at-reset/brownout behavior without material GPIO load. Exact MOSFET source remains to be frozen against 3.3 V RDS(on). |
-| Relay terminal | 3-position 5.08 mm field terminal, NC/COM/NO | FROZEN MECHANICAL FAMILY | Exact vendor MPN/current/voltage approval/body height remains a pre-release mechanical/safety gate. |
+| Relay terminal | Phoenix Contact MKDS 3/ 3-5,08 BK, order 1712193, 3-position 5.08 mm | FROZEN FOR PROTOTYPE | Exact relay-contact terminal. Manufacturer data gives 24 A nominal current, 400 V (III/2) and 250 V (III/3) ratings; stock KiCad footprint `TerminalBlock_Phoenix_MKDS-3-3-5.08_1x03_P5.08mm_Horizontal` is locked. Board copper remains independently limited to the 5 A target and final mains suitability remains a product-compliance gate. |
 | Power/RS485/DI terminals | 5.08 mm field terminal family | FROZEN MECHANICAL FAMILY | Common serviceable field pitch; exact 2/3/5-position vendor parts remain to be frozen. |
 | USB-C | GCT USB4105 family, 16-pin USB2 device receptacle with through-hole shell stakes | FROZEN FAMILY / EXACT SUFFIX OPEN | Native ESP32-S3 USB; exact stake-length suffix must match 1.6 mm PCB/enclosure mechanics before manufacturing. |
 | USB D+/D- ESD | TI TPD1E05U06DYAR, SOD-523, one per line | FROZEN FOR PROTOTYPE | 0.5 pF-class high-speed protector; physical pin 1 I/O, pin 2 GND; placed adjacent to connector. |
@@ -42,6 +42,7 @@ This file controls major-component choices for the KiCad implementation. `FROZEN
 - TI TPS54360B datasheet and TPS54360EVM-182 control the main 5 V starting network/layout; exact thermal margin remains prototype/release evidence.
 - Diodes Inc. AP63203 documentation controls the fixed 3.3 V rail and layout.
 - Hongfa HF3FF drawing controls relay pin numbering, body and coil/contact limits.
+- Phoenix Contact MKDS 3/3-5.08 BK (1712193) documentation controls the relay-terminal mechanical envelope, pin pitch and terminal electrical ratings; it does not by itself certify the assembled PCB for mains use.
 - TI SN74LVC1G17 documentation controls the HMI partial-power buffer; DBV physical pins are 1 NC, 2 A, 3 GND, 4 Y, 5 VCC.
 - TI TPD1E05U06 controls USB ESD placement/pinout; DYA pin 1 is I/O and pin 2 is GND.
 - TI TPD1E10B06 controls HMI RX ESD protection.
@@ -55,7 +56,7 @@ Prototype Rev-A prioritizes a defensible industrial electrical design. A cheaper
 1. Freeze USB4105 exact suffix/stake length against final 1.6 mm PCB and enclosure opening.
 2. Verify J1B1211CCD exact supplier drawing, magnetics/center taps, LED pins and footprint.
 3. Verify HF3FF custom footprint from Hongfa drawing.
-4. Freeze exact 2P/3P/5P 5.08 mm terminal MPNs/body heights and safety ratings.
+4. Freeze exact non-relay 2P/3P/5P 5.08 mm terminal MPNs/body heights and safety ratings.
 5. Freeze exact TPS54360 input protection/reverse-polarity MOSFET/inductor/capacitor MPNs after thermal/DC-bias review.
 6. Freeze exact W5500 25 MHz crystal and load capacitors.
 7. Freeze exact AO3400A-source MOSFET with guaranteed RDS(on) at a 3.3 V-compatible gate drive.

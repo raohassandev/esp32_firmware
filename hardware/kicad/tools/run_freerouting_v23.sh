@@ -21,30 +21,48 @@ python3 hardware/kicad/tools/prepare_dsn_plane_classes.py "$DSN"
 curl -fL --retry 3 --retry-delay 2 -o /tmp/freerouting.jar \
   https://github.com/freerouting/freerouting/releases/download/v2.3.0/freerouting-2.3.0.jar
 
+# Freerouting's -inc option intentionally ignores GND_PLANE. Those ignored GND
+# ratsnest items remain visible in Freerouting's "unrouted" score even though
+# they are closed later by KiCad surface copper + L2 stitching. Previous runs
+# timed out while Freerouting kept optimizing an already-stable score, so no SES
+# was written and the authoritative KiCad post-fill audit never got a chance to
+# decide whether the remaining items were only the intentionally ignored plane.
+# Bound the pass count so Freerouting exits normally and writes the SES; KiCad,
+# not the router score, is the final connectivity/DRC authority.
 success=0
 for attempt in 1 2; do
   OUT="hardware/kicad/route-attempt-${attempt}.ses"
   rm -f "$OUT"; cp "$PLACED" "$PCB"
   case "$attempt" in
-    1) LIMIT=300; OPTS='-mp 120 -mt 3 -oit 0.15 -is prioritized -us greedy' ;;
-    2) LIMIT=420; OPTS='-mp 180 -mt 4 -oit 0.10 -is sequential -us hybrid' ;;
+    1)
+      LIMIT=420
+      FANOUT=false
+      OPTS='-mp 10 -mt 3 -oit 0.15 -is prioritized -us greedy'
+      ;;
+    2)
+      # Escape pass: allow SMD fanout and a different optimization ordering if
+      # the first completed session still leaves non-GND ratsnest after fill.
+      LIMIT=600
+      FANOUT=true
+      OPTS='-mp 18 -mt 4 -oit 0.05 -is random -us hybrid -hr 2:1'
+      ;;
   esac
-  echo "=== FREEROUTING 2.3 ATTEMPT $attempt limit=${LIMIT}s GND=PLANE FANOUT=OFF ===" | tee -a hardware/kicad/freerouting.log
+  echo "=== FREEROUTING 2.3 ATTEMPT $attempt limit=${LIMIT}s fanout=${FANOUT} GND=IGNORED_PLANE ===" | tee -a hardware/kicad/freerouting.log
   set +e
   timeout "${LIMIT}s" java -Xmx5g -jar /tmp/freerouting.jar --gui.enabled=false \
-    --router.automatic_neckdown=false --router.fanout.enabled=false \
+    --router.automatic_neckdown=false --router.fanout.enabled="$FANOUT" \
     -de "$DSN" -do "$OUT" -inc GND_PLANE $OPTS 2>&1 | tee -a hardware/kicad/freerouting.log
   ROUTER_RC=${PIPESTATUS[0]}
   set -e
   echo "FREEROUTING_ATTEMPT_${attempt}_EXIT=$ROUTER_RC" | tee -a hardware/kicad/freerouting.log
+  [ "$ROUTER_RC" = 0 ] || continue
   [ -s "$OUT" ] || continue
 
   $KPY hardware/kicad/tools/route_reva_freerouting.py import "$PCB" "$OUT"
 
   # Keep Freerouting's native SD_SCLK route. Run #147 proved the former
   # deterministic replacement was the source of the final 12 DRC collisions;
-  # the imported SES route itself uses a separated F/B corridor and must be
-  # validated by KiCad DRC instead of being overwritten after import.
+  # the imported SES route itself must be validated by KiCad DRC.
   echo 'SD_SCLK_ROUTE_SOURCE=FREEROUTING_SES' | tee -a hardware/kicad/freerouting.log
 
   # Add surface copper, fill once so islands are measurable, stitch every safe
