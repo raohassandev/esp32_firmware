@@ -15,9 +15,10 @@ BASE_CLUSTER = b.cluster_for
 SD_SIGNAL_PARTS = {'R_SDCS','R_SDMISO','R_SDMOSI','R_SDSCLK'}
 
 # Exact Phoenix MKDS-3 terminal is slightly deeper than the earlier generic
-# prototype body. Keep J_RLY1 clear of the H1 mounting keep-out and move only K1
-# 1.5 mm inward; Q1 is laterally offset so this preserves driver clearance.
-b.FIXED['K1'] = (20.0, 25.5, 0)
+# prototype body. J_RLY1 must remain clear of the H1 mounting keep-out, so keep
+# the terminal row fixed and shift only K1 laterally into its channel. This
+# restores coil-driver service space while increasing terminal/relay separation.
+b.FIXED['K1'] = (28.0, 24.0, 0)
 
 
 def grid(x0, y0, x1, y1, step=1.0):
