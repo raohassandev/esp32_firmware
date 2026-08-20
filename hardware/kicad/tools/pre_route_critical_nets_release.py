@@ -59,11 +59,13 @@ def route_ethernet(board):
     j_rx_p=_require_net(base.pad_number(j3,4),'ETH_RXP_MAG')
     j_rx_n=_require_net(base.pad_number(j3,6),'ETH_RXN_MAG')
 
-    # Run #32 left one DRC error only: the two RX diagonals converged to 0.081 mm.
-    # Separate them with non-overlapping orthogonal columns. TX already passed
-    # DRC with the compact diagonal escape and is intentionally left unchanged.
-    _chip_dogleg(board,rx_p,r_rxp_c,121.00)
-    _chip_dogleg(board,rx_n,r_rxn_c,121.80)
+    # Run #33 left one DRC error only: the RXP vertical dogleg at x=121.00
+    # intersected U2 pad 7 (no-net). Shift the RX pair together to the right
+    # while preserving conductor order. RXP remains the left column so the RXN
+    # source escape at y=64.75 never crosses the RXP vertical, whose upper end is
+    # y=64.25. The 0.80 mm column spacing comfortably exceeds track+clearance.
+    _chip_dogleg(board,rx_p,r_rxp_c,121.65)
+    _chip_dogleg(board,rx_n,r_rxn_c,122.45)
     _chip_escape(board,tx_p,r_txp_c)
     _chip_escape(board,tx_n,r_txn_c)
 
@@ -91,7 +93,7 @@ def route_ethernet(board):
     base.add_via(board,v,base.net_from_pad(r_txn_m))
     base.add_polyline(board,[v,(127.20,d[1]),d],IN2,base.net_from_pad(r_txn_m),base.WIDTH_ETH_MM)
 
-    print('ETHERNET_CRITICAL_PREROUTE: PASS separated RX doglegs + one-via/layer-separated pair crossings')
+    print('ETHERNET_CRITICAL_PREROUTE: PASS shifted RX doglegs + one-via/layer-separated pair crossings')
 
 
 def _usb_mcu_stub(board, src, dst, via1, via2):
