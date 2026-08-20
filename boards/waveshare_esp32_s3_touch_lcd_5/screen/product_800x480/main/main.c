@@ -43,6 +43,8 @@ static esp_err_t native_screen_init(void)
         .tear_mode = tear_mode,
         .rotation = rotation,
         .enable_touch = true,
+        .bounce_buffer_lines = WAVESHARE_RGB_DEFAULT_BOUNCE_LINES,
+        .allow_no_bounce_fallback = true,
     };
 
     ESP_LOGI(TAG, "Initializing native 800x480 Waveshare LCD/touch");
