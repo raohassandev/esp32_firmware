@@ -20,6 +20,12 @@ SD_SIGNAL_PARTS = {'R_SDCS','R_SDMISO','R_SDMOSI','R_SDSCLK'}
 # restores coil-driver service space while increasing terminal/relay separation.
 b.FIXED['K1'] = (28.0, 24.0, 0)
 
+# Rotate W5500 only. This brings XI/XO toward the nearby 25 MHz crystal and puts
+# the four MDI pins toward the MagJack. Do not force the MDI damping resistors to
+# absolute coordinates: run #15 proved those hard placements collide. Their
+# deterministic cluster placement remains owned by the normal U2-zone placer.
+b.FIXED['U2'] = (116.0, 64.0, 180)
+
 
 def grid(x0, y0, x1, y1, step=1.0):
     pts=[]
