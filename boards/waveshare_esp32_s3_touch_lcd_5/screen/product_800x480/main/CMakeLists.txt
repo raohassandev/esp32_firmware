@@ -2,6 +2,7 @@ idf_component_register(
     SRCS
         "main.c"
         "local_backend_provider.c"
+        "local_commissioning_backend.c"
     INCLUDE_DIRS "."
     REQUIRES
         app_core
@@ -13,6 +14,7 @@ idf_component_register(
         network_manager
         safety_manager
         source_detection
+        solar_grid_config
         web_server
         cjson
         esp_app_format
@@ -20,5 +22,6 @@ idf_component_register(
         esp_lcd_touch_gt911
         esp_lcd
         esp_timer
+        esp_system
         esp_driver_gpio
 )
