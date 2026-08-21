@@ -31,12 +31,11 @@ TRACK_CLEAR = 0.24
 
 # Recurring post-router GND islands are reserved before Specctra export so the
 # signal router must leave legal vertical access to the solid L2 reference.
-# Run #42 proved the final two floating islands were C35:1 and U2:23 while the
-# previously reserved U2:9 island was already electrically closed. C35 escapes
-# left, away from CHASSIS pad 2. U2:23 escapes perpendicular to the 0.5-mm-pitch
-# top pad row; the 0.20-mm spoke retains >=0.20-mm real copper clearance and the
-# via is placed beyond the adjacent-pad envelope. KiCad pre-route DRC remains
-# the release authority for these intentionally dense escapes.
+# Run #42 proved C35:1 and U2:23; Run #43 then exposed U2:29, C34:2 and U14:7
+# after the router re-packed low-speed traces around the newly reserved vias.
+# Edge pads escape perpendicular away from their packages; passive GND pads
+# escape away from the opposite terminal. Immediate KiCad pre-route DRC remains
+# the release authority for these dense but deterministic reservations.
 PRE_ROUTE_GND_ESCAPES = (
     ("C14", "2", 0.90, 0.00),
     ("C16", "2", 0.90, 0.00),
@@ -46,6 +45,9 @@ PRE_ROUTE_GND_ESCAPES = (
     ("U2", "9", 1.285, 0.00),
     ("C35", "1", -0.90, 0.00),
     ("U2", "23", 0.00, -1.50),
+    ("U2", "29", -1.285, 0.00),
+    ("C34", "2", 0.90, 0.00),
+    ("U14", "7", -1.285, 0.00),
 )
 
 
@@ -103,9 +105,8 @@ def assert_escape_clear(board, pad, via_xy, gcode):
         raise RuntimeError(f"pre-route GND via enters MagJack exclusion at {(vx, vy)}")
 
     # All controlled escapes are axis-aligned. Test the spoke centreline bbox
-    # against pads inflated once by half-track-width + clearance. This supports
-    # both horizontal passive escapes and the vertical W5500 pad-23 escape
-    # without double-counting the track radius. Immediate KiCad DRC is final.
+    # against pads inflated once by half-track-width + clearance. Immediate
+    # KiCad DRC after the locked critical routes is the final geometry authority.
     corridor = (min(px, vx), max(px, vx), min(py, vy), max(py, vy))
     for fp in board.Footprints():
         for other in fp.Pads():
