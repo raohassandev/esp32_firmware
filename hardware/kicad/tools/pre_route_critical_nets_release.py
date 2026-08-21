@@ -96,6 +96,24 @@ def route_ethernet(board):
     print('ETHERNET_CRITICAL_PREROUTE: PASS GND-escape-aware RX doglegs + TXN skew trim')
 
 
+def route_eth_tocap(board):
+    """Lock the W5500 TOCAP decoupling net that Freerouting left open in Run #44."""
+    u2=base.footprint(board,base.semantic_ref('U2'))
+    c13=base.footprint(board,'C13')
+    src=_require_net(base.pad_number(u2,20),'ETH_TOCAP')
+    dst=_require_net(base.pad_number(c13,1),'ETH_TOCAP')
+    s=_xy(src); d=_xy(dst); net=base.net_from_pad(src)
+
+    # U2:20 is in the 0.5-mm-pitch top row. Escape outward first. U2:23 has a
+    # reserved GND spoke/via at x=113.75/y=58.337, so detour above that via,
+    # return to y=58.8 after x=113.0, then approach C13 vertically. This keeps
+    # the local analog node short without crossing adjacent W5500 pads/GND.
+    pts=[s,(s[0],58.80),(114.50,58.80),(114.50,57.60),
+         (113.00,57.60),(113.00,58.80),(d[0],58.80),d]
+    base.add_polyline(board,pts,pcbnew.F_Cu,net,base.WIDTH_ETH_MM)
+    print('ETH_TOCAP_PREROUTE: PASS U2:20 -> C13:1 locked local decoupling route')
+
+
 def _usb_mcu_stub(board, src, dst, via1, via2):
     net=base.net_from_pad(src); F=pcbnew.F_Cu; IN2=board.GetLayerID('In2.Cu')
     base.add_track(board,_xy(src),via1,F,net,base.WIDTH_USB_MM)
@@ -172,10 +190,11 @@ def main(board_path):
     path=Path(board_path); board=pcbnew.LoadBoard(str(path))
     if board is None: raise SystemExit(f'cannot load board: {path}')
     route_ethernet(board)
+    route_eth_tocap(board)
     route_usb(board)
     board.BuildConnectivity(); conn=board.GetConnectivity(); conn.Build(board); conn.RecalculateRatsnest()
     pcbnew.SaveBoard(str(path),board)
-    print('CRITICAL_PREROUTE_LOCKED: PASS USB + Ethernet MDI')
+    print('CRITICAL_PREROUTE_LOCKED: PASS USB + Ethernet MDI + ETH_TOCAP')
     print('  unrouted_after_critical_preroute=%d' % int(conn.GetUnconnectedCount(False)))
 
 
