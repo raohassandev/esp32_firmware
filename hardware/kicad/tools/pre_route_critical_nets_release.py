@@ -62,8 +62,8 @@ def route_ethernet(board):
     # The four mandatory 49.9R W5500 line-bias parts are controlled branches
     # of the *_MAG nets. Runs #52/#202 proved that filtering SES routes without
     # owning these endpoints leaves four real opens. The release placement puts
-    # every bias pad 2 beside its damping pad 2, so equal short F.Cu stubs add no
-    # pair skew, no vias and no disallowed layer usage.
+    # every bias pad 2 beside its damping pad 2, so short pair-matched F.Cu stubs add
+    # no vias and no disallowed layer usage while retaining the frozen skew gate.
     for semantic, net_name, source in (
         ('R_ETH_RXP_BIAS','ETH_RXP_MAG',r_rxp_m),
         ('R_ETH_RXN_BIAS','ETH_RXN_MAG',r_rxn_m),
