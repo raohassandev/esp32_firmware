@@ -18,8 +18,9 @@ import pcbnew
 
 # These routes are authored and locked by pre_route_critical_nets_release.py.
 # Freerouting may echo redundant unlocked wiring for already-complete nets in
-# its SES. Remove only those unlocked additions after import; the locked source
-# topology and the frozen final SI validator remain authoritative.
+# its SES. Filter those protected net blocks from the SES before import; this
+# avoids mutating pcbnew's SWIG track container while preserving the locked
+# source topology. The frozen final SI validator remains authoritative.
 PROTECTED_CRITICAL_NETS = (
     "ETH_TXP", "ETH_TXP_MAG", "ETH_TXN", "ETH_TXN_MAG",
     "ETH_RXP", "ETH_RXP_MAG", "ETH_RXN", "ETH_RXN_MAG",
@@ -36,30 +37,68 @@ def locked_critical_counts(board):
     return counts
 
 
-def strip_unlocked_critical_additions(board, baseline):
-    missing = [name for name, count in baseline.items() if count == 0]
-    if missing:
-        raise RuntimeError(f"protected critical pre-route missing locked items: {missing}")
+def _sexpr_end(text, start):
+    depth = 0
+    quoted = False
+    escaped = False
+    for idx in range(start, len(text)):
+        char = text[idx]
+        if quoted:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                quoted = False
+            continue
+        if char == '"':
+            quoted = True
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return idx + 1
+    raise RuntimeError(f"unterminated SES s-expression at byte {start}")
 
+
+def filter_protected_ses_routes(ses_path):
+    path = Path(ses_path)
+    text = path.read_text(encoding="utf-8")
+    network_start = text.find("(network_out")
+    if network_start < 0:
+        raise RuntimeError("SES network_out section missing")
+    network_end = _sexpr_end(text, network_start)
+    region = text[network_start:network_end]
+    net_pattern = re.compile(r'\(\s*net\s+(?:"([^"]+)"|([^\s()]+))')
+
+    spans = []
     removed = {name: 0 for name in PROTECTED_CRITICAL_NETS}
-    for item in list(board.GetTracks()):
-        name = item.GetNetname()
-        if name in removed and not item.IsLocked():
-            board.Remove(item)
-            removed[name] += 1
+    for match in net_pattern.finditer(region):
+        name = match.group(1) or match.group(2)
+        if name not in removed:
+            continue
+        spans.append((match.start(), _sexpr_end(region, match.start())))
+        removed[name] += 1
 
-    restored = locked_critical_counts(board)
-    if restored != baseline:
-        raise RuntimeError(f"protected critical route changed across SES import: before={baseline} after={restored}")
-    leaked = [item.GetNetname() for item in board.GetTracks()
-              if item.GetNetname() in removed and not item.IsLocked()]
+    for begin, finish in reversed(spans):
+        region = region[:begin] + region[finish:]
+    filtered = text[:network_start] + region + text[network_end:]
+    path.write_text(filtered, encoding="utf-8")
+
+    check_end = _sexpr_end(filtered, network_start)
+    check_region = filtered[network_start:check_end]
+    leaked = []
+    for match in net_pattern.finditer(check_region):
+        name = match.group(1) or match.group(2)
+        if name in removed:
+            leaked.append(name)
     if leaked:
-        raise RuntimeError(f"unlocked protected critical SES items remain: {sorted(set(leaked))}")
+        raise RuntimeError(f"protected SES net blocks remain: {sorted(set(leaked))}")
 
     for name in PROTECTED_CRITICAL_NETS:
-        print(f"CRITICAL_ROUTE_RESTORE: net={name} locked_items={restored[name]} removed_unlocked={removed[name]}")
-    print(f"CRITICAL_ROUTE_RESTORE_PASS: protected={len(PROTECTED_CRITICAL_NETS)} removed_unlocked={sum(removed.values())}")
-
+        print(f"CRITICAL_SES_FILTER: net={name} blocks_removed={removed[name]}")
+    print(f"CRITICAL_SES_FILTER_PASS: protected={len(PROTECTED_CRITICAL_NETS)} blocks_removed={sum(removed.values())}")
 
 def load(path):
     b = pcbnew.LoadBoard(str(path))
@@ -89,12 +128,25 @@ def export_dsn(board_path, dsn_path):
 def import_ses(board_path, ses_path):
     b = load(board_path)
     baseline = locked_critical_counts(b)
+    missing = [name for name, count in baseline.items() if count == 0]
+    if missing:
+        raise RuntimeError(f"protected critical pre-route missing locked items: {missing}")
     if not Path(ses_path).exists() or Path(ses_path).stat().st_size == 0:
         raise SystemExit('SES missing/empty')
+    filter_protected_ses_routes(ses_path)
     ok = pcbnew.ImportSpecctraSES(b, str(ses_path))
     if not ok:
         raise SystemExit('Specctra SES import failed')
-    strip_unlocked_critical_additions(b, baseline)
+
+    restored = locked_critical_counts(b)
+    if restored != baseline:
+        raise RuntimeError(f"protected critical route changed across SES import: before={baseline} after={restored}")
+    leaked = [item.GetNetname() for item in b.GetTracks()
+              if item.GetNetname() in PROTECTED_CRITICAL_NETS and not item.IsLocked()]
+    if leaked:
+        raise RuntimeError(f"unlocked protected critical SES items imported: {sorted(set(leaked))}")
+    print(f"CRITICAL_ROUTE_RESTORE_PASS: protected={len(PROTECTED_CRITICAL_NETS)} locked_items={sum(restored.values())}")
+
     pcbnew.SaveBoard(str(board_path), b)
     print(f'SES_IMPORT_PASS tracks={len(list(b.GetTracks()))}')
 
