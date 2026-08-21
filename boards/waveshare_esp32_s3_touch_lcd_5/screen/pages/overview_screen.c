@@ -4,6 +4,10 @@
 #include <stdio.h>
 #include <string.h>
 
+#define OVERVIEW_VALUE_TEXT_MAX 24U
+#define OVERVIEW_VALUE_DRAW_WIDTH 120
+#define OVERVIEW_VALUE_DRAW_HEIGHT 28
+
 /* Presentation-only screen. No backend writes, control decisions or safety
  * policy. Labels come from the existing backend snapshots. */
 typedef struct {
@@ -21,6 +25,15 @@ typedef struct {
     lv_obj_t *alarm_state;
     lv_obj_t *inhibit_reason;
     lv_obj_t *firmware_version;
+    /* The four fast-changing values own fixed text buffers. Their labels point at
+     * these buffers for their lifetime, so a live refresh never calls
+     * lv_label_set_text() and therefore never asks LVGL to re-measure/re-layout a
+     * value card. Only the small fixed label rectangle is invalidated when the
+     * rendered one-decimal text actually changes. */
+    char grid_text[OVERVIEW_VALUE_TEXT_MAX];
+    char solar_text[OVERVIEW_VALUE_TEXT_MAX];
+    char requested_text[OVERVIEW_VALUE_TEXT_MAX];
+    char applied_text[OVERVIEW_VALUE_TEXT_MAX];
 } overview_widgets_t;
 
 static overview_widgets_t s_ui;
@@ -41,15 +54,18 @@ static void make_fixed_surface(lv_obj_t *obj)
     lv_obj_set_scrollbar_mode(obj, LV_SCROLLBAR_MODE_OFF);
 }
 
-static lv_obj_t *make_value_card(lv_obj_t *parent, const char *title, lv_obj_t **value_out)
+static lv_obj_t *make_value_card(lv_obj_t *parent,
+                                 const char *title,
+                                 lv_obj_t **value_out,
+                                 char *value_buffer,
+                                 size_t value_capacity)
 {
     lv_obj_t *card = lv_obj_create(parent);
     style_panel(card);
     make_fixed_surface(card);
-    /* Four equal, explicit widths keep changing numeric label widths out of the
-     * flex sizing equation. On hardware only Overview moved while the other
-     * pages were stable; its four live values were the unique layout that could
-     * continuously reflow as 9.9 -> 10.0 -> 100.0 kW changed text width. */
+    /* Keep the cards fixed in the flex row, but keep the dynamic text itself in
+     * a much smaller fixed draw box. A 100%-wide dynamic label made every kW
+     * change invalidate almost the whole card on the physical 800x480 panel. */
     lv_obj_set_width(card, LV_PCT(24));
     lv_obj_set_height(card, 112);
     lv_obj_set_layout(card, LV_LAYOUT_FLEX);
@@ -64,9 +80,16 @@ static lv_obj_t *make_value_card(lv_obj_t *parent, const char *title, lv_obj_t *
     lv_obj_set_style_text_color(title_label, lv_color_hex(0x9EADBF), LV_PART_MAIN);
 
     lv_obj_t *value = lv_label_create(card);
-    lv_label_set_text(value, "--");
-    lv_obj_set_width(value, LV_PCT(100));
+    if (value_buffer && value_capacity > 0U) {
+        snprintf(value_buffer, value_capacity, "--");
+        value_buffer[value_capacity - 1U] = '\0';
+        lv_label_set_text_static(value, value_buffer);
+    } else {
+        lv_label_set_text(value, "--");
+    }
+    lv_obj_set_size(value, OVERVIEW_VALUE_DRAW_WIDTH, OVERVIEW_VALUE_DRAW_HEIGHT);
     lv_label_set_long_mode(value, LV_LABEL_LONG_CLIP);
+    lv_obj_set_style_text_align(value, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
     lv_obj_set_style_text_color(value, lv_color_hex(0xF2F6FA), LV_PART_MAIN);
     if (value_out) *value_out = value;
     return card;
@@ -96,11 +119,8 @@ static lv_obj_t *make_state_row(lv_obj_t *parent, const char *name, lv_obj_t **v
 }
 
 /* LVGL invalidates a label when lv_label_set_text() is called even when the
- * visible string is identical.  The live lane runs continuously, so repeated
- * writes of unchanged text needlessly force redraw traffic from PSRAM to the RGB
- * panel.  On the physical 800x480 board that traffic showed up as visible
- * scanout movement under full Core load.  Suppress no-op writes at the UI edge;
- * actual value changes still repaint immediately. */
+ * visible string is identical.  The slower status lane still uses this helper;
+ * unchanged strings are suppressed at the UI edge. */
 static bool set_text_if_changed(lv_obj_t *label, const char *text)
 {
     if (!label || !text) return false;
@@ -123,14 +143,34 @@ static bool set_text_fmt_if_changed(lv_obj_t *label, const char *format, ...)
     return set_text_if_changed(label, text);
 }
 
-static void set_kw(lv_obj_t *label, bool available, double value)
+static void set_static_value_text(lv_obj_t *label,
+                                  char *buffer,
+                                  size_t capacity,
+                                  const char *text)
 {
-    if (!label) return;
+    if (!label || !buffer || capacity == 0U || !text) return;
+    if (strncmp(buffer, text, capacity) == 0) return;
+    snprintf(buffer, capacity, "%s", text);
+    buffer[capacity - 1U] = '\0';
+    /* Fixed width + fixed height means no text-size layout refresh is required.
+     * The draw event reads the same static buffer pointer with its new contents. */
+    lv_obj_invalidate(label);
+}
+
+static void set_kw_static(lv_obj_t *label,
+                          char *buffer,
+                          size_t capacity,
+                          bool available,
+                          double value)
+{
+    char text[OVERVIEW_VALUE_TEXT_MAX];
     if (!available) {
-        (void)set_text_if_changed(label, "-- kW");
-        return;
+        snprintf(text, sizeof(text), "-- kW");
+    } else {
+        snprintf(text, sizeof(text), "%.1f kW", value);
     }
-    (void)set_text_fmt_if_changed(label, "%.1f kW", value);
+    text[sizeof(text) - 1U] = '\0';
+    set_static_value_text(label, buffer, capacity, text);
 }
 
 static const char *safe_text(const char *value, const char *fallback)
@@ -200,10 +240,14 @@ lv_obj_t *overview_screen_create(lv_obj_t *parent)
                           LV_FLEX_ALIGN_START);
     lv_obj_set_style_pad_column(values, 0, LV_PART_MAIN);
 
-    make_value_card(values, "GRID / ACTIVE SOURCE", &s_ui.grid_value);
-    make_value_card(values, "SOLAR", &s_ui.solar_value);
-    make_value_card(values, "PV REQUESTED", &s_ui.requested_value);
-    make_value_card(values, "PV APPLIED", &s_ui.applied_value);
+    make_value_card(values, "GRID / ACTIVE SOURCE", &s_ui.grid_value,
+                    s_ui.grid_text, sizeof(s_ui.grid_text));
+    make_value_card(values, "SOLAR", &s_ui.solar_value,
+                    s_ui.solar_text, sizeof(s_ui.solar_text));
+    make_value_card(values, "PV REQUESTED", &s_ui.requested_value,
+                    s_ui.requested_text, sizeof(s_ui.requested_text));
+    make_value_card(values, "PV APPLIED", &s_ui.applied_value,
+                    s_ui.applied_text, sizeof(s_ui.applied_text));
 
     lv_obj_t *bottom = lv_obj_create(root);
     style_panel(bottom);
@@ -238,10 +282,14 @@ void overview_screen_apply_live(const screen_live_snapshot_t *snapshot)
     if (set_text_if_changed(s_ui.backend_state, "BACKEND: ONLINE")) {
         lv_obj_set_style_text_color(s_ui.backend_state, lv_color_hex(0x62D28F), LV_PART_MAIN);
     }
-    set_kw(s_ui.grid_value, snapshot->has_grid_kw, snapshot->grid_kw);
-    set_kw(s_ui.solar_value, snapshot->has_solar_kw, snapshot->solar_kw);
-    set_kw(s_ui.requested_value, snapshot->has_requested_pv_kw, snapshot->requested_pv_kw);
-    set_kw(s_ui.applied_value, snapshot->has_applied_pv_kw, snapshot->applied_pv_kw);
+    set_kw_static(s_ui.grid_value, s_ui.grid_text, sizeof(s_ui.grid_text),
+                  snapshot->has_grid_kw, snapshot->grid_kw);
+    set_kw_static(s_ui.solar_value, s_ui.solar_text, sizeof(s_ui.solar_text),
+                  snapshot->has_solar_kw, snapshot->solar_kw);
+    set_kw_static(s_ui.requested_value, s_ui.requested_text, sizeof(s_ui.requested_text),
+                  snapshot->has_requested_pv_kw, snapshot->requested_pv_kw);
+    set_kw_static(s_ui.applied_value, s_ui.applied_text, sizeof(s_ui.applied_text),
+                  snapshot->has_applied_pv_kw, snapshot->applied_pv_kw);
 
     /* Do not render live.source. /api/status.source.attributed_to is already
      * fail-closed against stale/conflicting source evidence and is authoritative. */
@@ -314,10 +362,10 @@ void overview_screen_show_backend_unavailable(void)
     if (set_text_if_changed(s_ui.backend_state, "BACKEND: UNAVAILABLE")) {
         lv_obj_set_style_text_color(s_ui.backend_state, lv_color_hex(0xF07178), LV_PART_MAIN);
     }
-    set_kw(s_ui.grid_value, false, 0.0);
-    set_kw(s_ui.solar_value, false, 0.0);
-    set_kw(s_ui.requested_value, false, 0.0);
-    set_kw(s_ui.applied_value, false, 0.0);
+    set_kw_static(s_ui.grid_value, s_ui.grid_text, sizeof(s_ui.grid_text), false, 0.0);
+    set_kw_static(s_ui.solar_value, s_ui.solar_text, sizeof(s_ui.solar_text), false, 0.0);
+    set_kw_static(s_ui.requested_value, s_ui.requested_text, sizeof(s_ui.requested_text), false, 0.0);
+    set_kw_static(s_ui.applied_value, s_ui.applied_text, sizeof(s_ui.applied_text), false, 0.0);
     (void)set_text_if_changed(s_ui.source, "Source: unknown");
     (void)set_text_if_changed(s_ui.control_mode, "Control: unknown");
     (void)set_text_if_changed(s_ui.meter_state, "Unavailable");
