@@ -9,6 +9,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "local_backend_provider.h"
+#include "local_commissioning_backend.h"
 #include "lvgl.h"
 #include "screen_api.h"
 #include "screen_app.h"
@@ -28,6 +29,7 @@ static waveshare_display_port_handles_t s_display;
 static const waveshare_display_profile_t *s_profile;
 static const esp_lv_adapter_rotation_t s_rotation = ESP_LV_ADAPTER_ROTATE_0;
 static screen_commissioning_snapshot_t s_commissioning;
+static screen_commissioning_backend_t s_commissioning_backend;
 
 static void log_dma_headroom(const char *stage)
 {
@@ -217,10 +219,20 @@ void app_main(void)
     if (screen_activate_err == ESP_OK && core_err == ESP_OK) {
         screen_api_provider_t provider = {0};
         if (local_backend_provider_init(&provider) && screen_runtime_init(&provider)) {
-            /* This task performs only read-only in-process Core snapshot
-             * projections and LVGL updates; it never performs Modbus I/O or
-             * writes flash/NVS. Keep its large stack in PSRAM so the
-             * safety/control/httpd tasks retain internal DRAM. */
+            if (local_commissioning_backend_init(&s_commissioning_backend)) {
+                if (esp_lv_adapter_lock(-1) == ESP_OK) {
+                    screen_app_set_commissioning_backend(&s_commissioning_backend);
+                    esp_lv_adapter_unlock();
+                }
+                ESP_LOGI(TAG, "Local Engineering commissioning backend bound to touchscreen");
+            } else {
+                ESP_LOGE(TAG, "Local commissioning backend initialization failed; Commission page stays locked");
+            }
+
+            /* This task performs only in-process Core snapshot projections and
+             * LVGL updates. Commissioning writes happen only through explicit,
+             * Engineering-unlocked HMI actions; no self-HTTP path exists. Keep
+             * the refresh stack in PSRAM so safety/control/httpd retain DRAM. */
             BaseType_t created = xTaskCreateWithCaps(
                 screen_refresh_task,
                 "screen_refresh",
@@ -231,7 +243,7 @@ void app_main(void)
                 MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
             if (created == pdPASS) {
                 ESP_LOGI(TAG, "Screen refresh task created in PSRAM");
-                ESP_LOGI(TAG, "Screen bound read-only through in-process Product Core read models");
+                ESP_LOGI(TAG, "Screen read models bound in-process; commissioning writes require local Engineering unlock");
             } else {
                 ESP_LOGE(TAG, "Unable to create PSRAM screen refresh task; UI stays unavailable");
             }
