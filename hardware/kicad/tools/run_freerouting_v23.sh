@@ -85,11 +85,13 @@ $KPY hardware/kicad/tools/route_reva_freerouting.py import "$PCB" "$OUT"
 echo 'SD_SCLK_ROUTE_SOURCE=FREEROUTING_SES' | tee -a hardware/kicad/freerouting.log
 
 # Add surface copper, fill once so islands are measurable, stitch every safe
-# F.Cu GND island to L2, then refill for authoritative DRC/audit.
+# F.Cu GND island to L2, then remove any essentially coincident same-net stitch
+# via that landed on a pre-reserved escape before authoritative DRC/audit.
 $KPY hardware/kicad/tools/add_surface_ground.py "$PCB"
 $K pcb drc --severity-error --refill-zones --save-board \
   --output "hardware/kicad/route-attempt-${attempt}-pre-stitch-drc.rpt" "$PCB" || true
 $KPY hardware/kicad/tools/stitch_ground_islands.py "$PCB" | tee -a hardware/kicad/freerouting.log
+$KPY hardware/kicad/tools/dedupe_gnd_vias.py "$PCB" | tee -a hardware/kicad/freerouting.log
 
 set +e
 $K pcb drc --severity-error --exit-code-violations --refill-zones --save-board \
