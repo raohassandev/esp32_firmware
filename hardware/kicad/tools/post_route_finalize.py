@@ -31,9 +31,12 @@ TRACK_CLEAR = 0.24
 
 # Recurring post-router GND islands are reserved before Specctra export so the
 # signal router must leave legal vertical access to the solid L2 reference.
-# Run #48 isolated the final surface-only GND connectivity item to W5500
-# U2:16. Reserve it with the same perpendicular escape proven for U2:19/U2:23.
-# Run #45 mapped the earlier real opens to C3:2, U2:48, U2:19 and R35:2.
+# Run #49 and manufacturing Run #199 produced two different final surface-only
+# GND islands from the same source. Reserve every GND pad in those exact islands:
+# C33:2/R11:2 and crystal-side C15:2/C26:2/C27:2. The crystal-side escapes use
+# 0.75 mm spokes to stay clear of Y1; immediate pre-route KiCad DRC is authority.
+# Run #48 isolated W5500 U2:16; it uses the same perpendicular escape proven for
+# U2:19/U2:23. Run #45 mapped C3:2, U2:48, U2:19 and R35:2.
 # U2:29 was also in a skipped surface island but its earlier reserved via already
 # closed that electrical connection, so it remains a single reservation only.
 # W5500 edge pads escape perpendicular away from the package; passive GND pads
@@ -41,8 +44,13 @@ TRACK_CLEAR = 0.24
 # release authority for these dense but deterministic reservations.
 PRE_ROUTE_GND_ESCAPES = (
     ("C14", "2", 0.90, 0.00),
+    ("C15", "2", 0.75, 0.00),
     ("C16", "2", 0.90, 0.00),
+    ("C26", "2", 0.75, 0.00),
+    ("C27", "2", 0.75, 0.00),
     ("C31", "2", 0.90, 0.00),
+    ("C33", "2", 0.90, 0.00),
+    ("R11", "2", 0.90, 0.00),
     ("C28", "2", 0.90, 0.00),
     ("R69", "2", 0.90, 0.00),
     ("U2", "9", 1.285, 0.00),
