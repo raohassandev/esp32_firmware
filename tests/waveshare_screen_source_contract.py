@@ -18,24 +18,27 @@ def main() -> None:
     api_c = read(SCREEN / "api" / "screen_api.c")
     overview = read(SCREEN / "pages" / "overview_screen.c")
     readiness = read(SCREEN / "pages" / "readiness_screen.c")
+    commissioning_ui = read(SCREEN / "pages" / "commissioning_screen.c")
+    commissioning_h = read(SCREEN / "pages" / "commissioning_screen.h")
     app = read(SCREEN / "screen_app.c")
     runtime = read(SCREEN / "screen_runtime.c")
     profile_h = read(SCREEN / "drivers" / "waveshare_display_profile.h")
     profile_c = read(SCREEN / "drivers" / "waveshare_display_profile.c")
     display_port_h = read(SCREEN / "drivers" / "waveshare_display_port.h")
     display_port_c = read(SCREEN / "drivers" / "waveshare_display_port.c")
-    product_provider = read(
-        SCREEN / "product_800x480" / "main" / "local_backend_provider.c"
-    )
-    source_attribution = read(
-        ROOT / "components" / "source_detection" / "source_attribution.c"
-    )
+    product_provider_path = SCREEN / "product_800x480" / "main" / "local_backend_provider.c"
+    commissioning_backend_path = SCREEN / "product_800x480" / "main" / "local_commissioning_backend.c"
+    product_provider = read(product_provider_path)
+    commissioning_backend = read(commissioning_backend_path)
+    source_attribution = read(ROOT / "components" / "source_detection" / "source_attribution.c")
+    auth_h = read(ROOT / "components" / "web_server" / "include" / "engineering_auth.h")
 
-    # The current site-tested build stays unchanged until the hardware/LVGL gate.
+    # The current site-tested root build stays unchanged; the exact-board product
+    # explicitly opts into this isolated component.
     assert "waveshare_esp32_s3_touch_lcd_5/screen" not in root_cmake
     assert "intentionally NOT added to root EXTRA_COMPONENT_DIRS" in screen_cmake
 
-    # Every screen contract must point at a route the existing backend already owns.
+    # Every operational read contract still points at a route the existing backend owns.
     backend_sources = "\n".join(
         read(p) for p in [
             ROOT / "components" / "web_server" / "live_api.c",
@@ -45,63 +48,43 @@ def main() -> None:
         ]
     )
     required_paths = [
-        "/api/live",
-        "/api/status",
-        "/api/meters",
-        "/api/inverters",
-        "/api/telemetry",
-        "/api/operator/events",
-        "/api/operator/alarms",
+        "/api/live", "/api/status", "/api/meters", "/api/inverters",
+        "/api/telemetry", "/api/operator/events", "/api/operator/alarms",
     ]
     for path in required_paths:
         assert path in api_h, f"screen contract missing {path}"
         assert path in backend_sources, f"backend does not own {path}"
 
-    # UI/runtime/parsers stay backend-agnostic.  The exact-board product adapter
-    # is the one deliberate boundary exception: HIL proved same-device HTTP
-    # loopback unusable, so that adapter may read cached Core snapshots in-process.
-    # It still has no write authority and cannot own Modbus or safety decisions.
+    # UI/runtime/parsers stay backend-agnostic. Two exact-board boundary adapters
+    # are deliberate exceptions:
+    #   * local_backend_provider.c: cached read models only
+    #   * local_commissioning_backend.c: explicit Engineering-authenticated writes
+    # No page may import Core safety/configuration headers directly.
     forbidden_headers = {
-        "control_engine.h",
-        "safety_manager.h",
-        "meter_manager.h",
-        "inverter_manager.h",
-        "config_manager.h",
-        "commissioning_gate.h",
-        "network_manager.h",
-        "modbus_tcp.h",
+        "control_engine.h", "safety_manager.h", "meter_manager.h",
+        "inverter_manager.h", "inverter_profile_store.h", "inverter_profiles.h",
+        "config_manager.h", "commissioning_gate.h", "network_manager.h",
+        "solar_grid_config.h", "engineering_auth.h", "modbus_tcp.h",
     }
-    product_adapter = (
-        SCREEN / "product_800x480" / "main" / "local_backend_provider.c"
-    ).resolve()
+    boundary_adapters = {product_provider_path.resolve(), commissioning_backend_path.resolve()}
     for source in SCREEN.rglob("*.c"):
-        if source.resolve() == product_adapter:
+        if source.resolve() in boundary_adapters:
             continue
         text = read(source)
         includes = set(re.findall(r'#include\s+[<\"]([^>\"]+)[>\"]', text))
         overlap = forbidden_headers & includes
         assert not overlap, f"{source.relative_to(ROOT)} bypasses backend boundary: {sorted(overlap)}"
 
-    # The board adapter is read-only cached-state projection only.  No socket
-    # self-call remains, no synchronous Modbus transaction is allowed, and none
-    # of the product write/configuration entry points may appear here.
+    # Operational provider remains strictly read-only cached-state projection.
     for forbidden in [
-        "esp_http_client",
-        "http://127.0.0.1",
-        "WIFI_AP_DEF",
-        "meter_manager_read_registers",
-        "inverter_manager_set_total_power_kw",
-        "control_engine_set_enabled",
-        "control_engine_force_disable",
-        "config_manager_save",
-        "config_manager_import_json",
-        "config_manager_restore_defaults",
-        "httpd_register_uri_handler",
-        "HTTP_POST",
-        "HTTP_PUT",
-        "HTTP_DELETE",
+        "esp_http_client", "http://127.0.0.1", "WIFI_AP_DEF",
+        "meter_manager_read_registers", "inverter_manager_set_total_power_kw",
+        "control_engine_set_enabled", "control_engine_force_disable",
+        "config_manager_save", "config_manager_import_json",
+        "config_manager_restore_defaults", "httpd_register_uri_handler",
+        "HTTP_POST", "HTTP_PUT", "HTTP_DELETE",
     ]:
-        assert forbidden not in product_provider, f"product adapter gained forbidden authority: {forbidden}"
+        assert forbidden not in product_provider, f"read provider gained forbidden authority: {forbidden}"
     assert "source_detection_attributed_to(&source)" in product_provider
     assert "source_detection_attributed_to" in source_attribution
     assert "status->configured" in source_attribution
@@ -110,16 +93,53 @@ def main() -> None:
     assert 'return "unknown"' in source_attribution
     assert "socket/TCP self-transport removed" in product_provider
 
-    # There are no local backend HTTP handlers or local HTTP write clients in the
-    # screen workspace at all.
+    # Commissioning adapter is the ONLY screen-side write boundary. It reuses
+    # the same Engineering credential authority as the protected web workspace,
+    # never calls itself over HTTP, never performs synchronous Modbus I/O, and
+    # forces the running loop disabled before persisted commissioning changes.
+    for forbidden in [
+        "esp_http_client", "http://127.0.0.1", "WIFI_AP_DEF",
+        "meter_manager_read_registers", "inverter_manager_probe_read_only",
+        "inverter_manager_set_total_power_kw", "httpd_register_uri_handler",
+        "HTTP_POST", "HTTP_PUT", "HTTP_DELETE",
+    ]:
+        assert forbidden not in commissioning_backend, f"commissioning backend bypasses safe service boundary: {forbidden}"
+    assert "engineering_auth_verify_local_credential" in commissioning_backend
+    assert "engineering_auth_verify_local_credential" in auth_h
+    assert "control_engine_force_disable();" in commissioning_backend
+    assert "next->control.enabled = false" in commissioning_backend
+    assert "config_manager_save" in commissioning_backend
+    assert "solar_grid_config_valid" in commissioning_backend
+    assert "solar_grid_config_save" in commissioning_backend
+    assert "inverter_profile_store_set" in commissioning_backend
+    assert "control_engine_set_enabled" in commissioning_backend
+    assert "commissioning_gate_summary" in commissioning_backend
+    assert "LOCAL_ENGINEERING_SESSION_MS" in commissioning_backend
+
+    # There are no local HTTP handlers or local HTTP write clients anywhere in
+    # the screen workspace. Commissioning goes through in-process validated Core
+    # services, not the failed same-device self-HTTP experiment.
     all_c = "\n".join(read(p) for p in SCREEN.rglob("*.c"))
     assert "httpd_register_uri_handler" not in all_c
     assert "HTTP_POST" not in all_c
     assert "HTTP_PUT" not in all_c
     assert "HTTP_DELETE" not in all_c
+    assert "esp_http_client" not in all_c
 
-    # No hidden screen scheduler/task: the board integration owns cadence and
-    # must call the bounded refresh lanes under the qualified LVGL locking model.
+    # Commissioning UI gets callbacks/DTOs only; it cannot name a Core manager.
+    for forbidden in [
+        "config_manager", "control_engine", "meter_manager", "inverter_manager",
+        "solar_grid_config", "engineering_auth", "httpd_", "esp_http_client",
+    ]:
+        assert forbidden not in commissioning_ui, f"commissioning page gained Core authority: {forbidden}"
+    assert "screen_commissioning_backend_t" in commissioning_h
+    assert "Engineering credential" in commissioning_ui
+    assert "Modbus TCP only" in commissioning_ui
+    assert "ARM automatic control" in commissioning_ui
+    assert "DISARM automatic control" in commissioning_ui
+
+    # No hidden screen scheduler/task: board integration owns cadence and calls
+    # bounded refresh lanes under the qualified LVGL locking model.
     assert "xTaskCreate" not in runtime
     assert "vTaskDelay" not in runtime
     assert "screen_runtime_refresh_fast" in runtime
@@ -127,27 +147,22 @@ def main() -> None:
     assert "screen_runtime_refresh_devices" in runtime
     assert "screen_runtime_refresh_operations" in runtime
     for macro in [
-        "SCREEN_API_LIVE_PATH",
-        "SCREEN_API_STATUS_PATH",
-        "SCREEN_API_METERS_PATH",
-        "SCREEN_API_INVERTERS_PATH",
-        "SCREEN_API_TELEMETRY_PATH",
-        "SCREEN_API_EVENTS_PATH",
-        "SCREEN_API_ALARMS_PATH",
+        "SCREEN_API_LIVE_PATH", "SCREEN_API_STATUS_PATH", "SCREEN_API_METERS_PATH",
+        "SCREEN_API_INVERTERS_PATH", "SCREEN_API_TELEMETRY_PATH",
+        "SCREEN_API_EVENTS_PATH", "SCREEN_API_ALARMS_PATH",
     ]:
         assert macro in runtime
 
-    # The only LVGL event callbacks in this milestone are navigation callbacks.
+    # Touch callbacks belong only to shell navigation and the explicit local
+    # commissioning form. Operational pages remain presentation-only.
     callback_files = sorted(
         source.relative_to(SCREEN).as_posix()
         for source in SCREEN.rglob("*.c")
         if "lv_obj_add_event_cb" in read(source)
     )
-    assert callback_files == ["screen_app.c"], callback_files
+    assert callback_files == ["pages/commissioning_screen.c", "screen_app.c"], callback_files
 
-    # Fail-closed source attribution: overview must never render the raw
-    # screen_live_snapshot_t.source field. The negative lookahead deliberately
-    # permits snapshot->source_attributed_to from the status snapshot.
+    # Fail-closed source attribution: overview never renders raw live.source.
     assert re.search(r"snapshot->source(?!_)", overview) is None
     assert "source_attributed_to" in overview
     assert 'strcmp(status->source_attributed_to, "unknown")' in readiness
@@ -159,23 +174,18 @@ def main() -> None:
     assert '"-- kW"' in all_c
     assert "no zero" in all_c.lower() or "no zero" in read(SCREEN / "README.md").lower()
 
-    # All parity/runtime/profile/physical-port sources are part of the isolated component manifest.
+    # All parity/runtime/profile/physical-port/commissioning sources are in the
+    # isolated component manifest.
     for source in [
-        "pages/overview_screen.c",
-        "pages/grid_screen.c",
-        "pages/solar_screen.c",
-        "pages/alarms_screen.c",
-        "pages/readiness_screen.c",
-        "components/screen_widgets.c",
-        "drivers/waveshare_display_profile.c",
-        "drivers/waveshare_display_port.c",
-        "screen_app.c",
-        "screen_runtime.c",
+        "pages/overview_screen.c", "pages/grid_screen.c", "pages/solar_screen.c",
+        "pages/alarms_screen.c", "pages/readiness_screen.c",
+        "pages/commissioning_screen.c", "components/screen_widgets.c",
+        "drivers/waveshare_display_profile.c", "drivers/waveshare_display_port.c",
+        "screen_app.c", "screen_runtime.c",
     ]:
         assert f'"{source}"' in screen_cmake, f"CMake missing {source}"
 
-    # Both exact vendor resolutions exist and there is no code symbol that
-    # silently selects one as the physical target.
+    # Both exact vendor resolutions exist and no symbol silently picks a default.
     assert "WAVESHARE_DISPLAY_800X480" in profile_h
     assert "WAVESHARE_DISPLAY_1024X600" in profile_h
     assert ".width = 800" in profile_c and ".height = 480" in profile_c
@@ -183,8 +193,8 @@ def main() -> None:
     assert "WAVESHARE_DISPLAY_DEFAULT" not in profile_h
     assert "DEFAULT_WAVESHARE_DISPLAY" not in profile_h
 
-    # IDF6 port must use the new master-bus API, preserve shared-bus injection,
-    # and keep the vendor CH422G touch-reset sequence visible in board-local code.
+    # IDF6 port uses the new master-bus API, shared-bus injection and vendor
+    # CH422G touch-reset sequence.
     assert '"driver/i2c_master.h"' in display_port_h
     assert '"driver/i2c.h"' not in display_port_c
     assert "i2c_new_master_bus" in display_port_c
@@ -195,8 +205,9 @@ def main() -> None:
     assert "CH422G_TOUCH_RESET_HIGH" in display_port_c
     assert "esp_lcd_touch_new_i2c_gt911" in display_port_c
 
-    # The shell exposes only the existing operator product areas in this milestone.
-    for label in ["Overview", "Grid", "Solar", "Alarms", "Ready"]:
+    # Existing operator areas remain intact and Commission is an additional
+    # Engineering area rather than a replacement for Ready/read-only status.
+    for label in ["Overview", "Grid", "Solar", "Alarms", "Ready", "Commission"]:
         assert f'"{label}"' in app
 
     print("waveshare screen source contract: PASS")
