@@ -214,12 +214,18 @@ def main():
         old=INV_REF.get(ref,ref)
         if optional_semantic(old): fp.SetDNP(True)
         board.Add(fp); fps[ref]=fp
-        by_num={p.GetNumber():p for p in fp.Pads()}
+        # Several stock footprints repeat a pad number (exposed thermal pads with
+        # their via array, shield/mounting tabs). Every physical pad carrying that
+        # number is the same electrical node, so all of them must be netted. Netting
+        # only one left the rest at <no net>, which KiCad reports as a shorting_items
+        # violation whose appearance depended on pad iteration order.
+        by_num={}
+        for pad in fp.Pads(): by_num.setdefault(pad.GetNumber(),[]).append(pad)
         for (nref,pin),name in pin_nets.items():
             if nref!=ref or name.startswith('unconnected-('): continue
-            p=by_num.get(pin)
-            if p is None: raise RuntimeError(f'{ref} footprint {fp_id} has no pad {pin} required by schematic net {name}')
-            p.SetNet(netinfo[name])
+            pads=by_num.get(pin)
+            if not pads: raise RuntimeError(f'{ref} footprint {fp_id} has no pad {pin} required by schematic net {name}')
+            for pad in pads: pad.SetNet(netinfo[name])
     if unresolved:
         for row in unresolved: print('UNRESOLVED_FOOTPRINT',*row,file=sys.stderr)
         raise SystemExit(f'{len(unresolved)} footprints unresolved')

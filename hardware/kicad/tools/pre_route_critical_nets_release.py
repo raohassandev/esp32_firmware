@@ -10,6 +10,9 @@ import sys
 import pcbnew
 import pre_route_critical_nets as base
 
+# F.Cu x where ETH_TXN drops to In2.Cu; also carries the trunk under the bias column.
+TXN_VIA_X = 127.60
+
 
 def _xy(p): return base.xy_mm(p.GetPosition())
 
@@ -62,21 +65,34 @@ def route_ethernet(board):
     # The four mandatory 49.9R W5500 line-bias parts are controlled branches
     # of the *_MAG nets. Runs #52/#202 proved that filtering SES routes without
     # owning these endpoints leaves four real opens. The release placement puts
-    # every bias pad 2 beside its damping pad 2, so short pair-matched F.Cu stubs add
-    # no vias and no disallowed layer usage while retaining the frozen skew gate.
-    for semantic, net_name, source in (
-        ('R_ETH_RXP_BIAS','ETH_RXP_MAG',r_rxp_m),
-        ('R_ETH_RXN_BIAS','ETH_RXN_MAG',r_rxn_m),
-        ('R_ETH_TXP_BIAS','ETH_TXP_MAG',r_txp_m),
-        ('R_ETH_TXN_BIAS','ETH_TXN_MAG',r_txn_m),
+    # every bias pad 2 on or beside its own trunk, so the taps add no vias and no
+    # disallowed layer usage while retaining the frozen skew gate.
+    #
+    # 'inline' rows (RXP/TXP) place bias pad 2 exactly on the damping-pad row,
+    # under the same-net F.Cu trunk added further down, so the termination tap
+    # needs no extra copper at all. Run 32494788861 proved the previous vertical
+    # TXP stub at x=124.425 short-circuited ETH_TXP_MAG to the ETH_TXN_MAG
+    # damping pad on the row below; an inline tap cannot leave its own row.
+    # 'stub' (RXN) ends at the x=125.40 via, so it keeps a short same-net
+    # diagonal from the damping pad. 'drop' (TXN) has its via at TXN_VIA_X, so
+    # the trunk already passes under the bias column and only a 0.875 mm same-net
+    # vertical drop is needed - the shortest tap of the three forms.
+    for semantic, net_name, source, mode in (
+        ('R_ETH_RXP_BIAS','ETH_RXP_MAG',r_rxp_m,'inline'),
+        ('R_ETH_RXN_BIAS','ETH_RXN_MAG',r_rxn_m,'stub'),
+        ('R_ETH_TXP_BIAS','ETH_TXP_MAG',r_txp_m,'inline'),
+        ('R_ETH_TXN_BIAS','ETH_TXN_MAG',r_txn_m,'drop'),
     ):
         bias=base.footprint(board,base.semantic_ref(semantic))
         signal=_require_net(base.pad_number(bias,2),net_name)
         src=_xy(source); dst=_xy(signal); route_net=base.net_from_pad(source)
-        if semantic == 'R_ETH_TXP_BIAS':
-            # Orthogonal 2.85 mm stub trims the aggregate TX pair skew while
-            # avoiding overlap with the existing same-net horizontal trunk.
-            base.add_polyline(board,[src,(src[0],dst[1]),dst],F,route_net,base.WIDTH_ETH_MM)
+        if mode == 'inline':
+            if abs(src[1]-dst[1]) > 1e-6 or dst[0] <= src[0]:
+                raise RuntimeError(f'{semantic}: pad 2 {dst} is not inline on trunk row {src}')
+        elif mode == 'drop':
+            if dst[0] >= TXN_VIA_X:
+                raise RuntimeError(f'{semantic}: pad 2 {dst} is not under the trunk (via x={TXN_VIA_X})')
+            base.add_track(board,(dst[0],src[1]),dst,F,route_net,base.WIDTH_ETH_MM)
         else:
             base.add_track(board,src,dst,F,route_net,base.WIDTH_ETH_MM)
 
@@ -107,12 +123,17 @@ def route_ethernet(board):
     base.add_via(board,v,base.net_from_pad(r_txp_m))
     base.add_track(board,v,d,IN2,base.net_from_pad(r_txp_m),base.WIDTH_ETH_MM)
 
-    # Run #35 had DRC=0 with x=127.20 but TX skew 5.09 mm. x=127.60 retained
-    # DRC clearance around the MagJack centre tap and reduced skew to 4.816 mm.
-    s=_xy(r_txn_m); d=_xy(j_tx_n); v=(125.40,s[1])
+    # ETH_TXN is the longest MDI conductor: its damping row (y=68.5) is 6.04 mm
+    # from its MagJack pad (y=62.46) while ETH_TXP only spans 1.0 mm. Carry the
+    # F.Cu trunk out to TXN_VIA_X so the bias tap becomes a 0.875 mm drop, then
+    # take a two-segment In2.Cu path that passes below the ETH_TCT pad
+    # (129.96, 63.73) with >=1.29 mm clearance instead of the former
+    # (125.40 via -> x=127.60) detour. TX skew drops 4.82 -> 4.34 mm by
+    # shortening the long conductor, not by padding the short one.
+    s=_xy(r_txn_m); d=_xy(j_tx_n); v=(TXN_VIA_X,s[1])
     base.add_track(board,s,v,F,base.net_from_pad(r_txn_m),base.WIDTH_ETH_MM)
     base.add_via(board,v,base.net_from_pad(r_txn_m))
-    base.add_polyline(board,[v,(127.60,d[1]),d],IN2,base.net_from_pad(r_txn_m),base.WIDTH_ETH_MM)
+    base.add_polyline(board,[v,(131.00,64.50),d],IN2,base.net_from_pad(r_txn_m),base.WIDTH_ETH_MM)
 
     print('ETHERNET_CRITICAL_PREROUTE: PASS GND-escape-aware trunks + four locked 49.9R bias stubs')
 
