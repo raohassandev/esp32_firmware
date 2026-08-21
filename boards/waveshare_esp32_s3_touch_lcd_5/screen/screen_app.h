@@ -3,6 +3,7 @@
 #include "commissioning_screen.h"
 #include "lvgl.h"
 #include "screen_api.h"
+#include "source_commissioning_screen.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -15,12 +16,14 @@ typedef enum {
     SCREEN_PAGE_ALARMS,
     SCREEN_PAGE_READINESS,
     SCREEN_PAGE_COMMISSIONING,
+    SCREEN_PAGE_SOURCE,
     SCREEN_PAGE_COUNT
 } screen_page_t;
 
 lv_obj_t *screen_app_create(lv_obj_t *parent);
 void screen_app_show_page(screen_page_t page);
 void screen_app_set_commissioning_backend(const screen_commissioning_backend_t *backend);
+void screen_app_set_source_commissioning_backend(const source_commission_backend_t *backend);
 
 void screen_app_apply_live(const screen_live_snapshot_t *snapshot);
 void screen_app_apply_status(const screen_status_snapshot_t *snapshot);

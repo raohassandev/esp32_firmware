@@ -10,6 +10,7 @@
 #include "freertos/task.h"
 #include "local_backend_provider.h"
 #include "local_commissioning_backend.h"
+#include "local_source_commissioning_backend.h"
 #include "lvgl.h"
 #include "screen_api.h"
 #include "screen_app.h"
@@ -30,6 +31,7 @@ static const waveshare_display_profile_t *s_profile;
 static const esp_lv_adapter_rotation_t s_rotation = ESP_LV_ADAPTER_ROTATE_0;
 static screen_commissioning_snapshot_t s_commissioning;
 static screen_commissioning_backend_t s_commissioning_backend;
+static source_commission_backend_t s_source_commissioning_backend;
 
 static void log_dma_headroom(const char *stage)
 {
@@ -227,6 +229,16 @@ void app_main(void)
                 ESP_LOGI(TAG, "Local Engineering commissioning backend bound to touchscreen");
             } else {
                 ESP_LOGE(TAG, "Local commissioning backend initialization failed; Commission page stays locked");
+            }
+
+            if (local_source_commissioning_backend_init(&s_source_commissioning_backend)) {
+                if (esp_lv_adapter_lock(-1) == ESP_OK) {
+                    screen_app_set_source_commissioning_backend(&s_source_commissioning_backend);
+                    esp_lv_adapter_unlock();
+                }
+                ESP_LOGI(TAG, "Local source-evidence commissioning backend bound to touchscreen");
+            } else {
+                ESP_LOGE(TAG, "Source commissioning backend initialization failed; Source page stays locked");
             }
 
             /* This task performs only in-process Core snapshot projections and

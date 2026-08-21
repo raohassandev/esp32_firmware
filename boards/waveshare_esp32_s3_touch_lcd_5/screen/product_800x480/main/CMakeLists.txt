@@ -3,6 +3,7 @@ idf_component_register(
         "main.c"
         "local_backend_provider.c"
         "local_commissioning_backend.c"
+        "local_source_commissioning_backend.c"
     INCLUDE_DIRS "."
     REQUIRES
         app_core
