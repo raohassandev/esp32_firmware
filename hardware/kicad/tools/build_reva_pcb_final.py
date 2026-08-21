@@ -121,7 +121,10 @@ def _try_position(fp,x,y,placed):
     if old not in ETH_ALLOWED and _box_hits_rect(box,ETH_CORRIDOR): return False
     for other in placed:
         oold=b.INV_REF.get(other.GetReference(),other.GetReference())
-        if box.Intersects(_collision_box(other,oold)): return False
+        if box.Intersects(_collision_box(other,oold)):
+            if old in b.FIXED:
+                print(f'FIXED_PLACEMENT_COLLISION candidate={old} other={oold} at=({x},{y})')
+            return False
     return True
 
 
