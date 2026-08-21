@@ -1,6 +1,7 @@
 #include "commissioning_screen.h"
 
 #include <errno.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -88,6 +89,17 @@ static const char *const s_step_names[COMMISSION_STEP_COUNT] = {
 
 static void render(void);
 
+static void render_async(void *data)
+{
+    (void)data;
+    render();
+}
+
+static void queue_render(void)
+{
+    (void)lv_async_call(render_async, NULL);
+}
+
 static void make_fixed(lv_obj_t *obj)
 {
     if (!obj) return;
@@ -113,13 +125,17 @@ static bool load_config(void)
     return true;
 }
 
+static void keyboard_hide(void)
+{
+    if (!s_ui.keyboard) return;
+    lv_keyboard_set_textarea(s_ui.keyboard, NULL);
+    lv_obj_add_flag(s_ui.keyboard, LV_OBJ_FLAG_HIDDEN);
+}
+
 static void keyboard_event(lv_event_t *event)
 {
     const lv_event_code_t code = lv_event_get_code(event);
-    if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL) {
-        lv_obj_add_flag(s_ui.keyboard, LV_OBJ_FLAG_HIDDEN);
-        lv_keyboard_set_textarea(s_ui.keyboard, NULL);
-    }
+    if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL) keyboard_hide();
 }
 
 static void textarea_focus(lv_event_t *event)
@@ -170,7 +186,7 @@ static lv_obj_t *integer_field(lv_obj_t *parent, const char *label, unsigned lon
     return field(parent, label, text, false);
 }
 
-static lv_obj_t *checkbox_field(lv_obj_t *parent, const char *label, bool checked)
+static lv_obj_t *checkbox_field(lv_obj_t *parent, const char *label, bool value)
 {
     lv_obj_t *row = lv_obj_create(parent);
     lv_obj_remove_style_all(row);
@@ -186,7 +202,7 @@ static lv_obj_t *checkbox_field(lv_obj_t *parent, const char *label, bool checke
     lv_obj_set_style_text_color(caption, lv_color_hex(0xC7D0DA), LV_PART_MAIN);
     lv_obj_t *box = lv_checkbox_create(row);
     lv_checkbox_set_text(box, "");
-    if (checked) lv_obj_add_state(box, LV_STATE_CHECKED);
+    if (value) lv_obj_add_state(box, LV_STATE_CHECKED);
     lv_obj_set_width(box, FORM_CONTROL_WIDTH);
     return box;
 }
@@ -230,13 +246,12 @@ static void heading(lv_obj_t *parent, const char *title, const char *detail)
     lv_obj_t *h = lv_label_create(parent);
     lv_label_set_text(h, title);
     lv_obj_set_style_text_color(h, lv_color_hex(0xF2F6FA), LV_PART_MAIN);
-    if (detail && detail[0]) {
-        lv_obj_t *d = lv_label_create(parent);
-        lv_label_set_text(d, detail);
-        lv_label_set_long_mode(d, LV_LABEL_LONG_WRAP);
-        lv_obj_set_width(d, LV_PCT(100));
-        lv_obj_set_style_text_color(d, lv_color_hex(0x9EADBF), LV_PART_MAIN);
-    }
+    if (!detail || !detail[0]) return;
+    lv_obj_t *d = lv_label_create(parent);
+    lv_label_set_text(d, detail);
+    lv_label_set_long_mode(d, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(d, LV_PCT(100));
+    lv_obj_set_style_text_color(d, lv_color_hex(0x9EADBF), LV_PART_MAIN);
 }
 
 static bool checked(lv_obj_t *obj)
@@ -303,10 +318,10 @@ static void unlock_clicked(lv_event_t *event)
     const char *credential = lv_textarea_get_text(s_ui.credential);
     uint32_t retry = 0U;
     bool setup = false;
-    screen_commission_auth_result_t result =
+    const screen_commission_auth_result_t result =
         s_ui.backend.unlock(s_ui.backend.context, credential, &retry, &setup);
     lv_textarea_set_text(s_ui.credential, "");
-    lv_obj_add_flag(s_ui.keyboard, LV_OBJ_FLAG_HIDDEN);
+    keyboard_hide();
     if (result == SCREEN_COMMISSION_AUTH_OK) {
         if (!load_config()) {
             set_message("Engineering unlocked, but configuration could not be read.", false);
@@ -314,9 +329,9 @@ static void unlock_clicked(lv_event_t *event)
         }
         s_ui.config.unlocked = true;
         s_ui.config.setup_required = setup;
-        render();
-        set_message(setup ? "Unlocked with one-time setup code. Configure a permanent Engineering password after commissioning."
+        set_message(setup ? "Unlocked with one-time setup code. Set a permanent Engineering password after commissioning."
                           : "Engineering unlocked on the local HMI.", true);
+        queue_render();
     } else if (result == SCREEN_COMMISSION_AUTH_LOCKED) {
         char text[96];
         snprintf(text, sizeof(text), "Engineering login locked. Retry in %lu s.",
@@ -330,22 +345,16 @@ static void unlock_clicked(lv_event_t *event)
 static void lock_clicked(lv_event_t *event)
 {
     (void)event;
+    keyboard_hide();
     if (s_ui.backend_set && s_ui.backend.lock) s_ui.backend.lock(s_ui.backend.context);
     memset(&s_ui.config, 0, sizeof(s_ui.config));
-    render();
-}
-
-static void step_clicked(lv_event_t *event)
-{
-    const uintptr_t raw = (uintptr_t)lv_event_get_user_data(event);
-    if (raw >= COMMISSION_STEP_COUNT) return;
-    s_ui.step = (uint8_t)raw;
     render();
 }
 
 static void next_clicked(lv_event_t *event)
 {
     (void)event;
+    keyboard_hide();
     if (s_ui.step + 1U < COMMISSION_STEP_COUNT) s_ui.step++;
     render();
 }
@@ -353,6 +362,7 @@ static void next_clicked(lv_event_t *event)
 static void back_clicked(lv_event_t *event)
 {
     (void)event;
+    keyboard_hide();
     if (s_ui.step > 0U) s_ui.step--;
     render();
 }
@@ -360,7 +370,7 @@ static void back_clicked(lv_event_t *event)
 static void device_kind_clicked(lv_event_t *event)
 {
     s_ui.device_kind = (uint8_t)(uintptr_t)lv_event_get_user_data(event);
-    render();
+    queue_render();
 }
 
 static void slot_prev_clicked(lv_event_t *event)
@@ -368,8 +378,10 @@ static void slot_prev_clicked(lv_event_t *event)
     (void)event;
     if (s_ui.device_kind == 0U) {
         if (s_ui.meter_index > 0U) s_ui.meter_index--;
-    } else if (s_ui.inverter_index > 0U) s_ui.inverter_index--;
-    render();
+    } else if (s_ui.inverter_index > 0U) {
+        s_ui.inverter_index--;
+    }
+    queue_render();
 }
 
 static void slot_next_clicked(lv_event_t *event)
@@ -377,22 +389,24 @@ static void slot_next_clicked(lv_event_t *event)
     (void)event;
     if (s_ui.device_kind == 0U) {
         if (s_ui.meter_index + 1U < SCREEN_COMMISSIONING_MAX_METERS) s_ui.meter_index++;
-    } else if (s_ui.inverter_index + 1U < SCREEN_COMMISSIONING_MAX_INVERTERS) s_ui.inverter_index++;
-    render();
+    } else if (s_ui.inverter_index + 1U < SCREEN_COMMISSIONING_MAX_INVERTERS) {
+        s_ui.inverter_index++;
+    }
+    queue_render();
 }
 
 static void generator_prev_clicked(lv_event_t *event)
 {
     (void)event;
     if (s_ui.generator_index > 0U) s_ui.generator_index--;
-    render();
+    queue_render();
 }
 
 static void generator_next_clicked(lv_event_t *event)
 {
     (void)event;
     if (s_ui.generator_index + 1U < SCREEN_COMMISSIONING_MAX_GENERATORS) s_ui.generator_index++;
-    render();
+    queue_render();
 }
 
 static void save_site_clicked(lv_event_t *event)
@@ -405,36 +419,43 @@ static void save_site_clicked(lv_event_t *event)
     if (result.ok) (void)load_config();
 }
 
-static bool read_meter_form(screen_commission_meter_t *meter, bool include_channel, bool include_modbus)
+static bool read_meter_form(screen_commission_meter_t *meter, bool channel, bool modbus)
 {
     if (!meter) return false;
     if (s_ui.enabled) meter->enabled = checked(s_ui.enabled);
     if (s_ui.name) snprintf(meter->name, sizeof(meter->name), "%s", lv_textarea_get_text(s_ui.name));
     if (s_ui.role) meter->role = (uint8_t)lv_dropdown_get_selected(s_ui.role);
     meter->generator_index = meter->role == 2U ? meter->generator_index : 0xFFU;
-    if (meter->role == 2U && meter->generator_index >= SCREEN_COMMISSIONING_MAX_GENERATORS) meter->generator_index = 0U;
+    if (meter->role == 2U && meter->generator_index >= SCREEN_COMMISSIONING_MAX_GENERATORS) {
+        meter->generator_index = 0U;
+    }
     if (s_ui.model) meter->model = lv_dropdown_get_selected(s_ui.model);
     if (s_ui.phase_basis) meter->phase_basis = lv_dropdown_get_selected(s_ui.phase_basis);
-    if (include_channel) {
-        unsigned long value = 0U;
+
+    unsigned long value = 0U;
+    if (channel) {
         snprintf(meter->host, sizeof(meter->host), "%s", lv_textarea_get_text(s_ui.host));
-        if (!parse_ulong(s_ui.port, 1U, 65535U, &value)) return false; meter->port = (uint16_t)value;
-        if (!parse_ulong(s_ui.unit_id, 1U, 247U, &value)) return false; meter->unit_id = (uint8_t)value;
-        if (!parse_ulong(s_ui.timeout_ms, 100U, 60000U, &value)) return false; meter->timeout_ms = (uint32_t)value;
+        if (!parse_ulong(s_ui.port, 1U, 65535U, &value)) return false;
+        meter->port = (uint16_t)value;
+        if (!parse_ulong(s_ui.unit_id, 1U, 247U, &value)) return false;
+        meter->unit_id = (uint8_t)value;
+        if (!parse_ulong(s_ui.timeout_ms, 100U, 60000U, &value)) return false;
+        meter->timeout_ms = (uint32_t)value;
     }
-    if (include_modbus) {
-        unsigned long value = 0U;
+    if (modbus) {
         meter->function_code = lv_dropdown_get_selected(s_ui.function_code) == 0U ? 3U : 4U;
-        if (!parse_ulong(s_ui.address, 0U, 65535U, &value)) return false; meter->active_power_address = (uint16_t)value;
+        if (!parse_ulong(s_ui.address, 0U, 65535U, &value)) return false;
+        meter->active_power_address = (uint16_t)value;
         meter->data_type = (uint8_t)lv_dropdown_get_selected(s_ui.data_type);
         meter->word_order = (uint8_t)lv_dropdown_get_selected(s_ui.word_order);
         if (!parse_float(s_ui.scale, &meter->scale)) return false;
-        if (!parse_ulong(s_ui.poll_ms, 0U, 3600000U, &value)) return false; meter->poll_ms = (uint32_t)value;
+        if (!parse_ulong(s_ui.poll_ms, 0U, 3600000U, &value)) return false;
+        meter->poll_ms = (uint32_t)value;
     }
     return true;
 }
 
-static bool read_inverter_form(screen_commission_inverter_t *inverter, bool include_channel)
+static bool read_inverter_form(screen_commission_inverter_t *inverter, bool channel)
 {
     if (!inverter) return false;
     if (s_ui.enabled) inverter->enabled = checked(s_ui.enabled);
@@ -452,12 +473,15 @@ static bool read_inverter_form(screen_commission_inverter_t *inverter, bool incl
                      s_ui.config.profiles[selected].id);
         }
     }
-    if (include_channel) {
+    if (channel) {
         unsigned long value = 0U;
         snprintf(inverter->host, sizeof(inverter->host), "%s", lv_textarea_get_text(s_ui.host));
-        if (!parse_ulong(s_ui.port, 1U, 65535U, &value)) return false; inverter->port = (uint16_t)value;
-        if (!parse_ulong(s_ui.unit_id, 1U, 247U, &value)) return false; inverter->unit_id = (uint8_t)value;
-        if (!parse_ulong(s_ui.timeout_ms, 100U, 60000U, &value)) return false; inverter->timeout_ms = (uint32_t)value;
+        if (!parse_ulong(s_ui.port, 1U, 65535U, &value)) return false;
+        inverter->port = (uint16_t)value;
+        if (!parse_ulong(s_ui.unit_id, 1U, 247U, &value)) return false;
+        inverter->unit_id = (uint8_t)value;
+        if (!parse_ulong(s_ui.timeout_ms, 100U, 60000U, &value)) return false;
+        inverter->timeout_ms = (uint32_t)value;
     }
     return true;
 }
@@ -469,21 +493,17 @@ static void save_device_clicked(lv_event_t *event)
     if (s_ui.device_kind == 0U) {
         screen_commission_meter_t meter = s_ui.config.meters[s_ui.meter_index];
         if (!read_meter_form(&meter, false, false)) {
-            set_message("Meter fields contain an invalid value.", false); return;
+            set_message("Meter fields contain an invalid value.", false);
+            return;
         }
-        if (!s_ui.backend.save_meter ||
-            !s_ui.backend.save_meter(s_ui.backend.context, s_ui.meter_index, &meter, &result)) {
-            result_message(&result); return;
-        }
+        (void)s_ui.backend.save_meter(s_ui.backend.context, s_ui.meter_index, &meter, &result);
     } else {
         screen_commission_inverter_t inverter = s_ui.config.inverters[s_ui.inverter_index];
         if (!read_inverter_form(&inverter, false)) {
-            set_message("Inverter fields contain an invalid value.", false); return;
+            set_message("Inverter fields contain an invalid value.", false);
+            return;
         }
-        if (!s_ui.backend.save_inverter ||
-            !s_ui.backend.save_inverter(s_ui.backend.context, s_ui.inverter_index, &inverter, &result)) {
-            result_message(&result); return;
-        }
+        (void)s_ui.backend.save_inverter(s_ui.backend.context, s_ui.inverter_index, &inverter, &result);
     }
     result_message(&result);
     if (result.ok) (void)load_config();
@@ -495,11 +515,17 @@ static void save_channel_clicked(lv_event_t *event)
     screen_commission_action_result_t result = {0};
     if (s_ui.device_kind == 0U) {
         screen_commission_meter_t meter = s_ui.config.meters[s_ui.meter_index];
-        if (!read_meter_form(&meter, true, false)) { set_message("TCP channel values are invalid.", false); return; }
+        if (!read_meter_form(&meter, true, false)) {
+            set_message("TCP channel values are invalid.", false);
+            return;
+        }
         (void)s_ui.backend.save_meter(s_ui.backend.context, s_ui.meter_index, &meter, &result);
     } else {
         screen_commission_inverter_t inverter = s_ui.config.inverters[s_ui.inverter_index];
-        if (!read_inverter_form(&inverter, true)) { set_message("TCP channel values are invalid.", false); return; }
+        if (!read_inverter_form(&inverter, true)) {
+            set_message("TCP channel values are invalid.", false);
+            return;
+        }
         (void)s_ui.backend.save_inverter(s_ui.backend.context, s_ui.inverter_index, &inverter, &result);
     }
     result_message(&result);
@@ -510,7 +536,10 @@ static void save_modbus_clicked(lv_event_t *event)
 {
     (void)event;
     screen_commission_meter_t meter = s_ui.config.meters[s_ui.meter_index];
-    if (!read_meter_form(&meter, false, true)) { set_message("Modbus tuning values are invalid.", false); return; }
+    if (!read_meter_form(&meter, false, true)) {
+        set_message("Modbus tuning values are invalid.", false);
+        return;
+    }
     screen_commission_action_result_t result = {0};
     (void)s_ui.backend.save_meter(s_ui.backend.context, s_ui.meter_index, &meter, &result);
     result_message(&result);
@@ -529,13 +558,15 @@ static bool read_plant_form(screen_commission_plant_t *plant)
         !parse_float(s_ui.base_tolerance_percent, &plant->base_load_tolerance_percent) ||
         !parse_float(s_ui.grid_import_target, &plant->grid_import_target_kw) ||
         !parse_float(s_ui.deadband, &plant->deadband_kw) ||
-        !parse_float(s_ui.kp, &plant->kp) || !parse_float(s_ui.ki, &plant->ki) ||
+        !parse_float(s_ui.kp, &plant->kp) ||
+        !parse_float(s_ui.ki, &plant->ki) ||
         !parse_float(s_ui.grid_ramp_up, &plant->grid_ramp_up_percent_per_second) ||
         !parse_float(s_ui.grid_ramp_down, &plant->grid_ramp_down_percent_per_second) ||
         !parse_float(s_ui.generator_ramp_up, &plant->generator_ramp_up_percent_per_second) ||
         !parse_float(s_ui.generator_ramp_down, &plant->generator_ramp_down_percent_per_second) ||
         !parse_float(s_ui.urgent_fraction, &plant->urgent_loading_fraction) ||
         !parse_float(s_ui.urgent_multiplier, &plant->urgent_ramp_multiplier)) return false;
+
     unsigned long value = 0U;
     if (!parse_ulong(s_ui.control_interval, 50U, 3600000U, &value)) return false;
     plant->control_interval_ms = (uint32_t)value;
@@ -559,7 +590,10 @@ static void save_plant_clicked(lv_event_t *event)
 {
     (void)event;
     screen_commission_plant_t plant = s_ui.config.plant;
-    if (!read_plant_form(&plant)) { set_message("Plant control values are invalid.", false); return; }
+    if (!read_plant_form(&plant)) {
+        set_message("Plant control values are invalid.", false);
+        return;
+    }
     screen_commission_action_result_t result = {0};
     (void)s_ui.backend.save_plant(s_ui.backend.context, &plant, &result);
     result_message(&result);
@@ -569,16 +603,20 @@ static void save_plant_clicked(lv_event_t *event)
 static void refresh_clicked(lv_event_t *event)
 {
     (void)event;
-    if (load_config()) { render(); set_message("Controller configuration/evidence refreshed.", true); }
-    else set_message("Controller configuration could not be refreshed.", false);
+    if (!load_config()) {
+        set_message("Controller configuration could not be refreshed.", false);
+        return;
+    }
+    set_message("Controller configuration/evidence refreshed.", true);
+    queue_render();
 }
 
 static void control_clicked(lv_event_t *event)
 {
-    const bool enabled = (uintptr_t)lv_event_get_user_data(event) != 0U;
+    const bool enable = (uintptr_t)lv_event_get_user_data(event) != 0U;
     if (!s_ui.backend.set_control_enabled) return;
     screen_commission_action_result_t result = {0};
-    (void)s_ui.backend.set_control_enabled(s_ui.backend.context, enabled, &result);
+    (void)s_ui.backend.set_control_enabled(s_ui.backend.context, enable, &result);
     result_message(&result);
     if (result.ok) (void)load_config();
 }
@@ -635,7 +673,8 @@ static void device_selector(lv_obj_t *form)
 static void render_locked(void)
 {
     lv_obj_t *form = form_container();
-    heading(form, "Engineering unlock", "Use the same Engineering password as the protected web workspace. A fresh unit may use its one-time SETUP code from the serial console. Five failed attempts share the normal Engineering lockout.");
+    heading(form, "Engineering unlock",
+            "Use the same Engineering password as the protected web workspace. A fresh unit may use its one-time SETUP code from the serial console. Five failed attempts share the normal Engineering lockout.");
     s_ui.credential = field(form, "Engineering credential", "", true);
     button(form, "Unlock commissioning", unlock_clicked, NULL);
 }
@@ -643,7 +682,8 @@ static void render_locked(void)
 static void render_site(void)
 {
     lv_obj_t *form = form_container();
-    heading(form, "Site / controller identity", "The controller currently persists one device/site name. Location, engineer and project-reference fields are not invented here because Core schema 9 does not persist them yet.");
+    heading(form, "Site / controller identity",
+            "The controller currently persists one device/site name. Location, engineer and project-reference fields are not invented because Core schema 9 does not persist them yet.");
     s_ui.name = field(form, "Controller / site name", s_ui.config.device_name, false);
     button(form, "Save site name", save_site_clicked, NULL);
 }
@@ -659,7 +699,8 @@ static uint32_t profile_selected(const char *id)
 static void render_devices(void)
 {
     lv_obj_t *form = form_container();
-    heading(form, "Devices", "Declare installed equipment. Unknown or out-of-scope equipment remains a valid stored configuration but the Core commissioning gate refuses command authority.");
+    heading(form, "Devices",
+            "Declare installed equipment. Unknown or out-of-scope equipment stays stored but the Core commissioning gate refuses command authority.");
     device_selector(form);
     if (s_ui.device_kind == 0U) {
         screen_commission_meter_t *m = &s_ui.config.meters[s_ui.meter_index];
@@ -693,7 +734,8 @@ static void render_devices(void)
 static void render_channel(void)
 {
     lv_obj_t *form = form_container();
-    heading(form, "Communication channel", "This release commissions Modbus TCP only. Native Modbus RTU remains unavailable until the RS-485 runtime is implemented and physically qualified; the HMI will not fake a Ready verdict.");
+    heading(form, "Communication channel",
+            "This release commissions Modbus TCP only. Native Modbus RTU remains unavailable until the RS-485 runtime is implemented and physically qualified; the HMI will not fake a Ready verdict.");
     device_selector(form);
     if (s_ui.device_kind == 0U) {
         screen_commission_meter_t *m = &s_ui.config.meters[s_ui.meter_index];
@@ -714,7 +756,8 @@ static void render_channel(void)
 static void render_modbus(void)
 {
     lv_obj_t *form = form_container();
-    heading(form, "Modbus tuning", "Meter decode is commissioned explicitly. Inverter register maps are profile-owned so this page never lets a local UI invent a manufacturer register address.");
+    heading(form, "Modbus tuning",
+            "Meter decode is commissioned explicitly. Inverter register maps are profile-owned so this page never lets a local UI invent a manufacturer register address.");
     s_ui.device_kind = 0U;
     device_selector(form);
     screen_commission_meter_t *m = &s_ui.config.meters[s_ui.meter_index];
@@ -730,7 +773,8 @@ static void render_modbus(void)
 static void render_plant(void)
 {
     lv_obj_t *form = form_container();
-    heading(form, "Plant control", "Every save forces automatic control disabled. Core validators remain authoritative; a value the Core refuses is not persisted by this screen.");
+    heading(form, "Plant control",
+            "Every save forces automatic control disabled. Core validators remain authoritative; a value the Core refuses is not persisted by this screen.");
     screen_commission_plant_t *p = &s_ui.config.plant;
     s_ui.policy = dropdown_field(form, "Grid policy", "Zero export\nLimited export\nMinimum import", p->policy <= 2U ? p->policy : 0U);
     s_ui.orientation = dropdown_field(form, "Meter orientation", "Import positive\nExport positive", p->meter_orientation <= 1U ? p->meter_orientation : 0U);
@@ -745,8 +789,13 @@ static void render_plant(void)
     lv_obj_set_layout(selector, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(selector, LV_FLEX_FLOW_ROW);
     button(selector, "< Generator", generator_prev_clicked, NULL);
-    char slot[32]; snprintf(slot, sizeof(slot), "Generator %u/%u", (unsigned)(s_ui.generator_index + 1U), (unsigned)SCREEN_COMMISSIONING_MAX_GENERATORS);
-    lv_obj_t *slot_label = lv_label_create(selector); lv_label_set_text(slot_label, slot); lv_obj_set_width(slot_label, 180);
+    char slot[32];
+    snprintf(slot, sizeof(slot), "Generator %u/%u",
+             (unsigned)(s_ui.generator_index + 1U),
+             (unsigned)SCREEN_COMMISSIONING_MAX_GENERATORS);
+    lv_obj_t *slot_label = lv_label_create(selector);
+    lv_label_set_text(slot_label, slot);
+    lv_obj_set_width(slot_label, 180);
     button(selector, "Generator >", generator_next_clicked, NULL);
 
     screen_commission_generator_t *g = &p->generators[s_ui.generator_index];
@@ -785,23 +834,32 @@ static void status_line(lv_obj_t *form, const char *name, const char *value)
     lv_obj_set_height(row, LV_SIZE_CONTENT);
     lv_obj_set_layout(row, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_t *a = lv_label_create(row); lv_label_set_text(a, name); lv_obj_set_width(a, 300);
-    lv_obj_t *b = lv_label_create(row); lv_label_set_text(b, value); lv_obj_set_width(b, 330); lv_obj_set_style_text_align(b, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_t *a = lv_label_create(row);
+    lv_label_set_text(a, name);
+    lv_obj_set_width(a, 300);
+    lv_obj_t *b = lv_label_create(row);
+    lv_label_set_text(b, value);
+    lv_obj_set_width(b, 330);
+    lv_obj_set_style_text_align(b, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
 }
 
 static void render_test(void)
 {
     lv_obj_t *form = form_container();
-    heading(form, "Connection qualification", "No Modbus I/O is performed inside the LVGL event handler. This screen watches the controller's background acquisition evidence; after a changed endpoint, restart first so the runtime uses the saved settings.");
+    heading(form, "Connection qualification",
+            "No Modbus I/O is performed inside the LVGL event handler. This page watches the controller's background acquisition evidence. After a changed endpoint, restart first so runtime uses the saved settings.");
     if (s_ui.config.restart_required) {
         status_line(form, "Configuration", "Restart required before qualification");
         button(form, "Restart controller now", restart_clicked, NULL);
     }
     char text[96];
-    snprintf(text, sizeof(text), "%u enabled / %u online", (unsigned)s_ui.meters.enabled, (unsigned)s_ui.meters.online);
+    snprintf(text, sizeof(text), "%u enabled / %u online",
+             (unsigned)s_ui.meters.enabled_count, (unsigned)s_ui.meters.online_count);
     status_line(form, "Meters", s_ui.meters.valid ? text : "Evidence unavailable");
-    snprintf(text, sizeof(text), "%u enabled / %u online", (unsigned)s_ui.inverters.enabled, (unsigned)s_ui.inverters.online);
+    snprintf(text, sizeof(text), "%u enabled / %u online",
+             (unsigned)s_ui.inverters.enabled_count, (unsigned)s_ui.inverters.online_count);
     status_line(form, "Inverters", s_ui.inverters.valid ? text : "Evidence unavailable");
     status_line(form, "RTU", "Unavailable in this release candidate");
     button(form, "Refresh evidence", refresh_clicked, NULL);
@@ -810,7 +868,8 @@ static void render_test(void)
 static void render_health(void)
 {
     lv_obj_t *form = form_container();
-    heading(form, "Controller health", "Health is read from the same cached Core status used by the operator UI. Unknown stays unknown.");
+    heading(form, "Controller health",
+            "Health is read from the same cached Core status used by the operator UI. Unknown stays unknown.");
     status_line(form, "Network", !s_ui.status.valid ? "--" : s_ui.status.network_online ? "Online" : "Offline");
     status_line(form, "Controller", s_ui.status.valid && s_ui.status.controller_state[0] ? s_ui.status.controller_state : "--");
     status_line(form, "Monitoring ready", !s_ui.telemetry.valid ? "--" : s_ui.telemetry.monitoring_ready ? "Yes" : "No");
@@ -822,7 +881,8 @@ static void render_health(void)
 static void render_review(void)
 {
     lv_obj_t *form = form_container();
-    heading(form, "Review / finish", "The Core commissioning gate is the final authority. The HMI cannot override an unmet prerequisite.");
+    heading(form, "Review / finish",
+            "The Core commissioning gate is the final authority. The HMI cannot override an unmet prerequisite.");
     if (!s_ui.gate.valid) {
         status_line(form, "Commissioning gate", "Unavailable");
     } else {
@@ -830,13 +890,17 @@ static void render_review(void)
         status_line(form, "Scope", s_ui.gate.scope[0] ? s_ui.gate.scope : "--");
         char count[64];
         snprintf(count, sizeof(count), "%u/%u met (%u unmet)",
-                 (unsigned)s_ui.gate.satisfied_count, (unsigned)s_ui.gate.prerequisite_count,
+                 (unsigned)s_ui.gate.satisfied_count,
+                 (unsigned)s_ui.gate.prerequisite_count,
                  (unsigned)s_ui.gate.unmet_count);
         status_line(form, "Prerequisites", count);
         if (!s_ui.gate.commissioned) {
-            status_line(form, "Next blocker", s_ui.gate.first_unmet_title[0] ? s_ui.gate.first_unmet_title : "--");
+            status_line(form, "Next blocker",
+                        s_ui.gate.first_unmet_title[0] ? s_ui.gate.first_unmet_title : "--");
             lv_obj_t *detail = lv_label_create(form);
-            lv_label_set_text(detail, s_ui.gate.first_unmet_detail[0] ? s_ui.gate.first_unmet_detail : s_ui.gate.inhibit_reason);
+            lv_label_set_text(detail, s_ui.gate.first_unmet_detail[0]
+                                      ? s_ui.gate.first_unmet_detail
+                                      : s_ui.gate.inhibit_reason);
             lv_label_set_long_mode(detail, LV_LABEL_LONG_WRAP);
             lv_obj_set_width(detail, LV_PCT(100));
             lv_obj_set_style_text_color(detail, lv_color_hex(0xF2B84B), LV_PART_MAIN);
@@ -860,13 +924,17 @@ static void render_step(void)
     case 5: render_test(); break;
     case 6: render_health(); break;
     case 7: render_review(); break;
-    default: s_ui.step = 0U; render_site(); break;
+    default:
+        s_ui.step = 0U;
+        render_site();
+        break;
     }
 }
 
 static void render(void)
 {
     if (!s_ui.root || !s_ui.body) return;
+    keyboard_hide();
     lv_obj_clean(s_ui.body);
     clear_form_refs();
     s_ui.credential = NULL;
@@ -905,7 +973,8 @@ lv_obj_t *commissioning_screen_create(lv_obj_t *parent)
     lv_obj_set_height(top, 38);
     lv_obj_set_layout(top, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(top, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(top, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_flex_align(top, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
     s_ui.step_label = lv_label_create(top);
     lv_obj_set_width(s_ui.step_label, 420);
     lv_obj_set_style_text_color(s_ui.step_label, lv_color_hex(0xF2F6FA), LV_PART_MAIN);
@@ -926,6 +995,7 @@ lv_obj_t *commissioning_screen_create(lv_obj_t *parent)
     lv_obj_set_height(s_ui.message, 22);
 
     s_ui.keyboard = lv_keyboard_create(s_ui.root);
+    lv_obj_add_flag(s_ui.keyboard, LV_OBJ_FLAG_FLOATING);
     lv_obj_set_size(s_ui.keyboard, LV_PCT(100), KEYBOARD_HEIGHT);
     lv_obj_align(s_ui.keyboard, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_add_event_cb(s_ui.keyboard, keyboard_event, LV_EVENT_READY, NULL);
