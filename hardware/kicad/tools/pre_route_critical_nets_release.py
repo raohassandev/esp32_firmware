@@ -59,6 +59,21 @@ def route_ethernet(board):
     j_rx_p=_require_net(base.pad_number(j3,4),'ETH_RXP_MAG')
     j_rx_n=_require_net(base.pad_number(j3,6),'ETH_RXN_MAG')
 
+    # The four mandatory 49.9R W5500 line-bias parts are controlled branches
+    # of the *_MAG nets. Runs #52/#202 proved that filtering SES routes without
+    # owning these endpoints leaves four real opens. The release placement puts
+    # every bias pad 2 beside its damping pad 2, so equal short F.Cu stubs add no
+    # pair skew, no vias and no disallowed layer usage.
+    for semantic, net_name, source in (
+        ('R_ETH_RXP_BIAS','ETH_RXP_MAG',r_rxp_m),
+        ('R_ETH_RXN_BIAS','ETH_RXN_MAG',r_rxn_m),
+        ('R_ETH_TXP_BIAS','ETH_TXP_MAG',r_txp_m),
+        ('R_ETH_TXN_BIAS','ETH_TXN_MAG',r_txn_m),
+    ):
+        bias=base.footprint(board,base.semantic_ref(semantic))
+        signal=_require_net(base.pad_number(bias,2),net_name)
+        base.add_track(board,_xy(source),_xy(signal),F,base.net_from_pad(source),base.WIDTH_ETH_MM)
+
     # Run #37's final GND island was U2 pad 9. post_route_finalize now reserves
     # its +X stitch via at x=121.4475 before signal routing. Shift the two RX
     # fanout columns just enough to clear that via while retaining >=0.20 mm
@@ -93,7 +108,7 @@ def route_ethernet(board):
     base.add_via(board,v,base.net_from_pad(r_txn_m))
     base.add_polyline(board,[v,(127.60,d[1]),d],IN2,base.net_from_pad(r_txn_m),base.WIDTH_ETH_MM)
 
-    print('ETHERNET_CRITICAL_PREROUTE: PASS GND-escape-aware RX doglegs + TXN skew trim')
+    print('ETHERNET_CRITICAL_PREROUTE: PASS GND-escape-aware trunks + four locked 49.9R bias stubs')
 
 
 def route_eth_tocap(board):
@@ -129,14 +144,31 @@ def route_usb(board):
     j2=base.footprint(board,base.semantic_ref('J_USB'))
     rdm=base.footprint(board,base.semantic_ref('R_MCU_DM_SER'))
     rdp=base.footprint(board,base.semantic_ref('R_MCU_DP_SER'))
+    cdm=base.footprint(board,base.semantic_ref('C_MCU_DM_USB'))
+    cdp=base.footprint(board,base.semantic_ref('C_MCU_DP_USB'))
+    ddm=base.footprint(board,base.semantic_ref('D_USB_DN'))
+    ddp=base.footprint(board,base.semantic_ref('D_USB_DP'))
 
     mcu_dm=_require_net(base.pad_number(u1,13),'USB_D-_MCU')
     mcu_dp=_require_net(base.pad_number(u1,14),'USB_D+_MCU')
     rdm_mcu=base.pad_net(rdm,'USB_D-_MCU'); rdm_ext=base.pad_net(rdm,'USB_D-')
     rdp_mcu=base.pad_net(rdp,'USB_D+_MCU'); rdp_ext=base.pad_net(rdp,'USB_D+')
+    cdm_sig=_require_net(base.pad_number(cdm,1),'USB_D-_MCU')
+    cdp_sig=_require_net(base.pad_number(cdp,1),'USB_D+_MCU')
+    ddm_sig=_require_net(base.pad_number(ddm,1),'USB_D-')
+    ddp_sig=_require_net(base.pad_number(ddp,1),'USB_D+')
 
     _usb_mcu_stub(board,mcu_dm,rdm_mcu,(15.98,66.40),(21.20,63.40))
     _usb_mcu_stub(board,mcu_dp,rdp_mcu,(17.25,67.80),(21.20,66.60))
+
+    # Own both DNP tuning-cap stubs. These are the DRC-clean SES geometries from
+    # Runs #50/#52, now locked before export so filtering the protected SES net
+    # blocks cannot remove required schematic endpoints.
+    dm_cap=_xy(cdm_sig); dp_cap=_xy(cdp_sig)
+    base.add_polyline(board,[_xy(rdm_mcu),(dm_cap[0]-2.05,dm_cap[1]),dm_cap],F,
+                      base.net_from_pad(rdm_mcu),base.WIDTH_USB_MM)
+    base.add_polyline(board,[(21.20,66.60),(22.10,dp_cap[1]),dp_cap],F,
+                      base.net_from_pad(rdp_mcu),base.WIDTH_USB_MM)
 
     # A 16-contact USB-C receptacle exposes both A- and B-side USB2 contacts.
     # Lock all four data contacts before Specctra export. D+ uses three vias;
@@ -183,7 +215,18 @@ def route_usb(board):
     base.add_polyline(board,[dp_b,(dp_b[0],_xy(b6)[1]),_xy(b6)],F,dp_net,base.WIDTH_USB_MM)
     base.add_track(board,dp_b,dp_a,B,dp_net,base.WIDTH_USB_MM)
 
-    print('USB_CRITICAL_PREROUTE: PASS right-side B7 transfer + all A6/B6/A7/B7 contacts tied')
+    # Lock both low-capacitance ESD shunts. D- follows the proven Run #50 SES
+    # approach to A7. D+ uses an F.Cu rectangular dogleg of 4.90 mm; together
+    # with the tuning-cap stubs this holds the frozen <=5 mm aggregate USB skew
+    # without adding a via or changing the <=190 mm length limit.
+    dn=_xy(ddm_sig); a7p=_xy(a7)
+    base.add_polyline(board,[dn,(dn[0],39.3958),(139.4458,a7p[1]),a7p],F,
+                      base.net_from_pad(ddm_sig),base.WIDTH_USB_MM)
+    dp=_xy(ddp_sig)
+    base.add_polyline(board,[dp,(133.85,dp[1]),(133.85,dp_b[1]),dp_b],F,
+                      base.net_from_pad(ddp_sig),base.WIDTH_USB_MM)
+
+    print('USB_CRITICAL_PREROUTE: PASS Type-C contacts + tuning-cap/ESD branches locked and skew-tuned')
 
 
 def main(board_path):
@@ -194,7 +237,7 @@ def main(board_path):
     route_usb(board)
     board.BuildConnectivity(); conn=board.GetConnectivity(); conn.Build(board); conn.RecalculateRatsnest()
     pcbnew.SaveBoard(str(path),board)
-    print('CRITICAL_PREROUTE_LOCKED: PASS USB + Ethernet MDI + ETH_TOCAP')
+    print('CRITICAL_PREROUTE_LOCKED: PASS USB complete topology + Ethernet MDI/bias + ETH_TOCAP')
     print('  unrouted_after_critical_preroute=%d' % int(conn.GetUnconnectedCount(False)))
 
 

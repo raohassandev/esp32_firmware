@@ -16,6 +16,9 @@ SD_SIGNAL_PARTS = {'R_SDCS','R_SDMISO','R_SDMOSI','R_SDSCLK'}
 ETH_DAMPERS = {
     'R_ETH_TXP_DAMP','R_ETH_TXN_DAMP','R_ETH_RXP_DAMP','R_ETH_RXN_DAMP',
 }
+ETH_BIASES = {
+    'R_ETH_TXP_BIAS','R_ETH_TXN_BIAS','R_ETH_RXP_BIAS','R_ETH_RXN_BIAS',
+}
 
 # Exact Phoenix MKDS-3 terminal is slightly deeper than the earlier generic
 # prototype body. J_RLY1 must remain clear of the H1 mounting keep-out, so keep
@@ -33,12 +36,20 @@ b.FIXED['U2'] = (116.0, 64.0, 180)
 # proved the RXN chip escape also needs more vertical separation from the TXP
 # damper pad. Keep the RX pair fixed and shift the TX pair down while retaining
 # >=2.5 mm damper-row spacing. This stays inside the reserved Ethernet corridor.
-final.ETH_ALLOWED.update(ETH_DAMPERS)
+final.ETH_ALLOWED.update(ETH_DAMPERS | ETH_BIASES)
 b.FIXED.update({
     'R_ETH_RXP_DAMP': (123.6, 60.3, 0),
     'R_ETH_RXN_DAMP': (123.6, 62.8, 0),
     'R_ETH_TXP_DAMP': (123.6, 66.0, 0),
     'R_ETH_TXN_DAMP': (123.6, 68.5, 0),
+    # Put the four 49.9R W5500 line-bias parts on the routed MDI rows instead
+    # of the generic x=94..99 mm spill positions seen in Runs #200/#52/#202.
+    # Pad 2 is the *_MAG signal node; 90-degree orientation keeps the ETH_AVDD
+    # pad perpendicular to the main conductor and makes every locked stub equal.
+    'R_ETH_RXP_BIAS': (126.0, 60.3, 90),
+    'R_ETH_RXN_BIAS': (126.0, 62.8, 90),
+    'R_ETH_TXP_BIAS': (126.0, 66.0, 90),
+    'R_ETH_TXN_BIAS': (126.0, 68.5, 90),
 })
 
 

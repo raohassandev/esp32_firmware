@@ -24,6 +24,7 @@ TAIL_RADIUS = 8.0
 ORIGIN_LIMIT = 64
 TAIL_ANGLES = 24
 TAIL_RADII = (0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 6.0, 7.0, 8.0)
+GND_VIA_MIN_CENTER = DRILL + 0.25
 
 
 def mm(v):
@@ -148,6 +149,7 @@ class ClearanceModel:
         self.via_pad_boxes = []
         self.track_pad_boxes = []
         self.other_vias = []
+        self.gnd_vias = []
         self.other_tracks_all = []
         self.other_tracks_front = []
 
@@ -167,12 +169,15 @@ class ClearanceModel:
                     self.track_pad_boxes.append(inflate_box(bb, track_radius))
 
         for item in board.GetTracks():
-            if item.GetNetCode() == gcode:
-                continue
             if isinstance(item, pcbnew.PCB_VIA):
                 ix, iy = xy(item.GetPosition())
                 width = pcbnew.ToMM(item.GetWidth())
-                self.other_vias.append((ix, iy, width))
+                if item.GetNetCode() == gcode:
+                    self.gnd_vias.append((ix, iy))
+                else:
+                    self.other_vias.append((ix, iy, width))
+                continue
+            if item.GetNetCode() == gcode:
                 continue
             a = xy(item.GetStart())
             b = xy(item.GetEnd())
@@ -195,6 +200,9 @@ class ClearanceModel:
             return False, "via-keepout"
         if any(point_in_box(p, bb) for bb in self.via_pad_boxes):
             return False, "pad-clearance"
+        for ix, iy in self.gnd_vias:
+            if math.hypot(x - ix, y - iy) < GND_VIA_MIN_CENTER:
+                return False, "gnd-hole-clearance"
         radius = VIA_D / 2 + CLEAR
         for ix, iy, width in self.other_vias:
             if math.hypot(x - ix, y - iy) < radius + width / 2:
@@ -298,6 +306,17 @@ def gnd_pads_in_outline(board, outline, gcode):
             p = xy(pad.GetPosition())
             if inside(outline, *p):
                 out.append((pad, p))
+    return out
+
+
+def gnd_vias_in_outline(board, outline, gcode):
+    out = []
+    for item in board.GetTracks():
+        if not isinstance(item, pcbnew.PCB_VIA) or item.GetNetCode() != gcode:
+            continue
+        p = xy(item.GetPosition())
+        if inside(outline, *p):
+            out.append(p)
     return out
 
 
@@ -460,15 +479,23 @@ def main(board_path):
     added = 0
     tails = 0
     skipped = 0
+    existing_tied = 0
     outlines = 0
     for z in gz:
         polys = z.GetFilledPolysList(layer)
         for idx in range(polys.OutlineCount()):
             outlines += 1
             outline = polys.COutline(idx)
+            existing = gnd_vias_in_outline(board, outline, gcode)
+            if existing:
+                existing_tied += 1
+                points = ",".join("(%.3f,%.3f)" % p for p in existing)
+                print(f"GND_ISLAND_EXISTING idx={idx} vias={points}")
+                continue
             chosen = choose_candidate(outline, model)
             if chosen is not None:
                 add_via(board, chosen[0], chosen[1], gnet)
+                model.gnd_vias.append((chosen[0], chosen[1]))
                 added += 1
                 continue
 
@@ -479,6 +506,7 @@ def main(board_path):
                     add_track(board, a, b, gnet)
                 via = route[-1]
                 add_via(board, via[0], via[1], gnet)
+                model.gnd_vias.append((via[0], via[1]))
                 added += 1
                 tails += 1
                 source_label = pad_label(source) if source is not None else source_kind
@@ -493,12 +521,13 @@ def main(board_path):
                 f"reason=no-drc-safe-tail stats={stats}"
             )
 
-    if added == 0:
-        raise SystemExit(f"GND stitch failed: outlines={outlines} no safe candidates")
+    if added == 0 and existing_tied == 0:
+        raise SystemExit(f"GND stitch failed: outlines={outlines} no safe candidates or existing L2 vias")
     pcbnew.SaveBoard(str(path), board)
     print(
-        f"GND_ISLAND_STITCH: outlines={outlines} vias_added={added} tail_routes={tails} skipped={skipped} "
-        f"via_keepouts={len(model.via_keepouts)} track_keepouts={len(model.track_keepouts)}"
+        f"GND_ISLAND_STITCH: outlines={outlines} existing_tied={existing_tied} vias_added={added} "
+        f"tail_routes={tails} skipped={skipped} via_keepouts={len(model.via_keepouts)} "
+        f"track_keepouts={len(model.track_keepouts)}"
     )
 
 
