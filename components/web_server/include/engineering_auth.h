@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 #include "auth_hmac_compat.h"
 #include "esp_err.h"
 #include "esp_http_server.h"
@@ -11,6 +12,12 @@ extern "C" {
 
 typedef esp_err_t (*engineering_httpd_uri_func_t)(httpd_req_t *request);
 
+typedef enum {
+    ENGINEERING_LOCAL_AUTH_OK = 0,
+    ENGINEERING_LOCAL_AUTH_DENIED,
+    ENGINEERING_LOCAL_AUTH_LOCKED,
+} engineering_local_auth_result_t;
+
 esp_err_t engineering_auth_init(void);
 esp_err_t engineering_auth_register(httpd_handle_t server);
 bool engineering_auth_is_authorized(httpd_req_t *request);
@@ -18,6 +25,21 @@ esp_err_t engineering_auth_require(httpd_req_t *request);
 esp_err_t engineering_auth_guarded_handler(httpd_req_t *request);
 esp_err_t engineering_register_uri_handler(httpd_handle_t server,
                                            const httpd_uri_t *uri_handler);
+
+/* Verify the same Engineering credential used by the protected web workspace,
+ * but without creating or consuming an HTTP cookie session. This is for a
+ * physically local UI (for example the integrated commissioning HMI) that must
+ * reuse the one credential authority rather than invent a second PIN/password.
+ *
+ * The ordinary failed-attempt counter, 30 s lockout and authentication audit
+ * entries are shared with web login. When no permanent password exists yet, the
+ * one-time serial-console setup code is accepted exactly as web login accepts it;
+ * setup_required reports that state to the local UI. No credential is retained
+ * by this function. */
+engineering_local_auth_result_t engineering_auth_verify_local_credential(
+    const char *credential,
+    uint32_t *retry_after_ms,
+    bool *setup_required);
 
 #ifdef __cplusplus
 }
