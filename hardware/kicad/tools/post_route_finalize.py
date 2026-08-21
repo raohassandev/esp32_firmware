@@ -72,6 +72,12 @@ PRE_ROUTE_GND_ESCAPES = (
 # detour around it and any later surface fill at this location is grounded.
 PRE_ROUTE_GND_STITCH_VIAS = (
     ("RUN50_RELAY_ROW", 50.16, 35.78),
+    # The F.Cu pour fragment at (43.71,66.06)-(45.53,68.12) is too congested for
+    # stitch_ground_islands to place a via inside it or to reach one with a tail
+    # route, so it was the last GND ratsnest item left open. Reserve its L2 tie
+    # before routing instead, exactly as the W5500 escapes above. y=67.70 keeps
+    # 0.82 mm to the locked ETH_INT B.Cu backbone at y=66.879.
+    ("RUN206_LOGIC_ROW", 44.62, 67.70),
 )
 
 

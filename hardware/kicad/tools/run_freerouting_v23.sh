@@ -21,6 +21,11 @@ $KPY hardware/kicad/tools/post_route_finalize.py "$PCB"
 # B.Cu usage, while the contract is <=45 mm, <=1 via and F.Cu/In2.Cu only.
 $KPY hardware/kicad/tools/pre_route_critical_nets_release.py "$PCB"
 
+# The six long MCU<->W5500 SPI/control lines are the first nets Freerouting
+# abandons when it plateaus, and they were the source of the wandering
+# single-connection audit failures. Lock its own proven geometry for them.
+$KPY hardware/kicad/tools/pre_route_eth_spi_backbone.py "$PCB"
+
 # Refill L2 and prove the controlled critical geometry is DRC-clean before
 # spending the Freerouting budget. Unconnected low-speed nets are expected here,
 # so inspect the explicit DRC-violation count instead of using KiCad's exit code.

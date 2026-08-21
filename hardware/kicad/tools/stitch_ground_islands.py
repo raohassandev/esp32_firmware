@@ -23,7 +23,7 @@ MAG_Y1 = 74.5
 TAIL_RADIUS = 8.0
 ORIGIN_LIMIT = 64
 TAIL_ANGLES = 24
-TAIL_RADII = (0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 6.0, 7.0, 8.0)
+TAIL_RADII = (0.40, 0.50, 0.60, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 6.0, 7.0, 8.0)
 GND_VIA_MIN_CENTER = DRILL + 0.25
 
 
@@ -381,6 +381,33 @@ def dogleg_routes(a, b):
         yield [a, c, b]
 
 
+def staircase_routes(a, b):
+    """Three-segment fallbacks for islands wedged inside dense routing.
+
+    A straight tail and a single-corner dogleg both have to clear every foreign
+    track in one or two strokes. In the dense SD/RTC band a two-corner staircase
+    is often the only DRC-safe way out, and without it stitch_ground_islands
+    reported reason=no-drc-safe-tail even though 763 safe via sites existed.
+    Every segment is still checked by model.track_safe, so this widens the
+    search without weakening any clearance rule.
+    """
+    ax, ay = a
+    bx, by = b
+    seen = set()
+    for frac in (0.25, 0.5, 0.75):
+        mx = ax + (bx - ax) * frac
+        my = ay + (by - ay) * frac
+        for c, d in (((mx, ay), (mx, by)), ((ax, my), (bx, my)),
+                     ((ax, my), (mx, my)), ((mx, ay), (mx, my))):
+            key = (round(c[0], 4), round(c[1], 4), round(d[0], 4), round(d[1], 4))
+            if key in seen:
+                continue
+            seen.add(key)
+            if math.hypot(c[0] - d[0], c[1] - d[1]) < 0.05:
+                continue
+            yield [a, c, d, b]
+
+
 def choose_tail(board, outline, gcode, model):
     origins = []
     for pad, p in gnd_pads_in_outline(board, outline, gcode):
@@ -390,7 +417,8 @@ def choose_tail(board, outline, gcode, model):
     for p in copper_tail_origins(outline):
         origins.append((None, p, "filled-copper"))
 
-    stats = {"origins": 0, "targets": 0, "safe_vias": 0, "straight_blocked": 0, "dogleg_blocked": 0}
+    stats = {"origins": 0, "targets": 0, "safe_vias": 0, "straight_blocked": 0, "dogleg_blocked": 0,
+             "staircase_blocked": 0}
     seen_origins = set()
     via_cache = {}
     for source, a, source_kind in origins:
@@ -414,6 +442,10 @@ def choose_tail(board, outline, gcode, model):
                 if model.track_safe(route[0], route[1]) and model.track_safe(route[1], route[2]):
                     return (source, source_kind, route), stats
             stats["dogleg_blocked"] += 1
+            for route in staircase_routes(a, b):
+                if all(model.track_safe(u, v) for u, v in zip(route, route[1:])):
+                    return (source, source_kind, route), stats
+            stats["staircase_blocked"] += 1
     return None, stats
 
 
