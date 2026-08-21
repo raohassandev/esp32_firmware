@@ -66,6 +66,14 @@ PRE_ROUTE_GND_ESCAPES = (
     ("R35", "2", 0.90, 0.00),
 )
 
+# PR Run #50 produced a padless F.Cu GND fragment at this exact relay-row
+# corridor. A B.Cu RELAY3_CTL segment occupied the only legal through-via point
+# after routing. Reserve the L2 stitch before Specctra export so the router must
+# detour around it and any later surface fill at this location is grounded.
+PRE_ROUTE_GND_STITCH_VIAS = (
+    ("RUN50_RELAY_ROW", 50.16, 35.78),
+)
+
 
 def pt(x, y):
     return pcbnew.VECTOR2I_MM(float(x), float(y))
@@ -149,6 +157,25 @@ def assert_escape_clear(board, pad, via_xy, gcode):
                     )
 
 
+def assert_reserved_via_clear(board, via_xy, gcode, label):
+    vx, vy = via_xy
+    via_r = VIA_D / 2 + VIA_CLEAR
+    if not (EDGE + via_r <= vx <= BOARD_X - EDGE - via_r and EDGE + via_r <= vy <= BOARD_Y - EDGE - via_r):
+        raise RuntimeError(f"pre-route GND stitch {label} outside board-safe area at {(vx, vy)}")
+    if vx >= MAGJACK_X0 - via_r and MAGJACK_Y0 - via_r <= vy <= MAGJACK_Y1 + via_r:
+        raise RuntimeError(f"pre-route GND stitch {label} enters MagJack exclusion at {(vx, vy)}")
+    for fp in board.Footprints():
+        for pad in fp.Pads():
+            if pad.GetNetCode() == gcode:
+                continue
+            bx0, bx1, by0, by1 = bbox_mm(pad.GetBoundingBox())
+            if bx0 - via_r <= vx <= bx1 + via_r and by0 - via_r <= vy <= by1 + via_r:
+                raise RuntimeError(
+                    f"pre-route GND stitch {label} at {via_xy} violates pad clearance to "
+                    f"{pad.GetParent().GetReference()}:{pad.GetNumber()} net={pad.GetNetname()}"
+                )
+
+
 def reserve_gnd_escapes(board, gnet):
     gcode = gnet.GetNetCode()
     non_gnd_tracks = [t for t in board.GetTracks() if t.GetNetCode() != gcode]
@@ -191,6 +218,23 @@ def reserve_gnd_escapes(board, gnet):
     if added != len(PRE_ROUTE_GND_ESCAPES):
         raise RuntimeError(f"pre-route GND escape reservation incomplete: {added}/{len(PRE_ROUTE_GND_ESCAPES)}")
     print(f"PRE_ROUTE_GND_ESCAPE_PASS: reserved={added} via={VIA_D:.2f}/{VIA_DRILL:.2f}mm track={TRACK_W:.2f}mm")
+
+    stitched = 0
+    for label, vx, vy in PRE_ROUTE_GND_STITCH_VIAS:
+        assert_reserved_via_clear(board, (vx, vy), gcode, label)
+        via = pcbnew.PCB_VIA(board)
+        via.SetPosition(pt(vx, vy))
+        via.SetWidth(pcbnew.FromMM(VIA_D))
+        via.SetDrill(pcbnew.FromMM(VIA_DRILL))
+        via.SetLayerPair(pcbnew.F_Cu, pcbnew.B_Cu)
+        via.SetNet(gnet)
+        via.SetLocked(True)
+        board.Add(via)
+        print(f"PRE_ROUTE_GND_STITCH: {label} via=({vx:.3f},{vy:.3f})")
+        stitched += 1
+    if stitched != len(PRE_ROUTE_GND_STITCH_VIAS):
+        raise RuntimeError(f"pre-route GND stitch reservation incomplete: {stitched}/{len(PRE_ROUTE_GND_STITCH_VIAS)}")
+    print(f"PRE_ROUTE_GND_STITCH_PASS: reserved={stitched}")
 
 
 def add_notched_zone(board, layer, netcode):

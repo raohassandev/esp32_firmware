@@ -16,6 +16,51 @@ import sys
 import pcbnew
 
 
+# These routes are authored and locked by pre_route_critical_nets_release.py.
+# Freerouting may echo redundant unlocked wiring for already-complete nets in
+# its SES. Remove only those unlocked additions after import; the locked source
+# topology and the frozen final SI validator remain authoritative.
+PROTECTED_CRITICAL_NETS = (
+    "ETH_TXP", "ETH_TXP_MAG", "ETH_TXN", "ETH_TXN_MAG",
+    "ETH_RXP", "ETH_RXP_MAG", "ETH_RXN", "ETH_RXN_MAG",
+    "USB_D+", "USB_D-", "USB_D+_MCU", "USB_D-_MCU",
+)
+
+
+def locked_critical_counts(board):
+    counts = {name: 0 for name in PROTECTED_CRITICAL_NETS}
+    for item in board.GetTracks():
+        name = item.GetNetname()
+        if name in counts and item.IsLocked():
+            counts[name] += 1
+    return counts
+
+
+def strip_unlocked_critical_additions(board, baseline):
+    missing = [name for name, count in baseline.items() if count == 0]
+    if missing:
+        raise RuntimeError(f"protected critical pre-route missing locked items: {missing}")
+
+    removed = {name: 0 for name in PROTECTED_CRITICAL_NETS}
+    for item in list(board.GetTracks()):
+        name = item.GetNetname()
+        if name in removed and not item.IsLocked():
+            board.Remove(item)
+            removed[name] += 1
+
+    restored = locked_critical_counts(board)
+    if restored != baseline:
+        raise RuntimeError(f"protected critical route changed across SES import: before={baseline} after={restored}")
+    leaked = [item.GetNetname() for item in board.GetTracks()
+              if item.GetNetname() in removed and not item.IsLocked()]
+    if leaked:
+        raise RuntimeError(f"unlocked protected critical SES items remain: {sorted(set(leaked))}")
+
+    for name in PROTECTED_CRITICAL_NETS:
+        print(f"CRITICAL_ROUTE_RESTORE: net={name} locked_items={restored[name]} removed_unlocked={removed[name]}")
+    print(f"CRITICAL_ROUTE_RESTORE_PASS: protected={len(PROTECTED_CRITICAL_NETS)} removed_unlocked={sum(removed.values())}")
+
+
 def load(path):
     b = pcbnew.LoadBoard(str(path))
     if b is None:
@@ -43,11 +88,13 @@ def export_dsn(board_path, dsn_path):
 
 def import_ses(board_path, ses_path):
     b = load(board_path)
+    baseline = locked_critical_counts(b)
     if not Path(ses_path).exists() or Path(ses_path).stat().st_size == 0:
         raise SystemExit('SES missing/empty')
     ok = pcbnew.ImportSpecctraSES(b, str(ses_path))
     if not ok:
         raise SystemExit('Specctra SES import failed')
+    strip_unlocked_critical_additions(b, baseline)
     pcbnew.SaveBoard(str(board_path), b)
     print(f'SES_IMPORT_PASS tracks={len(list(b.GetTracks()))}')
 

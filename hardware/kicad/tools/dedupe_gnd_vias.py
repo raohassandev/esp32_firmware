@@ -5,8 +5,9 @@ Pre-route reserved GND escapes and the post-route surface-island stitcher can
 occasionally select essentially the same through-hole position after a zone
 refill. KiCad's final upgrade/refill correctly reports those as hole-to-hole
 violations even when the earlier route-stage DRC did not. A pair of GND vias
-whose centres are less than 0.20 mm apart cannot be a meaningful independent
-through-via pair on this Rev-A board. Prefer the via that terminates an explicit
+whose centres are closer than the 0.30 mm drill plus the 0.25 mm minimum
+hole clearance cannot be a legal independent through-via pair on this Rev-A
+board. Prefer the via that terminates an explicit
 GND track (the reserved escape) and remove the redundant untracked stitch via.
 Final KiCad DRC remains the release authority.
 """
@@ -15,7 +16,9 @@ import math
 import sys
 import pcbnew
 
-NEAR_DUP_MM = 0.20
+VIA_DRILL_MM = 0.30
+MIN_HOLE_CLEARANCE_MM = 0.25
+NEAR_DUP_MM = VIA_DRILL_MM + MIN_HOLE_CLEARANCE_MM
 ENDPOINT_EPS_MM = 0.02
 
 
