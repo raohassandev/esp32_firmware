@@ -53,7 +53,7 @@ b.FIXED.update({
     'R_ETH_TXN_BIAS': (126.6, 70.3, 270),
     # Keep DI4 reverse-protection beside its DI functional block, clear of the
     # controlled MDI termination column and MagJack route corridor.
-    'D_DI4': (135.0, 82.0, 0),
+    'D_DI4': (139.0, 82.0, 0),
 })
 
 
