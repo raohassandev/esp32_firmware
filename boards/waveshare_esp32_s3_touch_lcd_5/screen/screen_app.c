@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "alarms_screen.h"
+#include "commissioning_screen.h"
 #include "grid_screen.h"
 #include "overview_screen.h"
 #include "readiness_screen.h"
@@ -80,6 +81,7 @@ lv_obj_t *screen_app_create(lv_obj_t *parent)
     nav_button(nav, "Solar", SCREEN_PAGE_SOLAR);
     nav_button(nav, "Alarms", SCREEN_PAGE_ALARMS);
     nav_button(nav, "Ready", SCREEN_PAGE_READINESS);
+    nav_button(nav, "Commission", SCREEN_PAGE_COMMISSIONING);
 
     lv_obj_t *content = lv_obj_create(s_app.root);
     lv_obj_remove_style_all(content);
@@ -92,6 +94,7 @@ lv_obj_t *screen_app_create(lv_obj_t *parent)
     s_app.pages[SCREEN_PAGE_SOLAR] = solar_screen_create(content);
     s_app.pages[SCREEN_PAGE_ALARMS] = alarms_screen_create(content);
     s_app.pages[SCREEN_PAGE_READINESS] = readiness_screen_create(content);
+    s_app.pages[SCREEN_PAGE_COMMISSIONING] = commissioning_screen_create(content);
 
     for (int i = 0; i < (int)SCREEN_PAGE_COUNT; ++i) {
         make_fixed_surface(s_app.pages[i]);
@@ -113,6 +116,11 @@ void screen_app_show_page(screen_page_t page)
     s_app.active = page;
 }
 
+void screen_app_set_commissioning_backend(const screen_commissioning_backend_t *backend)
+{
+    commissioning_screen_set_backend(backend);
+}
+
 void screen_app_apply_live(const screen_live_snapshot_t *snapshot)
 {
     overview_screen_apply_live(snapshot);
@@ -122,6 +130,7 @@ void screen_app_apply_status(const screen_status_snapshot_t *snapshot)
 {
     if (snapshot && snapshot->valid) s_app.status = *snapshot;
     overview_screen_apply_status(snapshot);
+    commissioning_screen_apply_status(snapshot);
     readiness_screen_apply(s_app.telemetry.valid ? &s_app.telemetry : NULL,
                            s_app.status.valid ? &s_app.status : NULL);
 }
@@ -129,16 +138,19 @@ void screen_app_apply_status(const screen_status_snapshot_t *snapshot)
 void screen_app_apply_meters(const screen_meters_snapshot_t *snapshot)
 {
     grid_screen_apply(snapshot);
+    commissioning_screen_apply_meters(snapshot);
 }
 
 void screen_app_apply_inverters(const screen_inverters_snapshot_t *snapshot)
 {
     solar_screen_apply(snapshot);
+    commissioning_screen_apply_inverters(snapshot);
 }
 
 void screen_app_apply_telemetry(const screen_telemetry_snapshot_t *snapshot)
 {
     if (snapshot && snapshot->valid) s_app.telemetry = *snapshot;
+    commissioning_screen_apply_telemetry(snapshot);
     readiness_screen_apply(s_app.telemetry.valid ? &s_app.telemetry : NULL,
                            s_app.status.valid ? &s_app.status : NULL);
 }
@@ -146,6 +158,7 @@ void screen_app_apply_telemetry(const screen_telemetry_snapshot_t *snapshot)
 void screen_app_apply_commissioning(const screen_commissioning_snapshot_t *snapshot)
 {
     readiness_screen_apply_commissioning(snapshot);
+    commissioning_screen_apply_gate(snapshot);
 }
 
 void screen_app_apply_events(const screen_events_snapshot_t *snapshot)
@@ -166,11 +179,13 @@ void screen_app_show_live_unavailable(void)
 void screen_app_show_meters_unavailable(void)
 {
     grid_screen_show_unavailable();
+    commissioning_screen_apply_meters(NULL);
 }
 
 void screen_app_show_inverters_unavailable(void)
 {
     solar_screen_show_unavailable();
+    commissioning_screen_apply_inverters(NULL);
 }
 
 void screen_app_show_operations_unavailable(void)
@@ -183,11 +198,14 @@ void screen_app_show_readiness_unavailable(void)
     memset(&s_app.status, 0, sizeof(s_app.status));
     memset(&s_app.telemetry, 0, sizeof(s_app.telemetry));
     readiness_screen_show_unavailable();
+    commissioning_screen_apply_status(NULL);
+    commissioning_screen_apply_telemetry(NULL);
 }
 
 void screen_app_show_commissioning_unavailable(void)
 {
     readiness_screen_show_commissioning_unavailable();
+    commissioning_screen_apply_gate(NULL);
 }
 
 void screen_app_show_backend_unavailable(void)
@@ -198,4 +216,5 @@ void screen_app_show_backend_unavailable(void)
     screen_app_show_operations_unavailable();
     screen_app_show_readiness_unavailable();
     screen_app_show_commissioning_unavailable();
+    commissioning_screen_show_unavailable();
 }
