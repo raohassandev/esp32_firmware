@@ -45,12 +45,12 @@ b.FIXED.update({
     # Put the four 49.9R W5500 line-bias parts on the routed MDI rows instead
     # of the generic x=94..99 mm spill positions seen in Runs #200/#52/#202.
     # Pad 2 is the *_MAG signal node; 90-degree orientation keeps the ETH_AVDD
-    # pad perpendicular to the main conductor. Staggered row centers preserve
-    # the real KiCad courtyard clearance.
+    # pad perpendicular to the main conductor. Two x-lanes plus staggered row
+    # centers preserve courtyard clearance; 270-degree negative rows keep pad 2 close.
     'R_ETH_RXP_BIAS': (126.6, 60.0, 90),
-    'R_ETH_RXN_BIAS': (126.6, 63.0, 90),
-    'R_ETH_TXP_BIAS': (126.6, 65.7, 90),
-    'R_ETH_TXN_BIAS': (126.6, 68.7, 90),
+    'R_ETH_RXN_BIAS': (126.6, 63.8, 270),
+    'R_ETH_TXP_BIAS': (128.5, 65.7, 90),
+    'R_ETH_TXN_BIAS': (128.5, 69.5, 270),
 })
 
 
