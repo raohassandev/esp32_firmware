@@ -31,11 +31,12 @@ TRACK_CLEAR = 0.24
 
 # Recurring post-router GND islands are reserved before Specctra export so the
 # signal router must leave legal vertical access to the solid L2 reference.
-# Run #42 proved C35:1 and U2:23; Run #43 then exposed U2:29, C34:2 and U14:7
-# after the router re-packed low-speed traces around the newly reserved vias.
-# Edge pads escape perpendicular away from their packages; passive GND pads
-# escape away from the opposite terminal. Immediate KiCad pre-route DRC remains
-# the release authority for these dense but deterministic reservations.
+# Run #45 mapped the remaining real opens to C3:2, U2:48, U2:19 and R35:2.
+# U2:29 was also in a skipped surface island but its earlier reserved via already
+# closed that electrical connection, so it remains a single reservation only.
+# W5500 edge pads escape perpendicular away from the package; passive GND pads
+# escape away from their opposite terminal. Immediate KiCad pre-route DRC is the
+# release authority for these dense but deterministic reservations.
 PRE_ROUTE_GND_ESCAPES = (
     ("C14", "2", 0.90, 0.00),
     ("C16", "2", 0.90, 0.00),
@@ -48,6 +49,10 @@ PRE_ROUTE_GND_ESCAPES = (
     ("U2", "29", -1.285, 0.00),
     ("C34", "2", 0.90, 0.00),
     ("U14", "7", -1.285, 0.00),
+    ("C3", "2", 0.90, 0.00),
+    ("U2", "48", 0.00, 1.50),
+    ("U2", "19", 0.00, -1.50),
+    ("R35", "2", 0.90, 0.00),
 )
 
 
@@ -191,7 +196,6 @@ def add_notched_zone(board, layer, netcode):
         (MAGJACK_X0, MAGJACK_Y0),
         (MAGJACK_X0, MAGJACK_Y1),
         (BOARD_X - EDGE, MAGJACK_Y1),
-        (BOARD_X - EDGE, BOARD_Y - EDGE),
         (EDGE, BOARD_Y - EDGE),
     )
     for x, y in outline:
