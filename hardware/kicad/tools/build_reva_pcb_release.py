@@ -48,9 +48,9 @@ b.FIXED.update({
     # pad perpendicular to the main conductor. A single staggered column preserves
     # courtyard clearance; 270-degree lower rows keep signal pad 2 near each source.
     'R_ETH_RXP_BIAS': (126.6, 60.0, 90),
-    'R_ETH_RXN_BIAS': (126.6, 64.6, 270),
+    'R_ETH_RXN_BIAS': (126.6, 64.0, 270),
     'R_ETH_TXP_BIAS': (126.6, 67.5, 270),
-    'R_ETH_TXN_BIAS': (126.6, 70.3, 270),
+    'R_ETH_TXN_BIAS': (126.6, 71.0, 270),
     # Keep DI4 reverse-protection beside its DI functional block, clear of the
     # controlled MDI termination column and MagJack route corridor.
     'D_DI4': (139.0, 72.0, 0),

@@ -72,7 +72,13 @@ def route_ethernet(board):
     ):
         bias=base.footprint(board,base.semantic_ref(semantic))
         signal=_require_net(base.pad_number(bias,2),net_name)
-        base.add_track(board,_xy(source),_xy(signal),F,base.net_from_pad(source),base.WIDTH_ETH_MM)
+        src=_xy(source); dst=_xy(signal); route_net=base.net_from_pad(source)
+        if semantic == 'R_ETH_TXP_BIAS':
+            # Orthogonal 2.85 mm stub trims the aggregate TX pair skew while
+            # avoiding overlap with the existing same-net horizontal trunk.
+            base.add_polyline(board,[src,(src[0],dst[1]),dst],F,route_net,base.WIDTH_ETH_MM)
+        else:
+            base.add_track(board,src,dst,F,route_net,base.WIDTH_ETH_MM)
 
     # Run #37's final GND island was U2 pad 9. post_route_finalize now reserves
     # its +X stitch via at x=121.4475 before signal routing. Shift the two RX
