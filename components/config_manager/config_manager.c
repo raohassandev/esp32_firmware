@@ -334,7 +334,10 @@ static void defaults(app_config_t *c)
     c->version = APP_CONFIG_VERSION;
     strlcpy(c->device_name, CONFIG_PVDG_DEVICE_NAME, sizeof(c->device_name));
 
-    c->wifi.primary.enabled = true;
+    /* A fresh controller is intentionally reachable from its always-on recovery AP
+     * before a station network has been commissioned. An empty build SSID therefore
+     * describes a disabled station profile, not an invalid controller configuration. */
+    c->wifi.primary.enabled = CONFIG_PVDG_PRIMARY_WIFI_SSID[0] != '\0';
     strlcpy(c->wifi.primary.ssid, CONFIG_PVDG_PRIMARY_WIFI_SSID, sizeof(c->wifi.primary.ssid));
     strlcpy(c->wifi.primary.password, CONFIG_PVDG_PRIMARY_WIFI_PASSWORD, sizeof(c->wifi.primary.password));
     c->wifi.primary.ip_mode = APP_WIFI_IP_DHCP;
@@ -708,7 +711,10 @@ static bool control_valid(const control_config_t *c)
            isfinite(c->ramp_up_percent_per_second) && isfinite(c->ramp_down_percent_per_second) &&
            c->deadband_kw >= 0.0f && c->kp >= 0.0f && c->ki >= 0.0f &&
            c->ramp_up_percent_per_second >= 0.0f && c->ramp_down_percent_per_second >= 0.0f &&
-           c->interval_ms >= 50U && c->meter_stale_timeout_ms >= 100U &&
+           /* The shipped loop cadence is 20 ms. Plant decisions are independently
+            * rate-gated by CONTROL_MIN_DECISION_INTERVAL_MS in the control engine,
+            * so rejecting 20 ms here only makes the safe factory defaults unsaveable. */
+           c->interval_ms >= 20U && c->meter_stale_timeout_ms >= 100U &&
            ramp_profile_valid(&c->grid_ramp) && ramp_profile_valid(&c->generator_ramp) &&
            /*
             * THE URGENT RAMP.
@@ -737,7 +743,9 @@ static bool valid(const app_config_t *c)
 {
     if (!c || c->magic != APP_CONFIG_MAGIC || c->version != APP_CONFIG_VERSION ||
         !profile_valid(&c->wifi.primary) || !profile_valid(&c->wifi.fallback) ||
-        !c->wifi.primary.enabled || c->wifi.max_retries_per_profile == 0 ||
+        /* Station Wi-Fi is optional during commissioning. The secured, always-on
+         * recovery AP is the reachability guarantee for a factory-fresh unit. */
+        c->wifi.max_retries_per_profile == 0 ||
         c->wifi.max_retries_per_profile > 20 || c->wifi.reconnect_backoff_ms < 500U ||
         c->wifi.reconnect_backoff_ms > 60000U || c->meter_count > APP_MAX_METERS ||
         c->inverter_count > APP_MAX_INVERTERS || !control_valid(&c->control)) return false;

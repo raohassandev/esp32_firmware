@@ -568,7 +568,7 @@ static bool read_plant_form(screen_commission_plant_t *plant)
         !parse_float(s_ui.urgent_multiplier, &plant->urgent_ramp_multiplier)) return false;
 
     unsigned long value = 0U;
-    if (!parse_ulong(s_ui.control_interval, 50U, 3600000U, &value)) return false;
+    if (!parse_ulong(s_ui.control_interval, 20U, 3600000U, &value)) return false;
     plant->control_interval_ms = (uint32_t)value;
     if (!parse_ulong(s_ui.stale_timeout, 100U, 3600000U, &value)) return false;
     plant->meter_stale_timeout_ms = (uint32_t)value;

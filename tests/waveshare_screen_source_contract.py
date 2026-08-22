@@ -166,6 +166,7 @@ def main() -> None:
     assert "Modbus TCP only" in commissioning_ui
     assert "ARM automatic control" in commissioning_ui
     assert "DISARM automatic control" in commissioning_ui
+    assert "parse_ulong(s_ui.control_interval, 20U, 3600000U" in commissioning_ui, "touchscreen commissioning must accept the Core shipped 20 ms loop cadence"
     assert "Grid available evidence" in source_ui
     assert "Grid breaker closed evidence" in source_ui
     assert "Enable source evidence" in source_ui
