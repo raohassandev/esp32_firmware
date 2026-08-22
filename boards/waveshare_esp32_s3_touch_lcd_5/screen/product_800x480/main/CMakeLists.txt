@@ -33,5 +33,5 @@ idf_component_register(
 # disabled, so persistent writes are compile-time redirected to the dedicated
 # internal-DRAM worker without changing the commissioning source logic itself.
 target_compile_options(${COMPONENT_LIB} PRIVATE
-    "-include${CMAKE_CURRENT_SOURCE_DIR}/local_persistence_redirect.h"
+    "-include" "${CMAKE_CURRENT_SOURCE_DIR}/local_persistence_redirect.h"
 )
