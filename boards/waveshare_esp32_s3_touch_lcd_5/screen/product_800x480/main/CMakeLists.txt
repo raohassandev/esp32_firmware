@@ -4,6 +4,7 @@ idf_component_register(
         "local_backend_provider.c"
         "local_commissioning_backend.c"
         "local_source_commissioning_backend.c"
+        "local_persistence_worker.c"
     INCLUDE_DIRS "."
     REQUIRES
         app_core
@@ -25,4 +26,12 @@ idf_component_register(
         esp_timer
         esp_system
         esp_driver_gpio
+)
+
+# Commissioning callbacks run on the LVGL adapter task, whose stack is
+# intentionally in PSRAM. ESP32-S3 PSRAM is inaccessible while flash cache is
+# disabled, so persistent writes are compile-time redirected to the dedicated
+# internal-DRAM worker without changing the commissioning source logic itself.
+target_compile_options(${COMPONENT_LIB} PRIVATE
+    "-include${CMAKE_CURRENT_SOURCE_DIR}/local_persistence_redirect.h"
 )
