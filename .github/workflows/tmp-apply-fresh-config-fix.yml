@@ -1,0 +1,91 @@
+name: Apply fresh-config persistence repair
+
+on:
+  pull_request:
+    branches: [phase1-fix]
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.head_ref == 'fix/fresh-config-persistence'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Patch shared Core defaults and validator
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source_path = Path('components/config_manager/config_manager.c')
+          source = source_path.read_text(encoding='utf-8')
+
+          changes = [
+              (
+                  '    c->wifi.primary.enabled = true;\n'
+                  '    strlcpy(c->wifi.primary.ssid, CONFIG_PVDG_PRIMARY_WIFI_SSID, sizeof(c->wifi.primary.ssid));',
+                  '    /* A fresh controller is intentionally reachable from its always-on recovery AP\n'
+                  '     * before a station network has been commissioned. An empty build SSID therefore\n'
+                  '     * describes a disabled station profile, not an invalid controller configuration. */\n'
+                  "    c->wifi.primary.enabled = CONFIG_PVDG_PRIMARY_WIFI_SSID[0] != '\\0';\n"
+                  '    strlcpy(c->wifi.primary.ssid, CONFIG_PVDG_PRIMARY_WIFI_SSID, sizeof(c->wifi.primary.ssid));'
+              ),
+              (
+                  '           c->interval_ms >= 50U && c->meter_stale_timeout_ms >= 100U &&',
+                  '           /* The shipped loop cadence is 20 ms. Plant decisions are independently\n'
+                  '            * rate-gated by CONTROL_MIN_DECISION_INTERVAL_MS in the control engine,\n'
+                  '            * so rejecting 20 ms here only makes the safe factory defaults unsaveable. */\n'
+                  '           c->interval_ms >= 20U && c->meter_stale_timeout_ms >= 100U &&'
+              ),
+              (
+                  '        !profile_valid(&c->wifi.primary) || !profile_valid(&c->wifi.fallback) ||\n'
+                  '        !c->wifi.primary.enabled || c->wifi.max_retries_per_profile == 0 ||',
+                  '        !profile_valid(&c->wifi.primary) || !profile_valid(&c->wifi.fallback) ||\n'
+                  '        /* Station Wi-Fi is optional during commissioning. The secured, always-on\n'
+                  '         * recovery AP is the reachability guarantee for a factory-fresh unit. */\n'
+                  '        c->wifi.max_retries_per_profile == 0 ||'
+              ),
+          ]
+
+          for old, new in changes:
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected one source match, found {count}: {old[:90]!r}')
+              source = source.replace(old, new, 1)
+          source_path.write_text(source, encoding='utf-8')
+
+          test_path = Path('tests/config_import_safety_source_contract.py')
+          test = test_path.read_text(encoding='utf-8')
+          anchor = '''assert "if (err == ESP_OK && !valid(c))" in SOURCE, \\
+    "imported configuration must pass full structural/numeric validation before persistence"\n'''
+          addition = '''assert "c->wifi.primary.enabled = CONFIG_PVDG_PRIMARY_WIFI_SSID[0] != '\\\\0';" in SOURCE, \\
+    "a fresh unit with no compiled station SSID must start with that station disabled"\nassert "!c->wifi.primary.enabled ||" not in SOURCE, \\
+    "commissioning from the secured recovery AP must not require station Wi-Fi"\nassert "c->interval_ms >= 20U" in SOURCE and "c->interval_ms >= 50U" not in SOURCE, \\
+    "the validator must accept the shipped 20 ms loop cadence"\nassert "c->control.interval_ms = 20;" in SOURCE, \\
+    "the fresh-config contract must stay pinned to the shipped loop cadence"\n'''
+          if test.count(anchor) != 1:
+              raise SystemExit('configuration safety test insertion anchor did not match exactly once')
+          test = test.replace(anchor, anchor + addition, 1)
+          test_path.write_text(test, encoding='utf-8')
+          PY
+
+      - name: Verify targeted regression contract
+        run: python3 tests/config_import_safety_source_contract.py
+
+      - name: Replace staging commit with the real repair
+        shell: bash
+        run: |
+          rm .github/workflows/tmp-apply-fresh-config-fix.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- components/config_manager/config_manager.c tests/config_import_safety_source_contract.py .github/workflows/tmp-apply-fresh-config-fix.yml
+          git diff --cached --check
+          git commit -m 'fix: make fresh controller configuration persistable'
+          git push origin HEAD:${{ github.head_ref }}
