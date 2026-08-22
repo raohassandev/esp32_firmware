@@ -45,6 +45,15 @@ assert '"http_json.c"' in CMAKE
 assert '"auth_hmac_compat.c"' not in CMAKE, \
     "the ESP-IDF HMAC symbol must not be multiply defined by a compatibility object"
 
+
+assert "c->wifi.primary.enabled = CONFIG_PVDG_PRIMARY_WIFI_SSID[0] != '\\0';" in SOURCE, \
+    "a fresh unit with no compiled station SSID must start with that station disabled"
+assert "!c->wifi.primary.enabled ||" not in SOURCE, \
+    "commissioning from the secured recovery AP must not require station Wi-Fi"
+assert "c->interval_ms >= 20U" in SOURCE and "c->interval_ms >= 50U" not in SOURCE, \
+    "the validator must accept the shipped 20 ms loop cadence"
+assert "c->control.interval_ms = 20;" in SOURCE, \
+    "the fresh-config contract must stay pinned to the shipped loop cadence"
 write_api_paths = [
     "components/web_server/web_api.c",
     "components/web_server/meter_config_api.c",
