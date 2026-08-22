@@ -32,6 +32,11 @@ idf_component_register(
 # intentionally in PSRAM. ESP32-S3 PSRAM is inaccessible while flash cache is
 # disabled, so persistent writes are compile-time redirected to the dedicated
 # internal-DRAM worker without changing the commissioning source logic itself.
+#
+# Keep -include and its operand as one SHELL option group. esp_lvgl_adapter also
+# supplies a forced include for its alignment header; plain adjacent CMake
+# options are de-duplicated and can collapse the two -include switches into one,
+# leaving the second header to GCC as an accidental extra source file.
 target_compile_options(${COMPONENT_LIB} PRIVATE
-    "-include" "${CMAKE_CURRENT_SOURCE_DIR}/local_persistence_redirect.h"
+    "SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/local_persistence_redirect.h"
 )
