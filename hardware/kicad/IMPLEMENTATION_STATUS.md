@@ -5,7 +5,7 @@
 **Canonical requirements:** `docs/HARDWARE_PCB_REVA_MASTER_PLAN.md`  
 **Provider release gate:** `docs/PCB_PROVIDER_HANDOFF_READINESS.md`  
 **KiCad project:** `hardware/kicad/Automatrix_PVDG_RevA.kicad_pro`  
-**Status:** H1 SCHEMATIC FREEZE PASS — H2 PCB IMPLEMENTATION IN PROGRESS
+**Status:** H1 SCHEMATIC FREEZE PASS — H2 RELEASE WORKFLOW PENDING
 
 ## Design ownership rule
 
@@ -83,37 +83,37 @@ A sheet/block is not COMPLETE because it was drawn. It becomes complete only aft
 
 - Native KiCad 10.0.5 schematic generated and parsed.
 - ERC: 0 errors / 0 warnings.
-- Exported physical pin/net audit PASS with 495 connected pins indexed.
-- Canonical annotation PASS with 149 unique references.
+- Exported physical pin/net audit PASS.
+- Canonical annotation PASS.
 - Design-control invariants PASS.
 - BOM, netlist and schematic PDF exports PASS.
 
 Physical tests such as USB/field backfeed, relay switching, thermal behavior and field RS485 are deliberately deferred to the post-fabrication prototype gate; H1 is a digital electrical-design freeze, not bench validation.
 
-## H2 current work
+## H2 release candidate evidence
 
-H2 is implementing the 4-layer PCB from the validated schematic/netlist.
+PR validation run `32522110531` on head `36381f09b0fa09f9d08d70b3016a37922d36d2e3` produced a clean digital PCB candidate:
 
-Completed foundation:
+- 190 canonical schematic references and 593 connected physical pins audited.
+- Deterministic 4-layer placement PASS with 194 footprints and 144 schematic nets.
+- Freerouting plus controlled critical-net restoration completed the board.
+- Post-route audit: 0 unconnected items, 1754 traces and 278 vias.
+- KiCad 10.0.5 final DRC: 0 violations, 0 unconnected pads and 0 footprint errors.
+- L2 solid-ground strategy and signal-integrity geometry gate PASS.
+- Ethernet critical routes and native USB route geometry passed the repository gate.
 
-- All schematic components are fed into deterministic footprint/net generation.
-- Industrial functional zones are defined for power, MCU, Ethernet, dual RS485, HMI, relays and optional blocks.
-- Placement validation uses real KiCad courtyard/pad geometry rather than silkscreen/reference text.
-- Edge connectors are required to keep every solder/drilled pad inside the fabricated PCB.
-- RJ45 and USB-C edge positions are now auto-fitted from their actual KiCad footprints rather than hard-coded assumptions.
+This proves the routing candidate digitally, but H2 is not released until the branch push workflow persists the routed native PCB, emits `H2_ROUTING_COMPLETE`, exports STEP, validates the enclosure contract, and builds the controlled provider package from one release SHA.
 
-Current H2 gate:
+## H2 release gate
 
-1. obtain clean deterministic component placement,
-2. review field connector/relay/antenna geometry,
-3. route power and safety-critical paths,
-4. route Ethernet/USB and communications,
-5. finish remaining signals/planes,
-6. achieve clean KiCad DRC and schematic parity,
-7. export STEP and manufacturing package,
-8. freeze enclosure cutouts from the final STEP model.
+1. persist the clean routed native PCB on this branch,
+2. emit the H2 completion marker tied to the release commit,
+3. export STEP successfully,
+4. validate the enclosure/mechanical handoff,
+5. export manufacturing outputs,
+6. build and retain the controlled provider package.
 
-**H2 status: IN PROGRESS — no production/manufacturing-ready claim yet.**
+**H2 status: RELEASE WORKFLOW PENDING — no production/manufacturing-ready claim until the push release workflow passes.**
 
 ## Release / provider rule
 
