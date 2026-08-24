@@ -22,6 +22,7 @@ typedef enum {
 
 lv_obj_t *screen_app_create(lv_obj_t *parent);
 void screen_app_show_page(screen_page_t page);
+screen_page_t screen_app_get_active_page(void);
 void screen_app_set_commissioning_backend(const screen_commissioning_backend_t *backend);
 void screen_app_set_source_commissioning_backend(const source_commission_backend_t *backend);
 
