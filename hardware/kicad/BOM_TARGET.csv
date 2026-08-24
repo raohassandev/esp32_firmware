@@ -1,32 +1,32 @@
 Designator,Qty,Populate_Base,Populate_Full,Function,Manufacturer,MPN_or_Class,Package_or_Footprint,Notes
 U1,1,YES,YES,MCU,Espressif,ESP32-S3-WROOM-1-N8,ESP32-S3-WROOM-1,8MB flash; antenna keepout mandatory
 U2,1,YES,YES,Ethernet controller,WIZnet,W5500,LQFP-48_7x7mm_P0.5mm,3.3V SPI Ethernet
-J1,1,YES,YES,Ethernet MagJack,CETUS,J1B1211CCD,Integrated_RJ45_MagJack,WIZnet-approved prototype target; exact mechanical/LED pinout gate remains
-Y1,1,YES,YES,W5500 crystal,Multiple,25MHz crystal,Crystal_SMD,Exact MPN/CL to be frozen with final oscillator load-cap calculation
+J1,1,YES,YES,Ethernet MagJack,CETUS,J1B1211CCD,Integrated_RJ45_MagJack,Exact prototype target; 10/100 BASE-TX 1CT:1CT magnetics and LEDs
+Y1,1,YES,YES,W5500 crystal,Abracon,ABM8-25.000MHZ-D2Y-T,Crystal_SMD_3225-4Pin_3.2x2.5mm,25MHz active 3225 crystal; W5500 reference 18pF shunt network retained
 U3-U4,2,YES,YES,RS485 transceiver,Texas Instruments,THVD1410D,SOIC-8,Independent non-isolated half-duplex ports
 D_RS485A-D_RS485B,2,YES,YES,RS485 field TVS,Semtech,SM712.TCT,SOT-23,Asymmetric RS485 TVS at connector side
 U5,1,YES,YES,Field input to 5V buck,Texas Instruments,TPS54360B,DDA_HSOIC-8_PowerPAD,60V input 3.5A class
-L1,1,YES,YES,5V buck inductor,Wurth_or_equiv,8.2uH >=5A,Power_Inductor,TPS54360EVM-derived starting target; exact MPN to freeze with thermal review
-CIN1-CIN2,2,YES,YES,5V buck input ceramic,Multiple,2.2uF 100V X7R,1210,Effective capacitance under 30V DC bias must be checked
-COUT1-COUT2,2,YES,YES,5V buck output ceramic,Multiple,47uF 10V X5R/X7R,1210,Effective capacitance at 5V must be checked
+L1,1,YES,YES,5V buck inductor,Wurth Elektronik,744393465082,L_Wuerth_XHMI-6060,8.2uH WE-XHMI 6060 active part; ample current headroom; verify temperature in physical H4 soak
+CIN1-CIN2,2,YES,YES,5V buck input ceramic,Murata,GRM32ER72A225KA35L,1210,2.2uF 100V X7R; verify effective capacitance under field DC bias during prototype validation
+COUT1-COUT2,2,YES,YES,5V buck output ceramic,Murata,GRM32ER61A476KE20L,1210,47uF 10V X5R; verify ripple/temperature under full prototype load
 U6,1,YES,YES,5V to 3.3V buck,Diodes Incorporated,AP63203WU-7,TSOT26,Fixed 3.3V 2A synchronous buck
-K1-K4,4,YES,YES,Relay,Hongfa,HF3FF/005-1ZST,THT_Custom_HF3FF,5V coil Form-C dry contact
-Q1-Q4,4,YES,YES,Relay driver,Multiple,AO3400A-class,SOT-23,NMOS low-side driver; must be fully enhanced at 3.3V gate
+K1-K4,4,YES,YES,Relay,Hongfa,HF3FF/005-1ZST,Relay_SPDT_Hongfa_JQC-3FF_0XX-1Z,5V coil Form-C dry contact; stock JQC-3FF layout matches HF3FF Form-C pad geometry
+Q1-Q4,4,YES,YES,Relay driver,Alpha and Omega Semiconductor,AO3400A,SOT-23,30V NMOS; RDS(on) specified at 2.5V and 4.5V gate drive
 D_FLY1-D_FLY4,4,YES,YES,Relay flyback,Multiple,SS14-class,SMA_or_SOD123,Across relay coil
 R_PD1-R_PD4,4,YES,YES,Relay gate pulldown,Multiple,10k,0603,Stronger hardware OFF bias during reset/brownout
 LED1-LED4,4,YES,YES,Relay indication,Multiple,LED,0603_or_0805,One per relay
-J_RELAY1-J_RELAY4,4,YES,YES,Relay field terminal,Phoenix Contact,MKDS 3/ 3-5.08 BK 1712193,TerminalBlock_Phoenix_MKDS-3-3-5.08_1x03_P5.08mm_Horizontal,NC COM NO; exact 3-position 5.08mm terminal; 24A nominal manufacturer rating; board contact path remains limited to 5A target
-J_PWR,1,YES,YES,Field power terminal,Multiple,2P 5.08mm field terminal,THT_P5.08,VIN+ VIN-
-J_RS485A-J_RS485B,2,YES,YES,RS485 terminal,Multiple,3P 5.08mm field terminal,THT_P5.08,A B GND
+J_RELAY1-J_RELAY4,4,YES,YES,Relay field terminal,Phoenix Contact,MKDS 3/ 3-5.08 BK 1712193,TerminalBlock_Phoenix_MKDS-3-3-5.08_1x03_P5.08mm_Horizontal,NC COM NO; exact 3-position 5.08mm terminal; board contact path remains limited to 5A target
+J_PWR,1,YES,YES,Field power terminal,Same Sky,TB007-508-02BE,TerminalBlock_CUI_TB007-508-02_1x02_P5.08mm_Horizontal,2-position horizontal 5.08mm 16A UL family; VIN+ VIN-
+J_RS485A-J_RS485B,2,YES,YES,RS485 terminal,Same Sky,TB007-508-03BE,TerminalBlock_CUI_TB007-508-03_1x03_P5.08mm_Horizontal,3-position horizontal 5.08mm; A B GND
 J_HMI,1,YES,YES,Serial HMI,JST,B4B-XH-A,JST_XH_B4B-XH-A,+5V GND TX RX
 U_HMIBUF,1,YES,YES,HMI 5V RX protection/buffer,Texas Instruments,SN74LVC1G17DBVR,SOT-23-5,3.3V powered; accepts input to 5.5V; Ioff partial-power/back-drive protection
 D_HMI_RX_ESD,1,YES,YES,HMI RX ESD,Texas Instruments,TPD1E10B06DYAR,SOD-523,Bidirectional 5.5V UART/GPIO protection at connector side
 C_HMIBUF,1,YES,YES,HMI buffer decoupling,Multiple,0.1uF,0603,Place at U_HMIBUF VCC/GND
-J_USB,1,YES,YES,USB service,GCT,USB4105-family,USB_C_16pin_THT_shell,USB2 device-only; exact stake-length suffix remains mechanical gate
+J_USB,1,YES,YES,USB service,GCT,USB4105-GF-A-120,USB_C_Receptacle_GCT_USB4105-xx-A_16P_TopMnt_Horizontal,USB2 device-only; 1.20mm shell-stake option frozen for 1.6mm Rev-A PCB; provider DFM still verifies assembly/enclosure fit
 D_USB_DN-D_USB_DP,2,YES,YES,USB D-/D+ ESD,Texas Instruments,TPD1E05U06DYAR,SOD-523,0.5pF-class high-speed ESD; place at connector
 R_CC1-R_CC2,2,YES,YES,USB Type-C CC,Multiple,5.1k 1%,0603,Rd to GND
-SW_RESET,1,YES,YES,Reset button,Multiple,Momentary tact switch,THT_or_SMD,Accessible service control
-SW_BOOT,1,YES,YES,Boot button,Multiple,Momentary tact switch,THT_or_SMD,GPIO0 boot strap
+SW_RESET,1,YES,YES,Reset button,Panasonic,EVQPUJ/EVQPUA family,Panasonic_EVQPUJ_EVQPUA,Accessible service control
+SW_BOOT,1,YES,YES,Boot button,Panasonic,EVQPUJ/EVQPUA family,Panasonic_EVQPUJ_EVQPUA,GPIO0 boot strap
 LED_PWR,1,YES,YES,Power indication,Multiple,LED,0603_or_0805,Hardware-derived power indication
 U_LEDLOGIC,1,YES,YES,RS485 activity and system-status buffer,Texas Instruments,SN74LVC14APWR,TSSOP-14,Four UART activity channels plus green/red status drive
 C_LEDLOGIC,1,YES,YES,Diagnostic buffer decoupling,Multiple,0.1uF,0603,Place at U_LEDLOGIC VCC/GND
@@ -39,7 +39,7 @@ U_RS232,1,NO,OPTIONAL,RS232 HMI option,Multiple,MAX3232-class,SOIC-16,DNP base
 U_DI1-U_DI4,4,NO,YES,Isolated digital input,Lite-On_or_equiv,LTV-817/PC817-class,DIP-4_or_SMD_optocoupler,Optional full BOM
 R_DI1-R_DI4,4,NO,YES,DI input resistor,Multiple,3.3k >=0.25W,1206_or_THT,Starting value for 12/24V; final dissipation/threshold review required
 D_DI1-D_DI4,4,NO,YES,DI reverse protection,Multiple,1N4148-class,SOD-123_or_THT,Across opto LED reverse direction
-J_DI,1,NO,YES,Digital input terminal,Multiple,5P 5.08mm field terminal,THT_P5.08,DI1 DI2 DI3 DI4 COM
+J_DI,1,NO,YES,Digital input terminal,Same Sky,TB007-508-05BE,TerminalBlock_CUI_TB007-508-05_1x05_P5.08mm_Horizontal,Optional DNP base; DI1 DI2 DI3 DI4 COM
 U_RTC,1,NO,YES,RTC,NXP_or_equiv,PCF8563-class,SOIC-8_or_TSSOP,Optional full BOM
 Y_RTC,1,NO,YES,RTC crystal,Multiple,32.768kHz crystal,SMD,Match RTC datasheet
 BT1,1,NO,YES,RTC backup cell,Multiple,CR1220/CR2032 holder,THT_or_SMD,Accessible after enclosure opens
