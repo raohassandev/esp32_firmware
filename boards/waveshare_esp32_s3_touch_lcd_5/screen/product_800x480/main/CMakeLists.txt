@@ -1,0 +1,29 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "local_backend_provider.c"
+        "local_commissioning_backend.c"
+        "local_source_commissioning_backend.c"
+    INCLUDE_DIRS "."
+    REQUIRES
+        app_core
+        screen
+        config_manager
+        control_engine
+        inverter_manager
+        meter_manager
+        network_manager
+        safety_manager
+        source_detection
+        solar_grid_config
+        web_server
+        cjson
+        esp_app_format
+        esp_flash_dispatcher
+        esp_lvgl_adapter
+        esp_lcd_touch_gt911
+        esp_lcd
+        esp_timer
+        esp_system
+        esp_driver_gpio
+)
