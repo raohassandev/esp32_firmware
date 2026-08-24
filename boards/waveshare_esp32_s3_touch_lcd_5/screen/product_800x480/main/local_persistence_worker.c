@@ -24,7 +24,17 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 
-#define LOCAL_PERSISTENCE_STACK_BYTES 8192U
+/* config_manager_save() performs a byte-for-byte read-back after NVS commit and
+ * allocates a second app_config_t verification buffer. The previous 8 kB worker
+ * stack, plus the ~2.6 kB internal payload copy, exhausted/fragmented the scarce
+ * internal DRAM left after RGB DMA and Core startup, so that verification malloc
+ * returned ESP_ERR_NO_MEM even though the flash write itself had completed.
+ *
+ * This worker has no large automatic objects: it dispatches one pointer into the
+ * existing Core persistence APIs. 4 kB is the normal bounded ESP-IDF task budget
+ * for this call path and returns 4 kB of internal DRAM to the Core verification
+ * allocation without moving any flash-active data back into PSRAM. */
+#define LOCAL_PERSISTENCE_STACK_BYTES 4096U
 #define LOCAL_PERSISTENCE_TASK_PRIORITY 5U
 #define LOCAL_PROFILE_ID_MAX 64U
 
