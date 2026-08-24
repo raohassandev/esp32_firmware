@@ -21,7 +21,7 @@
 
 #define SCREEN_REFRESH_STACK_BYTES 12288
 #define PRODUCT_RGB_BOUNCE_LINES 6U
-#define PRODUCT_TEAR_MODE ESP_LV_ADAPTER_TEAR_AVOID_MODE_DOUBLE_DIRECT
+#define PRODUCT_TEAR_MODE ESP_LV_ADAPTER_TEAR_AVOID_MODE_NONE
 #define SCREEN_FAST_MS 1000U
 #define SCREEN_STATUS_MS 5000U
 #define SCREEN_DEVICES_MS 2000U
@@ -50,17 +50,17 @@ static void log_dma_headroom(const char *stage)
  * race before Wi-Fi/httpd/control tasks start. Full LVGL/UI creation is delayed
  * until after the unchanged shared Core has created its safety-critical tasks.
  *
- * Six bounce lines use 19.2 kB for the driver's two RGB565 bounce buffers at
- * 800 px width. The five-line product budget still showed visible scanout
- * instability on the physical board after no-op LVGL label redraws were
- * suppressed, so this is the next bounded +3.2 kB increment. The standalone
- * HIL image remains pinned to the vendor 10-line qualification setting.
+ * Six bounce lines use 19.2 kB for the driver's RGB565 bounce path at 800 px
+ * width. The product UI is dominated by small live-label deltas. Physical HIL
+ * showed that both TRIPLE_PARTIAL and DOUBLE_DIRECT retained the exact same
+ * whole-screen shake cadence as those deltas were published, which isolates the
+ * remaining artifact to framebuffer publication rather than hidden-page work.
  *
- * The product UI is dominated by small widget deltas, not full-screen animation.
- * Espressif documents DOUBLE_DIRECT for that workload. It keeps tear avoidance
- * while using two full framebuffers instead of the RGB default TRIPLE_PARTIAL
- * pipeline, reducing PSRAM footprint and avoiding an extra partial-frame path
- * exactly when live meter values repaint. */
+ * Use one PSRAM framebuffer for the product HMI so a label repaint modifies the
+ * currently scanned frame instead of switching the whole panel to another full
+ * framebuffer. Core acquisition cadence, control timing and safety policy are
+ * unchanged. The bounded RGB bounce buffer remains enabled to protect scanout.
+ * The standalone HIL image remains pinned to its separately-qualified settings. */
 static esp_err_t native_screen_reserve(void)
 {
     s_profile = waveshare_display_profile(WAVESHARE_DISPLAY_800X480);
@@ -79,7 +79,7 @@ static esp_err_t native_screen_reserve(void)
     };
 
     ESP_LOGI(TAG, "Reserving native 800x480 Waveshare LCD/touch DMA before Core");
-    ESP_LOGI(TAG, "RGB live-update mode: DOUBLE_DIRECT with active-page rendering");
+    ESP_LOGI(TAG, "RGB live-update mode: SINGLE_FRAMEBUFFER with active-page rendering");
     log_dma_headroom("Before LCD DMA reservation");
     esp_err_t err = waveshare_display_port_init(&display_config, &s_display);
     if (err != ESP_OK) return err;
@@ -126,8 +126,7 @@ static esp_err_t native_screen_activate(void)
     esp_lv_adapter_display_config_t lv_display_config =
         ESP_LV_ADAPTER_DISPLAY_RGB_DEFAULT_CONFIG(
             s_display.panel, NULL, s_profile->width, s_profile->height, s_rotation);
-    /* The panel was allocated with the same two-buffer mode in native_screen_reserve().
-     * Keep adapter and esp_lcd buffer ownership exactly aligned. */
+    /* Keep adapter and esp_lcd ownership on the same single-buffer mode. */
     lv_display_config.tear_avoid_mode = PRODUCT_TEAR_MODE;
     lv_display_config.profile.use_psram = true;
 
