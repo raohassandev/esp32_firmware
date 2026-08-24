@@ -3,6 +3,7 @@
 
 #include "app_core.h"
 #include "esp_err.h"
+#include "esp_flash_dispatcher.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_lv_adapter.h"
@@ -24,6 +25,7 @@
 #define SCREEN_STATUS_MS 5000U
 #define SCREEN_DEVICES_MS 10000U
 #define SCREEN_OPERATIONS_MS 5000U
+#define FLASH_DISPATCHER_STACK_BYTES 2048U
 
 static const char *TAG = "waveshare_product";
 static waveshare_display_port_handles_t s_display;
@@ -32,6 +34,7 @@ static const esp_lv_adapter_rotation_t s_rotation = ESP_LV_ADAPTER_ROTATE_0;
 static screen_commissioning_snapshot_t s_commissioning;
 static screen_commissioning_backend_t s_commissioning_backend;
 static source_commission_backend_t s_source_commissioning_backend;
+static bool s_flash_dispatcher_ready;
 
 static void log_dma_headroom(const char *stage)
 {
@@ -77,6 +80,28 @@ static esp_err_t native_screen_reserve(void)
     log_dma_headroom("After LCD DMA reservation");
     ESP_LOGI(TAG, "Native screen DMA resources reserved before Core startup");
     return ESP_OK;
+}
+
+static esp_err_t init_flash_dispatcher(void)
+{
+    const esp_flash_dispatcher_config_t config = {
+        .task_stack_size = FLASH_DISPATCHER_STACK_BYTES,
+        .task_priority = 10,
+        .task_core_id = tskNO_AFFINITY,
+        .queue_size = 1,
+    };
+    const esp_err_t err = esp_flash_dispatcher_init(&config);
+    if (err == ESP_OK) {
+        s_flash_dispatcher_ready = true;
+        ESP_LOGI(TAG,
+                 "Espressif flash dispatcher ready; PSRAM-stacked HMI persistence is routed through internal RAM");
+    } else {
+        s_flash_dispatcher_ready = false;
+        ESP_LOGE(TAG,
+                 "Flash dispatcher init failed: %s; Engineering write backends stay disabled",
+                 esp_err_to_name(err));
+    }
+    return err;
 }
 
 /* Everything here can wait until the shared Core has finished allocating its
@@ -209,6 +234,14 @@ void app_main(void)
     }
     log_dma_headroom("After Product Core init");
 
+    /* ESP-IDF documents NVS/flash operations from PSRAM-stacked tasks as unsafe
+     * unless they are routed through esp_flash_dispatcher. Initialize the
+     * official dispatcher after Core startup has claimed its safety-critical
+     * resources and before LVGL's PSRAM-stacked Engineering callbacks can run. */
+    if (core_err == ESP_OK) {
+        (void)init_flash_dispatcher();
+    }
+
     esp_err_t screen_activate_err = screen_reserve_err;
     if (screen_reserve_err == ESP_OK) {
         screen_activate_err = native_screen_activate();
@@ -221,30 +254,37 @@ void app_main(void)
     if (screen_activate_err == ESP_OK && core_err == ESP_OK) {
         screen_api_provider_t provider = {0};
         if (local_backend_provider_init(&provider) && screen_runtime_init(&provider)) {
-            if (local_commissioning_backend_init(&s_commissioning_backend)) {
+            if (s_flash_dispatcher_ready &&
+                local_commissioning_backend_init(&s_commissioning_backend)) {
                 if (esp_lv_adapter_lock(-1) == ESP_OK) {
                     screen_app_set_commissioning_backend(&s_commissioning_backend);
                     esp_lv_adapter_unlock();
                 }
                 ESP_LOGI(TAG, "Local Engineering commissioning backend bound to touchscreen");
+            } else if (!s_flash_dispatcher_ready) {
+                ESP_LOGE(TAG,
+                         "Commissioning writes disabled because flash dispatcher is unavailable");
             } else {
                 ESP_LOGE(TAG, "Local commissioning backend initialization failed; Commission page stays locked");
             }
 
-            if (local_source_commissioning_backend_init(&s_source_commissioning_backend)) {
+            if (s_flash_dispatcher_ready &&
+                local_source_commissioning_backend_init(&s_source_commissioning_backend)) {
                 if (esp_lv_adapter_lock(-1) == ESP_OK) {
                     screen_app_set_source_commissioning_backend(&s_source_commissioning_backend);
                     esp_lv_adapter_unlock();
                 }
                 ESP_LOGI(TAG, "Local source-evidence commissioning backend bound to touchscreen");
+            } else if (!s_flash_dispatcher_ready) {
+                ESP_LOGE(TAG,
+                         "Source commissioning writes disabled because flash dispatcher is unavailable");
             } else {
                 ESP_LOGE(TAG, "Source commissioning backend initialization failed; Source page stays locked");
             }
 
             /* This task performs only in-process Core snapshot projections and
-             * LVGL updates. Commissioning writes happen only through explicit,
-             * Engineering-unlocked HMI actions; no self-HTTP path exists. Keep
-             * the refresh stack in PSRAM so safety/control/httpd retain DRAM. */
+             * LVGL updates. Commissioning flash operations are intercepted by
+             * Espressif's dispatcher and executed on its internal-RAM task. */
             BaseType_t created = xTaskCreateWithCaps(
                 screen_refresh_task,
                 "screen_refresh",
