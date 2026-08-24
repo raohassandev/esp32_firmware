@@ -21,9 +21,10 @@
 
 #define SCREEN_REFRESH_STACK_BYTES 12288
 #define PRODUCT_RGB_BOUNCE_LINES 6U
+#define PRODUCT_TEAR_MODE ESP_LV_ADAPTER_TEAR_AVOID_MODE_DOUBLE_DIRECT
 #define SCREEN_FAST_MS 1000U
 #define SCREEN_STATUS_MS 5000U
-#define SCREEN_DEVICES_MS 10000U
+#define SCREEN_DEVICES_MS 2000U
 #define SCREEN_OPERATIONS_MS 5000U
 #define FLASH_DISPATCHER_STACK_BYTES 2048U
 
@@ -53,7 +54,13 @@ static void log_dma_headroom(const char *stage)
  * 800 px width. The five-line product budget still showed visible scanout
  * instability on the physical board after no-op LVGL label redraws were
  * suppressed, so this is the next bounded +3.2 kB increment. The standalone
- * HIL image remains pinned to the vendor 10-line qualification setting. */
+ * HIL image remains pinned to the vendor 10-line qualification setting.
+ *
+ * The product UI is dominated by small widget deltas, not full-screen animation.
+ * Espressif documents DOUBLE_DIRECT for that workload. It keeps tear avoidance
+ * while using two full framebuffers instead of the RGB default TRIPLE_PARTIAL
+ * pipeline, reducing PSRAM footprint and avoiding an extra partial-frame path
+ * exactly when live meter values repaint. */
 static esp_err_t native_screen_reserve(void)
 {
     s_profile = waveshare_display_profile(WAVESHARE_DISPLAY_800X480);
@@ -61,12 +68,10 @@ static esp_err_t native_screen_reserve(void)
         return ESP_ERR_INVALID_STATE;
     }
 
-    const esp_lv_adapter_tear_avoid_mode_t tear_mode =
-        ESP_LV_ADAPTER_TEAR_AVOID_MODE_DEFAULT_RGB;
     const waveshare_display_port_config_t display_config = {
         .profile = s_profile,
         .i2c_bus = NULL,
-        .tear_mode = tear_mode,
+        .tear_mode = PRODUCT_TEAR_MODE,
         .rotation = s_rotation,
         .enable_touch = true,
         .bounce_buffer_lines = PRODUCT_RGB_BOUNCE_LINES,
@@ -74,6 +79,7 @@ static esp_err_t native_screen_reserve(void)
     };
 
     ESP_LOGI(TAG, "Reserving native 800x480 Waveshare LCD/touch DMA before Core");
+    ESP_LOGI(TAG, "RGB live-update mode: DOUBLE_DIRECT with active-page rendering");
     log_dma_headroom("Before LCD DMA reservation");
     esp_err_t err = waveshare_display_port_init(&display_config, &s_display);
     if (err != ESP_OK) return err;
@@ -120,6 +126,9 @@ static esp_err_t native_screen_activate(void)
     esp_lv_adapter_display_config_t lv_display_config =
         ESP_LV_ADAPTER_DISPLAY_RGB_DEFAULT_CONFIG(
             s_display.panel, NULL, s_profile->width, s_profile->height, s_rotation);
+    /* The panel was allocated with the same two-buffer mode in native_screen_reserve().
+     * Keep adapter and esp_lcd buffer ownership exactly aligned. */
+    lv_display_config.tear_avoid_mode = PRODUCT_TEAR_MODE;
     lv_display_config.profile.use_psram = true;
 
     lv_display_t *display = esp_lv_adapter_register_display(&lv_display_config);
@@ -191,24 +200,62 @@ static void refresh_operations(void)
     }
 }
 
+static screen_page_t active_page(void)
+{
+    screen_page_t page = SCREEN_PAGE_OVERVIEW;
+    if (esp_lv_adapter_lock(-1) == ESP_OK) {
+        page = screen_app_get_active_page();
+        esp_lv_adapter_unlock();
+    }
+    return page;
+}
+
+/* Refresh only the context the operator can see. Core acquisition continues at
+ * its own authoritative cadence; this changes only the HMI projection workload.
+ * Page changes are refreshed immediately on the next 1 s tick, while steady
+ * pages keep the existing bounded cadences. */
+static void refresh_active_context(screen_page_t page, uint32_t elapsed_ms, bool page_changed)
+{
+    switch (page) {
+    case SCREEN_PAGE_OVERVIEW:
+        refresh_fast();
+        if (page_changed || (elapsed_ms % SCREEN_STATUS_MS) == 0U) refresh_status();
+        break;
+    case SCREEN_PAGE_GRID:
+    case SCREEN_PAGE_SOLAR:
+        if (page_changed || (elapsed_ms % SCREEN_DEVICES_MS) == 0U) refresh_devices();
+        break;
+    case SCREEN_PAGE_ALARMS:
+        if (page_changed || (elapsed_ms % SCREEN_OPERATIONS_MS) == 0U) refresh_operations();
+        break;
+    case SCREEN_PAGE_READINESS:
+        if (page_changed || (elapsed_ms % SCREEN_STATUS_MS) == 0U) refresh_status();
+        break;
+    case SCREEN_PAGE_COMMISSIONING:
+        if (page_changed || (elapsed_ms % SCREEN_STATUS_MS) == 0U) refresh_status();
+        if (page_changed || (elapsed_ms % SCREEN_DEVICES_MS) == 0U) refresh_devices();
+        break;
+    case SCREEN_PAGE_SOURCE:
+    case SCREEN_PAGE_COUNT:
+    default:
+        /* Source commissioning owns its own user-driven reads/writes. */
+        break;
+    }
+}
+
 static void screen_refresh_task(void *argument)
 {
     (void)argument;
     TickType_t wake = xTaskGetTickCount();
     uint32_t elapsed_ms = 0U;
-
-    refresh_status();
-    refresh_devices();
-    refresh_operations();
+    screen_page_t previous = SCREEN_PAGE_COUNT;
 
     for (;;) {
-        refresh_fast();
+        const screen_page_t page = active_page();
+        const bool page_changed = page != previous;
+        refresh_active_context(page, elapsed_ms, page_changed);
+        previous = page;
         elapsed_ms += SCREEN_FAST_MS;
-
-        if ((elapsed_ms % SCREEN_STATUS_MS) == 0U) refresh_status();
-        if ((elapsed_ms % SCREEN_DEVICES_MS) == 0U) refresh_devices();
-        if ((elapsed_ms % SCREEN_OPERATIONS_MS) == 0U) refresh_operations();
-
         vTaskDelayUntil(&wake, pdMS_TO_TICKS(SCREEN_FAST_MS));
     }
 }
