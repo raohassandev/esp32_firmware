@@ -26,6 +26,12 @@ $KPY hardware/kicad/tools/pre_route_critical_nets_release.py "$PCB"
 # single-connection audit failures. Lock its own proven geometry for them.
 $KPY hardware/kicad/tools/pre_route_eth_spi_backbone.py "$PCB"
 
+# Run #63 left the three-pad STATUS_ALERT_CTL net split with U_LEDLOGIC isolated
+# from the MCU/pulldown island even though run #62 routed the identical placement
+# with DRC=0 and UNCONNECTED=0. Lock that exact proven low-speed route so H2 no
+# longer depends on Freerouting's plateau ordering.
+$KPY hardware/kicad/tools/pre_route_status_alert.py "$PCB"
+
 # Refill L2 and prove the controlled critical geometry is DRC-clean before
 # spending the Freerouting budget. Unconnected low-speed nets are expected here,
 # so inspect the explicit DRC-violation count instead of using KiCad's exit code.
