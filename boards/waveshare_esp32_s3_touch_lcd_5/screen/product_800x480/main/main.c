@@ -20,7 +20,7 @@
 #include "waveshare_display_profile.h"
 
 #define SCREEN_REFRESH_STACK_BYTES 12288
-#define PRODUCT_RGB_BOUNCE_LINES 6U
+#define PRODUCT_RGB_BOUNCE_LINES 10U
 #define PRODUCT_TEAR_MODE ESP_LV_ADAPTER_TEAR_AVOID_MODE_NONE
 #define SCREEN_FAST_MS 1000U
 #define SCREEN_STATUS_MS 5000U
@@ -50,16 +50,17 @@ static void log_dma_headroom(const char *stage)
  * race before Wi-Fi/httpd/control tasks start. Full LVGL/UI creation is delayed
  * until after the unchanged shared Core has created its safety-critical tasks.
  *
- * Six bounce lines use 19.2 kB for the driver's RGB565 bounce path at 800 px
- * width. The product UI is dominated by small live-label deltas. Physical HIL
- * showed that both TRIPLE_PARTIAL and DOUBLE_DIRECT retained the exact same
- * whole-screen shake cadence as those deltas were published, which isolates the
- * remaining artifact to framebuffer publication rather than hidden-page work.
+ * Ten bounce lines match the hardware-stable standalone HIL setting and use
+ * 32 kB total for the two RGB565 DRAM bounce buffers at 800 px width. Espressif
+ * documents larger bounce buffers as more robust against short PSRAM-bandwidth
+ * spikes; that is the failure class isolated after the locked Source page still
+ * shook at the same cadence with no HMI refresh work running.
  *
  * Use one PSRAM framebuffer for the product HMI so a label repaint modifies the
  * currently scanned frame instead of switching the whole panel to another full
  * framebuffer. Core acquisition cadence, control timing and safety policy are
- * unchanged. The bounded RGB bounce buffer remains enabled to protect scanout.
+ * unchanged. sdkconfig reserves explicit internal/DMA headroom before ordinary
+ * malloc traffic so the qualified ten-line bounce path can coexist with Wi-Fi.
  * The standalone HIL image remains pinned to its separately-qualified settings. */
 static esp_err_t native_screen_reserve(void)
 {
@@ -79,7 +80,7 @@ static esp_err_t native_screen_reserve(void)
     };
 
     ESP_LOGI(TAG, "Reserving native 800x480 Waveshare LCD/touch DMA before Core");
-    ESP_LOGI(TAG, "RGB live-update mode: SINGLE_FRAMEBUFFER with active-page rendering");
+    ESP_LOGI(TAG, "RGB live-update mode: SINGLE_FRAMEBUFFER with 10-line bounce and active-page rendering");
     log_dma_headroom("Before LCD DMA reservation");
     esp_err_t err = waveshare_display_port_init(&display_config, &s_display);
     if (err != ESP_OK) return err;
