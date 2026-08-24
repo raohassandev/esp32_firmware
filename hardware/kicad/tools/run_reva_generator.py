@@ -2,9 +2,10 @@
 """Stable CI entrypoint for Rev-A generator composition.
 
 Applies the production electrical wrappers, KiCad-10 library compatibility,
-collision-free layout, and canonical annotation before the native generator
-runs. Electrical meaning remains in the controlled generator wrappers; semantic
-references are preserved through a committed old->canonical mapping.
+collision-free layout, canonical annotation, and provider-facing exact MPN
+freeze before the native generator runs. Electrical meaning remains in the
+controlled generator wrappers; semantic references are preserved through a
+committed old->canonical mapping.
 """
 import json
 import re
@@ -30,6 +31,50 @@ FP = {
 for c in final.g.COMPS:
     c["footprint"] = FP.get(c["footprint"], c["footprint"])
 
+
+def freeze(ref, value, datasheet=None):
+    for c in final.g.COMPS:
+        if c["ref"] == ref:
+            c["value"] = value
+            if datasheet is not None:
+                c["datasheet"] = datasheet
+            return
+    raise RuntimeError(f"cannot freeze missing component {ref}")
+
+
+# Provider-facing exact mechanical/electrical choices that fit the already
+# locked stock footprints. These do not alter placement or pin numbering.
+freeze("J_PWR", "Same Sky TB007-508-02BE",
+       "https://www.sameskydevices.com/product/interconnect/connectors/terminal-blocks/tb007-508-series")
+freeze("J_RS485A", "Same Sky TB007-508-03BE",
+       "https://www.sameskydevices.com/product/interconnect/connectors/terminal-blocks/tb007-508-series")
+freeze("J_RS485B", "Same Sky TB007-508-03BE",
+       "https://www.sameskydevices.com/product/interconnect/connectors/terminal-blocks/tb007-508-series")
+freeze("J_DI", "Same Sky TB007-508-05BE DNP",
+       "https://www.sameskydevices.com/product/interconnect/connectors/terminal-blocks/tb007-508-series")
+freeze("J_USB", "GCT USB4105-GF-A-120",
+       "https://gct.co/connector/usb4105")
+
+# Main TPS54360B power train: exact 6060 inductor and 1210 capacitors. The
+# values/footprints are unchanged; only the source-controlled MPN is now frozen.
+freeze("L1", "Wurth 744393465082 8.2uH",
+       "https://www.we-online.com/components/products/datasheet/744393465082.pdf")
+for ref in ("CIN1", "CIN2"):
+    freeze(ref, "Murata GRM32ER72A225KA35L 2.2uF 100V X7R")
+for ref in ("COUT1", "COUT2"):
+    freeze(ref, "Murata GRM32ER61A476KE20L 47uF 10V X5R")
+
+# W5500 clock remains the WIZnet reference topology with 18 pF shunt capacitors.
+# This active 3225 Abracon part matches the locked 4-pad footprint and 25 MHz
+# requirement.
+freeze("Y1", "Abracon ABM8-25.000MHZ-D2Y-T 25MHz",
+       "https://abracon.com/parametric/crystals/ABM8-25.000MHZ-D2Y-T")
+
+# Relay drivers were already electrically AO3400A; make the exact production
+# source explicit in the generated provider BOM.
+for ref in ("Q1", "Q2", "Q3", "Q4"):
+    freeze(ref, "AOS AO3400A", "https://www.aosmd.com/products/mosfets/low-voltage-mosfets-12v-30v/ao3400a")
+
 # Relay contact terminals are no longer a generic 5.08 mm family placeholder.
 # Freeze the exact Phoenix Contact 1712193 / MKDS 3/3-5.08 mechanical part and
 # its stock KiCad footprint before final routing so provider geometry is stable.
@@ -50,8 +95,10 @@ for idx, c in enumerate(final.g.COMPS):
 
 _orig_generate_schematic = final.g.generate_schematic
 
+
 def _a0_schematic(used):
     return _orig_generate_schematic(used).replace('(paper "A2")', '(paper "A0")', 1)
+
 
 final.g.generate_schematic = _a0_schematic
 
