@@ -167,6 +167,9 @@ def main() -> None:
     assert "ARM automatic control" in commissioning_ui
     assert "DISARM automatic control" in commissioning_ui
     assert "parse_ulong(s_ui.control_interval, 20U, 3600000U" in commissioning_ui, "touchscreen commissioning must accept the Core shipped 20 ms loop cadence"
+    assert "uint8_t plant_page" in commissioning_ui
+    assert "Save plant section" in commissioning_ui
+    assert "Plant commissioning is split into lightweight sections" in commissioning_ui
     assert "Grid available evidence" in source_ui
     assert "Grid breaker closed evidence" in source_ui
     assert "Enable source evidence" in source_ui

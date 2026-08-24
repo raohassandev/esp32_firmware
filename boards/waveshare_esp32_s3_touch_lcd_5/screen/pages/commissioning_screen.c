@@ -79,6 +79,7 @@ typedef struct {
     uint8_t meter_index;
     uint8_t inverter_index;
     uint8_t generator_index;
+    uint8_t plant_page; /* 0 policy, 1 generator, 2 control, 3 ramps */
 } commissioning_ui_t;
 
 static commissioning_ui_t s_ui;
@@ -409,6 +410,22 @@ static void generator_next_clicked(lv_event_t *event)
     queue_render();
 }
 
+static void plant_page_prev_clicked(lv_event_t *event)
+{
+    (void)event;
+    keyboard_hide();
+    if (s_ui.plant_page > 0U) s_ui.plant_page--;
+    queue_render();
+}
+
+static void plant_page_next_clicked(lv_event_t *event)
+{
+    (void)event;
+    keyboard_hide();
+    if (s_ui.plant_page < 3U) s_ui.plant_page++;
+    queue_render();
+}
+
 static void save_site_clicked(lv_event_t *event)
 {
     (void)event;
@@ -549,40 +566,44 @@ static void save_modbus_clicked(lv_event_t *event)
 static bool read_plant_form(screen_commission_plant_t *plant)
 {
     if (!plant) return false;
-    plant->policy = (uint8_t)lv_dropdown_get_selected(s_ui.policy);
-    plant->meter_orientation = (uint8_t)lv_dropdown_get_selected(s_ui.orientation);
-    plant->load_sharing_mode = (uint8_t)lv_dropdown_get_selected(s_ui.sharing);
-    if (!parse_float(s_ui.export_limit, &plant->export_limit_kw) ||
-        !parse_float(s_ui.minimum_import, &plant->minimum_import_kw) ||
-        !parse_float(s_ui.base_tolerance_kw, &plant->base_load_tolerance_kw) ||
-        !parse_float(s_ui.base_tolerance_percent, &plant->base_load_tolerance_percent) ||
-        !parse_float(s_ui.grid_import_target, &plant->grid_import_target_kw) ||
-        !parse_float(s_ui.deadband, &plant->deadband_kw) ||
-        !parse_float(s_ui.kp, &plant->kp) ||
-        !parse_float(s_ui.ki, &plant->ki) ||
-        !parse_float(s_ui.grid_ramp_up, &plant->grid_ramp_up_percent_per_second) ||
-        !parse_float(s_ui.grid_ramp_down, &plant->grid_ramp_down_percent_per_second) ||
-        !parse_float(s_ui.generator_ramp_up, &plant->generator_ramp_up_percent_per_second) ||
-        !parse_float(s_ui.generator_ramp_down, &plant->generator_ramp_down_percent_per_second) ||
-        !parse_float(s_ui.urgent_fraction, &plant->urgent_loading_fraction) ||
-        !parse_float(s_ui.urgent_multiplier, &plant->urgent_ramp_multiplier)) return false;
+    if (s_ui.policy) plant->policy = (uint8_t)lv_dropdown_get_selected(s_ui.policy);
+    if (s_ui.orientation) plant->meter_orientation = (uint8_t)lv_dropdown_get_selected(s_ui.orientation);
+    if (s_ui.sharing) plant->load_sharing_mode = (uint8_t)lv_dropdown_get_selected(s_ui.sharing);
+    if (s_ui.export_limit && !parse_float(s_ui.export_limit, &plant->export_limit_kw)) return false;
+    if (s_ui.minimum_import && !parse_float(s_ui.minimum_import, &plant->minimum_import_kw)) return false;
+    if (s_ui.base_tolerance_kw && !parse_float(s_ui.base_tolerance_kw, &plant->base_load_tolerance_kw)) return false;
+    if (s_ui.base_tolerance_percent && !parse_float(s_ui.base_tolerance_percent, &plant->base_load_tolerance_percent)) return false;
+    if (s_ui.grid_import_target && !parse_float(s_ui.grid_import_target, &plant->grid_import_target_kw)) return false;
+    if (s_ui.deadband && !parse_float(s_ui.deadband, &plant->deadband_kw)) return false;
+    if (s_ui.kp && !parse_float(s_ui.kp, &plant->kp)) return false;
+    if (s_ui.ki && !parse_float(s_ui.ki, &plant->ki)) return false;
+    if (s_ui.grid_ramp_up && !parse_float(s_ui.grid_ramp_up, &plant->grid_ramp_up_percent_per_second)) return false;
+    if (s_ui.grid_ramp_down && !parse_float(s_ui.grid_ramp_down, &plant->grid_ramp_down_percent_per_second)) return false;
+    if (s_ui.generator_ramp_up && !parse_float(s_ui.generator_ramp_up, &plant->generator_ramp_up_percent_per_second)) return false;
+    if (s_ui.generator_ramp_down && !parse_float(s_ui.generator_ramp_down, &plant->generator_ramp_down_percent_per_second)) return false;
+    if (s_ui.urgent_fraction && !parse_float(s_ui.urgent_fraction, &plant->urgent_loading_fraction)) return false;
+    if (s_ui.urgent_multiplier && !parse_float(s_ui.urgent_multiplier, &plant->urgent_ramp_multiplier)) return false;
 
     unsigned long value = 0U;
-    if (!parse_ulong(s_ui.control_interval, 20U, 3600000U, &value)) return false;
-    plant->control_interval_ms = (uint32_t)value;
-    if (!parse_ulong(s_ui.stale_timeout, 100U, 3600000U, &value)) return false;
-    plant->meter_stale_timeout_ms = (uint32_t)value;
-    plant->grid_ramp_enabled = checked(s_ui.grid_ramp_enabled);
-    plant->generator_ramp_enabled = checked(s_ui.generator_ramp_enabled);
+    if (s_ui.control_interval) {
+        if (!parse_ulong(s_ui.control_interval, 20U, 3600000U, &value)) return false;
+        plant->control_interval_ms = (uint32_t)value;
+    }
+    if (s_ui.stale_timeout) {
+        if (!parse_ulong(s_ui.stale_timeout, 100U, 3600000U, &value)) return false;
+        plant->meter_stale_timeout_ms = (uint32_t)value;
+    }
+    if (s_ui.grid_ramp_enabled) plant->grid_ramp_enabled = checked(s_ui.grid_ramp_enabled);
+    if (s_ui.generator_ramp_enabled) plant->generator_ramp_enabled = checked(s_ui.generator_ramp_enabled);
 
     screen_commission_generator_t *g = &plant->generators[s_ui.generator_index];
-    g->enabled = checked(s_ui.generator_enabled);
-    g->role = (uint8_t)lv_dropdown_get_selected(s_ui.generator_role);
-    if (!parse_float(s_ui.generator_rated, &g->rated_kw) ||
-        !parse_float(s_ui.generator_minimum, &g->minimum_loading_percent) ||
-        !parse_float(s_ui.generator_reserve, &g->reserve_kw) ||
-        !parse_float(s_ui.generator_reverse, &g->reverse_power_margin_kw) ||
-        !parse_float(s_ui.generator_base_load, &g->base_load_kw)) return false;
+    if (s_ui.generator_enabled) g->enabled = checked(s_ui.generator_enabled);
+    if (s_ui.generator_role) g->role = (uint8_t)lv_dropdown_get_selected(s_ui.generator_role);
+    if (s_ui.generator_rated && !parse_float(s_ui.generator_rated, &g->rated_kw)) return false;
+    if (s_ui.generator_minimum && !parse_float(s_ui.generator_minimum, &g->minimum_loading_percent)) return false;
+    if (s_ui.generator_reserve && !parse_float(s_ui.generator_reserve, &g->reserve_kw)) return false;
+    if (s_ui.generator_reverse && !parse_float(s_ui.generator_reverse, &g->reverse_power_margin_kw)) return false;
+    if (s_ui.generator_base_load && !parse_float(s_ui.generator_base_load, &g->base_load_kw)) return false;
     return true;
 }
 
@@ -773,57 +794,77 @@ static void render_modbus(void)
 static void render_plant(void)
 {
     lv_obj_t *form = form_container();
+    static const char *const section_names[] = { "Policy", "Generator", "Control", "Ramps" };
     heading(form, "Plant control",
-            "Every save forces automatic control disabled. Core validators remain authoritative; a value the Core refuses is not persisted by this screen.");
+            "Plant commissioning is split into lightweight sections so the exact-board HMI stays within internal-DRAM headroom. Every save still validates the complete Core plant model and forces automatic control disabled.");
+
+    lv_obj_t *section = lv_obj_create(form);
+    lv_obj_remove_style_all(section);
+    lv_obj_set_width(section, LV_PCT(100));
+    lv_obj_set_height(section, 40);
+    lv_obj_set_layout(section, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(section, LV_FLEX_FLOW_ROW);
+    button(section, "< Section", plant_page_prev_clicked, NULL);
+    char section_text[48];
+    snprintf(section_text, sizeof(section_text), "%s %u/4", section_names[s_ui.plant_page],
+             (unsigned)(s_ui.plant_page + 1U));
+    lv_obj_t *section_label = lv_label_create(section);
+    lv_label_set_text(section_label, section_text);
+    lv_obj_set_width(section_label, 220);
+    lv_obj_set_style_text_align(section_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    button(section, "Section >", plant_page_next_clicked, NULL);
+
     screen_commission_plant_t *p = &s_ui.config.plant;
-    s_ui.policy = dropdown_field(form, "Grid policy", "Zero export\nLimited export\nMinimum import", p->policy <= 2U ? p->policy : 0U);
-    s_ui.orientation = dropdown_field(form, "Meter orientation", "Import positive\nExport positive", p->meter_orientation <= 1U ? p->meter_orientation : 0U);
-    s_ui.export_limit = number_field(form, "Export limit (kW)", p->export_limit_kw, 2U);
-    s_ui.minimum_import = number_field(form, "Minimum import (kW)", p->minimum_import_kw, 2U);
-    s_ui.sharing = dropdown_field(form, "Generator load sharing", "Unset\nIsochronous\nBase load\nDroop (refused)", p->load_sharing_mode <= 3U ? p->load_sharing_mode : 0U);
-
-    lv_obj_t *selector = lv_obj_create(form);
-    lv_obj_remove_style_all(selector);
-    lv_obj_set_width(selector, LV_PCT(100));
-    lv_obj_set_height(selector, 40);
-    lv_obj_set_layout(selector, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(selector, LV_FLEX_FLOW_ROW);
-    button(selector, "< Generator", generator_prev_clicked, NULL);
-    char slot[32];
-    snprintf(slot, sizeof(slot), "Generator %u/%u",
-             (unsigned)(s_ui.generator_index + 1U),
-             (unsigned)SCREEN_COMMISSIONING_MAX_GENERATORS);
-    lv_obj_t *slot_label = lv_label_create(selector);
-    lv_label_set_text(slot_label, slot);
-    lv_obj_set_width(slot_label, 180);
-    button(selector, "Generator >", generator_next_clicked, NULL);
-
-    screen_commission_generator_t *g = &p->generators[s_ui.generator_index];
-    s_ui.generator_enabled = checkbox_field(form, "Generator slot enabled", g->enabled);
-    s_ui.generator_rated = number_field(form, "Generator rated kW", g->rated_kw, 2U);
-    s_ui.generator_minimum = number_field(form, "Minimum loading (%)", g->minimum_loading_percent, 2U);
-    s_ui.generator_reserve = number_field(form, "Reserve (kW)", g->reserve_kw, 2U);
-    s_ui.generator_reverse = number_field(form, "Reverse-power margin (kW)", g->reverse_power_margin_kw, 2U);
-    s_ui.generator_role = dropdown_field(form, "Base-load role", "Unset\nSwing\nBase load", g->role <= 2U ? g->role : 0U);
-    s_ui.generator_base_load = number_field(form, "Base-load setpoint (kW)", g->base_load_kw, 2U);
-    s_ui.base_tolerance_kw = number_field(form, "Base-load tolerance (kW)", p->base_load_tolerance_kw, 2U);
-    s_ui.base_tolerance_percent = number_field(form, "Base-load tolerance (% rating)", p->base_load_tolerance_percent, 2U);
-
-    s_ui.grid_import_target = number_field(form, "Grid import target (kW)", p->grid_import_target_kw, 2U);
-    s_ui.deadband = number_field(form, "Control deadband (kW)", p->deadband_kw, 2U);
-    s_ui.kp = number_field(form, "Kp", p->kp, 3U);
-    s_ui.ki = number_field(form, "Ki", p->ki, 3U);
-    s_ui.control_interval = integer_field(form, "Control interval (ms)", p->control_interval_ms);
-    s_ui.stale_timeout = integer_field(form, "Meter stale timeout (ms)", p->meter_stale_timeout_ms);
-    s_ui.grid_ramp_enabled = checkbox_field(form, "Grid ramp enabled", p->grid_ramp_enabled);
-    s_ui.grid_ramp_up = number_field(form, "Grid ramp up (%/s)", p->grid_ramp_up_percent_per_second, 2U);
-    s_ui.grid_ramp_down = number_field(form, "Grid ramp down (%/s)", p->grid_ramp_down_percent_per_second, 2U);
-    s_ui.generator_ramp_enabled = checkbox_field(form, "Generator ramp enabled", p->generator_ramp_enabled);
-    s_ui.generator_ramp_up = number_field(form, "Generator ramp up (%/s)", p->generator_ramp_up_percent_per_second, 2U);
-    s_ui.generator_ramp_down = number_field(form, "Generator ramp down (%/s)", p->generator_ramp_down_percent_per_second, 2U);
-    s_ui.urgent_fraction = number_field(form, "Urgent loading fraction (0..1)", p->urgent_loading_fraction, 3U);
-    s_ui.urgent_multiplier = number_field(form, "Urgent ramp multiplier", p->urgent_ramp_multiplier, 2U);
-    button(form, "Save plant control", save_plant_clicked, NULL);
+    if (s_ui.plant_page == 0U) {
+        s_ui.policy = dropdown_field(form, "Grid policy", "Zero export\nLimited export\nMinimum import", p->policy <= 2U ? p->policy : 0U);
+        s_ui.orientation = dropdown_field(form, "Meter orientation", "Import positive\nExport positive", p->meter_orientation <= 1U ? p->meter_orientation : 0U);
+        s_ui.export_limit = number_field(form, "Export limit (kW)", p->export_limit_kw, 2U);
+        s_ui.minimum_import = number_field(form, "Minimum import (kW)", p->minimum_import_kw, 2U);
+        s_ui.sharing = dropdown_field(form, "Generator load sharing", "Unset\nIsochronous\nBase load\nDroop (refused)", p->load_sharing_mode <= 3U ? p->load_sharing_mode : 0U);
+        s_ui.base_tolerance_kw = number_field(form, "Base-load tolerance (kW)", p->base_load_tolerance_kw, 2U);
+        s_ui.base_tolerance_percent = number_field(form, "Base-load tolerance (% rating)", p->base_load_tolerance_percent, 2U);
+    } else if (s_ui.plant_page == 1U) {
+        lv_obj_t *selector = lv_obj_create(form);
+        lv_obj_remove_style_all(selector);
+        lv_obj_set_width(selector, LV_PCT(100));
+        lv_obj_set_height(selector, 40);
+        lv_obj_set_layout(selector, LV_LAYOUT_FLEX);
+        lv_obj_set_flex_flow(selector, LV_FLEX_FLOW_ROW);
+        button(selector, "< Generator", generator_prev_clicked, NULL);
+        char slot[32];
+        snprintf(slot, sizeof(slot), "Generator %u/%u",
+                 (unsigned)(s_ui.generator_index + 1U),
+                 (unsigned)SCREEN_COMMISSIONING_MAX_GENERATORS);
+        lv_obj_t *slot_label = lv_label_create(selector);
+        lv_label_set_text(slot_label, slot);
+        lv_obj_set_width(slot_label, 180);
+        button(selector, "Generator >", generator_next_clicked, NULL);
+        screen_commission_generator_t *g = &p->generators[s_ui.generator_index];
+        s_ui.generator_enabled = checkbox_field(form, "Generator slot enabled", g->enabled);
+        s_ui.generator_rated = number_field(form, "Generator rated kW", g->rated_kw, 2U);
+        s_ui.generator_minimum = number_field(form, "Minimum loading (%)", g->minimum_loading_percent, 2U);
+        s_ui.generator_reserve = number_field(form, "Reserve (kW)", g->reserve_kw, 2U);
+        s_ui.generator_reverse = number_field(form, "Reverse-power margin (kW)", g->reverse_power_margin_kw, 2U);
+        s_ui.generator_role = dropdown_field(form, "Base-load role", "Unset\nSwing\nBase load", g->role <= 2U ? g->role : 0U);
+        s_ui.generator_base_load = number_field(form, "Base-load setpoint (kW)", g->base_load_kw, 2U);
+    } else if (s_ui.plant_page == 2U) {
+        s_ui.grid_import_target = number_field(form, "Grid import target (kW)", p->grid_import_target_kw, 2U);
+        s_ui.deadband = number_field(form, "Control deadband (kW)", p->deadband_kw, 2U);
+        s_ui.kp = number_field(form, "Kp", p->kp, 3U);
+        s_ui.ki = number_field(form, "Ki", p->ki, 3U);
+        s_ui.control_interval = integer_field(form, "Control interval (ms)", p->control_interval_ms);
+        s_ui.stale_timeout = integer_field(form, "Meter stale timeout (ms)", p->meter_stale_timeout_ms);
+    } else {
+        s_ui.grid_ramp_enabled = checkbox_field(form, "Grid ramp enabled", p->grid_ramp_enabled);
+        s_ui.grid_ramp_up = number_field(form, "Grid ramp up (%/s)", p->grid_ramp_up_percent_per_second, 2U);
+        s_ui.grid_ramp_down = number_field(form, "Grid ramp down (%/s)", p->grid_ramp_down_percent_per_second, 2U);
+        s_ui.generator_ramp_enabled = checkbox_field(form, "Generator ramp enabled", p->generator_ramp_enabled);
+        s_ui.generator_ramp_up = number_field(form, "Generator ramp up (%/s)", p->generator_ramp_up_percent_per_second, 2U);
+        s_ui.generator_ramp_down = number_field(form, "Generator ramp down (%/s)", p->generator_ramp_down_percent_per_second, 2U);
+        s_ui.urgent_fraction = number_field(form, "Urgent loading fraction (0..1)", p->urgent_loading_fraction, 3U);
+        s_ui.urgent_multiplier = number_field(form, "Urgent ramp multiplier", p->urgent_ramp_multiplier, 2U);
+    }
+    button(form, "Save plant section", save_plant_clicked, NULL);
 }
 
 static void status_line(lv_obj_t *form, const char *name, const char *value)
