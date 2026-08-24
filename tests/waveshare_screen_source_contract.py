@@ -173,6 +173,11 @@ def main() -> None:
     assert "Grid available evidence" in source_ui
     assert "Grid breaker closed evidence" in source_ui
     assert "Enable source evidence" in source_ui
+    assert "uint8_t page; /* 0 grid available, 1 breaker closed, 2 timing/enable */" in source_ui
+    assert "Save grid-available section" in source_ui
+    assert "Save breaker section" in source_ui
+    assert "Save timing / enable pair" in source_ui
+    assert "if (s_ui.enabled) config->evidence_enabled = checked(s_ui.enabled);" in source_ui
 
     # No hidden screen scheduler/task: board integration owns cadence and calls
     # bounded refresh lanes under the qualified LVGL locking model.

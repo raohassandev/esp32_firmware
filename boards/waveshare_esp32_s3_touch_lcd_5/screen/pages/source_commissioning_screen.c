@@ -33,6 +33,7 @@ typedef struct {
     source_commission_backend_t backend;
     source_commission_config_t config;
     bool backend_set;
+    uint8_t page; /* 0 grid available, 1 breaker closed, 2 timing/enable */
 } source_ui_t;
 
 static source_ui_t s_ui;
@@ -258,6 +259,23 @@ static void lock_clicked(lv_event_t *event)
     keyboard_hide();
     if (s_ui.backend.lock) s_ui.backend.lock(s_ui.backend.context);
     memset(&s_ui.config, 0, sizeof(s_ui.config));
+    s_ui.page = 0U;
+    queue_render();
+}
+
+static void page_prev_clicked(lv_event_t *event)
+{
+    (void)event;
+    keyboard_hide();
+    if (s_ui.page > 0U) s_ui.page--;
+    queue_render();
+}
+
+static void page_next_clicked(lv_event_t *event)
+{
+    (void)event;
+    keyboard_hide();
+    if (s_ui.page < 2U) s_ui.page++;
     queue_render();
 }
 
@@ -266,36 +284,52 @@ static bool read_signal(source_commission_signal_t *signal,
                         lv_obj_t *address, lv_obj_t *mask, lv_obj_t *active)
 {
     if (!signal) return false;
-    signal->meter_index = (uint8_t)lv_dropdown_get_selected(meter);
-    signal->function_code = lv_dropdown_get_selected(function_code) == 0U ? 3U : 4U;
+    if (meter) signal->meter_index = (uint8_t)lv_dropdown_get_selected(meter);
+    if (function_code) {
+        signal->function_code = lv_dropdown_get_selected(function_code) == 0U ? 3U : 4U;
+    }
     unsigned long value = 0U;
-    if (!parse_unsigned(address, 0, 0U, 65535U, &value)) return false;
-    signal->address = (uint16_t)value;
-    if (!parse_unsigned(mask, 0, 0U, 65535U, &value)) return false;
-    signal->mask = (uint16_t)value;
-    if (!parse_unsigned(active, 0, 0U, 65535U, &value)) return false;
-    signal->active_value = (uint16_t)value;
+    if (address) {
+        if (!parse_unsigned(address, 0, 0U, 65535U, &value)) return false;
+        signal->address = (uint16_t)value;
+    }
+    if (mask) {
+        if (!parse_unsigned(mask, 0, 0U, 65535U, &value)) return false;
+        signal->mask = (uint16_t)value;
+    }
+    if (active) {
+        if (!parse_unsigned(active, 0, 0U, 65535U, &value)) return false;
+        signal->active_value = (uint16_t)value;
+    }
     return true;
 }
 
 static bool read_form(source_commission_config_t *config)
 {
     if (!config) return false;
-    config->evidence_enabled = checked(s_ui.enabled);
+    if (s_ui.enabled) config->evidence_enabled = checked(s_ui.enabled);
     if (!read_signal(&config->grid_available, s_ui.ga_meter, s_ui.ga_function,
                      s_ui.ga_address, s_ui.ga_mask, s_ui.ga_active) ||
         !read_signal(&config->grid_breaker_closed, s_ui.gb_meter, s_ui.gb_function,
                      s_ui.gb_address, s_ui.gb_mask, s_ui.gb_active)) return false;
 
     unsigned long value = 0U;
-    if (!parse_unsigned(s_ui.poll_ms, 10, 100U, 60000U, &value)) return false;
-    config->evidence_poll_interval_ms = (uint32_t)value;
-    if (!parse_unsigned(s_ui.stale_ms, 10, config->evidence_poll_interval_ms, 600000U, &value)) return false;
-    config->evidence_stale_timeout_ms = (uint32_t)value;
-    if (!parse_unsigned(s_ui.loss_ms, 10, 0U, 60000U, &value)) return false;
-    config->grid_loss_trip_ms = (uint32_t)value;
-    if (!parse_unsigned(s_ui.recovery_ms, 10, 0U, 600000U, &value)) return false;
-    config->grid_recovery_stable_ms = (uint32_t)value;
+    if (s_ui.poll_ms) {
+        if (!parse_unsigned(s_ui.poll_ms, 10, 100U, 60000U, &value)) return false;
+        config->evidence_poll_interval_ms = (uint32_t)value;
+    }
+    if (s_ui.stale_ms) {
+        if (!parse_unsigned(s_ui.stale_ms, 10, config->evidence_poll_interval_ms, 600000U, &value)) return false;
+        config->evidence_stale_timeout_ms = (uint32_t)value;
+    }
+    if (s_ui.loss_ms) {
+        if (!parse_unsigned(s_ui.loss_ms, 10, 0U, 60000U, &value)) return false;
+        config->grid_loss_trip_ms = (uint32_t)value;
+    }
+    if (s_ui.recovery_ms) {
+        if (!parse_unsigned(s_ui.recovery_ms, 10, 0U, 600000U, &value)) return false;
+        config->grid_recovery_stable_ms = (uint32_t)value;
+    }
     if (config->evidence_enabled &&
         (config->grid_available.mask == 0U || config->grid_breaker_closed.mask == 0U)) {
         return false;
@@ -368,26 +402,48 @@ static void signal_fields(lv_obj_t *form, const char *title,
 static void render_unlocked(void)
 {
     lv_obj_t *form = form_container();
+    static const char *const page_names[] = { "Grid available", "Breaker closed", "Timing + enable" };
     heading(form, "Grid source evidence",
-            "Both evidence signals are enabled or disabled together because the shared Core validator requires them as one complete source model. Saving always forces automatic control disabled and requires a restart before qualification.");
-    s_ui.enabled = checkbox_field(form, "Enable source evidence", s_ui.config.evidence_enabled);
+            "Source commissioning is split into lightweight sections for exact-board DRAM headroom. Configure and save both register sections first; enable the pair only on the final section.");
 
-    signal_fields(form, "Grid available evidence", &s_ui.config.grid_available,
-                  &s_ui.ga_meter, &s_ui.ga_function, &s_ui.ga_address,
-                  &s_ui.ga_mask, &s_ui.ga_active);
-    signal_fields(form, "Grid breaker closed evidence", &s_ui.config.grid_breaker_closed,
-                  &s_ui.gb_meter, &s_ui.gb_function, &s_ui.gb_address,
-                  &s_ui.gb_mask, &s_ui.gb_active);
+    lv_obj_t *nav = lv_obj_create(form);
+    lv_obj_remove_style_all(nav);
+    lv_obj_set_width(nav, LV_PCT(100));
+    lv_obj_set_height(nav, 40);
+    lv_obj_set_layout(nav, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(nav, LV_FLEX_FLOW_ROW);
+    button(nav, "< Section", page_prev_clicked);
+    char page_text[64];
+    snprintf(page_text, sizeof(page_text), "%s %u/3", page_names[s_ui.page],
+             (unsigned)(s_ui.page + 1U));
+    lv_obj_t *page_label = lv_label_create(nav);
+    lv_label_set_text(page_label, page_text);
+    lv_obj_set_width(page_label, 260);
+    lv_obj_set_style_text_align(page_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    button(nav, "Section >", page_next_clicked);
 
-    heading(form, "Evidence timing", "These bounds mirror the shared Solar-Grid validator. Unknown or stale evidence keeps source attribution fail-closed.");
-    s_ui.poll_ms = integer_field(form, "Evidence poll interval (ms)", s_ui.config.evidence_poll_interval_ms);
-    s_ui.stale_ms = integer_field(form, "Evidence stale timeout (ms)", s_ui.config.evidence_stale_timeout_ms);
-    s_ui.loss_ms = integer_field(form, "Grid loss trip (ms)", s_ui.config.grid_loss_trip_ms);
-    s_ui.recovery_ms = integer_field(form, "Grid recovery stable (ms)", s_ui.config.grid_recovery_stable_ms);
-
-    button(form, "Save source evidence", save_clicked);
-    button(form, "Refresh from Core", refresh_clicked);
-    if (s_ui.config.restart_required) button(form, "Restart controller", restart_clicked);
+    if (s_ui.page == 0U) {
+        signal_fields(form, "Grid available evidence", &s_ui.config.grid_available,
+                      &s_ui.ga_meter, &s_ui.ga_function, &s_ui.ga_address,
+                      &s_ui.ga_mask, &s_ui.ga_active);
+        button(form, "Save grid-available section", save_clicked);
+    } else if (s_ui.page == 1U) {
+        signal_fields(form, "Grid breaker closed evidence", &s_ui.config.grid_breaker_closed,
+                      &s_ui.gb_meter, &s_ui.gb_function, &s_ui.gb_address,
+                      &s_ui.gb_mask, &s_ui.gb_active);
+        button(form, "Save breaker section", save_clicked);
+    } else {
+        heading(form, "Evidence timing",
+                "Enable only after both real evidence registers have been configured. Core requires the two signals as one complete pair; unknown or stale evidence remains fail-closed.");
+        s_ui.enabled = checkbox_field(form, "Enable source evidence", s_ui.config.evidence_enabled);
+        s_ui.poll_ms = integer_field(form, "Evidence poll interval (ms)", s_ui.config.evidence_poll_interval_ms);
+        s_ui.stale_ms = integer_field(form, "Evidence stale timeout (ms)", s_ui.config.evidence_stale_timeout_ms);
+        s_ui.loss_ms = integer_field(form, "Grid loss trip (ms)", s_ui.config.grid_loss_trip_ms);
+        s_ui.recovery_ms = integer_field(form, "Grid recovery stable (ms)", s_ui.config.grid_recovery_stable_ms);
+        button(form, "Save timing / enable pair", save_clicked);
+        button(form, "Refresh from Core", refresh_clicked);
+        if (s_ui.config.restart_required) button(form, "Restart controller", restart_clicked);
+    }
 }
 
 static void render(void)
