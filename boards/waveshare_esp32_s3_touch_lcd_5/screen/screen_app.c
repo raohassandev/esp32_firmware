@@ -32,6 +32,11 @@ static void make_fixed_surface(lv_obj_t *obj)
     lv_obj_set_scrollbar_mode(obj, LV_SCROLLBAR_MODE_OFF);
 }
 
+static bool active_is(screen_page_t page)
+{
+    return s_app.root && s_app.active == page;
+}
+
 static void nav_clicked(lv_event_t *event)
 {
     const uintptr_t raw = (uintptr_t)lv_event_get_user_data(event);
@@ -119,6 +124,11 @@ void screen_app_show_page(screen_page_t page)
     s_app.active = page;
 }
 
+screen_page_t screen_app_get_active_page(void)
+{
+    return s_app.active;
+}
+
 void screen_app_set_commissioning_backend(const screen_commissioning_backend_t *backend)
 {
     commissioning_screen_set_backend(backend);
@@ -129,91 +139,108 @@ void screen_app_set_source_commissioning_backend(const source_commission_backend
     source_commissioning_screen_set_backend(backend);
 }
 
+/* Keep transport/model refresh independent from LVGL rendering. The Core may
+ * continue refreshing every authoritative snapshot, but only the page the
+ * operator can actually see is allowed to mutate its LVGL tree. On this RGB
+ * panel every unnecessary hidden-page mutation competes with scanout bandwidth
+ * and can become visible as movement when live plant data changes. */
 void screen_app_apply_live(const screen_live_snapshot_t *snapshot)
 {
-    overview_screen_apply_live(snapshot);
+    if (active_is(SCREEN_PAGE_OVERVIEW)) overview_screen_apply_live(snapshot);
 }
 
 void screen_app_apply_status(const screen_status_snapshot_t *snapshot)
 {
     if (snapshot && snapshot->valid) s_app.status = *snapshot;
-    overview_screen_apply_status(snapshot);
-    commissioning_screen_apply_status(snapshot);
-    readiness_screen_apply(s_app.telemetry.valid ? &s_app.telemetry : NULL,
-                           s_app.status.valid ? &s_app.status : NULL);
+
+    if (active_is(SCREEN_PAGE_OVERVIEW)) {
+        overview_screen_apply_status(snapshot);
+    } else if (active_is(SCREEN_PAGE_COMMISSIONING)) {
+        commissioning_screen_apply_status(snapshot);
+    } else if (active_is(SCREEN_PAGE_READINESS)) {
+        readiness_screen_apply(s_app.telemetry.valid ? &s_app.telemetry : NULL,
+                               s_app.status.valid ? &s_app.status : NULL);
+    }
 }
 
 void screen_app_apply_meters(const screen_meters_snapshot_t *snapshot)
 {
-    grid_screen_apply(snapshot);
-    commissioning_screen_apply_meters(snapshot);
+    if (active_is(SCREEN_PAGE_GRID)) grid_screen_apply(snapshot);
+    else if (active_is(SCREEN_PAGE_COMMISSIONING)) commissioning_screen_apply_meters(snapshot);
 }
 
 void screen_app_apply_inverters(const screen_inverters_snapshot_t *snapshot)
 {
-    solar_screen_apply(snapshot);
-    commissioning_screen_apply_inverters(snapshot);
+    if (active_is(SCREEN_PAGE_SOLAR)) solar_screen_apply(snapshot);
+    else if (active_is(SCREEN_PAGE_COMMISSIONING)) commissioning_screen_apply_inverters(snapshot);
 }
 
 void screen_app_apply_telemetry(const screen_telemetry_snapshot_t *snapshot)
 {
     if (snapshot && snapshot->valid) s_app.telemetry = *snapshot;
-    commissioning_screen_apply_telemetry(snapshot);
-    readiness_screen_apply(s_app.telemetry.valid ? &s_app.telemetry : NULL,
-                           s_app.status.valid ? &s_app.status : NULL);
+
+    if (active_is(SCREEN_PAGE_COMMISSIONING)) {
+        commissioning_screen_apply_telemetry(snapshot);
+    } else if (active_is(SCREEN_PAGE_READINESS)) {
+        readiness_screen_apply(s_app.telemetry.valid ? &s_app.telemetry : NULL,
+                               s_app.status.valid ? &s_app.status : NULL);
+    }
 }
 
 void screen_app_apply_commissioning(const screen_commissioning_snapshot_t *snapshot)
 {
-    readiness_screen_apply_commissioning(snapshot);
-    commissioning_screen_apply_gate(snapshot);
+    if (active_is(SCREEN_PAGE_READINESS)) readiness_screen_apply_commissioning(snapshot);
+    else if (active_is(SCREEN_PAGE_COMMISSIONING)) commissioning_screen_apply_gate(snapshot);
 }
 
 void screen_app_apply_events(const screen_events_snapshot_t *snapshot)
 {
-    alarms_screen_apply_events(snapshot);
+    if (active_is(SCREEN_PAGE_ALARMS)) alarms_screen_apply_events(snapshot);
 }
 
 void screen_app_apply_alarms(const screen_alarms_snapshot_t *snapshot)
 {
-    alarms_screen_apply_alarms(snapshot);
+    if (active_is(SCREEN_PAGE_ALARMS)) alarms_screen_apply_alarms(snapshot);
 }
 
 void screen_app_show_live_unavailable(void)
 {
-    overview_screen_show_backend_unavailable();
+    if (active_is(SCREEN_PAGE_OVERVIEW)) overview_screen_show_backend_unavailable();
 }
 
 void screen_app_show_meters_unavailable(void)
 {
-    grid_screen_show_unavailable();
-    commissioning_screen_apply_meters(NULL);
+    if (active_is(SCREEN_PAGE_GRID)) grid_screen_show_unavailable();
+    else if (active_is(SCREEN_PAGE_COMMISSIONING)) commissioning_screen_apply_meters(NULL);
 }
 
 void screen_app_show_inverters_unavailable(void)
 {
-    solar_screen_show_unavailable();
-    commissioning_screen_apply_inverters(NULL);
+    if (active_is(SCREEN_PAGE_SOLAR)) solar_screen_show_unavailable();
+    else if (active_is(SCREEN_PAGE_COMMISSIONING)) commissioning_screen_apply_inverters(NULL);
 }
 
 void screen_app_show_operations_unavailable(void)
 {
-    alarms_screen_show_unavailable();
+    if (active_is(SCREEN_PAGE_ALARMS)) alarms_screen_show_unavailable();
 }
 
 void screen_app_show_readiness_unavailable(void)
 {
     memset(&s_app.status, 0, sizeof(s_app.status));
     memset(&s_app.telemetry, 0, sizeof(s_app.telemetry));
-    readiness_screen_show_unavailable();
-    commissioning_screen_apply_status(NULL);
-    commissioning_screen_apply_telemetry(NULL);
+    if (active_is(SCREEN_PAGE_READINESS)) {
+        readiness_screen_show_unavailable();
+    } else if (active_is(SCREEN_PAGE_COMMISSIONING)) {
+        commissioning_screen_apply_status(NULL);
+        commissioning_screen_apply_telemetry(NULL);
+    }
 }
 
 void screen_app_show_commissioning_unavailable(void)
 {
-    readiness_screen_show_commissioning_unavailable();
-    commissioning_screen_apply_gate(NULL);
+    if (active_is(SCREEN_PAGE_READINESS)) readiness_screen_show_commissioning_unavailable();
+    else if (active_is(SCREEN_PAGE_COMMISSIONING)) commissioning_screen_apply_gate(NULL);
 }
 
 void screen_app_show_backend_unavailable(void)
@@ -224,6 +251,6 @@ void screen_app_show_backend_unavailable(void)
     screen_app_show_operations_unavailable();
     screen_app_show_readiness_unavailable();
     screen_app_show_commissioning_unavailable();
-    commissioning_screen_show_unavailable();
-    source_commissioning_screen_show_unavailable();
+    if (active_is(SCREEN_PAGE_COMMISSIONING)) commissioning_screen_show_unavailable();
+    if (active_is(SCREEN_PAGE_SOURCE)) source_commissioning_screen_show_unavailable();
 }
