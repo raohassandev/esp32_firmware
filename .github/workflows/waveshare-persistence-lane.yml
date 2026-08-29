@@ -1,0 +1,34 @@
+name: Waveshare persistence lane
+
+on:
+  push:
+    branches:
+      - 'work/waveshare/commissioning-persistence'
+    paths:
+      - 'boards/waveshare_esp32_s3_touch_lcd_5/screen/product_800x480/main/local_commissioning_backend.*'
+      - 'components/config_manager/config_manager.c'
+      - 'components/solar_grid_config/solar_grid_config.c'
+      - 'tests/waveshare_persistence_readback_gate.py'
+      - '.github/workflows/waveshare-persistence-lane.yml'
+  pull_request:
+    paths:
+      - 'boards/waveshare_esp32_s3_touch_lcd_5/screen/product_800x480/main/local_commissioning_backend.*'
+      - 'components/config_manager/config_manager.c'
+      - 'components/solar_grid_config/solar_grid_config.c'
+      - 'tests/waveshare_persistence_readback_gate.py'
+      - '.github/workflows/waveshare-persistence-lane.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  persistence-core-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify canonical NVS persistence and fail-closed HMI sequencing
+        run: |
+          python3 -m py_compile tests/waveshare_persistence_readback_gate.py
+          python3 tests/waveshare_persistence_readback_gate.py
