@@ -35,7 +35,10 @@ STAGES = (
 # "free/largest" fields before the DMA fields. Matching a generic free= value
 # would silently gate the wrong memory pool.
 DMA_FREE_RE = re.compile(r"(?:internal\s+)?DMA(?:-capable)?\s+free\s*[=:]\s*(\d+)", re.I)
-DMA_LARGEST_RE = re.compile(r"(?:internal\s+)?DMA(?:-capable)?\s+largest(?:\s+block)?\s*[=:]\s*(\d+)", re.I)
+DMA_LARGEST_RE = re.compile(
+    r"(?:internal\s+)?DMA(?:-capable)?\s+free\s*[=:]\s*\d+\s+largest(?:\s+block)?\s*[=:]\s*(\d+)",
+    re.I,
+)
 SOAK_RE = re.compile(r"Screen soak", re.I)
 ACTIVATION_RE = re.compile(r"LVGL activation stage\s+(\d)\s*/\s*6", re.I)
 READY_RE = re.compile(r"Native LCD/LVGL/touch ready", re.I)
