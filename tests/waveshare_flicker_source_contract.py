@@ -58,6 +58,9 @@ assert "lv_obj_clean" not in alarms, "Alarms page must not tear down lists on un
 assert "gate_snapshot_equal" in commissioning
 assert "const bool changed = !gate_snapshot_equal" in commissioning_apply
 assert "if (changed && s_ui.root && s_ui.config.unlocked && s_ui.step == 7U) render();" in commissioning_apply
+assert commissioning_apply.count("render();") == 1, (
+    "commissioning gate refresh must have exactly one guarded rebuild path"
+)
 
 assert "grid_row_ui_t rows[SCREEN_API_MAX_METERS]" in grid
 assert "solar_row_ui_t rows[SCREEN_API_MAX_INVERTERS]" in solar
