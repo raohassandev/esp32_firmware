@@ -154,8 +154,10 @@ lv_obj_t *screen_app_create(lv_obj_t *parent)
     lv_obj_set_width(s_app.content, LV_PCT(100));
     lv_obj_set_flex_grow(s_app.content, 1);
 
-    /* Only the first visible page is allocated during boot. */
-    if (!ensure_page(SCREEN_PAGE_OVERVIEW)) return s_app.root;
+    /* Only the first visible page is allocated during boot. If even Overview
+     * cannot be created, propagate failure so the product logs headless/OOM
+     * instead of falsely declaring a usable black screen. */
+    if (!ensure_page(SCREEN_PAGE_OVERVIEW)) return NULL;
     return s_app.root;
 }
 
