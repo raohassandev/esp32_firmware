@@ -17,6 +17,8 @@ The existing HTTP handlers call these builders and only perform HTTP serializati
 
 The native operational slots are bounded at 49,152 bytes for events and 32,768 bytes for alarms. They are presentation transport buffers, so they are allocated from PSRAM only. If PSRAM cannot provide them, the native read model fails unavailable instead of consuming scarce internal DRAM needed by Product Core, Wi-Fi or HTTP tasks.
 
+If an authoritative payload exceeds its bounded native slot, `cJSON_PrintPreallocated()` failure invalidates that LCD read model. The provider must not truncate the JSON into a syntactically-valid but incomplete alarm/event picture. Unknown/unavailable remains preferable to a believable partial state.
+
 `screen_api.c` remains responsible for projecting the full authoritative payload into the LCD's bounded display rows. Unknown/unavailable state must remain unknown; the screen must not fabricate zero alarms or empty event history.
 
 The shared builders still allocate their temporary cJSON tree while a snapshot is produced. The native operations refresh only runs while the Alarms page is active, but exact-board soak evidence must still show that repeatedly opening/holding that page does not cause minimum-heap collapse or fragmentation. If it does, the next optimization is a bounded Core snapshot/projection seam, not a return to duplicate alarm logic.
