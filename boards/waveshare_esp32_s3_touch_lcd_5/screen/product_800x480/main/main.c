@@ -21,7 +21,7 @@
 
 #define SCREEN_REFRESH_STACK_BYTES 12288
 #define PRODUCT_RGB_BOUNCE_LINES 10U
-#define PRODUCT_TEAR_MODE ESP_LV_ADAPTER_TEAR_AVOID_MODE_NONE
+#define PRODUCT_TEAR_MODE ESP_LV_ADAPTER_TEAR_AVOID_MODE_DOUBLE_DIRECT
 #define SCREEN_FAST_MS 1000U
 #define SCREEN_STATUS_MS 5000U
 #define SCREEN_DEVICES_MS 2000U
@@ -56,12 +56,16 @@ static void log_dma_headroom(const char *stage)
  * spikes; that is the failure class isolated after the locked Source page still
  * shook at the same cadence with no HMI refresh work running.
  *
- * Use one PSRAM framebuffer for the product HMI so a label repaint modifies the
- * currently scanned frame instead of switching the whole panel to another full
- * framebuffer. Core acquisition cadence, control timing and safety policy are
- * unchanged. sdkconfig reserves explicit internal/DMA headroom before ordinary
- * malloc traffic so the qualified ten-line bounce path can coexist with Wi-Fi.
- * The standalone HIL image remains pinned to its separately-qualified settings. */
+ * The product HMI uses the adapter's RGB DOUBLE_DIRECT tear-avoid mode. That
+ * mode allocates two full PSRAM framebuffers and is intended for small-area
+ * widget/UI delta updates, which matches the retained-row/changed-label render
+ * path used by this stabilization lane. The adapter owns buffer switching at
+ * frame boundaries instead of allowing a live label repaint to race the RGB
+ * scanout of the same framebuffer. Core acquisition cadence, control timing and
+ * safety policy are unchanged. sdkconfig still reserves explicit internal/DMA
+ * headroom before ordinary malloc traffic so the qualified ten-line bounce path
+ * can coexist with Wi-Fi. The standalone HIL image remains pinned to its
+ * separately-qualified settings. */
 static esp_err_t native_screen_reserve(void)
 {
     s_profile = waveshare_display_profile(WAVESHARE_DISPLAY_800X480);
@@ -80,7 +84,7 @@ static esp_err_t native_screen_reserve(void)
     };
 
     ESP_LOGI(TAG, "Reserving native 800x480 Waveshare LCD/touch DMA before Core");
-    ESP_LOGI(TAG, "RGB live-update mode: SINGLE_FRAMEBUFFER with 10-line bounce and active-page rendering");
+    ESP_LOGI(TAG, "RGB live-update mode: DOUBLE_DIRECT anti-tear, 2 PSRAM framebuffers, 10-line bounce");
     log_dma_headroom("Before LCD DMA reservation");
     esp_err_t err = waveshare_display_port_init(&display_config, &s_display);
     if (err != ESP_OK) return err;
@@ -127,7 +131,7 @@ static esp_err_t native_screen_activate(void)
     esp_lv_adapter_display_config_t lv_display_config =
         ESP_LV_ADAPTER_DISPLAY_RGB_DEFAULT_CONFIG(
             s_display.panel, NULL, s_profile->width, s_profile->height, s_rotation);
-    /* Keep adapter and esp_lcd ownership on the same single-buffer mode. */
+    /* Keep adapter and esp_lcd ownership on the same selected anti-tear mode. */
     lv_display_config.tear_avoid_mode = PRODUCT_TEAR_MODE;
     lv_display_config.profile.use_psram = true;
 
