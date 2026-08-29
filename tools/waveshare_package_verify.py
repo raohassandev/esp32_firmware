@@ -16,6 +16,7 @@ REQUIRED_SUFFIXES = (
     "automatrix_pvdg_waveshare_800x480.bin",
     "bootloader/bootloader.bin",
     "partition_table/partition-table.bin",
+    "ota_data_initial.bin",
     "flasher_args.json",
     "flash_args",
     "flash_project_args",
