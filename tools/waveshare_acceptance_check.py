@@ -50,6 +50,7 @@ class Result:
     passed: bool
     fatal_hits: dict[str, int]
     activation_stages: list[int]
+    activation_counts: dict[int, int]
     native_ready: bool
     soak_samples: int
     stage_dma_free: dict[str, int | None]
@@ -59,7 +60,9 @@ class Result:
     minimum_checked_dma_free: int | None
     minimum_checked_dma_largest: int | None
     observed_runtime_seconds: float | None
+    timestamp_rollbacks: int
     required_min_dma_free: int
+    required_min_dma_largest: int
     required_soak_samples: int
     required_min_runtime_seconds: int
     failures: list[str]
@@ -75,15 +78,19 @@ def analyse(
     min_dma_free: int = 20_000,
     min_soak_samples: int = 2,
     min_runtime_seconds: int = 0,
+    min_dma_largest: int = 0,
 ) -> Result:
     lines = text.splitlines()
     fatal_hits = {name: sum(1 for line in lines if rx.search(line)) for name, rx in FATAL_PATTERNS.items()}
 
-    activation = sorted({int(m.group(1)) for line in lines for m in [ACTIVATION_RE.search(line)] if m})
+    activation_hits = [int(m.group(1)) for line in lines for m in [ACTIVATION_RE.search(line)] if m]
+    activation = sorted(set(activation_hits))
+    activation_counts = {stage: activation_hits.count(stage) for stage in range(1, 7)}
     native_ready = any(READY_RE.search(line) for line in lines)
 
     uptimes_ms = [int(m.group(1)) for line in lines for m in [UPTIME_RE.search(line)] if m]
-    observed_runtime = (max(uptimes_ms) - min(uptimes_ms)) / 1000.0 if len(uptimes_ms) >= 2 else None
+    timestamp_rollbacks = sum(1 for previous, current in zip(uptimes_ms, uptimes_ms[1:]) if current < previous)
+    observed_runtime = (uptimes_ms[-1] - uptimes_ms[0]) / 1000.0 if len(uptimes_ms) >= 2 and not timestamp_rollbacks else None
 
     stage_free: dict[str, int | None] = {s: None for s in STAGES}
     stage_largest: dict[str, int | None] = {s: None for s in STAGES}
@@ -123,6 +130,9 @@ def analyse(
             failures.append(f"fatal:{name}={count}")
     if activation != [1, 2, 3, 4, 5, 6]:
         failures.append(f"activation_stages={activation}")
+    repeated_activation = {stage: count for stage, count in activation_counts.items() if count > 1}
+    if repeated_activation:
+        failures.append(f"activation_repeated={repeated_activation}")
     if not native_ready:
         failures.append("native_ready_missing")
     if soak_samples < min_soak_samples:
@@ -131,6 +141,12 @@ def analyse(
         failures.append("dma_free_evidence_missing")
     elif min_free < min_dma_free:
         failures.append(f"dma_free={min_free}<{min_dma_free}")
+    if min_largest is None:
+        failures.append("dma_largest_evidence_missing")
+    elif min_dma_largest > 0 and min_largest < min_dma_largest:
+        failures.append(f"dma_largest={min_largest}<{min_dma_largest}")
+    if timestamp_rollbacks:
+        failures.append(f"timestamp_rollback={timestamp_rollbacks}")
     if min_runtime_seconds > 0:
         if observed_runtime is None:
             failures.append("runtime_timestamp_evidence_missing")
@@ -141,6 +157,7 @@ def analyse(
         passed=not failures,
         fatal_hits=fatal_hits,
         activation_stages=activation,
+        activation_counts=activation_counts,
         native_ready=native_ready,
         soak_samples=soak_samples,
         stage_dma_free=stage_free,
@@ -150,7 +167,9 @@ def analyse(
         minimum_checked_dma_free=min_free,
         minimum_checked_dma_largest=min_largest,
         observed_runtime_seconds=observed_runtime,
+        timestamp_rollbacks=timestamp_rollbacks,
         required_min_dma_free=min_dma_free,
+        required_min_dma_largest=min_dma_largest,
         required_soak_samples=min_soak_samples,
         required_min_runtime_seconds=min_runtime_seconds,
         failures=failures,
@@ -161,6 +180,8 @@ def main() -> int:
     p = argparse.ArgumentParser(description="Validate Waveshare physical-smoke serial evidence")
     p.add_argument("log", type=Path)
     p.add_argument("--min-dma-free", type=int, default=20_000)
+    p.add_argument("--min-dma-largest", type=int, default=0,
+                   help="Optional minimum largest contiguous DMA-capable block; 0 requires evidence without inventing a threshold")
     p.add_argument("--min-soak-samples", type=int, default=2)
     p.add_argument("--min-runtime-seconds", type=int, default=0,
                    help="Require ESP-IDF timestamp span; use 300 for a 5-minute smoke capture")
@@ -169,9 +190,10 @@ def main() -> int:
 
     result = analyse(
         args.log.read_text(errors="replace"),
-        args.min_dma_free,
-        args.min_soak_samples,
-        args.min_runtime_seconds,
+        min_dma_free=args.min_dma_free,
+        min_soak_samples=args.min_soak_samples,
+        min_runtime_seconds=args.min_runtime_seconds,
+        min_dma_largest=args.min_dma_largest,
     )
     payload = asdict(result)
     if args.json:
@@ -184,6 +206,7 @@ def main() -> int:
         print(f"- min_dma_free={result.minimum_checked_dma_free}")
         print(f"- min_dma_largest={result.minimum_checked_dma_largest}")
         print(f"- observed_runtime_seconds={result.observed_runtime_seconds}")
+        print(f"- timestamp_rollbacks={result.timestamp_rollbacks}")
     return 0 if result.passed else 1
 
 
