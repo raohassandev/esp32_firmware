@@ -1,6 +1,6 @@
 # Waveshare native operational backend parity
 
-Status: implementation active on `work/waveshare/backend-parity`; the dedicated software parity gate has passed on the shared-builder architecture. The pre-refactor operator event source contract has also been migrated so its lock/copy safety assertions now inspect the shared authoritative builder rather than the thin HTTP wrapper. Full exact-head CI and physical recovery proof remain required. This lane stays Draft until those gates are current at the same head.
+Status: implementation active on `work/waveshare/backend-parity`; the dedicated software parity gate has passed on the shared-builder architecture. All source contracts that inspect the read-side event/alarm payload now follow the shared builders rather than the thin HTTP wrappers, while retaining their existing lock, lifecycle, shelving, suppression, causality, priority and alarm-rate assertions. Full exact-head CI and physical recovery proof remain required. This lane stays Draft until those gates are current at the same head.
 
 ## Authority
 
@@ -13,7 +13,7 @@ The following read-only builders are the shared seam:
 
 The existing HTTP handlers call these builders and only perform HTTP serialization. The Waveshare native provider calls the same builders in-process and serializes their returned cJSON trees into bounded PSRAM-owned buffers. There is no loopback/self-HTTP path and there is no second alarm/event state machine in the board code.
 
-The legacy event-history safety contract still requires the event ring to be copied while the operational lock is held and requires cJSON/allocation work to remain outside that critical section. Only the inspected ownership boundary changed when `events_get()` became a wrapper.
+The migrated source contracts still require the event ring/alarm table to be snapshotted under the operational lock, require cJSON/allocation work outside critical sections, keep cause-attributed/shelved/suppressed alarms visible, and compute rate/priority evidence from the same Core state. Only the inspected read ownership boundary changed when `events_get()` and `alarms_get()` became wrappers.
 
 ## Memory/failure policy
 
@@ -27,4 +27,4 @@ The shared builders still allocate their temporary cJSON tree while a snapshot i
 
 ## Remaining acceptance
 
-Full software CI must prove the shared builder ownership, product build, parser contracts and existing operator-history/event safety contracts at the exact head. Hardware acceptance still requires healthy/offline/stale transitions and loss/recovery to match the web/Core authority on the physical Waveshare board without reset, heap collapse, control starvation or stale UI recovery.
+Full software CI must prove shared builder ownership, product build, parser contracts and the complete pre-existing operator/alarm safety suite at the exact head. Hardware acceptance still requires healthy/offline/stale transitions and loss/recovery to match the web/Core authority on the physical Waveshare board without reset, heap collapse, control starvation or stale UI recovery.
