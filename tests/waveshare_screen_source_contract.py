@@ -91,7 +91,12 @@ def main() -> None:
         "HTTP_POST", "HTTP_PUT", "HTTP_DELETE",
     ]:
         assert forbidden not in product_provider, f"read provider gained forbidden authority: {forbidden}"
-    assert "source_detection_attributed_to(&source)" in product_provider
+    # The provider consumes the shared source-detection STATUS snapshot. The
+    # fail-closed attribution itself remains owned by source_detection_attributed_to()
+    # and is already asserted below; do not duplicate that decision in board code.
+    assert "source_detection_get_status(&source)" in product_provider
+    assert "source_attribution_available(&source)" in product_provider
+    assert "source.attributed_to" in product_provider
     assert "source_detection_attributed_to" in source_attribution
     assert "status->configured" in source_attribution
     assert "status->evidence_fresh" in source_attribution
