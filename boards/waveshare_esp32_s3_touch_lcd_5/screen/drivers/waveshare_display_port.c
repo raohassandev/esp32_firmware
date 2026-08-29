@@ -152,6 +152,11 @@ static esp_err_t create_rgb_panel_attempt(const waveshare_display_port_config_t 
         .num_fbs = frame_buffers,
         .bounce_buffer_size_px = (size_t)p->width * bounce_lines,
         .dma_burst_size = RGB_DMA_BURST_SIZE,
+        /* Preserve the pinned Waveshare LVGL9 transport alignment. The product
+         * port previously omitted these while otherwise claiming vendor parity;
+         * 64-byte PSRAM alignment matches the RGB DMA/cache transfer granularity. */
+        .sram_trans_align = 4,
+        .psram_trans_align = 64,
         .hsync_gpio_num = p->hsync_gpio,
         .vsync_gpio_num = p->vsync_gpio,
         .de_gpio_num = p->de_gpio,
