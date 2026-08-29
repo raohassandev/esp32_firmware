@@ -1,0 +1,37 @@
+name: Fix operator event contract ownership
+
+on:
+  push:
+    branches:
+      - 'work/waveshare/backend-parity'
+    paths:
+      - 'tools/fix_operator_events_contract_after_shared_builder.py'
+      - '.github/workflows/fix-operator-events-contract.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  update-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/waveshare/backend-parity
+          fetch-depth: 0
+      - name: Update event contract for shared builder ownership
+        run: python3 tools/fix_operator_events_contract_after_shared_builder.py
+      - name: Remove one-shot patch machinery
+        run: |
+          rm tools/fix_operator_events_contract_after_shared_builder.py
+          rm .github/workflows/fix-operator-events-contract.yml
+      - name: Commit contract update to lane branch
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'test: follow shared operational event builder ownership'
+          git push origin HEAD:work/waveshare/backend-parity
