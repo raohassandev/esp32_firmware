@@ -20,7 +20,7 @@
 #include "waveshare_display_profile.h"
 
 #define SCREEN_REFRESH_STACK_BYTES 12288
-#define PRODUCT_RGB_BOUNCE_LINES 10U
+#define PRODUCT_RGB_BOUNCE_LINES 6U
 #define PRODUCT_TEAR_MODE ESP_LV_ADAPTER_TEAR_AVOID_MODE_DOUBLE_DIRECT
 #define SCREEN_LVGL_LOCK_MS 2000U
 #define SCREEN_FAST_MS 1000U
@@ -73,11 +73,14 @@ static void log_runtime_headroom(const char *stage)
  * race before Wi-Fi/httpd/control tasks start. Full LVGL/UI creation is delayed
  * until after the unchanged shared Core has created its safety-critical tasks.
  *
- * Ten bounce lines match the hardware-stable standalone HIL setting and use
- * 32 kB total for the two RGB565 DRAM bounce buffers at 800 px width. Espressif
- * documents larger bounce buffers as more robust against short PSRAM-bandwidth
- * spikes; that is the failure class isolated after the locked Source page still
- * shook at the same cadence with no HMI refresh work running.
+ * The failed ten-line product candidate consumed 32 kB total for the two
+ * RGB565 DRAM bounce buffers at 800 px width. The next requalification candidate
+ * uses six lines (19.2 kB total), releasing 12.8 kB of scarce internal/DMA RAM.
+ * ESP-IDF documents bounce buffers as a few lines of display data and recommends
+ * PSRAM XIP for this mode; the product config now also matches the pinned vendor
+ * XIP/cache policy so the smaller bounce pool is not asked to mask avoidable
+ * flash/cache stalls. The standalone HIL image remains pinned to its separately
+ * qualified ten-line vendor baseline.
  *
  * The product HMI uses the adapter's RGB DOUBLE_DIRECT tear-avoid mode. That
  * mode allocates two full PSRAM framebuffers and is intended for small-area
@@ -85,10 +88,7 @@ static void log_runtime_headroom(const char *stage)
  * path used by this stabilization lane. The adapter owns buffer switching at
  * frame boundaries instead of allowing a live label repaint to race the RGB
  * scanout of the same framebuffer. Core acquisition cadence, control timing and
- * safety policy are unchanged. sdkconfig still reserves explicit internal/DMA
- * headroom before ordinary malloc traffic so the qualified ten-line bounce path
- * can coexist with Wi-Fi. The standalone HIL image remains pinned to its
- * separately-qualified settings. */
+ * safety policy are unchanged. */
 static esp_err_t native_screen_reserve(void)
 {
     s_profile = waveshare_display_profile(WAVESHARE_DISPLAY_800X480);
@@ -107,7 +107,7 @@ static esp_err_t native_screen_reserve(void)
     };
 
     ESP_LOGI(TAG, "Reserving native 800x480 Waveshare LCD/touch DMA before Core");
-    ESP_LOGI(TAG, "RGB live-update mode: DOUBLE_DIRECT anti-tear, 2 PSRAM framebuffers, 10-line bounce");
+    ESP_LOGI(TAG, "RGB live-update mode: DOUBLE_DIRECT anti-tear, 2 PSRAM framebuffers, 6-line bounce");
     log_dma_headroom("Before LCD DMA reservation");
     esp_err_t err = waveshare_display_port_init(&display_config, &s_display);
     if (err != ESP_OK) return err;
