@@ -50,7 +50,17 @@ for forbidden_field in [
             f"operator payload exposes engineering field {forbidden_field}")
 
 history = API[API.index("static esp_err_t history_get"):API.index("static const char *severity_label")]
-events = API[API.index("static esp_err_t events_get"):API.index("esp_err_t operational_api_register")]
+events = API[
+    API.index("cJSON *operational_api_build_events_json(void)"):
+    API.index("static esp_err_t events_get")
+]
+events_http = API[
+    API.index("static esp_err_t events_get"):
+    API.index("static const char *alarm_code_id")
+]
+require("operational_api_build_events_json()" in events_http and
+        "return send_json(request, root);" in events_http,
+        "operator events HTTP handler must remain a thin wrapper over the shared builder")
 for name, body in [("history", history), ("events", events)]:
     lock_start = body.find("portENTER_CRITICAL")
     lock_end = body.find("portEXIT_CRITICAL")

@@ -16,6 +16,7 @@
 #include "inverter_manager.h"
 #include "meter_manager.h"
 #include "network_manager.h"
+#include "operational_api.h"
 #include "safety_manager.h"
 #include "screen_api.h"
 #include "source_detection.h"
@@ -49,16 +50,15 @@ static local_api_slot_t s_slots[] = {
     {SCREEN_API_METERS_PATH,    12288U,  NULL, false, 0U},
     {SCREEN_API_INVERTERS_PATH, 24576U,  NULL, false, 0U},
     {SCREEN_API_TELEMETRY_PATH,  8192U,  NULL, false, 0U},
-    /* The current alarm/event lifecycle is private to operational_api.c.  Do
-     * not fabricate an empty alarm system. These two stay unavailable until the
-     * Core exposes an authoritative in-process snapshot/builder. */
-    {SCREEN_API_EVENTS_PATH,        0U,  NULL, false, 0U},
-    {SCREEN_API_ALARMS_PATH,        0U,  NULL, false, 0U},
+    /* Exact operational payloads come from the same Core-owned builders as
+     * the HTTP API. Events can contain the full 96-entry ring, so keep this
+     * slot larger than the LCD's bounded 16-row projection. */
+    {SCREEN_API_EVENTS_PATH,    49152U,  NULL, false, 0U},
+    {SCREEN_API_ALARMS_PATH,    32768U,  NULL, false, 0U},
 };
 
 static const char *TAG = "screen_backend";
 static bool s_logged_first_success;
-static bool s_logged_operations_boundary;
 
 static uint32_t now_ms(void)
 {
@@ -119,7 +119,7 @@ static bool finish_json(local_api_slot_t *slot, cJSON *root)
     cJSON_Delete(root);
     if (!printed) {
         slot->json[0] = '\0';
-        note_failure(slot, "in-process JSON exceeds bounded capacity");
+        note_failure(slot, "bounded JSON slot too small");
         return false;
     }
 
@@ -542,23 +542,32 @@ static bool build_telemetry(local_api_slot_t *slot)
     return finish_json(slot, root);
 }
 
+static bool build_operational(local_api_slot_t *slot, bool alarms)
+{
+    cJSON *root = alarms ? operational_api_build_alarms_json()
+                         : operational_api_build_events_json();
+    if (!root) {
+        note_failure(slot, alarms ? "Core alarm snapshot unavailable"
+                                  : "Core event snapshot unavailable");
+        return false;
+    }
+    return finish_json(slot, root);
+}
+
 bool local_backend_provider_init(screen_api_provider_t *provider)
 {
     if (!provider) return false;
     s_logged_first_success = false;
-    s_logged_operations_boundary = false;
 
     for (size_t i = 0; i < sizeof(s_slots) / sizeof(s_slots[0]); ++i) {
         local_api_slot_t *slot = &s_slots[i];
         slot->valid = false;
         slot->consecutive_failures = 0U;
-        if (slot->capacity == 0U) continue;
         if (!slot->json) {
             slot->json = heap_caps_malloc(slot->capacity, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-            if (!slot->json) slot->json = malloc(slot->capacity);
         }
         if (!slot->json) {
-            ESP_LOGE(TAG, "Unable to allocate %u bytes for %s",
+            ESP_LOGE(TAG, "Unable to allocate %u PSRAM bytes for %s",
                      (unsigned)slot->capacity, slot->path);
             local_backend_provider_deinit();
             return false;
@@ -576,17 +585,7 @@ bool local_backend_provider_init(screen_api_provider_t *provider)
 bool local_backend_provider_fetch(const char *path)
 {
     local_api_slot_t *slot = slot_for(path);
-    if (!slot) return false;
-    if (slot->capacity == 0U) {
-        slot->valid = false;
-        if (!s_logged_operations_boundary) {
-            ESP_LOGW(TAG,
-                     "Alarms/events remain conservative-unavailable until Core exports authoritative operational snapshots");
-            s_logged_operations_boundary = true;
-        }
-        return false;
-    }
-    if (!slot->json) return false;
+    if (!slot || !slot->json) return false;
     slot->valid = false;
     slot->json[0] = '\0';
 
@@ -595,6 +594,8 @@ bool local_backend_provider_fetch(const char *path)
     if (strcmp(path, SCREEN_API_METERS_PATH) == 0) return build_meters(slot);
     if (strcmp(path, SCREEN_API_INVERTERS_PATH) == 0) return build_inverters(slot);
     if (strcmp(path, SCREEN_API_TELEMETRY_PATH) == 0) return build_telemetry(slot);
+    if (strcmp(path, SCREEN_API_EVENTS_PATH) == 0) return build_operational(slot, false);
+    if (strcmp(path, SCREEN_API_ALARMS_PATH) == 0) return build_operational(slot, true);
     note_failure(slot, "unsupported in-process read model");
     return false;
 }
@@ -644,5 +645,4 @@ void local_backend_provider_deinit(void)
         s_slots[i].consecutive_failures = 0U;
     }
     s_logged_first_success = false;
-    s_logged_operations_boundary = false;
 }

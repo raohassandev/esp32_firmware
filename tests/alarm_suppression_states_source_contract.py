@@ -125,7 +125,7 @@ for collapsed in ["bool disabled;", "bool suppressed;", "uint8_t suppression;"]:
             f"the alarm table declares {collapsed}: the three ISA-18.2 suppression "
             "states must not collapse into one flag or one enum")
 
-alarms_get = function_body(API, "alarms_get")
+alarms_get = function_body(API, "operational_api_build_alarms_json")
 for field in ['"shelved"', '"suppressed_by_design"', '"out_of_service"', '"suppression"',
               '"suppression_authority"', '"suppression_expires"', '"suppression_count"']:
     require(field in alarms_get, f"the alarm listing does not publish {field}")

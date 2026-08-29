@@ -354,7 +354,7 @@ require("ALARM_JOURNAL_SHELF_EXPIRED" in expire,
 service_all = function_body(API, "service_alarms_locked")
 require("service_shelf_locked" in service_all,
         "shelf expiry must run on the observation tick, not only when someone looks")
-alarms_get = function_body(API, "alarms_get")
+alarms_get = function_body(API, "operational_api_build_alarms_json")
 require("service_shelf_locked" in alarms_get,
         "an expired shelf must never be observable as still in force when the list is read")
 

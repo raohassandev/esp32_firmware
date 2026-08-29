@@ -1,0 +1,34 @@
+name: Waveshare backend parity lane
+
+on:
+  push:
+    branches:
+      - 'work/waveshare/backend-parity'
+    paths:
+      - 'boards/waveshare_esp32_s3_touch_lcd_5/screen/product_800x480/main/local_backend_provider.*'
+      - 'components/web_server/**'
+      - 'docs/boards/waveshare-esp32-s3-touch-lcd-5/BACKEND_PARITY_DESIGN.md'
+      - 'tests/waveshare_backend_parity_gate.py'
+      - '.github/workflows/waveshare-backend-parity.yml'
+  pull_request:
+    paths:
+      - 'boards/waveshare_esp32_s3_touch_lcd_5/screen/product_800x480/main/local_backend_provider.*'
+      - 'components/web_server/**'
+      - 'docs/boards/waveshare-esp32-s3-touch-lcd-5/BACKEND_PARITY_DESIGN.md'
+      - 'tests/waveshare_backend_parity_gate.py'
+      - '.github/workflows/waveshare-backend-parity.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-operational-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require native alarms and events parity
+        run: |
+          python3 -m py_compile tests/waveshare_backend_parity_gate.py
+          python3 tests/waveshare_backend_parity_gate.py

@@ -1259,10 +1259,10 @@ static void event_text(const operational_event_t *event, const char **title, con
     }
 }
 
-static esp_err_t events_get(httpd_req_t *request)
+cJSON *operational_api_build_events_json(void)
 {
     operational_event_t *snapshot = calloc(EVENT_COUNT, sizeof(*snapshot));
-    if (!snapshot) return httpd_resp_send_500(request);
+    if (!snapshot) return NULL;
 
     uint16_t count;
     portENTER_CRITICAL(&s_lock);
@@ -1277,7 +1277,7 @@ static esp_err_t events_get(httpd_req_t *request)
     cJSON *root = cJSON_CreateObject();
     if (!root) {
         free(snapshot);
-        return httpd_resp_send_500(request);
+        return NULL;
     }
     cJSON_AddBoolToObject(root, "operator_view", true);
     cJSON_AddBoolToObject(root, "engineering_details_hidden", true);
@@ -1314,6 +1314,13 @@ static esp_err_t events_get(httpd_req_t *request)
     cJSON_AddNumberToObject(summary, "active_critical", active_critical);
     cJSON_AddNumberToObject(summary, "active_warning", active_warning);
     cJSON_AddNumberToObject(summary, "stored_events", count);
+    return root;
+}
+
+static esp_err_t events_get(httpd_req_t *request)
+{
+    cJSON *root = operational_api_build_events_json();
+    if (!root) return httpd_resp_send_500(request);
     return send_json(request, root);
 }
 
@@ -1401,7 +1408,7 @@ static void add_out_of_service_reasons(cJSON *parent, const char *name);
  * whether anyone has taken responsibility. Cleared-but-unacknowledged rows are
  * still returned, because an operator needs to see that something happened
  * while they were not looking. */
-static esp_err_t alarms_get(httpd_req_t *request)
+cJSON *operational_api_build_alarms_json(void)
 {
     operational_alarm_t snapshot[sizeof(s_alarms) / sizeof(s_alarms[0])];
     const uint32_t current = now_ms();
@@ -1441,7 +1448,7 @@ static esp_err_t alarms_get(httpd_req_t *request)
     journal_flush();
 
     cJSON *root = cJSON_CreateObject();
-    if (!root) return httpd_resp_send_500(request);
+    if (!root) return NULL;
     cJSON_AddNumberToObject(root, "generated_ms", current);
     /* Published, not buried: an on-delay is taken out of the operator's own
      * response time, so the value in force has to be inspectable. */
@@ -1790,6 +1797,13 @@ static esp_err_t alarms_get(httpd_req_t *request)
             "in the first 10 minutes of an upset. A reboot resets these counters: there is "
             "no real-time clock and no persisted rate history.");
     }
+    return root;
+}
+
+static esp_err_t alarms_get(httpd_req_t *request)
+{
+    cJSON *root = operational_api_build_alarms_json();
+    if (!root) return httpd_resp_send_500(request);
     return send_json(request, root);
 }
 
