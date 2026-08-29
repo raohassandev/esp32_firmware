@@ -65,11 +65,19 @@ assert "commissioning_screen_set_backend(&s_commissioning_backend)" in APP
 assert "s_source_backend = *backend" in APP
 assert "source_commissioning_screen_set_backend(&s_source_backend)" in APP
 
+# A wedged LVGL worker must be observable rather than holding main/refresh forever.
+assert "#define SCREEN_LVGL_LOCK_MS 2000U" in MAIN
+assert "esp_lv_adapter_lock(-1)" not in MAIN
+assert "esp_lv_adapter_lock(SCREEN_LVGL_LOCK_MS)" in MAIN
+assert "LVGL activation lock timed out/failed" in MAIN
+assert "LVGL activation stage 5/6" in MAIN
+
 # Hardware evidence remains mandatory for the next candidate.
 assert 'log_dma_headroom("Before LCD DMA reservation")' in MAIN
 assert 'log_dma_headroom("After LCD DMA reservation")' in MAIN
 assert 'log_dma_headroom("Before Product Core init")' in MAIN
 assert 'log_dma_headroom("After Product Core init")' in MAIN
+assert 'log_dma_headroom("After LVGL/UI activation")' in MAIN
 assert 'log_runtime_headroom("Screen soak")' in MAIN
 
 print("Waveshare product memory source contract: PASS")
