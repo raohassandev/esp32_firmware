@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 import importlib.util
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("waveshare_acceptance_check", ROOT / "tools" / "waveshare_acceptance_check.py")
 MOD = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader
+sys.modules[SPEC.name] = MOD
 SPEC.loader.exec_module(MOD)
 
 PASS_LOG = """
