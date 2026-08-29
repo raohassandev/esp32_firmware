@@ -119,52 +119,45 @@ static bool finish_json(local_api_slot_t *slot, cJSON *root)
     cJSON_Delete(root);
     if (!printed) {
         slot->json[0] = '\0';
-        note_failure(slot, "in-process JSON exceeds bounded capacity");
+        note_failure(slot, "bounded JSON slot too small");
         return false;
     }
 
     slot->valid = true;
     slot->consecutive_failures = 0U;
     if (!s_logged_first_success) {
-        ESP_LOGI(TAG, "Core read models reachable in-process; screen data path online");
+        ESP_LOGI(TAG, "Native screen is reading Product Core state in-process");
         s_logged_first_success = true;
     }
     return true;
 }
 
-static void add_number_or_null(cJSON *object, const char *name, double value, bool valid)
+static void copy_bounded(char *dst, size_t dst_size, const char *src)
 {
-    if (valid && isfinite(value)) cJSON_AddNumberToObject(object, name, value);
+    if (!dst || dst_size == 0U) return;
+    snprintf(dst, dst_size, "%s", src ? src : "");
+}
+
+static void add_number_or_null(cJSON *object, const char *name, double value, bool available)
+{
+    if (!object || !name) return;
+    if (available && isfinite(value)) cJSON_AddNumberToObject(object, name, value);
     else cJSON_AddNullToObject(object, name);
 }
 
-static void copy_bounded(char *destination, size_t capacity, const char *source)
+static bool source_attribution_available(const source_detection_status_t *source)
 {
-    if (!destination || capacity == 0U) return;
-    if (!source) source = "";
-    snprintf(destination, capacity, "%s", source);
-}
-
-static uint32_t meter_stale_after_ms(const app_config_t *config, uint8_t index)
-{
-    const meter_config_t *meter = &config->meters[index];
-    if (index == 0U && config->control.meter_stale_timeout_ms > 0U) {
-        return config->control.meter_stale_timeout_ms;
-    }
-    uint64_t derived = (uint64_t)meter->poll_interval_ms * 3ULL;
-    if (derived < 1000ULL) derived = 1000ULL;
-    if (derived > UINT32_MAX) derived = UINT32_MAX;
-    return (uint32_t)derived;
+    return source && source->attributed_to && source->attributed_to[0] != '\0';
 }
 
 typedef struct {
+    bool enabled;
     bool runtime_available;
-    bool connection_initialized;
-    bool initialization_failed;
-    bool has_data;
-    bool stale;
     bool online;
-    uint32_t data_age_ms;
+    bool stale;
+    bool initialization_failed;
+    bool has_measurement;
+    uint32_t age_ms;
     const char *state;
 } meter_view_t;
 
@@ -174,34 +167,38 @@ static meter_view_t meter_view(const app_config_t *config,
                                bool runtime_available,
                                uint32_t current_ms)
 {
-    const meter_config_t *meter = &config->meters[index];
     meter_view_t view = {0};
+    if (!config || index >= config->meter_count || index >= APP_MAX_METERS) {
+        view.state = "not_configured";
+        return view;
+    }
+    view.enabled = config->meters[index].enabled;
     view.runtime_available = runtime_available;
-    view.connection_initialized = runtime_available && data->connection_initialized;
-    view.initialization_failed = meter->enabled &&
-        (!view.connection_initialized ||
-         (data->last_attempt_ms == 0U && data->last_error != ESP_OK));
-    view.has_data = runtime_available && data->last_update_ms != 0U;
-    view.data_age_ms = view.has_data ? current_ms - data->last_update_ms : 0U;
-    const uint32_t stale_after = meter_stale_after_ms(config, index);
-    view.stale = meter->enabled && !view.initialization_failed &&
-                 (!view.has_data || view.data_age_ms > stale_after);
-    view.online = meter->enabled && !view.initialization_failed &&
-                  runtime_available && data->online && !view.stale;
-    view.state = !meter->enabled ? "disabled" :
-                 view.initialization_failed ? "initialization_failed" :
-                 view.online ? "online" :
-                 view.has_data ? "stale" : "unavailable";
+    view.state = view.enabled ? "waiting" : "disabled";
+    if (!view.enabled) return view;
+    if (!runtime_available || !data) {
+        view.initialization_failed = true;
+        view.state = "initialization_failed";
+        return view;
+    }
+
+    view.has_measurement = data->success_count > 0U && isfinite(data->active_power_kw);
+    if (view.has_measurement) view.age_ms = current_ms - data->last_update_ms;
+    const uint32_t stale_ms = safety_manager_meter_stale_timeout_ms();
+    view.stale = view.has_measurement && stale_ms > 0U && view.age_ms > stale_ms;
+    view.online = data->online && view.has_measurement && !view.stale;
+    if (view.online) view.state = "online";
+    else if (view.stale) view.state = "stale";
+    else if (view.has_measurement) view.state = "offline";
+    else view.state = "waiting";
     return view;
 }
 
 typedef struct {
+    bool enabled;
     bool runtime_available;
-    bool connection_initialized;
-    bool initialization_failed;
-    bool has_command;
-    bool last_write_ok;
     bool online;
+    bool initialization_failed;
     const char *state;
 } inverter_view_t;
 
@@ -210,142 +207,130 @@ static inverter_view_t inverter_view(const inverter_config_t *config,
                                      bool runtime_available)
 {
     inverter_view_t view = {0};
+    if (!config) {
+        view.state = "not_configured";
+        return view;
+    }
+    view.enabled = config->enabled;
     view.runtime_available = runtime_available;
-    view.connection_initialized = runtime_available && data->connection_initialized;
-    view.initialization_failed = config->enabled && !view.connection_initialized;
-    view.has_command = runtime_available && data->has_command;
-    view.last_write_ok = view.has_command && data->online;
-    view.online = runtime_available && config->enabled && data->online;
-    view.state = !config->enabled ? "disabled" :
-                 view.initialization_failed ? "initialization_failed" :
-                 !view.has_command ? "not_tested" :
-                 view.last_write_ok ? "last_write_ok" : "last_write_failed";
+    if (!view.enabled) {
+        view.state = "disabled";
+        return view;
+    }
+    if (!runtime_available || !data) {
+        view.initialization_failed = true;
+        view.state = "initialization_failed";
+        return view;
+    }
+    view.online = data->online;
+    view.state = data->state[0] ? data->state : (view.online ? "online" : "offline");
     return view;
 }
 
 static bool build_live(local_api_slot_t *slot)
 {
-    cJSON *root = cJSON_CreateObject();
-    if (!root) return finish_json(slot, NULL);
+    /* Existing Core status only; no control computation here. */
+    app_config_t config = {0};
+    if (config_manager_get_snapshot(&config) != ESP_OK) {
+        note_failure(slot, "Core configuration snapshot unavailable");
+        return false;
+    }
 
     control_status_t control = {0};
     control_engine_get_status(&control);
-    add_number_or_null(root, "grid_kw", control.grid_power_kw, isfinite(control.grid_power_kw));
+    const uint32_t current_ms = now_ms();
+
+    meter_data_t grid = {0};
+    const bool grid_runtime = config.meter_count > 0U && meter_manager_get_count() > 0U &&
+                              meter_manager_get_data(0U, &grid);
+    const meter_view_t grid_view = meter_view(&config, 0U, &grid, grid_runtime, current_ms);
+
+    cJSON *root = cJSON_CreateObject();
+    if (!root) return finish_json(slot, NULL);
+    add_number_or_null(root, "grid_kw", grid.active_power_kw, grid_view.online);
+    add_number_or_null(root, "solar_kw", inverter_manager_get_total_measured_kw(),
+                       inverter_manager_has_measured_power());
     add_number_or_null(root, "requested_pv_kw", control.requested_pv_kw,
                        isfinite(control.requested_pv_kw));
     add_number_or_null(root, "applied_pv_kw", control.applied_pv_kw,
                        isfinite(control.applied_pv_kw));
+    add_number_or_null(root, "commandable_kw", inverter_manager_get_commandable_rated_kw(), true);
     cJSON_AddBoolToObject(root, "control_enabled", control.enabled);
-    cJSON_AddStringToObject(root, "mode_label",
-                            !control.enabled ? "Monitoring only" :
-                            control.command_authority ? "Commanding" : "Inhibited");
-    cJSON_AddStringToObject(root, "inhibit_reason", control.inhibit_reason);
-
-    source_detection_status_t source = {0};
-    if (source_detection_get_status(&source) == ESP_OK) {
-        cJSON_AddStringToObject(root, "source", source_detection_state_name(source.state));
-    }
-
-    float solar_kw = 0.0f;
-    bool solar_known = false;
-    const uint8_t inverter_count = inverter_manager_get_count();
-    for (uint8_t i = 0U; i < inverter_count; ++i) {
-        inverter_data_t data = {0};
-        if (!inverter_manager_get_data(i, &data)) continue;
-        if (!data.telemetry_valid || data.telemetry_stale || !isfinite(data.measured_power_kw)) continue;
-        solar_kw += data.measured_power_kw;
-        solar_known = true;
-    }
-    add_number_or_null(root, "solar_kw", solar_kw, solar_known);
-    add_number_or_null(root, "commandable_kw", inverter_manager_get_total_rated_kw(), true);
-
-    cJSON *command = cJSON_AddObjectToObject(root, "command");
-    if (command) {
-        inverter_command_preview_t preview = {0};
-        bool have = false;
-        bool in_force = inverter_count > 0U;
-        float percent = 0.0f;
-        const char *blocked_by = NULL;
-        for (uint8_t i = 0U; i < inverter_count; ++i) {
-            if (!inverter_manager_preview_command(i, control.requested_pv_kw, &preview)) continue;
-            if (!preview.available) continue;
-            if (!have || preview.percent > percent) percent = preview.percent;
-            have = true;
-            if (!preview.would_write) {
-                in_force = false;
-                if (!blocked_by) blocked_by = preview.blocked_by;
-            }
-        }
-        if (have) {
-            cJSON_AddNumberToObject(command, "percent", round((double)percent));
-            cJSON_AddBoolToObject(command, "in_force", in_force);
-            if (blocked_by) cJSON_AddStringToObject(command, "blocked_by", blocked_by);
-        }
-    }
-
-    meter_data_t meter = {0};
-    cJSON_AddBoolToObject(root, "meter_online",
-                          meter_manager_get_data(0U, &meter) && meter.online);
+    cJSON_AddStringToObject(root, "mode_label", control.mode_label ? control.mode_label : "unknown");
+    cJSON_AddStringToObject(root, "inhibit_reason",
+                            control.inhibit_reason ? control.inhibit_reason : "");
+    cJSON_AddStringToObject(root, "source", control.source ? control.source : "unknown");
+    cJSON_AddBoolToObject(root, "meter_online", grid_view.online);
+    add_number_or_null(root, "command_percent", control.command_percent,
+                       isfinite(control.command_percent));
+    cJSON_AddBoolToObject(root, "command_in_force", control.command_in_force);
+    cJSON_AddStringToObject(root, "command_blocked_by",
+                            control.command_blocked_by ? control.command_blocked_by : "");
     return finish_json(slot, root);
 }
 
 static bool build_status(local_api_slot_t *slot)
 {
-    cJSON *root = cJSON_CreateObject();
-    if (!root) return finish_json(slot, NULL);
+    app_config_t config = {0};
+    if (config_manager_get_snapshot(&config) != ESP_OK) {
+        note_failure(slot, "Core configuration snapshot unavailable");
+        return false;
+    }
 
+    const uint32_t current_ms = now_ms();
     network_status_t network = {0};
     network_manager_get_status(&network);
-    cJSON_AddBoolToObject(root, "network_online", network.network_ready);
-    cJSON_AddNumberToObject(root, "rssi", network.rssi);
-
-    const esp_app_desc_t *build = esp_app_get_description();
-    cJSON_AddStringToObject(root, "firmware_version", build ? build->version : "");
-
+    control_status_t control = {0};
+    control_engine_get_status(&control);
     source_detection_status_t source = {0};
+    source_detection_get_status(&source);
+
+    meter_data_t primary = {0};
+    const bool primary_runtime = config.meter_count > 0U && meter_manager_get_count() > 0U &&
+                                 meter_manager_get_data(0U, &primary);
+    const meter_view_t primary_view = meter_view(&config, 0U, &primary, primary_runtime, current_ms);
+
+    cJSON *root = cJSON_CreateObject();
+    if (!root) return finish_json(slot, NULL);
+    cJSON *network_json = cJSON_AddObjectToObject(root, "network");
+    cJSON_AddBoolToObject(network_json, "online", network.network_ready);
+    cJSON_AddNumberToObject(network_json, "rssi", network.rssi);
+
+    const esp_app_desc_t *app = esp_app_get_description();
+    cJSON *firmware = cJSON_AddObjectToObject(root, "firmware");
+    cJSON_AddStringToObject(firmware, "version", app ? app->version : "unknown");
+
     cJSON *source_json = cJSON_AddObjectToObject(root, "source");
-    if (source_detection_get_status(&source) == ESP_OK) {
-        cJSON_AddStringToObject(source_json, "attributed_to",
-                                source_detection_attributed_to(&source));
+    if (source_attribution_available(&source)) {
+        cJSON_AddStringToObject(source_json, "attributed_to", source.attributed_to);
     } else {
         cJSON_AddStringToObject(source_json, "attributed_to", "unknown");
     }
 
-    const system_resource_health_t health = system_resource_health();
     cJSON *controller = cJSON_AddObjectToObject(root, "controller");
-    cJSON_AddNumberToObject(controller, "uptime_ms", (double)health.uptime_ms);
-    cJSON_AddStringToObject(controller, "state", health.state ? health.state : "unknown");
-    cJSON_AddBoolToObject(controller, "last_reboot_unexpected", health.last_reboot_unexpected);
+    cJSON_AddNumberToObject(controller, "uptime_ms", current_ms);
+    cJSON_AddStringToObject(controller, "state", control.controller_state ? control.controller_state : "unknown");
+    cJSON_AddBoolToObject(controller, "last_reboot_unexpected", control.last_reboot_unexpected);
 
-    meter_data_t meter = {0};
-    const bool have_meter = meter_manager_get_data(0U, &meter);
-    const uint32_t current_ms = now_ms();
-    const bool meter_has_data = have_meter && meter.last_update_ms != 0U &&
-                                isfinite(meter.active_power_kw);
-    const uint32_t meter_age_ms = meter_has_data ? current_ms - meter.last_update_ms : 0U;
-    const bool meter_stale = !meter_has_data ||
-        meter_age_ms > safety_manager_meter_stale_timeout_ms();
-    cJSON_AddBoolToObject(root, "meter_online", have_meter && meter.online);
-    cJSON_AddBoolToObject(root, "meter_has_data", meter_has_data);
-    cJSON_AddBoolToObject(root, "meter_stale", meter_stale);
-
-    control_status_t control = {0};
-    control_engine_get_status(&control);
-    cJSON *authority = cJSON_AddObjectToObject(root, "control_authority");
-    cJSON_AddStringToObject(authority, "mode_label",
-                            !control.enabled ? "Monitoring only" :
-                            control.command_authority ? "Commanding" : "Inhibited");
-    cJSON_AddStringToObject(authority, "inhibit_reason", control.inhibit_reason);
+    cJSON *meter = cJSON_AddObjectToObject(root, "meter");
+    cJSON_AddBoolToObject(meter, "online", primary_view.online);
+    cJSON_AddBoolToObject(meter, "has_data", primary_view.has_measurement);
+    cJSON_AddBoolToObject(meter, "stale", primary_view.stale);
 
     const uint32_t alarms = safety_manager_get_alarm_flags();
     cJSON_AddNumberToObject(root, "alarms", alarms);
     cJSON *alarm_names = cJSON_AddArrayToObject(root, "alarm_names");
-    if (alarms & SAFETY_ALARM_METER_OFFLINE) {
-        cJSON_AddItemToArray(alarm_names, cJSON_CreateString("Meter offline"));
+    if (alarms != 0U) {
+        if (alarms & SAFETY_ALARM_METER_OFFLINE) cJSON_AddItemToArray(alarm_names, cJSON_CreateString("Meter offline"));
+        if (alarms & SAFETY_ALARM_METER_STALE) cJSON_AddItemToArray(alarm_names, cJSON_CreateString("Meter data stale"));
+        if (alarms & SAFETY_ALARM_REVERSE_POWER) cJSON_AddItemToArray(alarm_names, cJSON_CreateString("Reverse power"));
+        if (alarms & SAFETY_ALARM_GENERATOR_MIN_LOAD) cJSON_AddItemToArray(alarm_names, cJSON_CreateString("Generator minimum loading"));
     }
-    if (alarms & SAFETY_ALARM_METER_STALE) {
-        cJSON_AddItemToArray(alarm_names, cJSON_CreateString("Meter data stale"));
-    }
+
+    cJSON *control_json = cJSON_AddObjectToObject(root, "control");
+    cJSON_AddStringToObject(control_json, "mode_label", control.mode_label ? control.mode_label : "unknown");
+    cJSON_AddStringToObject(control_json, "inhibit_reason",
+                            control.inhibit_reason ? control.inhibit_reason : "");
     return finish_json(slot, root);
 }
 
@@ -357,44 +342,42 @@ static bool build_meters(local_api_slot_t *slot)
         return false;
     }
 
+    const uint32_t current_ms = now_ms();
     cJSON *root = cJSON_CreateObject();
     if (!root) return finish_json(slot, NULL);
-    const uint32_t current_ms = now_ms();
+    cJSON *items = cJSON_AddArrayToObject(root, "meters");
     uint32_t enabled = 0U;
     uint32_t online = 0U;
     uint32_t stale_or_unavailable = 0U;
     uint32_t initialization_failed = 0U;
 
-    cJSON_AddNumberToObject(root, "configured_count", config.meter_count);
-    cJSON *items = cJSON_AddArrayToObject(root, "meters");
     for (uint8_t i = 0U; i < config.meter_count && i < APP_MAX_METERS; ++i) {
-        const meter_config_t *meter = &config.meters[i];
         meter_data_t data = {0};
         const bool runtime_available = i < meter_manager_get_count() &&
                                        meter_manager_get_data(i, &data);
         const meter_view_t view = meter_view(&config, i, &data, runtime_available, current_ms);
-        if (meter->enabled) enabled++;
+        if (view.enabled) enabled++;
         if (view.online) online++;
-        if (meter->enabled && !view.online) stale_or_unavailable++;
+        if (view.enabled && !view.online) stale_or_unavailable++;
         if (view.initialization_failed) initialization_failed++;
 
         cJSON *item = cJSON_CreateObject();
-        if (!item) break;
+        if (!item) continue;
         cJSON_AddNumberToObject(item, "index", i);
-        cJSON_AddBoolToObject(item, "enabled", meter->enabled);
-        cJSON_AddStringToObject(item, "name", meter->name);
-        cJSON_AddStringToObject(item, "role_name", meter_role_name(meter->role));
-        cJSON *runtime = cJSON_AddObjectToObject(item, "runtime");
-        cJSON_AddBoolToObject(runtime, "online", view.online);
-        cJSON_AddBoolToObject(runtime, "stale", view.stale);
-        cJSON_AddStringToObject(runtime, "state", view.state);
-        add_number_or_null(runtime, "active_power_kw", data.active_power_kw,
-                           view.has_data && isfinite(data.active_power_kw));
-        add_number_or_null(runtime, "data_age_ms", view.data_age_ms, view.has_data);
+        cJSON_AddBoolToObject(item, "enabled", config.meters[i].enabled);
+        cJSON_AddStringToObject(item, "name", config.meters[i].name);
+        cJSON_AddStringToObject(item, "role_name", meter_role_name(config.meters[i].role));
+        cJSON_AddStringToObject(item, "state", view.state ? view.state : "unknown");
+        cJSON_AddBoolToObject(item, "online", view.online);
+        cJSON_AddBoolToObject(item, "stale", view.stale);
+        add_number_or_null(item, "active_power_kw", data.active_power_kw, view.online);
+        if (view.has_measurement) cJSON_AddNumberToObject(item, "data_age_ms", view.age_ms);
+        else cJSON_AddNullToObject(item, "data_age_ms");
         cJSON_AddItemToArray(items, item);
     }
 
     cJSON *summary = cJSON_AddObjectToObject(root, "summary");
+    cJSON_AddNumberToObject(summary, "configured", config.meter_count);
     cJSON_AddNumberToObject(summary, "enabled", enabled);
     cJSON_AddNumberToObject(summary, "online", online);
     cJSON_AddNumberToObject(summary, "stale_or_unavailable", stale_or_unavailable);
@@ -412,58 +395,58 @@ static bool build_inverters(local_api_slot_t *slot)
 
     cJSON *root = cJSON_CreateObject();
     if (!root) return finish_json(slot, NULL);
-    const uint32_t current_ms = now_ms();
+    cJSON *items = cJSON_AddArrayToObject(root, "inverters");
     uint32_t enabled = 0U;
     uint32_t online = 0U;
     uint32_t initialization_failed = 0U;
     double configured_rated_kw = 0.0;
     double enabled_rated_kw = 0.0;
 
-    cJSON_AddNumberToObject(root, "configured_count", config.inverter_count);
-    cJSON *items = cJSON_AddArrayToObject(root, "inverters");
     for (uint8_t i = 0U; i < config.inverter_count && i < APP_MAX_INVERTERS; ++i) {
-        const inverter_config_t *inverter = &config.inverters[i];
+        const inverter_config_t *cfg = &config.inverters[i];
         inverter_data_t data = {0};
         const bool runtime_available = i < inverter_manager_get_count() &&
                                        inverter_manager_get_data(i, &data);
-        const inverter_view_t view = inverter_view(inverter, &data, runtime_available);
-        configured_rated_kw += inverter->rated_power_kw;
-        if (inverter->enabled) {
+        const inverter_view_t view = inverter_view(cfg, &data, runtime_available);
+        if (isfinite(cfg->rated_power_kw) && cfg->rated_power_kw > 0.0f) configured_rated_kw += cfg->rated_power_kw;
+        if (cfg->enabled) {
             enabled++;
-            enabled_rated_kw += inverter->rated_power_kw;
+            if (isfinite(cfg->rated_power_kw) && cfg->rated_power_kw > 0.0f) enabled_rated_kw += cfg->rated_power_kw;
         }
         if (view.online) online++;
         if (view.initialization_failed) initialization_failed++;
 
         cJSON *item = cJSON_CreateObject();
-        if (!item) break;
+        if (!item) continue;
         cJSON_AddNumberToObject(item, "index", i);
-        cJSON_AddBoolToObject(item, "enabled", inverter->enabled);
-        cJSON_AddStringToObject(item, "name", inverter->name);
+        cJSON_AddBoolToObject(item, "enabled", cfg->enabled);
+        cJSON_AddStringToObject(item, "name", cfg->name);
         cJSON_AddBoolToObject(item, "telemetry_supported", data.telemetry_supported);
-        const bool measured_valid = runtime_available && data.telemetry_valid &&
-                                    !data.telemetry_stale && isfinite(data.measured_power_kw);
-        add_number_or_null(item, "measured_power_kw", data.measured_power_kw, measured_valid);
-        add_number_or_null(item, "measured_age_ms",
-                           data.last_telemetry_ms ? current_ms - data.last_telemetry_ms : 0U,
-                           data.last_telemetry_ms != 0U);
+        add_number_or_null(item, "measured_power_kw", data.measured_power_kw,
+                           data.telemetry_supported && data.telemetry_valid && isfinite(data.measured_power_kw));
+        if (data.telemetry_supported && data.telemetry_valid) {
+            cJSON_AddNumberToObject(item, "measured_age_ms", data.measured_age_ms);
+        } else {
+            cJSON_AddNullToObject(item, "measured_age_ms");
+        }
         cJSON *runtime = cJSON_AddObjectToObject(item, "runtime");
-        cJSON_AddStringToObject(runtime, "state", view.state);
-        add_number_or_null(runtime, "commanded_percent", data.commanded_percent, view.has_command);
+        cJSON_AddStringToObject(runtime, "state", view.state ? view.state : "unknown");
+        add_number_or_null(runtime, "commanded_percent", data.commanded_percent,
+                           data.has_commanded_percent && isfinite(data.commanded_percent));
         cJSON_AddItemToArray(items, item);
     }
 
     cJSON *summary = cJSON_AddObjectToObject(root, "summary");
+    cJSON_AddNumberToObject(summary, "configured", config.inverter_count);
     cJSON_AddNumberToObject(summary, "enabled", enabled);
     cJSON_AddNumberToObject(summary, "online", online);
     cJSON_AddNumberToObject(summary, "initialization_failed", initialization_failed);
     cJSON_AddNumberToObject(summary, "configured_rated_kw", configured_rated_kw);
     cJSON_AddNumberToObject(summary, "enabled_rated_kw", enabled_rated_kw);
     cJSON_AddNumberToObject(summary, "commandable_rated_kw",
-                            inverter_manager_get_total_rated_kw());
+                            inverter_manager_get_commandable_rated_kw());
     return finish_json(slot, root);
 }
-
 
 static bool build_operational(local_api_slot_t *slot, bool alarms)
 {
@@ -566,11 +549,14 @@ bool local_backend_provider_init(screen_api_provider_t *provider)
         slot->consecutive_failures = 0U;
         if (slot->capacity == 0U) continue;
         if (!slot->json) {
+            /* These buffers are native-HMI transport storage, not safety/control
+             * state. Never fall back to scarce internal DRAM if PSRAM allocation
+             * fails: the correct failure is an unavailable LCD read model while
+             * Product Core continues headless/fail-closed. */
             slot->json = heap_caps_malloc(slot->capacity, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-            if (!slot->json) slot->json = malloc(slot->capacity);
         }
         if (!slot->json) {
-            ESP_LOGE(TAG, "Unable to allocate %u bytes for %s",
+            ESP_LOGE(TAG, "Unable to allocate %u PSRAM bytes for %s",
                      (unsigned)slot->capacity, slot->path);
             local_backend_provider_deinit();
             return false;
