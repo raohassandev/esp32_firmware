@@ -19,6 +19,7 @@ BASE = ROOT / "boards/waveshare_esp32_s3_touch_lcd_5/screen"
 GRID = BASE / "pages/grid_screen.c"
 SOLAR = BASE / "pages/solar_screen.c"
 ALARMS = BASE / "pages/alarms_screen.c"
+COMMISSIONING = BASE / "pages/commissioning_screen.c"
 WIDGETS = BASE / "components/screen_widgets.c"
 PRODUCT_MAIN = BASE / "product_800x480/main/main.c"
 
@@ -36,6 +37,7 @@ def function_body(text: str, name: str, next_name: str) -> str:
 grid = GRID.read_text(encoding="utf-8")
 solar = SOLAR.read_text(encoding="utf-8")
 alarms = ALARMS.read_text(encoding="utf-8")
+commissioning = COMMISSIONING.read_text(encoding="utf-8")
 widgets = WIDGETS.read_text(encoding="utf-8")
 product = PRODUCT_MAIN.read_text(encoding="utf-8")
 
@@ -43,12 +45,19 @@ grid_apply = function_body(grid, "grid_screen_apply", "grid_screen_show_unavaila
 solar_apply = function_body(solar, "solar_screen_apply", "solar_screen_show_unavailable")
 alarm_apply = function_body(alarms, "alarms_screen_apply_alarms", "alarms_screen_apply_events")
 event_apply = function_body(alarms, "alarms_screen_apply_events", "alarms_screen_show_unavailable")
+commissioning_apply = function_body(commissioning, "commissioning_screen_apply_gate", "commissioning_screen_apply_status")
 
 assert "lv_obj_clean" not in grid_apply, "Grid live refresh must retain its LVGL row tree"
 assert "lv_obj_clean" not in solar_apply, "Solar live refresh must retain its LVGL row tree"
 assert "lv_obj_clean" not in alarm_apply, "Alarm refresh must retain its LVGL row tree"
 assert "lv_obj_clean" not in event_apply, "Event refresh must retain its LVGL row tree"
 assert "lv_obj_clean" not in alarms, "Alarms page must not tear down lists on unavailable transitions either"
+
+# Commissioning may rebuild on explicit navigation/config edits, but an unchanged
+# periodic gate refresh must not destroy/recreate the Review page widget tree.
+assert "gate_snapshot_equal" in commissioning
+assert "const bool changed = !gate_snapshot_equal" in commissioning_apply
+assert "if (changed && s_ui.root && s_ui.config.unlocked && s_ui.step == 7U) render();" in commissioning_apply
 
 assert "grid_row_ui_t rows[SCREEN_API_MAX_METERS]" in grid
 assert "solar_row_ui_t rows[SCREEN_API_MAX_INVERTERS]" in solar
