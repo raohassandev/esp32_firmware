@@ -12,6 +12,11 @@ import zipfile
 from dataclasses import dataclass, asdict
 from pathlib import Path, PurePosixPath
 
+FORMAL_SOURCE_BRANCH = "work/waveshare/stabilization-integration"
+FORMAL_SOURCE_EVENT = "push"
+EXPECTED_ESP_IDF = "6.0.1"
+EXPECTED_PRODUCT_DIR = "boards/waveshare_esp32_s3_touch_lcd_5/screen/product_800x480"
+
 REQUIRED_SUFFIXES = (
     "automatrix_pvdg_waveshare_800x480.bin",
     "bootloader/bootloader.bin",
@@ -28,6 +33,9 @@ REQUIRED_SUFFIXES = (
 CANDIDATE_REQUIRED_KEYS = (
     "candidate_sha",
     "candidate_tree",
+    "source_branch",
+    "source_event",
+    "github_run_id",
     "esp_idf",
     "product_dir",
     "physical_acceptance",
@@ -41,6 +49,7 @@ EXPECTED_FLASH_IMAGES = {
 }
 HEX40_RE = re.compile(r"^[0-9a-f]{40}$", re.I)
 HEX64_RE = re.compile(r"^[0-9a-f]{64}$", re.I)
+RUN_ID_RE = re.compile(r"^[1-9][0-9]*$")
 FLASH_IMAGE_RE = re.compile(r"^(0x[0-9a-fA-F]+)\s+(\S+)\s*$")
 
 
@@ -150,6 +159,16 @@ def verify(
                     failures.append("candidate_sha_mismatch")
                 if expected_tree and candidate.get("candidate_tree") != expected_tree:
                     failures.append("candidate_tree_mismatch")
+                if candidate.get("source_event") != FORMAL_SOURCE_EVENT:
+                    failures.append("artifact_not_from_integration_push")
+                if candidate.get("source_branch") != FORMAL_SOURCE_BRANCH:
+                    failures.append("artifact_wrong_source_branch")
+                if candidate.get("github_run_id") and not RUN_ID_RE.fullmatch(candidate["github_run_id"]):
+                    failures.append("github_run_id_invalid")
+                if candidate.get("esp_idf") != EXPECTED_ESP_IDF:
+                    failures.append("esp_idf_mismatch")
+                if candidate.get("product_dir") != EXPECTED_PRODUCT_DIR:
+                    failures.append("product_dir_mismatch")
                 if candidate.get("physical_acceptance") != "UNTESTED":
                     failures.append("artifact_physical_acceptance_not_untested")
 
@@ -241,6 +260,9 @@ def main() -> int:
         print(f"zip_sha256={result.zip_sha256}")
         print(f"candidate_sha={result.candidate.get('candidate_sha')}")
         print(f"candidate_tree={result.candidate.get('candidate_tree')}")
+        print(f"source_event={result.candidate.get('source_event')}")
+        print(f"source_branch={result.candidate.get('source_branch')}")
+        print(f"github_run_id={result.candidate.get('github_run_id')}")
         print(f"app_sha256={result.app_sha256}")
         print(f"checksums_verified={result.checksums_verified}")
         for offset, image in result.flash_images.items():
