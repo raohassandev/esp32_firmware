@@ -1,7 +1,14 @@
 #!/usr/bin/env python3
-"""Release gate for native Waveshare operational backend parity."""
+"""Release gate for native Waveshare operational backend parity.
+
+The LCD and HTTP surfaces must consume one Core-owned operational payload
+implementation. This gate intentionally checks architecture as well as the
+former zero-capacity symptom so a later cleanup cannot silently reintroduce a
+second alarm/event state machine or same-device HTTP.
+"""
 
 from pathlib import Path
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
 PROVIDER = ROOT / "boards/waveshare_esp32_s3_touch_lcd_5/screen/product_800x480/main/local_backend_provider.c"
@@ -17,6 +24,15 @@ assert "{SCREEN_API_ALARMS_PATH,        0U" not in provider
 assert "Alarms/events remain conservative-unavailable" not in provider
 assert "socket/TCP self-transport removed" in provider
 
+# Operational JSON can be substantially larger than the LCD's 16-row display
+# projection. Keep explicit bounded provider slots large enough for the complete
+# Core payload; truncation belongs in screen_api.c after parsing, never in the
+# authoritative state transfer.
+events_slot = re.search(r"\{SCREEN_API_EVENTS_PATH,\s*(\d+)U", provider)
+alarms_slot = re.search(r"\{SCREEN_API_ALARMS_PATH,\s*(\d+)U", provider)
+assert events_slot and int(events_slot.group(1)) >= 49152
+assert alarms_slot and int(alarms_slot.group(1)) >= 32768
+
 for name in ("events", "alarms"):
     builder = f"operational_api_build_{name}_json"
     assert f"cJSON *{builder}(void);" in op_h
@@ -28,10 +44,22 @@ for name in ("events", "alarms"):
         f"native provider must call the same authoritative {name} builder"
     )
 
+# The shared builders own the same semantic machinery the HTTP API had before
+# this refactor. The native provider is only a bounded transport/projection seam.
+assert "cJSON *operational_api_build_events_json(void)" in op_c
+assert "event_text(event, &title, &detail, &action);" in op_c
+assert "cJSON *operational_api_build_alarms_json(void)" in op_c
+assert "alarm_cause_of((uint8_t)code, snapshot)" in op_c
+assert "alarm_priority((uint8_t)code)" in op_c
+assert "service_design_suppression_locked(current)" in op_c
+assert "service_shelf_locked" in op_c
+
 assert "static bool build_operational" in provider
 assert "event_text(" not in provider, "native provider must not duplicate event wording/lifecycle"
 assert "alarm_priority(" not in provider, "native provider must not duplicate alarm priority logic"
 assert "alarm_cause_of(" not in provider, "native provider must not duplicate alarm causality logic"
+assert "service_design_suppression_locked" not in provider
+assert "service_shelf_locked" not in provider
 assert "http://127.0.0.1" not in provider and "esp_http_client" not in provider
 
 print("Waveshare native backend parity gate: PASS")
