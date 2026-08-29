@@ -1,0 +1,156 @@
+name: Waveshare integration exact package
+
+on:
+  push:
+    branches:
+      - work/waveshare/stabilization-integration
+    paths-ignore:
+      - '.github/workflows/waveshare-integration-package.yml'
+      - 'docs/**'
+      - '**/*.md'
+  pull_request:
+    paths:
+      - '.github/workflows/waveshare-integration-package.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: waveshare-integration-package-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package-exact-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PRODUCT_DIR: boards/waveshare_esp32_s3_touch_lcd_5/screen/product_800x480
+      FAILED_CANDIDATE_1: ec4fb846875d67a806c2b7cc48b21d5706f91995
+      FAILED_CANDIDATE_2: 02bc128a84a853c988bc53f5daa53aa76c7bfb72
+    steps:
+      - name: Resolve exact source SHA
+        id: candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            sha='${{ github.event.pull_request.head.sha }}'
+          else
+            sha='${{ github.sha }}'
+          fi
+          test -n "$sha"
+          short="${sha:0:8}"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "short=$short" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=waveshare-800x480-$short" >> "$GITHUB_OUTPUT"
+
+      - name: Check out exact source SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.candidate.outputs.sha }}
+          fetch-depth: 0
+
+      - name: Verify exact candidate identity
+        id: identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate='${{ steps.candidate.outputs.sha }}'
+          test "$(git rev-parse HEAD)" = "$candidate"
+          test -z "$(git status --porcelain)"
+          tree="$(git rev-parse HEAD^{tree})"
+          echo "tree=$tree" >> "$GITHUB_OUTPUT"
+          printf 'candidate_sha=%s\ncandidate_tree=%s\n' "$candidate" "$tree"
+
+      - name: Run Waveshare source contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          for test_file in \
+            tests/waveshare_product_memory_source_contract.py \
+            tests/waveshare_flicker_source_contract.py \
+            tests/waveshare_backend_parity_gate.py \
+            tests/waveshare_persistence_readback_gate.py
+          do
+            test -f "$test_file"
+            python3 "$test_file"
+          done
+
+      - name: Build exact Product Core plus 800x480 LCD image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD:/project" \
+            -w "/project/$PRODUCT_DIR" \
+            espressif/idf:v6.0.1 \
+            bash -lc '
+              set -euo pipefail
+              idf.py set-target esp32s3
+              idf.py build
+              test -f build/automatrix_pvdg_waveshare_800x480.bin
+              {
+                grep -E "^CONFIG_SPIRAM_(MALLOC_ALWAYSINTERNAL|MALLOC_RESERVE_INTERNAL|TRY_ALLOCATE_WIFI_LWIP)=" sdkconfig || true
+                grep -E "^CONFIG_ESP_WIFI_(STATIC_RX_BUFFER_NUM|STATIC_TX_BUFFER_NUM|DYNAMIC_TX_BUFFER_NUM|TX_BUFFER_TYPE|CACHE_TX_BUFFER_NUM|MGMT_SBUF_NUM|RX_BA_WIN|AMPDU_RX_ENABLED)=" sdkconfig || true
+                grep -E "^CONFIG_LCD_RGB_RESTART_IN_VSYNC=" sdkconfig || true
+                grep -E "^# CONFIG_LCD_RGB_RESTART_IN_VSYNC is not set$" sdkconfig || true
+              } > build/requalification-effective-config.txt
+              test -s build/requalification-effective-config.txt
+            '
+
+      - name: Assemble and self-verify exact flash package
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate='${{ steps.candidate.outputs.sha }}'
+          tree='${{ steps.identity.outputs.tree }}'
+          build="$PRODUCT_DIR/build"
+          package="$GITHUB_WORKSPACE/waveshare-exact-integration-candidate"
+          rm -rf "$package"
+          mkdir -p "$package"
+
+          while IFS= read -r -d '' file; do
+            rel="${file#./}"
+            mkdir -p "$package/$(dirname "$rel")"
+            cp "$rel" "$package/$rel"
+          done < <(find "$build" -maxdepth 4 -type f \
+            \( -name '*.bin' -o -name 'flasher_args.json' -o -name 'flash_args' -o -name 'flash_project_args' -o -name 'project_description.json' -o -name 'requalification-effective-config.txt' \) \
+            -print0)
+
+          cp "$PRODUCT_DIR/sdkconfig" "$package/effective-sdkconfig"
+
+          cat > "$package/CANDIDATE.txt" <<EOF
+          candidate_sha=$candidate
+          candidate_tree=$tree
+          source_branch=${GITHUB_REF_NAME}
+          source_event=${GITHUB_EVENT_NAME}
+          github_run_id=${GITHUB_RUN_ID}
+          esp_idf=6.0.1
+          product_dir=$PRODUCT_DIR
+          physical_acceptance=UNTESTED
+          failed_candidate_1=$FAILED_CANDIDATE_1
+          failed_candidate_2=$FAILED_CANDIDATE_2
+          EOF
+
+          test -s "$package/$build/automatrix_pvdg_waveshare_800x480.bin"
+          test -s "$package/$build/bootloader/bootloader.bin"
+          test -s "$package/$build/partition_table/partition-table.bin"
+          test -s "$package/$build/flasher_args.json"
+          test -s "$package/$build/flash_args"
+          test -s "$package/$build/flash_project_args"
+          test -s "$package/$build/requalification-effective-config.txt"
+          test -s "$package/effective-sdkconfig"
+          test -s "$package/CANDIDATE.txt"
+
+          cd "$package"
+          find . -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+          test -s SHA256SUMS.txt
+          sha256sum -c SHA256SUMS.txt
+
+      - name: Upload exact integration hardware package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.candidate.outputs.artifact_name }}
+          path: waveshare-exact-integration-candidate
+          if-no-files-found: error
+          retention-days: 14
