@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/waveshare-candidate-package.yml'
       - 'docs/boards/waveshare-esp32-s3-touch-lcd-5/HARDWARE_EXECUTION_RUNBOOK.md'
+      - 'docs/boards/waveshare-esp32-s3-touch-lcd-5/HARDWARE_CANDIDATE_EVIDENCE.md'
   workflow_dispatch:
 
 permissions:
@@ -42,7 +43,7 @@ jobs:
             espressif/idf:v6.0.1 \
             bash -lc 'idf.py set-target esp32s3 && idf.py build && test -f build/automatrix_pvdg_waveshare_800x480.bin'
 
-      - name: Assemble flash package and hashes
+      - name: Assemble and self-verify flash package
         run: |
           set -euo pipefail
           build="$PRODUCT_DIR/build"
@@ -62,12 +63,21 @@ jobs:
           product_dir=$PRODUCT_DIR
           source_pr=34
           EOF
+
+          # A hardware package is valid only if the exact build produced the
+          # complete ESP-IDF flash set and its generated flashing arguments.
+          test -s "$package/$build/automatrix_pvdg_waveshare_800x480.bin"
+          test -s "$package/$build/bootloader/bootloader.bin"
+          test -s "$package/$build/partition_table/partition-table.bin"
+          test -s "$package/$build/flasher_args.json"
+          test -s "$package/$build/flash_args"
+          test -s "$package/$build/flash_project_args"
+          test -s "$package/CANDIDATE.txt"
+
           cd "$package"
           find . -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
-          test -f "$package/$build/automatrix_pvdg_waveshare_800x480.bin"
-          test -f "$package/$build/bootloader/bootloader.bin"
-          test -f "$package/$build/partition_table/partition-table.bin"
-          test -f "$package/$build/flasher_args.json"
+          test -s SHA256SUMS.txt
+          sha256sum -c SHA256SUMS.txt
 
       - name: Upload exact-candidate hardware package
         uses: actions/upload-artifact@v4
