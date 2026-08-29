@@ -1,5 +1,9 @@
 #include "screen_widgets.h"
 
+#include <stdarg.h>
+#include <stdio.h>
+#include <string.h>
+
 static const uint32_t PANEL = 0x151B24;
 static const uint32_t BORDER = 0x2E3948;
 static const uint32_t TEXT = 0xF2F6FA;
@@ -60,20 +64,46 @@ lv_obj_t *screen_ui_row(lv_obj_t *parent, const char *name, lv_obj_t **value_out
     return row;
 }
 
+bool screen_ui_set_text_if_changed(lv_obj_t *label, const char *text)
+{
+    if (!label) return false;
+    if (!text) text = "";
+    const char *current = lv_label_get_text(label);
+    if (current && strcmp(current, text) == 0) return false;
+    lv_label_set_text(label, text);
+    return true;
+}
+
+bool screen_ui_set_text_fmt_if_changed(lv_obj_t *label, const char *format, ...)
+{
+    if (!label || !format) return false;
+    char text[192];
+    va_list args;
+    va_start(args, format);
+    const int written = vsnprintf(text, sizeof(text), format, args);
+    va_end(args);
+    if (written < 0) return false;
+    text[sizeof(text) - 1U] = '\0';
+    return screen_ui_set_text_if_changed(label, text);
+}
+
 void screen_ui_set_kw(lv_obj_t *label, bool available, double value)
 {
     if (!label) return;
     if (!available) {
-        lv_label_set_text(label, "-- kW");
+        (void)screen_ui_set_text_if_changed(label, "-- kW");
         return;
     }
-    lv_label_set_text_fmt(label, "%.1f kW", value);
+    (void)screen_ui_set_text_fmt_if_changed(label, "%.1f kW", value);
 }
 
 void screen_ui_set_state_text(lv_obj_t *label, const char *text, bool healthy)
 {
     if (!label) return;
-    lv_label_set_text(label, text && text[0] ? text : "Unknown");
+    (void)screen_ui_set_text_if_changed(label, text && text[0] ? text : "Unknown");
+    /* The colour change is intentionally kept independent from text comparison:
+     * a backend may keep the same state label while its health classification
+     * changes, and correctness wins over avoiding this small-label invalidation. */
     lv_obj_set_style_text_color(label, lv_color_hex(healthy ? GOOD : WARN), LV_PART_MAIN);
 }
 
