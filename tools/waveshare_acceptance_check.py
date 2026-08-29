@@ -36,6 +36,7 @@ DMA_LARGEST_RE = re.compile(r"(?:DMA(?:-capable)?\s+)?largest(?:\s+block)?\s*[=:
 SOAK_RE = re.compile(r"Screen soak", re.I)
 ACTIVATION_RE = re.compile(r"LVGL activation stage\s+(\d)\s*/\s*6", re.I)
 READY_RE = re.compile(r"Native LCD/LVGL/touch ready", re.I)
+UPTIME_RE = re.compile(r"^[VDIWE]\s+\((\d+)\)")
 
 
 @dataclass
@@ -51,8 +52,10 @@ class Result:
     runtime_dma_largest: list[int]
     minimum_checked_dma_free: int | None
     minimum_checked_dma_largest: int | None
+    observed_runtime_seconds: float | None
     required_min_dma_free: int
     required_soak_samples: int
+    required_min_runtime_seconds: int
     failures: list[str]
 
 
@@ -61,12 +64,20 @@ def _metric(line: str, regex: re.Pattern[str]) -> int | None:
     return int(m.group(1)) if m else None
 
 
-def analyse(text: str, min_dma_free: int = 20_000, min_soak_samples: int = 2) -> Result:
+def analyse(
+    text: str,
+    min_dma_free: int = 20_000,
+    min_soak_samples: int = 2,
+    min_runtime_seconds: int = 0,
+) -> Result:
     lines = text.splitlines()
     fatal_hits = {name: sum(1 for line in lines if rx.search(line)) for name, rx in FATAL_PATTERNS.items()}
 
     activation = sorted({int(m.group(1)) for line in lines for m in [ACTIVATION_RE.search(line)] if m})
     native_ready = any(READY_RE.search(line) for line in lines)
+
+    uptimes_ms = [int(m.group(1)) for line in lines for m in [UPTIME_RE.search(line)] if m]
+    observed_runtime = (max(uptimes_ms) - min(uptimes_ms)) / 1000.0 if len(uptimes_ms) >= 2 else None
 
     stage_free: dict[str, int | None] = {s: None for s in STAGES}
     stage_largest: dict[str, int | None] = {s: None for s in STAGES}
@@ -114,6 +125,11 @@ def analyse(text: str, min_dma_free: int = 20_000, min_soak_samples: int = 2) ->
         failures.append("dma_free_evidence_missing")
     elif min_free < min_dma_free:
         failures.append(f"dma_free={min_free}<{min_dma_free}")
+    if min_runtime_seconds > 0:
+        if observed_runtime is None:
+            failures.append("runtime_timestamp_evidence_missing")
+        elif observed_runtime < min_runtime_seconds:
+            failures.append(f"runtime={observed_runtime:.1f}s<{min_runtime_seconds}s")
 
     return Result(
         passed=not failures,
@@ -127,8 +143,10 @@ def analyse(text: str, min_dma_free: int = 20_000, min_soak_samples: int = 2) ->
         runtime_dma_largest=runtime_largest,
         minimum_checked_dma_free=min_free,
         minimum_checked_dma_largest=min_largest,
+        observed_runtime_seconds=observed_runtime,
         required_min_dma_free=min_dma_free,
         required_soak_samples=min_soak_samples,
+        required_min_runtime_seconds=min_runtime_seconds,
         failures=failures,
     )
 
@@ -138,10 +156,17 @@ def main() -> int:
     p.add_argument("log", type=Path)
     p.add_argument("--min-dma-free", type=int, default=20_000)
     p.add_argument("--min-soak-samples", type=int, default=2)
+    p.add_argument("--min-runtime-seconds", type=int, default=0,
+                   help="Require ESP-IDF timestamp span; use 300 for a 5-minute smoke capture")
     p.add_argument("--json", action="store_true")
     args = p.parse_args()
 
-    result = analyse(args.log.read_text(errors="replace"), args.min_dma_free, args.min_soak_samples)
+    result = analyse(
+        args.log.read_text(errors="replace"),
+        args.min_dma_free,
+        args.min_soak_samples,
+        args.min_runtime_seconds,
+    )
     payload = asdict(result)
     if args.json:
         print(json.dumps(payload, indent=2, sort_keys=True))
@@ -152,6 +177,7 @@ def main() -> int:
         print(f"- soak_samples={result.soak_samples}")
         print(f"- min_dma_free={result.minimum_checked_dma_free}")
         print(f"- min_dma_largest={result.minimum_checked_dma_largest}")
+        print(f"- observed_runtime_seconds={result.observed_runtime_seconds}")
     return 0 if result.passed else 1
 
 
