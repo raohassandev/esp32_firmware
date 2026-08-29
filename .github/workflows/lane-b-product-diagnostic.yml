@@ -1,0 +1,52 @@
+name: Lane B product build diagnostic
+
+on:
+  push:
+    branches:
+      - 'work/waveshare/backend-parity'
+    paths:
+      - '.github/workflows/lane-b-product-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/waveshare/backend-parity
+      - name: Capture exact 800x480 product build tail
+        run: |
+          set -u
+          mkdir -p ci_diagnostics
+          log="$GITHUB_WORKSPACE/ci_diagnostics/product_800x480_build_full.log"
+          tail_log="$GITHUB_WORKSPACE/ci_diagnostics/product_800x480_build_tail.txt"
+          set +e
+          docker run --rm \
+            -v "$PWD:/project" \
+            -w /project/boards/waveshare_esp32_s3_touch_lcd_5/screen/product_800x480 \
+            espressif/idf:v6.0.1 \
+            bash -lc 'idf.py set-target esp32s3 && idf.py build && test -f build/automatrix_pvdg_waveshare_800x480.bin' \
+            >"$log" 2>&1
+          status=$?
+          set -e
+          {
+            echo "exit_status=$status"
+            echo "head_sha=$(git rev-parse HEAD)"
+            echo "--- last 500 lines ---"
+            tail -n 500 "$log"
+          } > "$tail_log"
+          rm -f "$log"
+      - name: Commit diagnostic and self-remove workflow
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ci_diagnostics/product_800x480_build_tail.txt
+          git rm .github/workflows/lane-b-product-diagnostic.yml
+          git commit -m 'chore(waveshare): record product build diagnostic'
+          git push origin HEAD:work/waveshare/backend-parity
