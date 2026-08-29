@@ -1,0 +1,30 @@
+name: Waveshare persistence lane
+
+on:
+  push:
+    branches:
+      - 'work/waveshare/commissioning-persistence'
+    paths:
+      - 'boards/waveshare_esp32_s3_touch_lcd_5/screen/product_800x480/main/local_commissioning_backend.*'
+      - 'tests/waveshare_persistence_readback_gate.py'
+      - '.github/workflows/waveshare-persistence-lane.yml'
+  pull_request:
+    paths:
+      - 'boards/waveshare_esp32_s3_touch_lcd_5/screen/product_800x480/main/local_commissioning_backend.*'
+      - 'tests/waveshare_persistence_readback_gate.py'
+      - '.github/workflows/waveshare-persistence-lane.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  persistence-readback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require post-write authoritative readback
+        run: |
+          python3 -m py_compile tests/waveshare_persistence_readback_gate.py
+          python3 tests/waveshare_persistence_readback_gate.py
