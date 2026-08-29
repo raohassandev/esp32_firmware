@@ -22,6 +22,7 @@
 #define SCREEN_REFRESH_STACK_BYTES 12288
 #define PRODUCT_RGB_BOUNCE_LINES 10U
 #define PRODUCT_TEAR_MODE ESP_LV_ADAPTER_TEAR_AVOID_MODE_DOUBLE_DIRECT
+#define SCREEN_LVGL_LOCK_MS 2000U
 #define SCREEN_FAST_MS 1000U
 #define SCREEN_STATUS_MS 5000U
 #define SCREEN_DEVICES_MS 2000U
@@ -139,17 +140,21 @@ static esp_err_t init_flash_dispatcher(void)
 
 /* Everything here can wait until the shared Core has finished allocating its
  * internal task stacks and service objects. The LVGL adapter stack and display
- * draw buffers are explicitly PSRAM-backed. */
+ * draw buffers are explicitly PSRAM-backed. External adapter locks are bounded:
+ * a stalled LVGL worker must become an observable error, not hold app_main or
+ * the refresh task forever. */
 static esp_err_t native_screen_activate(void)
 {
     if (!s_display.panel || !s_profile) return ESP_ERR_INVALID_STATE;
 
+    ESP_LOGI(TAG, "LVGL activation stage 1/6: adapter init");
     esp_lv_adapter_config_t adapter_config = ESP_LV_ADAPTER_DEFAULT_CONFIG();
     adapter_config.task_stack_size = 12 * 1024;
     adapter_config.stack_in_psram = true;
     esp_err_t err = esp_lv_adapter_init(&adapter_config);
     if (err != ESP_OK) return err;
 
+    ESP_LOGI(TAG, "LVGL activation stage 2/6: display registration");
     esp_lv_adapter_display_config_t lv_display_config =
         ESP_LV_ADAPTER_DISPLAY_RGB_DEFAULT_CONFIG(
             s_display.panel, NULL, s_profile->width, s_profile->height, s_rotation);
@@ -160,22 +165,30 @@ static esp_err_t native_screen_activate(void)
     lv_display_t *display = esp_lv_adapter_register_display(&lv_display_config);
     if (!display) return ESP_FAIL;
 
+    ESP_LOGI(TAG, "LVGL activation stage 3/6: touch registration");
     if (s_display.touch) {
         esp_lv_adapter_touch_config_t touch_config =
             ESP_LV_ADAPTER_TOUCH_DEFAULT_CONFIG(display, s_display.touch);
         if (!esp_lv_adapter_register_touch(&touch_config)) return ESP_FAIL;
     }
 
+    ESP_LOGI(TAG, "LVGL activation stage 4/6: adapter task start");
     err = esp_lv_adapter_start();
     if (err != ESP_OK) return err;
 
-    err = esp_lv_adapter_lock(-1);
-    if (err != ESP_OK) return err;
+    ESP_LOGI(TAG, "LVGL activation stage 5/6: create visible Overview (lock timeout=%u ms)",
+             (unsigned)SCREEN_LVGL_LOCK_MS);
+    err = esp_lv_adapter_lock(SCREEN_LVGL_LOCK_MS);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "LVGL activation lock timed out/failed: %s", esp_err_to_name(err));
+        return err;
+    }
     lv_obj_t *root = screen_app_create(lv_screen_active());
     if (root) screen_app_show_backend_unavailable();
     esp_lv_adapter_unlock();
     if (!root) return ESP_ERR_NO_MEM;
 
+    ESP_LOGI(TAG, "LVGL activation stage 6/6: backlight on");
     err = waveshare_display_port_backlight_on();
     if (err != ESP_OK) return err;
 
@@ -187,7 +200,7 @@ static esp_err_t native_screen_activate(void)
 static void refresh_fast(void)
 {
     (void)local_backend_provider_fetch(SCREEN_API_LIVE_PATH);
-    if (esp_lv_adapter_lock(-1) == ESP_OK) {
+    if (esp_lv_adapter_lock(SCREEN_LVGL_LOCK_MS) == ESP_OK) {
         (void)screen_runtime_refresh_fast();
         esp_lv_adapter_unlock();
     }
@@ -198,7 +211,7 @@ static void refresh_status(void)
     (void)local_backend_provider_fetch(SCREEN_API_STATUS_PATH);
     (void)local_backend_provider_fetch(SCREEN_API_TELEMETRY_PATH);
     const bool commissioning_ok = local_backend_provider_read_commissioning(&s_commissioning);
-    if (esp_lv_adapter_lock(-1) == ESP_OK) {
+    if (esp_lv_adapter_lock(SCREEN_LVGL_LOCK_MS) == ESP_OK) {
         (void)screen_runtime_refresh_status();
         if (commissioning_ok) screen_app_apply_commissioning(&s_commissioning);
         else screen_app_show_commissioning_unavailable();
@@ -210,7 +223,7 @@ static void refresh_devices(void)
 {
     (void)local_backend_provider_fetch(SCREEN_API_METERS_PATH);
     (void)local_backend_provider_fetch(SCREEN_API_INVERTERS_PATH);
-    if (esp_lv_adapter_lock(-1) == ESP_OK) {
+    if (esp_lv_adapter_lock(SCREEN_LVGL_LOCK_MS) == ESP_OK) {
         (void)screen_runtime_refresh_devices();
         esp_lv_adapter_unlock();
     }
@@ -220,7 +233,7 @@ static void refresh_operations(void)
 {
     (void)local_backend_provider_fetch(SCREEN_API_ALARMS_PATH);
     (void)local_backend_provider_fetch(SCREEN_API_EVENTS_PATH);
-    if (esp_lv_adapter_lock(-1) == ESP_OK) {
+    if (esp_lv_adapter_lock(SCREEN_LVGL_LOCK_MS) == ESP_OK) {
         (void)screen_runtime_refresh_operations();
         esp_lv_adapter_unlock();
     }
@@ -229,7 +242,7 @@ static void refresh_operations(void)
 static screen_page_t active_page(void)
 {
     screen_page_t page = SCREEN_PAGE_OVERVIEW;
-    if (esp_lv_adapter_lock(-1) == ESP_OK) {
+    if (esp_lv_adapter_lock(SCREEN_LVGL_LOCK_MS) == ESP_OK) {
         page = screen_app_get_active_page();
         esp_lv_adapter_unlock();
     }
@@ -292,8 +305,9 @@ static void screen_refresh_task(void *argument)
 void app_main(void)
 {
     /* Use ESP-IDF's main task instead of allocating a second 16 kB internal
-     * bootstrap stack. sdkconfig gives main enough measured headroom, and the
-     * task is released automatically when app_main returns. */
+     * bootstrap stack. The physical requalification lane now keeps generic
+     * malloc traffic out of the protected internal pool and lazily creates only
+     * the visible Overview during boot, so this task should return promptly. */
     esp_err_t screen_reserve_err = native_screen_reserve();
     if (screen_reserve_err != ESP_OK) {
         ESP_LOGE(TAG, "Native screen DMA reservation failed: %s; Core continues headless",
@@ -332,7 +346,7 @@ void app_main(void)
         if (local_backend_provider_init(&provider) && screen_runtime_init(&provider)) {
             if (s_flash_dispatcher_ready &&
                 local_commissioning_backend_init(&s_commissioning_backend)) {
-                if (esp_lv_adapter_lock(-1) == ESP_OK) {
+                if (esp_lv_adapter_lock(SCREEN_LVGL_LOCK_MS) == ESP_OK) {
                     screen_app_set_commissioning_backend(&s_commissioning_backend);
                     esp_lv_adapter_unlock();
                 }
@@ -346,7 +360,7 @@ void app_main(void)
 
             if (s_flash_dispatcher_ready &&
                 local_source_commissioning_backend_init(&s_source_commissioning_backend)) {
-                if (esp_lv_adapter_lock(-1) == ESP_OK) {
+                if (esp_lv_adapter_lock(SCREEN_LVGL_LOCK_MS) == ESP_OK) {
                     screen_app_set_source_commissioning_backend(&s_source_commissioning_backend);
                     esp_lv_adapter_unlock();
                 }
