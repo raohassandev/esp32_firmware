@@ -44,6 +44,22 @@ I (122000) lcd: Screen soak: heap free=150000 min=140000 | PSRAM free=6900000 la
 """
 
 WATCHDOG = PASS_LOG + "\nE (362000) task_wdt: Task watchdog got triggered. IDLE0\n"
+FRAGMENTED = PASS_LOG.replace("DMA free=25500 largest=21500", "DMA free=25500 largest=4096")
+RESET_LOG = PASS_LOG + "\nI (1000) lcd: Screen soak: heap free=198000 | PSRAM free=6980000 largest=6880000 | DMA free=25000 largest=21000 | screen stack hwm=6800\n"
+REPEATED_ACTIVATION = PASS_LOG + "\nI (362000) lcd: LVGL activation stage 1/6\n"
+NO_LARGEST = """
+I (1000) core: After Product Core init: internal DMA free=34000
+I (2000) lcd: LVGL activation stage 1/6
+I (2100) lcd: LVGL activation stage 2/6
+I (2200) lcd: LVGL activation stage 3/6
+I (2300) lcd: LVGL activation stage 4/6
+I (2400) lcd: LVGL activation stage 5/6
+I (2500) lcd: LVGL activation stage 6/6
+I (2600) lcd: Native LCD/LVGL/touch ready
+I (3000) app: After LVGL/UI activation: internal DMA free=28000
+I (61000) lcd: Screen soak: DMA free=27000
+I (121000) lcd: Screen soak: DMA free=26000
+"""
 
 
 def main() -> None:
@@ -54,8 +70,10 @@ def main() -> None:
     assert good.runtime_dma_free == [27000, 26000, 25500]
     assert good.runtime_dma_largest == [23000, 22000, 21500]
     assert good.soak_samples == 3
+    assert good.timestamp_rollbacks == 0
+    assert all(count == 1 for count in good.activation_counts.values())
 
-    formal = MOD.analyse(PASS_LOG, min_runtime_seconds=300)
+    formal = MOD.analyse(PASS_LOG, min_runtime_seconds=300, min_dma_largest=20_000)
     assert formal.passed, formal.failures
     assert formal.observed_runtime_seconds == 360.0
 
@@ -79,10 +97,28 @@ def main() -> None:
     relaxed = MOD.analyse(PASS_LOG, min_dma_free=25000, min_soak_samples=2)
     assert relaxed.passed
 
+    fragmented = MOD.analyse(FRAGMENTED, min_dma_largest=8192)
+    assert not fragmented.passed
+    assert "dma_largest=4096<8192" in fragmented.failures
+
+    no_largest = MOD.analyse(NO_LARGEST)
+    assert not no_largest.passed
+    assert "dma_largest_evidence_missing" in no_largest.failures
+
+    reset = MOD.analyse(RESET_LOG)
+    assert not reset.passed
+    assert reset.timestamp_rollbacks == 1
+    assert "timestamp_rollback=1" in reset.failures
+
+    repeated = MOD.analyse(REPEATED_ACTIVATION)
+    assert not repeated.passed
+    assert any(x.startswith("activation_repeated=") for x in repeated.failures)
+
     missing = MOD.analyse("LVGL activation stage 1/6\n", min_runtime_seconds=300)
     assert not missing.passed
     assert "native_ready_missing" in missing.failures
     assert "dma_free_evidence_missing" in missing.failures
+    assert "dma_largest_evidence_missing" in missing.failures
     assert "runtime_timestamp_evidence_missing" in missing.failures
 
     print("Waveshare acceptance log gate tests passed")
