@@ -35,6 +35,8 @@ jobs:
           python3 tests/waveshare_screen_source_contract.py
           python3 -m py_compile tests/waveshare_flicker_source_contract.py
           python3 tests/waveshare_flicker_source_contract.py
+          python3 -m py_compile tests/waveshare_product_memory_source_contract.py
+          python3 tests/waveshare_product_memory_source_contract.py
 
       - name: Compile display profile tests with warnings as errors
         run: |
