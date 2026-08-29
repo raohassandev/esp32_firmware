@@ -26,6 +26,7 @@
 #define SCREEN_STATUS_MS 5000U
 #define SCREEN_DEVICES_MS 2000U
 #define SCREEN_OPERATIONS_MS 5000U
+#define SCREEN_RESOURCE_LOG_MS 60000U
 #define FLASH_DISPATCHER_STACK_BYTES 2048U
 
 static const char *TAG = "waveshare_product";
@@ -44,6 +45,27 @@ static void log_dma_headroom(const char *stage)
              stage,
              (unsigned)heap_caps_get_free_size(caps),
              (unsigned)heap_caps_get_largest_free_block(caps));
+}
+
+/* Periodic hardware-evidence line for the stabilization/soak lane. This is
+ * deliberately low cadence (once per minute) so gathering proof does not become
+ * the workload being measured. The values let a physical run show whether the
+ * second RGB framebuffer or sustained UI activity is collapsing PSRAM, scarce
+ * internal DMA memory, total heap, or the PSRAM-backed refresh-task stack. */
+static void log_runtime_headroom(const char *stage)
+{
+    const uint32_t psram_caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+    const uint32_t dma_caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA;
+    ESP_LOGI(TAG,
+             "%s: heap free=%u min=%u | PSRAM free=%u largest=%u | DMA free=%u largest=%u | screen stack hwm=%u",
+             stage,
+             (unsigned)esp_get_free_heap_size(),
+             (unsigned)esp_get_minimum_free_heap_size(),
+             (unsigned)heap_caps_get_free_size(psram_caps),
+             (unsigned)heap_caps_get_largest_free_block(psram_caps),
+             (unsigned)heap_caps_get_free_size(dma_caps),
+             (unsigned)heap_caps_get_largest_free_block(dma_caps),
+             (unsigned)uxTaskGetStackHighWaterMark(NULL));
 }
 
 /* Reserve only the board resources that MUST win the scarce DMA-capable DRAM
@@ -260,6 +282,9 @@ static void screen_refresh_task(void *argument)
         refresh_active_context(page, elapsed_ms, page_changed);
         previous = page;
         elapsed_ms += SCREEN_FAST_MS;
+        if ((elapsed_ms % SCREEN_RESOURCE_LOG_MS) == 0U) {
+            log_runtime_headroom("Screen soak");
+        }
         vTaskDelayUntil(&wake, pdMS_TO_TICKS(SCREEN_FAST_MS));
     }
 }
