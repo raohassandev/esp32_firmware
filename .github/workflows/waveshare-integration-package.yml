@@ -6,6 +6,11 @@ on:
       - work/waveshare/stabilization-integration
     paths-ignore:
       - '.github/workflows/waveshare-integration-package.yml'
+      - '.github/workflows/waveshare-acceptance-tools.yml'
+      - 'tools/waveshare_acceptance_check.py'
+      - 'tools/waveshare_package_verify.py'
+      - 'tests/waveshare_acceptance_check_test.py'
+      - 'tests/waveshare_package_verify_test.py'
       - 'docs/**'
       - '**/*.md'
   pull_request:
@@ -17,7 +22,7 @@ permissions:
 
 concurrency:
   group: waveshare-integration-package-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   package-exact-integration:
