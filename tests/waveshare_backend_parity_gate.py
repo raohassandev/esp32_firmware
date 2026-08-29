@@ -35,6 +35,9 @@ events_slot = re.search(r"\{SCREEN_API_EVENTS_PATH,\s*(\d+)U", provider)
 alarms_slot = re.search(r"\{SCREEN_API_ALARMS_PATH,\s*(\d+)U", provider)
 assert events_slot and int(events_slot.group(1)) >= 49152
 assert alarms_slot and int(alarms_slot.group(1)) >= 32768
+assert "bounded JSON slot too small" in provider, (
+    "oversized authoritative payload must fail unavailable, not truncate silently"
+)
 
 for name in ("events", "alarms"):
     builder = f"operational_api_build_{name}_json"
