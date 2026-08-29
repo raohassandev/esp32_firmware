@@ -4,8 +4,11 @@
 The physical 800x480 RGB panel must not destroy and rebuild whole live lists on
 periodic backend refresh. The product build must also use an RGB tear-avoid mode
 intended for dynamic widget deltas rather than scan and repaint the same single
-framebuffer. This test does not claim hardware acceptance; it only prevents the
-known high-churn / no-tear-protection patterns from returning.
+framebuffer. The exact-board image must publish low-cadence resource telemetry so
+the physical soak can prove the display fix did not consume unsafe headroom.
+
+This test does not claim hardware acceptance; it only prevents known unsafe or
+unmeasurable stabilization patterns from returning.
 """
 
 from pathlib import Path
@@ -60,5 +63,16 @@ assert "#define PRODUCT_TEAR_MODE ESP_LV_ADAPTER_TEAR_AVOID_MODE_DOUBLE_DIRECT" 
 assert "ESP_LV_ADAPTER_TEAR_AVOID_MODE_NONE" not in product, (
     "single-framebuffer NONE mode must not silently return to the dynamic product UI"
 )
+
+# Hardware acceptance needs objective evidence, not only visual judgement. Keep
+# the logging slow enough that instrumentation cannot become the flicker source.
+assert "#define SCREEN_RESOURCE_LOG_MS 60000U" in product
+assert "heap_caps_get_free_size(psram_caps)" in product
+assert "heap_caps_get_largest_free_block(psram_caps)" in product
+assert "heap_caps_get_free_size(dma_caps)" in product
+assert "heap_caps_get_largest_free_block(dma_caps)" in product
+assert "esp_get_minimum_free_heap_size()" in product
+assert "uxTaskGetStackHighWaterMark(NULL)" in product
+assert 'log_runtime_headroom("Screen soak")' in product
 
 print("Waveshare flicker source contract: PASS")
