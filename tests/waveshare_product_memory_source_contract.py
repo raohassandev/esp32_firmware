@@ -29,9 +29,6 @@ assert "CONFIG_ESP_WIFI_STATIC_TX_BUFFER=y" in SDK
 assert config_int("CONFIG_ESP_WIFI_STATIC_TX_BUFFER_NUM") == 4
 assert config_int("CONFIG_ESP_WIFI_RX_BA_WIN") == 8
 
-# Keep PSRAM XIP and the 64-byte D-cache line required by the RGB bounce path,
-# while retaining memory-efficient cache sizes so SRAM remains available to
-# runtime tasks and DMA allocations.
 assert "CONFIG_SPIRAM_XIP_FROM_PSRAM=y" in SDK
 assert "CONFIG_ESP32S3_INSTRUCTION_CACHE_16KB=y" in SDK
 assert "CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y" not in SDK
@@ -41,8 +38,11 @@ assert "CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y" in SDK
 assert ".sram_trans_align = 4" in DISPLAY_PORT
 assert ".psram_trans_align = 64" in DISPLAY_PORT
 
-# Two RGB565 bounce buffers: reducing 10 -> 6 lines releases 12,800 bytes.
+# Product-only RGB bandwidth/memory balance. HIL profile remains at 16 MHz/10 lines.
 assert "#define PRODUCT_RGB_BOUNCE_LINES 6U" in MAIN
+assert "#define PRODUCT_RGB_PCLK_HZ 12000000U" in MAIN
+assert "s_product_profile = *vendor_profile;" in MAIN
+assert "s_product_profile.pixel_clock_hz = PRODUCT_RGB_PCLK_HZ;" in MAIN
 assert 2 * 800 * 2 * (10 - 6) == 12800
 assert "#define PRODUCT_TEAR_MODE ESP_LV_ADAPTER_TEAR_AVOID_MODE_DOUBLE_DIRECT" in MAIN
 assert "allow_no_bounce_fallback = true" in MAIN
