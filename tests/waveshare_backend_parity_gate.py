@@ -27,6 +27,27 @@ assert "{SCREEN_API_ALARMS_PATH,        0U" not in provider
 assert "Alarms/events remain conservative-unavailable" not in provider
 assert "socket/TCP self-transport removed" in provider
 
+# The exact-board product must compile against the Core contracts that actually
+# exist in this repository. These are the stale/future assumptions that caused
+# the product-only IDF build to fail while broader firmware checks stayed green.
+for stale_symbol in [
+    "source.attributed_to",
+    "data->state",
+    "inverter_manager_get_total_measured_kw",
+    "inverter_manager_has_measured_power",
+    "inverter_manager_get_commandable_rated_kw",
+    "control.mode_label",
+    "control.command_percent",
+    "control.command_in_force",
+    "control.command_blocked_by",
+    "control.controller_state",
+    "control.last_reboot_unexpected",
+    "data.measured_age_ms",
+    "data.has_commanded_percent",
+]:
+    assert stale_symbol not in provider, f"native provider assumes stale Core API: {stale_symbol}"
+assert "source_detection_attributed_to(&source)" in provider
+
 # Operational JSON can be substantially larger than the LCD's 16-row display
 # projection. Keep explicit bounded provider slots large enough for the complete
 # Core payload; truncation belongs in screen_api.c after parsing, never in the
