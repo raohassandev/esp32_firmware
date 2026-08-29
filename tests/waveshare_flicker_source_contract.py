@@ -2,17 +2,21 @@
 """Source-level guard for the Waveshare live-render stabilization lane.
 
 The physical 800x480 RGB panel must not destroy and rebuild whole device lists
-on each periodic backend refresh.  This test does not claim hardware acceptance;
-it only prevents the known high-churn rendering pattern from returning.
+on each periodic backend refresh. The product build must also use an RGB
+tear-avoid mode intended for dynamic widget deltas rather than scan and repaint
+the same single framebuffer. This test does not claim hardware acceptance; it
+only prevents the known high-churn / no-tear-protection patterns from returning.
 """
 
 from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
-GRID = ROOT / "boards/waveshare_esp32_s3_touch_lcd_5/screen/pages/grid_screen.c"
-SOLAR = ROOT / "boards/waveshare_esp32_s3_touch_lcd_5/screen/pages/solar_screen.c"
-WIDGETS = ROOT / "boards/waveshare_esp32_s3_touch_lcd_5/screen/components/screen_widgets.c"
+BASE = ROOT / "boards/waveshare_esp32_s3_touch_lcd_5/screen"
+GRID = BASE / "pages/grid_screen.c"
+SOLAR = BASE / "pages/solar_screen.c"
+WIDGETS = BASE / "components/screen_widgets.c"
+PRODUCT_MAIN = BASE / "product_800x480/main/main.c"
 
 
 def function_body(text: str, name: str, next_name: str) -> str:
@@ -28,6 +32,7 @@ def function_body(text: str, name: str, next_name: str) -> str:
 grid = GRID.read_text(encoding="utf-8")
 solar = SOLAR.read_text(encoding="utf-8")
 widgets = WIDGETS.read_text(encoding="utf-8")
+product = PRODUCT_MAIN.read_text(encoding="utf-8")
 
 grid_apply = function_body(grid, "grid_screen_apply", "grid_screen_show_unavailable")
 solar_apply = function_body(solar, "solar_screen_apply", "solar_screen_show_unavailable")
@@ -38,5 +43,12 @@ assert "grid_row_ui_t rows[SCREEN_API_MAX_METERS]" in grid
 assert "solar_row_ui_t rows[SCREEN_API_MAX_INVERTERS]" in solar
 assert "screen_ui_set_text_if_changed" in widgets
 assert "strcmp(current, text) == 0" in widgets
+
+assert "#define PRODUCT_TEAR_MODE ESP_LV_ADAPTER_TEAR_AVOID_MODE_DOUBLE_DIRECT" in product, (
+    "dynamic 800x480 RGB product UI must use the adapter's DOUBLE_DIRECT tear-avoid mode"
+)
+assert "ESP_LV_ADAPTER_TEAR_AVOID_MODE_NONE" not in product, (
+    "single-framebuffer NONE mode must not silently return to the dynamic product UI"
+)
 
 print("Waveshare flicker source contract: PASS")
