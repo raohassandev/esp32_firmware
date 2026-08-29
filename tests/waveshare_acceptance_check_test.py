@@ -10,9 +10,11 @@ assert SPEC.loader
 sys.modules[SPEC.name] = MOD
 SPEC.loader.exec_module(MOD)
 
-READY_MARKERS = """
+CORE_READY_MARKERS = """
 I (5050) waveshare_product: Shared Product Core started
 I (5100) waveshare_product: Espressif flash dispatcher ready; PSRAM-stacked HMI persistence is routed through internal RAM
+"""
+POST_SCREEN_READY_MARKERS = """
 I (7100) waveshare_product: Local Engineering commissioning backend bound to touchscreen
 I (7200) waveshare_product: Local source-evidence commissioning backend bound to touchscreen
 I (7300) waveshare_product: Screen refresh task created in PSRAM
@@ -23,7 +25,7 @@ I (1000) app: Before LCD DMA reservation: internal DMA free=140000 largest=13000
 I (2000) app: After LCD DMA reservation: internal DMA free=105000 largest=90000
 I (3000) app: Before Product Core init: internal DMA free=104000 largest=89000
 I (5000) core: After Product Core init: internal DMA free=34000 largest=30000
-""" + READY_MARKERS + """
+""" + CORE_READY_MARKERS + """
 I (6000) lcd: LVGL activation stage 1/6
 I (6100) lcd: LVGL activation stage 2/6
 I (6200) lcd: LVGL activation stage 3/6
@@ -32,6 +34,7 @@ I (6400) lcd: LVGL activation stage 5/6
 I (6500) lcd: LVGL activation stage 6/6
 I (6600) lcd: Native LCD/LVGL/touch ready
 I (7000) app: After LVGL/UI activation: internal DMA free=28000 largest=24000
+""" + POST_SCREEN_READY_MARKERS + """
 I (61000) lcd: Screen soak: heap free=200000 min=180000 | PSRAM free=7000000 largest=6900000 | DMA free=27000 largest=23000 | screen stack hwm=7000
 I (121000) lcd: Screen soak: heap free=199000 min=179000 | PSRAM free=6990000 largest=6890000 | DMA free=26000 largest=22000 | screen stack hwm=6900
 I (361000) lcd: Screen soak: heap free=198000 min=178000 | PSRAM free=6980000 largest=6880000 | DMA free=25500 largest=21500 | screen stack hwm=6850
@@ -57,8 +60,10 @@ FRAGMENTED = PASS_LOG.replace("DMA free=25500 largest=21500", "DMA free=25500 la
 RESET_LOG = PASS_LOG + "\nI (1000) lcd: Screen soak: heap free=198000 | PSRAM free=6980000 largest=6880000 | DMA free=25000 largest=21000 | screen stack hwm=6800\n"
 REPEATED_ACTIVATION = PASS_LOG + "\nI (362000) lcd: LVGL activation stage 1/6\n"
 SERVICE_FAILURE = PASS_LOG + "\nE (362000) waveshare_product: Screen backend provider initialization failed; UI stays unavailable\n"
-NO_LARGEST = READY_MARKERS + """
+NO_LARGEST = """
 I (1000) core: After Product Core init: internal DMA free=34000
+I (1050) waveshare_product: Shared Product Core started
+I (1100) waveshare_product: Espressif flash dispatcher ready; PSRAM-stacked HMI persistence is routed through internal RAM
 I (2000) lcd: LVGL activation stage 1/6
 I (2100) lcd: LVGL activation stage 2/6
 I (2200) lcd: LVGL activation stage 3/6
@@ -67,6 +72,9 @@ I (2400) lcd: LVGL activation stage 5/6
 I (2500) lcd: LVGL activation stage 6/6
 I (2600) lcd: Native LCD/LVGL/touch ready
 I (3000) app: After LVGL/UI activation: internal DMA free=28000
+I (3100) waveshare_product: Local Engineering commissioning backend bound to touchscreen
+I (3200) waveshare_product: Local source-evidence commissioning backend bound to touchscreen
+I (3300) waveshare_product: Screen refresh task created in PSRAM
 I (61000) lcd: Screen soak: DMA free=27000
 I (121000) lcd: Screen soak: DMA free=26000
 """
