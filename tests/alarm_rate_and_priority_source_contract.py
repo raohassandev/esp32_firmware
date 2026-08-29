@@ -141,7 +141,7 @@ for forbidden in ["ESP_LOG", "malloc(", "calloc(", "free(", "cJSON_",
             f"alarm_metrics.c contains {forbidden}: it runs inside the alarm module's "
             "critical section and must stay pure and non-blocking")
 
-alarms_get = function_body(API, "alarms_get")
+alarms_get = function_body(API, "operational_api_build_alarms_json")
 rate_block = alarms_get[alarms_get.index('cJSON_AddObjectToObject(root, "rate")'):]
 for field in ['"last_10_min"', '"last_60_min"', '"last_24_h"', '"peak_per_10_min"',
               '"steady_limit_milli"', '"peak_limit"', '"raises_total"']:
