@@ -54,6 +54,9 @@ assert "alarm_cause_of((uint8_t)code, snapshot)" in op_c
 assert "alarm_priority((uint8_t)code)" in op_c
 assert "service_design_suppression_locked(current)" in op_c
 assert "service_shelf_locked" in op_c
+assert "return send_json(request, root);" in op_c, (
+    "HTTP transport must remain a thin wrapper over the shared cJSON builders"
+)
 
 assert "static bool build_operational" in provider
 assert "event_text(" not in provider, "native provider must not duplicate event wording/lifecycle"
