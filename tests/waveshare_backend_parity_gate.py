@@ -4,7 +4,8 @@
 The LCD and HTTP surfaces must consume one Core-owned operational payload
 implementation. This gate intentionally checks architecture as well as the
 former zero-capacity symptom so a later cleanup cannot silently reintroduce a
-second alarm/event state machine or same-device HTTP.
+second alarm/event state machine, same-device HTTP, or large internal-DRAM HMI
+buffers that compete with control/network resources.
 """
 
 from pathlib import Path
@@ -61,5 +62,15 @@ assert "alarm_cause_of(" not in provider, "native provider must not duplicate al
 assert "service_design_suppression_locked" not in provider
 assert "service_shelf_locked" not in provider
 assert "http://127.0.0.1" not in provider and "esp_http_client" not in provider
+
+# Large HMI serialization slots are presentation transport. If PSRAM cannot
+# supply them, the LCD may fail unavailable; it must not consume scarce internal
+# DRAM and reduce headroom for Wi-Fi/httpd/control tasks.
+init_start = provider.index("bool local_backend_provider_init(")
+fetch_start = provider.index("bool local_backend_provider_fetch(", init_start)
+init_body = provider[init_start:fetch_start]
+assert "heap_caps_malloc(slot->capacity, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)" in init_body
+assert "slot->json = malloc(slot->capacity)" not in init_body
+assert "Unable to allocate %u PSRAM bytes" in init_body
 
 print("Waveshare native backend parity gate: PASS")
