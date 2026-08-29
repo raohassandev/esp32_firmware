@@ -100,8 +100,8 @@ jobs:
               grep -qx "CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=98304" sdkconfig
               grep -qx "CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y" sdkconfig
               grep -qx "CONFIG_SPIRAM_XIP_FROM_PSRAM=y" sdkconfig
-              grep -qx "CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y" sdkconfig
-              grep -qx "CONFIG_ESP32S3_DATA_CACHE_64KB=y" sdkconfig
+              grep -qx "CONFIG_ESP32S3_INSTRUCTION_CACHE_16KB=y" sdkconfig
+              grep -qx "CONFIG_ESP32S3_DATA_CACHE_32KB=y" sdkconfig
               grep -qx "CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y" sdkconfig
               grep -qx "CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=4" sdkconfig
               grep -qx "CONFIG_ESP_WIFI_STATIC_TX_BUFFER=y" sdkconfig
@@ -111,7 +111,7 @@ jobs:
 
               {
                 grep -E "^CONFIG_SPIRAM_(MALLOC_ALWAYSINTERNAL|MALLOC_RESERVE_INTERNAL|TRY_ALLOCATE_WIFI_LWIP|XIP_FROM_PSRAM)=" sdkconfig || true
-                grep -E "^CONFIG_ESP32S3_(INSTRUCTION_CACHE_32KB|DATA_CACHE_64KB|DATA_CACHE_LINE_64B)=" sdkconfig || true
+                grep -E "^CONFIG_ESP32S3_(INSTRUCTION_CACHE_16KB|DATA_CACHE_32KB|DATA_CACHE_LINE_64B)=" sdkconfig || true
                 grep -E "^CONFIG_ESP_WIFI_(STATIC_RX_BUFFER_NUM|STATIC_TX_BUFFER|STATIC_TX_BUFFER_NUM|DYNAMIC_TX_BUFFER_NUM|TX_BUFFER_TYPE|CACHE_TX_BUFFER_NUM|MGMT_SBUF_NUM|RX_BA_WIN|AMPDU_RX_ENABLED)=" sdkconfig || true
                 grep -E "^CONFIG_LCD_RGB_RESTART_IN_VSYNC=" sdkconfig || true
                 grep -E "^# CONFIG_LCD_RGB_RESTART_IN_VSYNC is not set$" sdkconfig || true
