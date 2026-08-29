@@ -30,6 +30,11 @@ def make_zip(
     omit_checksum_for: str | None = None,
     physical_acceptance: str = "UNTESTED",
     flash_args: bytes = FLASH_ARGS,
+    source_event: str = "push",
+    source_branch: str = "work/waveshare/stabilization-integration",
+    github_run_id: str = "123456789",
+    esp_idf: str = "6.0.1",
+    product_dir: str = "boards/waveshare_esp32_s3_touch_lcd_5/screen/product_800x480",
 ) -> str:
     files = {
         APP: b"app-binary",
@@ -44,8 +49,11 @@ def make_zip(
         "CANDIDATE.txt": (
             f"candidate_sha={SHA}\n"
             f"candidate_tree={TREE}\n"
-            "esp_idf=6.0.1\n"
-            "product_dir=boards/w/screen/product_800x480\n"
+            f"source_branch={source_branch}\n"
+            f"source_event={source_event}\n"
+            f"github_run_id={github_run_id}\n"
+            f"esp_idf={esp_idf}\n"
+            f"product_dir={product_dir}\n"
             f"physical_acceptance={physical_acceptance}\n"
         ).encode(),
     }
@@ -71,6 +79,8 @@ def main() -> None:
         assert good.passed, good.failures
         assert good.checksums_verified == 10
         assert good.candidate["candidate_sha"] == SHA
+        assert good.candidate["source_event"] == "push"
+        assert good.candidate["source_branch"] == "work/waveshare/stabilization-integration"
         assert good.app_sha256 == MOD.sha256_bytes(b"app-binary")
         assert good.flash_images == {
             "0x0": "bootloader/bootloader.bin",
@@ -78,6 +88,31 @@ def main() -> None:
             "0xf000": "ota_data_initial.bin",
             "0x20000": "automatrix_pvdg_waveshare_800x480.bin",
         }
+
+        pr_zip = td / "pr.zip"
+        make_zip(pr_zip, source_event="pull_request", source_branch="41/merge")
+        pr_result = MOD.verify(pr_zip, expected_sha=SHA, expected_tree=TREE)
+        assert not pr_result.passed
+        assert "artifact_not_from_integration_push" in pr_result.failures
+        assert "artifact_wrong_source_branch" in pr_result.failures
+
+        bad_run_zip = td / "bad-run.zip"
+        make_zip(bad_run_zip, github_run_id="not-a-run")
+        bad_run = MOD.verify(bad_run_zip, expected_sha=SHA, expected_tree=TREE)
+        assert not bad_run.passed
+        assert "github_run_id_invalid" in bad_run.failures
+
+        wrong_idf_zip = td / "wrong-idf.zip"
+        make_zip(wrong_idf_zip, esp_idf="6.0-dev")
+        wrong_idf = MOD.verify(wrong_idf_zip, expected_sha=SHA, expected_tree=TREE)
+        assert not wrong_idf.passed
+        assert "esp_idf_mismatch" in wrong_idf.failures
+
+        wrong_product_zip = td / "wrong-product.zip"
+        make_zip(wrong_product_zip, product_dir="boards/other")
+        wrong_product = MOD.verify(wrong_product_zip, expected_sha=SHA, expected_tree=TREE)
+        assert not wrong_product.passed
+        assert "product_dir_mismatch" in wrong_product.failures
 
         wrong_sha = MOD.verify(good_zip, expected_sha="3" * 40)
         assert not wrong_sha.passed
