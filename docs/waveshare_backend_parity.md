@@ -1,6 +1,6 @@
 # Waveshare native operational backend parity
 
-Status: implementation active on `work/waveshare/backend-parity`; dedicated software parity gate has passed on the shared-builder architecture, while full exact-head CI and physical recovery proof remain required.
+Status: implementation active on `work/waveshare/backend-parity`; dedicated software parity gate has passed on the shared-builder architecture, while full exact-head CI and physical recovery proof remain required. This lane must remain Draft until those gates are current at the same head.
 
 ## Authority
 
