@@ -6,6 +6,9 @@ on:
       - work/waveshare/stabilization-integration
     paths-ignore:
       - '.github/workflows/waveshare-integration-package.yml'
+      - '.github/workflows/waveshare-acceptance-tools.yml'
+      - 'tools/waveshare_acceptance_check.py'
+      - 'tests/waveshare_acceptance_check_test.py'
       - 'docs/**'
       - '**/*.md'
   pull_request:
