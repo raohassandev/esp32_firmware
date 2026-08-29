@@ -60,6 +60,13 @@ FRAGMENTED = PASS_LOG.replace("DMA free=25500 largest=21500", "DMA free=25500 la
 RESET_LOG = PASS_LOG + "\nI (1000) lcd: Screen soak: heap free=198000 | PSRAM free=6980000 largest=6880000 | DMA free=25000 largest=21000 | screen stack hwm=6800\n"
 REPEATED_ACTIVATION = PASS_LOG + "\nI (362000) lcd: LVGL activation stage 1/6\n"
 SERVICE_FAILURE = PASS_LOG + "\nE (362000) waveshare_product: Screen backend provider initialization failed; UI stays unavailable\n"
+MALFORMED_SOAK = PASS_LOG.replace(
+    "I (121000) lcd: Screen soak: heap free=199000 min=179000 | PSRAM free=6990000 largest=6890000 | DMA free=26000 largest=22000 | screen stack hwm=6900",
+    "I (121000) lcd: Screen soak: heap free=199000 min=179000 | PSRAM free=6990000 largest=6890000 | screen stack hwm=6900",
+).replace(
+    "I (361000) lcd: Screen soak: heap free=198000 min=178000 | PSRAM free=6980000 largest=6880000 | DMA free=25500 largest=21500 | screen stack hwm=6850",
+    "I (361000) lcd: heartbeat only",
+)
 NO_LARGEST = """
 I (1000) core: After Product Core init: internal DMA free=34000
 I (1050) waveshare_product: Shared Product Core started
@@ -124,6 +131,13 @@ def main() -> None:
     no_largest = MOD.analyse(NO_LARGEST)
     assert not no_largest.passed
     assert "dma_largest_evidence_missing" in no_largest.failures
+    assert "screen_soak_dma_largest=0<2" in no_largest.failures
+
+    malformed_soak = MOD.analyse(MALFORMED_SOAK)
+    assert not malformed_soak.passed
+    assert "screen_soak=2<2" not in malformed_soak.failures
+    assert "screen_soak_dma_free=1<2" in malformed_soak.failures
+    assert "screen_soak_dma_largest=1<2" in malformed_soak.failures
 
     reset = MOD.analyse(RESET_LOG)
     assert not reset.passed
