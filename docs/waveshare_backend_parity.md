@@ -1,6 +1,6 @@
 # Waveshare native operational backend parity
 
-Status: implementation staged on `work/waveshare/backend-parity`; physical recovery proof remains required.
+Status: implementation active on `work/waveshare/backend-parity`; dedicated software parity gate has passed on the shared-builder architecture, while full exact-head CI and physical recovery proof remain required.
 
 ## Authority
 
@@ -25,4 +25,4 @@ The shared builders still allocate their temporary cJSON tree while a snapshot i
 
 ## Remaining acceptance
 
-Software CI must prove the shared builder ownership, product build and parser contracts at the exact head. Hardware acceptance still requires healthy/offline/stale transitions and loss/recovery to match the web/Core authority on the physical Waveshare board without reset, heap collapse, control starvation or stale UI recovery.
+Full software CI must prove the shared builder ownership, product build and parser contracts at the exact head. Hardware acceptance still requires healthy/offline/stale transitions and loss/recovery to match the web/Core authority on the physical Waveshare board without reset, heap collapse, control starvation or stale UI recovery.
