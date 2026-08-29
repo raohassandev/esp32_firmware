@@ -20,6 +20,7 @@ This document is the release evidence contract for the Waveshare 800x480 product
 6. Unknown backend values remain unknown; zero is never substituted for unavailable measurement data.
 7. Automatic control must remain fail-closed throughout commissioning, persistence failures, backend loss and display faults.
 8. Resource evidence must include the product image's periodic `Screen soak` log line wherever available; isolated one-time boot numbers are not sufficient to prove stability.
+9. Hardware evidence is valid only for the exact combined stabilization candidate SHA containing the Lane A/B/C software intended for release; evidence from an isolated lane is diagnostic, not final release proof.
 
 ## A. Display and touch stability
 
@@ -32,6 +33,7 @@ This document is the release evidence contract for the Waveshare 800x480 product
 | DISP-05 | Navigation | 100 repeated page changes | No blank frame, stale page overlay, double-tap requirement or touch loss. |
 | DISP-06 | Wi-Fi load | Browser/API traffic while LCD updates | No scanout shake or display corruption under network activity. |
 | DISP-07 | Commissioning UI | Navigate/edit without saving, then with valid saves | Keyboard/forms/navigation remain visually stable. |
+| DISP-07A | Commissioning Review refresh | Hold Review open >=10 min while unchanged gate snapshots refresh, then cause one real gate-state transition | Unchanged periodic snapshots do not flash/rebuild the page; a real gate-state change is reflected once without losing touch/form stability. |
 | DISP-08 | Touch soak | >=500 deliberate touches across all pages | No stuck press, ghost navigation or touch-controller loss. |
 
 ## B. Native backend/read-model parity
@@ -86,6 +88,7 @@ During the soak:
 
 - exercise Overview, Grid, Solar, Alarms, Ready, Commission and Source pages;
 - keep Alarms open for at least one continuous 30-minute period while operational snapshots refresh;
+- keep Commissioning Review open for at least one continuous 10-minute period with unchanged gate refreshes, then exercise a real gate-state transition;
 - periodically create live-value changes and device/network recovery events;
 - execute representative authenticated commissioning reads and bounded save cycles;
 - retain every periodic `Screen soak` resource line and record reset reason/control timing at stress transitions;
