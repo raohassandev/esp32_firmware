@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sys
 import zipfile
 from dataclasses import dataclass, asdict
@@ -23,6 +24,15 @@ REQUIRED_SUFFIXES = (
     "CANDIDATE.txt",
     "SHA256SUMS.txt",
 )
+CANDIDATE_REQUIRED_KEYS = (
+    "candidate_sha",
+    "candidate_tree",
+    "esp_idf",
+    "product_dir",
+    "physical_acceptance",
+)
+HEX40_RE = re.compile(r"^[0-9a-f]{40}$", re.I)
+HEX64_RE = re.compile(r"^[0-9a-f]{64}$", re.I)
 
 
 @dataclass
@@ -67,6 +77,8 @@ def verify(
     try:
         with zipfile.ZipFile(zip_path) as zf:
             names = [n for n in zf.namelist() if not n.endswith("/")]
+            if len(names) != len(set(names)):
+                failures.append("duplicate_archive_name")
             unsafe = [n for n in names if not _safe_name(n)]
             if unsafe:
                 failures.append("unsafe_archive_path")
@@ -78,22 +90,35 @@ def verify(
 
             cand_hits = _find_suffix(names, "CANDIDATE.txt")
             if len(cand_hits) == 1:
+                seen_candidate_keys: set[str] = set()
                 for line in zf.read(cand_hits[0]).decode("utf-8", "replace").splitlines():
                     if "=" in line:
                         k, v = line.split("=", 1)
-                        candidate[k.strip()] = v.strip()
+                        key = k.strip()
+                        if key in seen_candidate_keys:
+                            failures.append(f"duplicate_candidate_key:{key}")
+                        seen_candidate_keys.add(key)
+                        candidate[key] = v.strip()
+                for key in CANDIDATE_REQUIRED_KEYS:
+                    if not candidate.get(key):
+                        failures.append(f"candidate_key_missing:{key}")
+                if candidate.get("candidate_sha") and not HEX40_RE.fullmatch(candidate["candidate_sha"]):
+                    failures.append("candidate_sha_invalid")
+                if candidate.get("candidate_tree") and not HEX40_RE.fullmatch(candidate["candidate_tree"]):
+                    failures.append("candidate_tree_invalid")
                 if expected_sha and candidate.get("candidate_sha") != expected_sha:
                     failures.append("candidate_sha_mismatch")
                 if expected_tree and candidate.get("candidate_tree") != expected_tree:
                     failures.append("candidate_tree_mismatch")
-                if candidate.get("physical_acceptance") not in (None, "UNTESTED"):
-                    failures.append("artifact_claims_physical_acceptance")
+                if candidate.get("physical_acceptance") != "UNTESTED":
+                    failures.append("artifact_physical_acceptance_not_untested")
 
             sums_hits = _find_suffix(names, "SHA256SUMS.txt")
             if len(sums_hits) == 1:
                 sums_name = sums_hits[0]
                 base = PurePosixPath(sums_name).parent
                 sums = zf.read(sums_name).decode("utf-8", "replace").splitlines()
+                manifest_targets: set[str] = set()
                 for line in sums:
                     line = line.strip()
                     if not line:
@@ -103,10 +128,21 @@ def verify(
                     except ValueError:
                         failures.append("malformed_sha256sums")
                         continue
+                    if not HEX64_RE.fullmatch(digest):
+                        failures.append("malformed_sha256_digest")
+                        continue
                     rel = rel.lstrip("*").strip()
                     if rel.startswith("./"):
                         rel = rel[2:]
-                    target = str(base / PurePosixPath(rel)) if str(base) != "." else rel
+                    if not _safe_name(rel):
+                        failures.append(f"unsafe_checksum_path:{rel}")
+                        continue
+                    target_path = base / PurePosixPath(rel) if str(base) != "." else PurePosixPath(rel)
+                    target = str(target_path)
+                    if target in manifest_targets:
+                        failures.append(f"duplicate_checksum_target:{rel}")
+                        continue
+                    manifest_targets.add(target)
                     if target not in names:
                         failures.append(f"checksum_missing:{rel}")
                         continue
@@ -115,6 +151,12 @@ def verify(
                         failures.append(f"checksum_mismatch:{rel}")
                     else:
                         verified += 1
+
+                expected_targets = set(names) - {sums_name}
+                for missing_target in sorted(expected_targets - manifest_targets):
+                    failures.append(f"checksum_coverage_missing:{missing_target}")
+                for extra_target in sorted(manifest_targets - expected_targets):
+                    failures.append(f"checksum_coverage_extra:{extra_target}")
 
             app_hits = _find_suffix(names, "automatrix_pvdg_waveshare_800x480.bin")
             if len(app_hits) == 1:
