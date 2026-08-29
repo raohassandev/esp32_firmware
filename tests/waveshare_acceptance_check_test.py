@@ -10,11 +10,20 @@ assert SPEC.loader
 sys.modules[SPEC.name] = MOD
 SPEC.loader.exec_module(MOD)
 
+READY_MARKERS = """
+I (5050) waveshare_product: Shared Product Core started
+I (5100) waveshare_product: Espressif flash dispatcher ready; PSRAM-stacked HMI persistence is routed through internal RAM
+I (7100) waveshare_product: Local Engineering commissioning backend bound to touchscreen
+I (7200) waveshare_product: Local source-evidence commissioning backend bound to touchscreen
+I (7300) waveshare_product: Screen refresh task created in PSRAM
+"""
+
 PASS_LOG = """
 I (1000) app: Before LCD DMA reservation: internal DMA free=140000 largest=130000
 I (2000) app: After LCD DMA reservation: internal DMA free=105000 largest=90000
 I (3000) app: Before Product Core init: internal DMA free=104000 largest=89000
 I (5000) core: After Product Core init: internal DMA free=34000 largest=30000
+""" + READY_MARKERS + """
 I (6000) lcd: LVGL activation stage 1/6
 I (6100) lcd: LVGL activation stage 2/6
 I (6200) lcd: LVGL activation stage 3/6
@@ -47,7 +56,8 @@ WATCHDOG = PASS_LOG + "\nE (362000) task_wdt: Task watchdog got triggered. IDLE0
 FRAGMENTED = PASS_LOG.replace("DMA free=25500 largest=21500", "DMA free=25500 largest=4096")
 RESET_LOG = PASS_LOG + "\nI (1000) lcd: Screen soak: heap free=198000 | PSRAM free=6980000 largest=6880000 | DMA free=25000 largest=21000 | screen stack hwm=6800\n"
 REPEATED_ACTIVATION = PASS_LOG + "\nI (362000) lcd: LVGL activation stage 1/6\n"
-NO_LARGEST = """
+SERVICE_FAILURE = PASS_LOG + "\nE (362000) waveshare_product: Screen backend provider initialization failed; UI stays unavailable\n"
+NO_LARGEST = READY_MARKERS + """
 I (1000) core: After Product Core init: internal DMA free=34000
 I (2000) lcd: LVGL activation stage 1/6
 I (2100) lcd: LVGL activation stage 2/6
@@ -72,6 +82,7 @@ def main() -> None:
     assert good.soak_samples == 3
     assert good.timestamp_rollbacks == 0
     assert all(count == 1 for count in good.activation_counts.values())
+    assert all(good.runtime_markers.values())
 
     formal = MOD.analyse(PASS_LOG, min_runtime_seconds=300, min_dma_largest=20_000)
     assert formal.passed, formal.failures
@@ -80,6 +91,7 @@ def main() -> None:
     stalled = MOD.analyse(FAILED_02BC, min_dma_free=0, min_soak_samples=1, min_runtime_seconds=300)
     assert not stalled.passed
     assert any(x.startswith("runtime=") for x in stalled.failures)
+    assert any(x.startswith("runtime_marker_missing:") for x in stalled.failures)
 
     old = MOD.analyse(FAILED_02BC)
     assert not old.passed
@@ -114,12 +126,17 @@ def main() -> None:
     assert not repeated.passed
     assert any(x.startswith("activation_repeated=") for x in repeated.failures)
 
+    service_failure = MOD.analyse(SERVICE_FAILURE)
+    assert not service_failure.passed
+    assert service_failure.fatal_hits["screen_backend_failed"] == 1
+
     missing = MOD.analyse("LVGL activation stage 1/6\n", min_runtime_seconds=300)
     assert not missing.passed
     assert "native_ready_missing" in missing.failures
     assert "dma_free_evidence_missing" in missing.failures
     assert "dma_largest_evidence_missing" in missing.failures
     assert "runtime_timestamp_evidence_missing" in missing.failures
+    assert any(x.startswith("runtime_marker_missing:") for x in missing.failures)
 
     print("Waveshare acceptance log gate tests passed")
 
