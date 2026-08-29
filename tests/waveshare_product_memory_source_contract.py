@@ -11,9 +11,11 @@ from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
-BASE = ROOT / "boards/waveshare_esp32_s3_touch_lcd_5/screen/product_800x480"
+SCREEN = ROOT / "boards/waveshare_esp32_s3_touch_lcd_5/screen"
+BASE = SCREEN / "product_800x480"
 SDK = (BASE / "sdkconfig.defaults").read_text(encoding="utf-8")
 MAIN = (BASE / "main/main.c").read_text(encoding="utf-8")
+APP = (SCREEN / "screen_app.c").read_text(encoding="utf-8")
 
 
 def config_int(name: str) -> int:
@@ -40,6 +42,28 @@ assert "CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM=y" in SDK
 assert "#define PRODUCT_RGB_BOUNCE_LINES 10U" in MAIN
 assert "#define PRODUCT_TEAR_MODE ESP_LV_ADAPTER_TEAR_AVOID_MODE_DOUBLE_DIRECT" in MAIN
 assert "allow_no_bounce_fallback = true" in MAIN
+
+# Boot must no longer allocate every hidden page before the first visible frame.
+create_match = re.search(
+    r"lv_obj_t \*screen_app_create\([^)]*\)\s*\{(.*?)\n\}\n\nvoid screen_app_show_page",
+    APP,
+    re.S,
+)
+assert create_match, "unable to locate screen_app_create()"
+create_body = create_match.group(1)
+assert "ensure_page(SCREEN_PAGE_OVERVIEW)" in create_body
+assert "grid_screen_create" not in create_body
+assert "solar_screen_create" not in create_body
+assert "alarms_screen_create" not in create_body
+assert "readiness_screen_create" not in create_body
+assert "commissioning_screen_create" not in create_body
+assert "source_commissioning_screen_create" not in create_body
+assert "static lv_obj_t *ensure_page(screen_page_t page)" in APP
+assert "if (!ensure_page(page)) return;" in APP
+assert "s_commissioning_backend = *backend" in APP
+assert "commissioning_screen_set_backend(&s_commissioning_backend)" in APP
+assert "s_source_backend = *backend" in APP
+assert "source_commissioning_screen_set_backend(&s_source_backend)" in APP
 
 # Hardware evidence remains mandatory for the next candidate.
 assert 'log_dma_headroom("Before LCD DMA reservation")' in MAIN
