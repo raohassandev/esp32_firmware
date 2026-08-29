@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Guard the exact-board product memory/RGB policy after physical failures.
-
-This is a source/config contract only. It does not claim hardware acceptance.
-It prevents the exact configurations that exhausted internal DMA or diverged
-from the pinned Waveshare RGB transport from silently returning.
-"""
+"""Guard Waveshare product memory and RGB transport configuration."""
 
 from pathlib import Path
 import re
@@ -24,50 +19,35 @@ def config_int(name: str) -> int:
     return int(match.group(1))
 
 
-always_internal = config_int("CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL")
-reserve_internal = config_int("CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL")
-static_rx = config_int("CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM")
-static_tx = config_int("CONFIG_ESP_WIFI_STATIC_TX_BUFFER_NUM")
-rx_ba_win = config_int("CONFIG_ESP_WIFI_RX_BA_WIN")
-
-# Failed physical candidate used 4096/65536 and collapsed scarce internal DMA.
-assert always_internal <= 512, (
-    "ordinary <=4 KiB malloc traffic must not be biased back into scarce internal RAM"
-)
-assert reserve_internal >= 98304, (
-    "explicit DMA/internal consumers need the protected pool used by the requalification lane"
-)
+assert config_int("CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL") <= 512
+assert config_int("CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL") >= 98304
 assert "CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y" in SDK
 assert "CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM=y" in SDK
 
-# Exact-board diagnostic evidence established RX4/TX4 with BA8 as the first
-# configuration that removed the critical Core NO_MEM/degraded-startup failure.
-assert static_rx == 4
+assert config_int("CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM") == 4
 assert "CONFIG_ESP_WIFI_STATIC_TX_BUFFER=y" in SDK
-assert static_tx == 4
-assert rx_ba_win == 8
+assert config_int("CONFIG_ESP_WIFI_STATIC_TX_BUFFER_NUM") == 4
+assert config_int("CONFIG_ESP_WIFI_RX_BA_WIN") == 8
 
-# The pinned Waveshare LVGL9 reference keeps executable/cache traffic available
-# from PSRAM while the RGB driver refills bounce buffers. Keep that transport
-# policy explicit instead of relying on changing ESP-IDF defaults.
+# Keep PSRAM XIP and the 64-byte D-cache line required by the RGB bounce path,
+# while retaining memory-efficient cache sizes so SRAM remains available to
+# runtime tasks and DMA allocations.
 assert "CONFIG_SPIRAM_XIP_FROM_PSRAM=y" in SDK
-assert "CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y" in SDK
-assert "CONFIG_ESP32S3_DATA_CACHE_64KB=y" in SDK
+assert "CONFIG_ESP32S3_INSTRUCTION_CACHE_16KB=y" in SDK
+assert "CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y" not in SDK
+assert "CONFIG_ESP32S3_DATA_CACHE_32KB=y" in SDK
+assert "CONFIG_ESP32S3_DATA_CACHE_64KB=y" not in SDK
 assert "CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y" in SDK
 assert ".sram_trans_align = 4" in DISPLAY_PORT
 assert ".psram_trans_align = 64" in DISPLAY_PORT
 
-# Product-only DMA rebalance: two RGB565 bounce buffers at 800 px use
-# 2 * width * 2 bytes * lines. Moving 10 -> 6 lines releases exactly 12.8 KiB
-# while retaining DOUBLE_DIRECT and a nonzero bounce path. Standalone HIL keeps
-# its separate vendor-baseline qualification.
+# Two RGB565 bounce buffers: reducing 10 -> 6 lines releases 12,800 bytes.
 assert "#define PRODUCT_RGB_BOUNCE_LINES 6U" in MAIN
 assert 2 * 800 * 2 * (10 - 6) == 12800
 assert "#define PRODUCT_TEAR_MODE ESP_LV_ADAPTER_TEAR_AVOID_MODE_DOUBLE_DIRECT" in MAIN
 assert "allow_no_bounce_fallback = true" in MAIN
 assert "2 PSRAM framebuffers, 6-line bounce" in MAIN
 
-# Boot must no longer allocate every hidden page before the first visible frame.
 create_match = re.search(
     r"lv_obj_t \*screen_app_create\([^)]*\)\s*\{(.*?)\n\}\n\nvoid screen_app_show_page",
     APP,
@@ -89,14 +69,12 @@ assert "commissioning_screen_set_backend(&s_commissioning_backend)" in APP
 assert "s_source_backend = *backend" in APP
 assert "source_commissioning_screen_set_backend(&s_source_backend)" in APP
 
-# A wedged LVGL worker must be observable rather than holding main/refresh forever.
 assert "#define SCREEN_LVGL_LOCK_MS 2000U" in MAIN
 assert "esp_lv_adapter_lock(-1)" not in MAIN
 assert "esp_lv_adapter_lock(SCREEN_LVGL_LOCK_MS)" in MAIN
 assert "LVGL activation lock timed out/failed" in MAIN
 assert "LVGL activation stage 5/6" in MAIN
 
-# Hardware evidence remains mandatory for the next candidate.
 assert 'log_dma_headroom("Before LCD DMA reservation")' in MAIN
 assert 'log_dma_headroom("After LCD DMA reservation")' in MAIN
 assert 'log_dma_headroom("Before Product Core init")' in MAIN
