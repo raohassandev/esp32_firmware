@@ -14,11 +14,17 @@ SPEC.loader.exec_module(MOD)
 
 SHA = "1" * 40
 TREE = "2" * 40
+APP = "boards/w/screen/product_800x480/build/automatrix_pvdg_waveshare_800x480.bin"
 
 
-def make_zip(path: Path, tamper: bool = False) -> str:
+def make_zip(
+    path: Path,
+    tamper: bool = False,
+    omit_checksum_for: str | None = None,
+    physical_acceptance: str = "UNTESTED",
+) -> str:
     files = {
-        "boards/w/screen/product_800x480/build/automatrix_pvdg_waveshare_800x480.bin": b"app-binary",
+        APP: b"app-binary",
         "boards/w/screen/product_800x480/build/bootloader/bootloader.bin": b"boot",
         "boards/w/screen/product_800x480/build/partition_table/partition-table.bin": b"partitions",
         "boards/w/screen/product_800x480/build/flasher_args.json": b"{}",
@@ -26,14 +32,21 @@ def make_zip(path: Path, tamper: bool = False) -> str:
         "boards/w/screen/product_800x480/build/flash_project_args": b"project",
         "effective-sdkconfig": b"CONFIG_FOO=y\n",
         "boards/w/screen/product_800x480/build/requalification-effective-config.txt": b"CONFIG_FOO=y\n",
-        "CANDIDATE.txt": f"candidate_sha={SHA}\ncandidate_tree={TREE}\nphysical_acceptance=UNTESTED\n".encode(),
+        "CANDIDATE.txt": (
+            f"candidate_sha={SHA}\n"
+            f"candidate_tree={TREE}\n"
+            "esp_idf=6.0.1\n"
+            "product_dir=boards/w/screen/product_800x480\n"
+            f"physical_acceptance={physical_acceptance}\n"
+        ).encode(),
     }
     sums = []
     for name, data in files.items():
-        sums.append(f"{MOD.sha256_bytes(data)}  ./{name}")
+        if name != omit_checksum_for:
+            sums.append(f"{MOD.sha256_bytes(data)}  ./{name}")
     files["SHA256SUMS.txt"] = ("\n".join(sums) + "\n").encode()
     if tamper:
-        files["boards/w/screen/product_800x480/build/automatrix_pvdg_waveshare_800x480.bin"] = b"tampered"
+        files[APP] = b"tampered"
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for name, data in files.items():
             zf.writestr(name, data)
@@ -64,6 +77,18 @@ def main() -> None:
         bad = MOD.verify(bad_zip, expected_sha=SHA, expected_tree=TREE)
         assert not bad.passed
         assert any(x.startswith("checksum_mismatch:") for x in bad.failures)
+
+        incomplete_zip = td / "incomplete.zip"
+        make_zip(incomplete_zip, omit_checksum_for=APP)
+        incomplete = MOD.verify(incomplete_zip, expected_sha=SHA, expected_tree=TREE)
+        assert not incomplete.passed
+        assert f"checksum_coverage_missing:{APP}" in incomplete.failures
+
+        claimed_zip = td / "claimed.zip"
+        make_zip(claimed_zip, physical_acceptance="PASSED")
+        claimed = MOD.verify(claimed_zip, expected_sha=SHA, expected_tree=TREE)
+        assert not claimed.passed
+        assert "artifact_physical_acceptance_not_untested" in claimed.failures
 
     print("Waveshare package verifier tests passed")
 
