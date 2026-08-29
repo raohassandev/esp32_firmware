@@ -1,0 +1,78 @@
+name: Waveshare exact candidate package
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/waveshare-candidate-package.yml'
+      - 'docs/boards/waveshare-esp32-s3-touch-lcd-5/HARDWARE_EXECUTION_RUNBOOK.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package-exact-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CANDIDATE_SHA: ec4fb846875d67a806c2b7cc48b21d5706f91995
+      CANDIDATE_TREE: 09bf66d223e91fc0a248551d0e39c02eb15a2e52
+      PRODUCT_DIR: boards/waveshare_esp32_s3_touch_lcd_5/screen/product_800x480
+    steps:
+      - name: Check out exact integrated candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ec4fb846875d67a806c2b7cc48b21d5706f91995
+          fetch-depth: 0
+
+      - name: Verify candidate identity
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test "$(git rev-parse HEAD^{tree})" = "$CANDIDATE_TREE"
+          test -z "$(git status --porcelain)"
+          printf 'candidate_sha=%s\ncandidate_tree=%s\n' "$CANDIDATE_SHA" "$CANDIDATE_TREE"
+
+      - name: Build exact Product Core plus 800x480 LCD image
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD:/project" \
+            -w "/project/$PRODUCT_DIR" \
+            espressif/idf:v6.0.1 \
+            bash -lc 'idf.py set-target esp32s3 && idf.py build && test -f build/automatrix_pvdg_waveshare_800x480.bin'
+
+      - name: Assemble flash package and hashes
+        run: |
+          set -euo pipefail
+          build="$PRODUCT_DIR/build"
+          package="$GITHUB_WORKSPACE/waveshare-exact-candidate"
+          mkdir -p "$package"
+          cd "$GITHUB_WORKSPACE"
+          while IFS= read -r -d '' file; do
+            mkdir -p "$package/$(dirname "$file")"
+            cp "$file" "$package/$file"
+          done < <(find "$build" -maxdepth 4 -type f \
+            \( -name '*.bin' -o -name 'flasher_args.json' -o -name 'flash_args' -o -name 'flash_project_args' -o -name 'project_description.json' \) \
+            -print0)
+          cat > "$package/CANDIDATE.txt" <<EOF
+          candidate_sha=$CANDIDATE_SHA
+          candidate_tree=$CANDIDATE_TREE
+          esp_idf=6.0.1
+          product_dir=$PRODUCT_DIR
+          source_pr=34
+          EOF
+          cd "$package"
+          find . -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+          test -f "$package/$build/automatrix_pvdg_waveshare_800x480.bin"
+          test -f "$package/$build/bootloader/bootloader.bin"
+          test -f "$package/$build/partition_table/partition-table.bin"
+          test -f "$package/$build/flasher_args.json"
+
+      - name: Upload exact-candidate hardware package
+        uses: actions/upload-artifact@v4
+        with:
+          name: waveshare-800x480-ec4fb846
+          path: waveshare-exact-candidate
+          if-no-files-found: error
+          retention-days: 14
