@@ -21,6 +21,7 @@
 
 #define SCREEN_REFRESH_STACK_BYTES 12288
 #define PRODUCT_RGB_BOUNCE_LINES 6U
+#define PRODUCT_RGB_PCLK_HZ 12000000U
 #define PRODUCT_TEAR_MODE ESP_LV_ADAPTER_TEAR_AVOID_MODE_DOUBLE_DIRECT
 #define SCREEN_LVGL_LOCK_MS 2000U
 #define SCREEN_FAST_MS 1000U
@@ -32,6 +33,7 @@
 
 static const char *TAG = "waveshare_product";
 static waveshare_display_port_handles_t s_display;
+static waveshare_display_profile_t s_product_profile;
 static const waveshare_display_profile_t *s_profile;
 static const esp_lv_adapter_rotation_t s_rotation = ESP_LV_ADAPTER_ROTATE_0;
 static screen_commissioning_snapshot_t s_commissioning;
@@ -74,27 +76,30 @@ static void log_runtime_headroom(const char *stage)
  * until after the unchanged shared Core has created its safety-critical tasks.
  *
  * The failed ten-line product candidate consumed 32 kB total for the two
- * RGB565 DRAM bounce buffers at 800 px width. The next requalification candidate
- * uses six lines (19.2 kB total), releasing 12.8 kB of scarce internal/DMA RAM.
- * ESP-IDF documents bounce buffers as a few lines of display data and recommends
- * PSRAM XIP for this mode; the product config now also matches the pinned vendor
- * XIP/cache policy so the smaller bounce pool is not asked to mask avoidable
- * flash/cache stalls. The standalone HIL image remains pinned to its separately
- * qualified ten-line vendor baseline.
+ * RGB565 DRAM bounce buffers at 800 px width. This candidate uses six lines
+ * (19.2 kB total), releasing 12.8 kB of scarce internal/DMA RAM. ESP-IDF's RGB
+ * guidance recommends PSRAM XIP and a 64-byte D-cache line for bounce-buffer
+ * mode; sdkconfig locks both while keeping the smaller cache sizes that return
+ * SRAM to heap. The driver also restores the pinned vendor transfer alignment.
  *
- * The product HMI uses the adapter's RGB DOUBLE_DIRECT tear-avoid mode. That
- * mode allocates two full PSRAM framebuffers and is intended for small-area
- * widget/UI delta updates, which matches the retained-row/changed-label render
- * path used by this stabilization lane. The adapter owns buffer switching at
- * frame boundaries instead of allowing a live label repaint to race the RGB
- * scanout of the same framebuffer. Core acquisition cadence, control timing and
- * safety policy are unchanged. */
+ * The product HMI uses DOUBLE_DIRECT and two PSRAM framebuffers. To offset the
+ * smaller bounce pool under simultaneous Wi-Fi/Core traffic, only the product
+ * profile lowers PCLK from the vendor/HIL 16 MHz baseline to 12 MHz. Timings,
+ * GPIO mapping and the separately-qualified standalone HIL profile remain
+ * unchanged. This is an industrial HMI, so the reduced refresh rate is an
+ * acceptable trade for deterministic RGB refill bandwidth and memory margin.
+ * Core acquisition cadence, control timing and safety policy are unchanged. */
 static esp_err_t native_screen_reserve(void)
 {
-    s_profile = waveshare_display_profile(WAVESHARE_DISPLAY_800X480);
-    if (!s_profile || s_profile->width != 800U || s_profile->height != 480U) {
+    const waveshare_display_profile_t *vendor_profile =
+        waveshare_display_profile(WAVESHARE_DISPLAY_800X480);
+    if (!vendor_profile || vendor_profile->width != 800U || vendor_profile->height != 480U) {
         return ESP_ERR_INVALID_STATE;
     }
+
+    s_product_profile = *vendor_profile;
+    s_product_profile.pixel_clock_hz = PRODUCT_RGB_PCLK_HZ;
+    s_profile = &s_product_profile;
 
     const waveshare_display_port_config_t display_config = {
         .profile = s_profile,
@@ -107,7 +112,9 @@ static esp_err_t native_screen_reserve(void)
     };
 
     ESP_LOGI(TAG, "Reserving native 800x480 Waveshare LCD/touch DMA before Core");
-    ESP_LOGI(TAG, "RGB live-update mode: DOUBLE_DIRECT anti-tear, 2 PSRAM framebuffers, 6-line bounce");
+    ESP_LOGI(TAG,
+             "RGB live-update mode: DOUBLE_DIRECT anti-tear, 2 PSRAM framebuffers, 6-line bounce, pclk=%u Hz",
+             (unsigned)s_profile->pixel_clock_hz);
     log_dma_headroom("Before LCD DMA reservation");
     esp_err_t err = waveshare_display_port_init(&display_config, &s_display);
     if (err != ESP_OK) return err;
@@ -158,7 +165,6 @@ static esp_err_t native_screen_activate(void)
     esp_lv_adapter_display_config_t lv_display_config =
         ESP_LV_ADAPTER_DISPLAY_RGB_DEFAULT_CONFIG(
             s_display.panel, NULL, s_profile->width, s_profile->height, s_rotation);
-    /* Keep adapter and esp_lcd ownership on the same selected anti-tear mode. */
     lv_display_config.tear_avoid_mode = PRODUCT_TEAR_MODE;
     lv_display_config.profile.use_psram = true;
 
@@ -249,10 +255,6 @@ static screen_page_t active_page(void)
     return page;
 }
 
-/* Refresh only the context the operator can see. Core acquisition continues at
- * its own authoritative cadence; this changes only the HMI projection workload.
- * Page changes are refreshed immediately on the next 1 s tick, while steady
- * pages keep the existing bounded cadences. */
 static void refresh_active_context(screen_page_t page, uint32_t elapsed_ms, bool page_changed)
 {
     switch (page) {
@@ -277,7 +279,6 @@ static void refresh_active_context(screen_page_t page, uint32_t elapsed_ms, bool
     case SCREEN_PAGE_SOURCE:
     case SCREEN_PAGE_COUNT:
     default:
-        /* Source commissioning owns its own user-driven reads/writes. */
         break;
     }
 }
@@ -304,10 +305,6 @@ static void screen_refresh_task(void *argument)
 
 void app_main(void)
 {
-    /* Use ESP-IDF's main task instead of allocating a second 16 kB internal
-     * bootstrap stack. The physical requalification lane now keeps generic
-     * malloc traffic out of the protected internal pool and lazily creates only
-     * the visible Overview during boot, so this task should return promptly. */
     esp_err_t screen_reserve_err = native_screen_reserve();
     if (screen_reserve_err != ESP_OK) {
         ESP_LOGE(TAG, "Native screen DMA reservation failed: %s; Core continues headless",
@@ -324,10 +321,6 @@ void app_main(void)
     }
     log_dma_headroom("After Product Core init");
 
-    /* ESP-IDF documents NVS/flash operations from PSRAM-stacked tasks as unsafe
-     * unless they are routed through esp_flash_dispatcher. Initialize the
-     * official dispatcher after Core startup has claimed its safety-critical
-     * resources and before LVGL's PSRAM-stacked Engineering callbacks can run. */
     if (core_err == ESP_OK) {
         (void)init_flash_dispatcher();
     }
@@ -372,9 +365,6 @@ void app_main(void)
                 ESP_LOGE(TAG, "Source commissioning backend initialization failed; Source page stays locked");
             }
 
-            /* This task performs only in-process Core snapshot projections and
-             * LVGL updates. Commissioning flash operations are intercepted by
-             * Espressif's dispatcher and executed on its internal-RAM task. */
             BaseType_t created = xTaskCreateWithCaps(
                 screen_refresh_task,
                 "screen_refresh",
