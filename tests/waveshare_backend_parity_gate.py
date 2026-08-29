@@ -15,10 +15,12 @@ ROOT = Path(__file__).resolve().parents[1]
 PROVIDER = ROOT / "boards/waveshare_esp32_s3_touch_lcd_5/screen/product_800x480/main/local_backend_provider.c"
 OP_C = ROOT / "components/web_server/operational_api.c"
 OP_H = ROOT / "components/web_server/include/operational_api.h"
+DOC = ROOT / "docs/waveshare_backend_parity.md"
 
 provider = PROVIDER.read_text(encoding="utf-8")
 op_c = OP_C.read_text(encoding="utf-8")
 op_h = OP_H.read_text(encoding="utf-8")
+doc = DOC.read_text(encoding="utf-8")
 
 assert "{SCREEN_API_EVENTS_PATH,        0U" not in provider
 assert "{SCREEN_API_ALARMS_PATH,        0U" not in provider
@@ -75,5 +77,12 @@ init_body = provider[init_start:fetch_start]
 assert "heap_caps_malloc(slot->capacity, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)" in init_body
 assert "slot->json = malloc(slot->capacity)" not in init_body
 assert "Unable to allocate %u PSRAM bytes" in init_body
+
+# The temporary cJSON allocation cost is deliberately not hand-waved away. It
+# must be measured on exact-board soak while Alarms is held open; if it proves
+# expensive the accepted next seam is a bounded Core snapshot, not duplication.
+assert "temporary cJSON tree" in doc
+assert "minimum-heap collapse or fragmentation" in doc
+assert "bounded Core snapshot/projection seam" in doc
 
 print("Waveshare native backend parity gate: PASS")
