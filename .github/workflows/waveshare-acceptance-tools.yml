@@ -1,0 +1,31 @@
+name: Waveshare physical acceptance tools
+
+on:
+  pull_request:
+    paths:
+      - 'tools/waveshare_acceptance_check.py'
+      - 'tests/waveshare_acceptance_check_test.py'
+      - '.github/workflows/waveshare-acceptance-tools.yml'
+      - '.github/workflows/waveshare-integration-package.yml'
+  push:
+    branches:
+      - work/waveshare/stabilization-integration
+    paths:
+      - 'tools/waveshare_acceptance_check.py'
+      - 'tests/waveshare_acceptance_check_test.py'
+      - '.github/workflows/waveshare-acceptance-tools.yml'
+      - '.github/workflows/waveshare-integration-package.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance-log-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run deterministic smoke-log gate tests
+        run: python3 tests/waveshare_acceptance_check_test.py
+      - name: Check CLI syntax
+        run: python3 tools/waveshare_acceptance_check.py --help >/dev/null
