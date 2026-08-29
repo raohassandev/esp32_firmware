@@ -18,9 +18,26 @@ from pathlib import Path
 
 FATAL_PATTERNS = {
     "no_mem": re.compile(r"ESP_ERR_NO_MEM", re.I),
+    "httpd_task": re.compile(r"ESP_ERR_HTTPD_TASK", re.I),
     "degraded_startup": re.compile(r"Startup completed with degraded subsystems", re.I),
+    "core_init_failed": re.compile(r"Product Core initialization failed", re.I),
+    "screen_dma_reservation_failed": re.compile(r"Native screen DMA reservation failed", re.I),
+    "screen_activation_failed": re.compile(r"Native screen LVGL/UI activation failed", re.I),
+    "flash_dispatcher_failed": re.compile(r"Flash dispatcher init failed", re.I),
+    "screen_backend_failed": re.compile(r"Screen backend provider initialization failed", re.I),
+    "screen_refresh_task_failed": re.compile(r"Unable to create PSRAM screen refresh task", re.I),
+    "commissioning_backend_failed": re.compile(r"Local commissioning backend initialization failed", re.I),
+    "source_commissioning_backend_failed": re.compile(r"Source commissioning backend initialization failed", re.I),
     "task_wdt": re.compile(r"task[_ ]?wdt|Task watchdog", re.I),
     "panic": re.compile(r"Guru Meditation|panic'ed|\bpanic\b|\babort\b", re.I),
+}
+
+REQUIRED_RUNTIME_MARKERS = {
+    "core_ready": re.compile(r"Shared Product Core started", re.I),
+    "flash_dispatcher_ready": re.compile(r"Espressif flash dispatcher ready", re.I),
+    "commissioning_backend_ready": re.compile(r"Local Engineering commissioning backend bound to touchscreen", re.I),
+    "source_commissioning_backend_ready": re.compile(r"Local source-evidence commissioning backend bound to touchscreen", re.I),
+    "screen_refresh_ready": re.compile(r"Screen refresh task created in PSRAM", re.I),
 }
 
 STAGES = (
@@ -49,6 +66,7 @@ UPTIME_RE = re.compile(r"^[VDIWE]\s+\((\d+)\)")
 class Result:
     passed: bool
     fatal_hits: dict[str, int]
+    runtime_markers: dict[str, bool]
     activation_stages: list[int]
     activation_counts: dict[int, int]
     native_ready: bool
@@ -82,6 +100,7 @@ def analyse(
 ) -> Result:
     lines = text.splitlines()
     fatal_hits = {name: sum(1 for line in lines if rx.search(line)) for name, rx in FATAL_PATTERNS.items()}
+    runtime_markers = {name: any(rx.search(line) for line in lines) for name, rx in REQUIRED_RUNTIME_MARKERS.items()}
 
     activation_hits = [int(m.group(1)) for line in lines for m in [ACTIVATION_RE.search(line)] if m]
     activation = sorted(set(activation_hits))
@@ -128,6 +147,9 @@ def analyse(
     for name, count in fatal_hits.items():
         if count:
             failures.append(f"fatal:{name}={count}")
+    for name, present in runtime_markers.items():
+        if not present:
+            failures.append(f"runtime_marker_missing:{name}")
     if activation != [1, 2, 3, 4, 5, 6]:
         failures.append(f"activation_stages={activation}")
     repeated_activation = {stage: count for stage, count in activation_counts.items() if count > 1}
@@ -156,6 +178,7 @@ def analyse(
     return Result(
         passed=not failures,
         fatal_hits=fatal_hits,
+        runtime_markers=runtime_markers,
         activation_stages=activation,
         activation_counts=activation_counts,
         native_ready=native_ready,
