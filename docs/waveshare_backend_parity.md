@@ -19,6 +19,8 @@ The native operational slots are bounded at 49,152 bytes for events and 32,768 b
 
 `screen_api.c` remains responsible for projecting the full authoritative payload into the LCD's bounded display rows. Unknown/unavailable state must remain unknown; the screen must not fabricate zero alarms or empty event history.
 
+The shared builders still allocate their temporary cJSON tree while a snapshot is produced. The native operations refresh only runs while the Alarms page is active, but exact-board soak evidence must still show that repeatedly opening/holding that page does not cause minimum-heap collapse or fragmentation. If it does, the next optimization is a bounded Core snapshot/projection seam, not a return to duplicate alarm logic.
+
 ## Remaining acceptance
 
 Software CI must prove the shared builder ownership, product build and parser contracts at the exact head. Hardware acceptance still requires healthy/offline/stale transitions and loss/recovery to match the web/Core authority on the physical Waveshare board without reset, heap collapse, control starvation or stale UI recovery.
