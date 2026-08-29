@@ -19,6 +19,7 @@ This document is the release evidence contract for the Waveshare 800x480 product
 5. Product Core control/safety policy must not be weakened to make an HMI test pass.
 6. Unknown backend values remain unknown; zero is never substituted for unavailable measurement data.
 7. Automatic control must remain fail-closed throughout commissioning, persistence failures, backend loss and display faults.
+8. Resource evidence must include the product image's periodic `Screen soak` log line wherever available; isolated one-time boot numbers are not sufficient to prove stability.
 
 ## A. Display and touch stability
 
@@ -27,10 +28,11 @@ This document is the release evidence contract for the Waveshare 800x480 product
 | DISP-01 | Idle overview | 5 min video + serial log | No visible flicker, shake, tearing or spontaneous viewport movement. |
 | DISP-02 | Live-value updates | 10 min video while grid/solar values change | Value changes do not move/redraw unrelated cards and no periodic flash occurs. |
 | DISP-03 | Grid/Solar lists | 10 min with device values updating | Existing rows update in place; no list flash/rebuild artifact. |
-| DISP-04 | Navigation | 100 repeated page changes | No blank frame, stale page overlay, double-tap requirement or touch loss. |
-| DISP-05 | Wi-Fi load | Browser/API traffic while LCD updates | No scanout shake or display corruption under network activity. |
-| DISP-06 | Commissioning UI | Navigate/edit without saving, then with valid saves | Keyboard/forms/navigation remain visually stable. |
-| DISP-07 | Touch soak | >=500 deliberate touches across all pages | No stuck press, ghost navigation or touch-controller loss. |
+| DISP-04 | Alarms/Events lists | 10 min while events age and representative alarm state changes | Existing alarm/event rows update in place; no 5-second list flash, page jump or whole-list rebuild artifact. |
+| DISP-05 | Navigation | 100 repeated page changes | No blank frame, stale page overlay, double-tap requirement or touch loss. |
+| DISP-06 | Wi-Fi load | Browser/API traffic while LCD updates | No scanout shake or display corruption under network activity. |
+| DISP-07 | Commissioning UI | Navigate/edit without saving, then with valid saves | Keyboard/forms/navigation remain visually stable. |
+| DISP-08 | Touch soak | >=500 deliberate touches across all pages | No stuck press, ghost navigation or touch-controller loss. |
 
 ## B. Native backend/read-model parity
 
@@ -40,10 +42,11 @@ This document is the release evidence contract for the Waveshare 800x480 product
 | DATA-02 | Status parity | LCD vs Core status | Network, source attribution, meter state, controller state and alarms agree. |
 | DATA-03 | Meter parity | Healthy/stale/offline scenarios | LCD preserves online/stale/unavailable semantics and never fabricates zero. |
 | DATA-04 | Inverter parity | Healthy/offline/not-tested scenarios | LCD state and telemetry/command evidence match Core. |
-| DATA-05 | Alarm parity | Raise/clear/acknowledge representative alarms | LCD alarm lifecycle matches authoritative operator alarm state. |
-| DATA-06 | Event parity | Generate network/control/device events | LCD recent events match authoritative event order/state. |
+| DATA-05 | Alarm parity | Raise/clear/acknowledge representative alarms; compare LCD with `/api/operator/alarms` | Lifecycle, priority, suppression/role and outstanding state match the shared Core authority. |
+| DATA-06 | Event parity | Generate network/control/device events; compare LCD with `/api/operator/events` | Recent event order/state/wording agree with the shared Core authority. |
 | DATA-07 | Recovery | Backend/device loss then recovery | Each affected surface recovers without reboot and unrelated surfaces remain valid. |
-| DATA-08 | Bounded failure | Force provider allocation/serialization/read failure where practical | Failure is visible as unavailable; stale/fabricated data is not presented as current. |
+| DATA-08 | Bounded failure | Force provider allocation/serialization/read failure where practical | Failure is visible as unavailable; stale/fabricated/truncated data is not presented as current. |
+| DATA-09 | Alarms page hold-open | >=30 min with periodic events plus `Screen soak` resource lines | Repeated shared operational cJSON builds do not cause monotonic heap loss, fragmentation symptoms, reset or backend stall. |
 
 ## C. Commissioning and persistence
 
@@ -61,18 +64,19 @@ This document is the release evidence contract for the Waveshare 800x480 product
 
 ## D. Resource and control isolation
 
-Capture before UI activation, after activation, under steady UI, during network load and after soak.
+Capture before UI activation, after activation, under steady UI, during network load and after soak. Once the product image includes periodic `Screen soak` telemetry, retain the complete series rather than only start/end values.
 
 | ID | Measurement | Pass condition |
 |---|---|---|
 | RES-01 | Internal DMA free/largest block | No progressive collapse; qualified RGB path retains required headroom. |
 | RES-02 | Internal heap free/minimum | No monotonic leak and no entry into unsafe/reset-prone range. |
-| RES-03 | PSRAM free/minimum | Stable after bounded UI/provider allocations. |
+| RES-03 | PSRAM free/largest block | Stable after bounded UI/provider allocations; no progressive fragmentation trend. |
 | RES-04 | LVGL task stack HWM | Measured margin remains acceptable under worst tested page. |
 | RES-05 | Screen refresh task stack HWM | No near-overflow under largest device/alarm payload. |
 | RES-06 | Flash-dispatcher stack/queue behavior | Repeated saves do not overflow, deadlock or starve callers. |
 | RES-07 | Watchdog/reset reason | No WDT, brownout, panic or unexpected reset. |
 | RES-08 | Control cadence/jitter | Active UI/network/persistence does not materially starve the existing control cadence. |
+| RES-09 | Operational-payload churn | Hold Alarms page open >=30 min and generate representative events | Internal minimum heap and largest usable memory do not progressively collapse; no allocation failure/backend stall. |
 
 ## E. Integrated soak
 
@@ -81,12 +85,13 @@ Minimum integrated soak before PR #20 can leave Draft: **4 continuous hours** on
 During the soak:
 
 - exercise Overview, Grid, Solar, Alarms, Ready, Commission and Source pages;
+- keep Alarms open for at least one continuous 30-minute period while operational snapshots refresh;
 - periodically create live-value changes and device/network recovery events;
 - execute representative authenticated commissioning reads and bounded save cycles;
-- record reset reason, heap/PSRAM/DMA headroom and control timing at start/end and after stress actions;
-- record any flicker or UI/backend stall as a failure, not as a cosmetic note.
+- retain every periodic `Screen soak` resource line and record reset reason/control timing at stress transitions;
+- record any flicker, UI/backend stall or progressive memory collapse as a failure, not as a cosmetic note.
 
-Final pass requires zero unexpected resets, zero watchdogs, zero visible recurring flicker/shake, zero persistent backend stalls, zero persistence mismatches and no evidence that UI work starved the Product Core.
+Final pass requires zero unexpected resets, zero watchdogs, zero visible recurring flicker/shake, zero persistent backend stalls, zero persistence mismatches, no progressive heap/PSRAM/DMA collapse and no evidence that UI work starved the Product Core.
 
 ## Release decision
 
