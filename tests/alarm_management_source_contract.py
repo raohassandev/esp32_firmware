@@ -125,7 +125,11 @@ require("case EVENT_NETWORK_STATE:" not in network_case,
 for field in ['"caused_by"', '"role"', '"consequential"', '"primary"']:
     require(field in API, f"alarm payload does not express {field}")
 
-alarms_get = function_body("alarms_get")
+alarms_get = function_body("operational_api_build_alarms_json")
+alarms_http = function_body("alarms_get")
+require("operational_api_build_alarms_json()" in alarms_http and
+        "return send_json(request, root);" in alarms_http,
+        "alarm HTTP handler must remain a thin wrapper over the shared authoritative builder")
 require('"caused_by"' in alarms_get and '"role"' in alarms_get,
         "cause attribution is not part of the alarm listing")
 
