@@ -1,0 +1,37 @@
+name: Fix alarm reader contract ownership
+
+on:
+  push:
+    branches:
+      - 'work/waveshare/backend-parity'
+    paths:
+      - 'tools/fix_alarm_reader_contracts_shared_builder.py'
+      - '.github/workflows/fix-alarm-reader-contracts.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  update-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/waveshare/backend-parity
+          fetch-depth: 0
+      - name: Update alarm read contracts for shared builder ownership
+        run: python3 tools/fix_alarm_reader_contracts_shared_builder.py
+      - name: Remove one-shot patch machinery
+        run: |
+          rm tools/fix_alarm_reader_contracts_shared_builder.py
+          rm .github/workflows/fix-alarm-reader-contracts.yml
+      - name: Commit contract updates to lane branch
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'test: follow shared alarm builder in downstream contracts'
+          git push origin HEAD:work/waveshare/backend-parity
