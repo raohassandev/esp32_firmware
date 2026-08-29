@@ -159,6 +159,10 @@ def analyse(
         failures.append("native_ready_missing")
     if soak_samples < min_soak_samples:
         failures.append(f"screen_soak={soak_samples}<{min_soak_samples}")
+    if len(runtime_free) < min_soak_samples:
+        failures.append(f"screen_soak_dma_free={len(runtime_free)}<{min_soak_samples}")
+    if len(runtime_largest) < min_soak_samples:
+        failures.append(f"screen_soak_dma_largest={len(runtime_largest)}<{min_soak_samples}")
     if min_free is None:
         failures.append("dma_free_evidence_missing")
     elif min_free < min_dma_free:
