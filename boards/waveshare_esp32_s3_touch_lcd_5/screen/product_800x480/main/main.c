@@ -1,5 +1,6 @@
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #include "app_core.h"
 #include "esp_err.h"
@@ -283,6 +284,61 @@ static void refresh_active_context(screen_page_t page, uint32_t elapsed_ms, bool
     }
 }
 
+/* Per-task stack high-water marks. The remaining internal DMA shortfall is
+ * dominated by FreeRTOS stacks, and right-sizing them has to be driven by
+ * measured peak usage rather than by the configured numbers. Reported once per
+ * soak interval alongside the memory line. */
+static void log_task_stacks(const char *stage)
+{
+    const UBaseType_t count = uxTaskGetNumberOfTasks();
+    TaskStatus_t *tasks = calloc(count, sizeof(TaskStatus_t));
+    if (!tasks) return;
+    const UBaseType_t got = uxTaskGetSystemState(tasks, count, NULL);
+    for (UBaseType_t i = 0; i < got; ++i) {
+        ESP_LOGI(TAG, "%s stack: %-16s hwm=%u prio=%u",
+                 stage,
+                 tasks[i].pcTaskName,
+                 (unsigned)tasks[i].usStackHighWaterMark,
+                 (unsigned)tasks[i].uxCurrentPriority);
+    }
+    free(tasks);
+}
+
+/* One-shot lazy-page memory walk. The UI creates pages on first navigation, so
+ * boot-time headroom alone does not describe the realistic steady state. This
+ * instantiates every operator page once and records the internal DMA cost of
+ * each first creation, which is the measurement the acceptance criterion needs
+ * and which cannot otherwise be obtained without someone tapping the glass. */
+static void walk_all_pages_once(void)
+{
+    static const struct { screen_page_t page; const char *name; } PAGES[] = {
+        {SCREEN_PAGE_OVERVIEW, "Overview"},   {SCREEN_PAGE_GRID, "Grid"},
+        {SCREEN_PAGE_SOLAR, "Solar"},         {SCREEN_PAGE_ALARMS, "Alarms"},
+        {SCREEN_PAGE_READINESS, "Ready"},     {SCREEN_PAGE_COMMISSIONING, "Commission"},
+        {SCREEN_PAGE_SOURCE, "Source"},
+    };
+    const uint32_t caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA;
+    for (size_t i = 0; i < sizeof(PAGES) / sizeof(PAGES[0]); ++i) {
+        if (esp_lv_adapter_lock(SCREEN_LVGL_LOCK_MS) != ESP_OK) {
+            ESP_LOGE(TAG, "Page walk: lock timeout before %s", PAGES[i].name);
+            return;
+        }
+        screen_app_show_page(PAGES[i].page);
+        esp_lv_adapter_unlock();
+        vTaskDelay(pdMS_TO_TICKS(400));
+        ESP_LOGI(TAG, "Page walk: after %-11s DMA free=%u largest=%u | PSRAM free=%u",
+                 PAGES[i].name,
+                 (unsigned)heap_caps_get_free_size(caps),
+                 (unsigned)heap_caps_get_largest_free_block(caps),
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    }
+    if (esp_lv_adapter_lock(SCREEN_LVGL_LOCK_MS) == ESP_OK) {
+        screen_app_show_page(SCREEN_PAGE_OVERVIEW);
+        esp_lv_adapter_unlock();
+    }
+    ESP_LOGI(TAG, "Page walk complete: all seven operator pages instantiated");
+}
+
 static void screen_refresh_task(void *argument)
 {
     (void)argument;
@@ -298,7 +354,9 @@ static void screen_refresh_task(void *argument)
         elapsed_ms += SCREEN_FAST_MS;
         if ((elapsed_ms % SCREEN_RESOURCE_LOG_MS) == 0U) {
             log_runtime_headroom("Screen soak");
+            log_task_stacks("Screen soak");
         }
+        if (elapsed_ms == 10000U) walk_all_pages_once();
         vTaskDelayUntil(&wake, pdMS_TO_TICKS(SCREEN_FAST_MS));
     }
 }

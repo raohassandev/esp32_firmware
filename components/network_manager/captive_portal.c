@@ -4,6 +4,7 @@
 
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
+#include "esp_heap_caps.h"
 #include "freertos/task.h"
 #include "lwip/sockets.h"
 
@@ -173,7 +174,11 @@ esp_err_t captive_portal_start(uint32_t portal_address_network_order)
     if (portal_address_network_order == 0U) return ESP_ERR_INVALID_ARG;
     s_portal_address = portal_address_network_order;
     s_running = true;
-    if (xTaskCreate(portal_task, "captive_dns", 3072, NULL, 4, &s_task) != pdPASS) {
+    /* NONCRITICAL_PSRAM_ELIGIBLE. The captive-portal responder only reads and
+     * writes lwip UDP sockets; it touches no flash API and gates no control
+     * decision, so its stack does not need to occupy internal DMA-capable RAM. */
+    if (xTaskCreateWithCaps(portal_task, "captive_dns", 3072, NULL, 4, &s_task,
+                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
         s_running = false;
         return ESP_ERR_NO_MEM;
     }
