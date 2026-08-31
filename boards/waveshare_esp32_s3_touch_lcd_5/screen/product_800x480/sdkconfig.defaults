@@ -11,6 +11,15 @@ CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_SPIRAM_USE_MALLOC=y
+# ESP-IDF recommends PSRAM XIP for RGB bounce-buffer mode so flash writes do not
+# disable the external-memory cache underneath display refill. Keep cache *size*
+# memory-efficient: v6.0.1 documents that 16KB I-cache and 32KB D-cache return
+# the remaining SRAM to heap. Bounce mode specifically requires a 64-byte D-cache
+# line for stable PSRAM-to-SRAM refill bandwidth.
+CONFIG_SPIRAM_XIP_FROM_PSRAM=y
+CONFIG_ESP32S3_INSTRUCTION_CACHE_16KB=y
+CONFIG_ESP32S3_DATA_CACHE_32KB=y
+CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
 # Physical exact-board run of ec4fb846 proved that the old 4096-byte threshold
 # let many ordinary Core/LVGL allocations consume scarce internal/DMA-capable
 # memory: 135403 -> 101963 -> 1695 bytes across LCD reservation + Core startup.
@@ -25,13 +34,19 @@ CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=512
 # must prove the resulting steady-state headroom before this value is accepted.
 CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=98304
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+# The PSRAM Wi-Fi preference uses permanent DMA buffers. Exact-board diagnostics
+# proved RX4/TX4 removes the four critical Core ESP_ERR_NO_MEM failures and the
+# serial stall. BA8 equals 2x the static RX count, matching Espressif's window
+# sizing rule while preserving AMPDU reception.
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=4
+CONFIG_ESP_WIFI_STATIC_TX_BUFFER=y
+CONFIG_ESP_WIFI_STATIC_TX_BUFFER_NUM=4
+CONFIG_ESP_WIFI_RX_BA_WIN=8
 CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM=y
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
-# A/B diagnostic: keep RGB bounce/timing unchanged and disable automatic DMA
-# restart at every VSYNC. ESP-IDF documents this option as a recovery path for
-# RGB drift that can itself produce visible flicker. Stable standalone HIL does
-# not force this option on; this isolates restart-induced shaking from genuine
-# bandwidth underrun before any larger SRAM rebalance.
+# Keep automatic DMA restart disabled. It is a recovery mechanism that can make
+# persistent bandwidth problems appear as visible recurring flicker instead of
+# solving them; the new XIP/cache-line path must remain stable without it.
 # CONFIG_LCD_RGB_RESTART_IN_VSYNC is not set
 CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
 CONFIG_HTTPD_MAX_URI_LEN=256

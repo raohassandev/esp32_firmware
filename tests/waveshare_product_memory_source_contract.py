@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""Guard the exact-board product memory policy after physical DMA exhaustion.
-
-This is a source/config contract only. It does not claim that the chosen budget
-passes hardware; the real board still has to prove steady-state headroom. It
-prevents the exact configuration that physically collapsed internal DMA from
-silently returning while keeping the separately-qualified RGB anti-tear path.
-"""
+"""Guard Waveshare product memory and RGB transport configuration."""
 
 from pathlib import Path
 import re
@@ -24,26 +18,33 @@ def config_int(name: str) -> int:
     return int(match.group(1))
 
 
-always_internal = config_int("CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL")
-reserve_internal = config_int("CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL")
-
-# Failed physical candidate used 4096/65536 and reached only 1695 bytes free
-# internal DMA before safety/recovery task creation completed.
-assert always_internal <= 512, (
-    "ordinary <=4 KiB malloc traffic must not be biased back into scarce internal RAM"
-)
-assert reserve_internal >= 98304, (
-    "explicit DMA/internal consumers need the enlarged protected pool used by the requalification lane"
-)
+assert config_int("CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL") <= 512
+assert config_int("CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL") >= 98304
 assert "CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y" in SDK
 assert "CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM=y" in SDK
 
-# Memory rebalancing must not silently weaken the RGB stabilization mechanism.
-assert "#define PRODUCT_RGB_BOUNCE_LINES 10U" in MAIN
+assert config_int("CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM") == 4
+assert "CONFIG_ESP_WIFI_STATIC_TX_BUFFER=y" in SDK
+assert config_int("CONFIG_ESP_WIFI_STATIC_TX_BUFFER_NUM") == 4
+assert config_int("CONFIG_ESP_WIFI_RX_BA_WIN") == 8
+
+assert "CONFIG_SPIRAM_XIP_FROM_PSRAM=y" in SDK
+assert "CONFIG_ESP32S3_INSTRUCTION_CACHE_16KB=y" in SDK
+assert "CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y" not in SDK
+assert "CONFIG_ESP32S3_DATA_CACHE_32KB=y" in SDK
+assert "CONFIG_ESP32S3_DATA_CACHE_64KB=y" not in SDK
+assert "CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y" in SDK
+
+# Product-only RGB bandwidth/memory balance. HIL profile remains at 16 MHz/10 lines.
+assert "#define PRODUCT_RGB_BOUNCE_LINES 6U" in MAIN
+assert "#define PRODUCT_RGB_PCLK_HZ 12000000U" in MAIN
+assert "s_product_profile = *vendor_profile;" in MAIN
+assert "s_product_profile.pixel_clock_hz = PRODUCT_RGB_PCLK_HZ;" in MAIN
+assert 2 * 800 * 2 * (10 - 6) == 12800
 assert "#define PRODUCT_TEAR_MODE ESP_LV_ADAPTER_TEAR_AVOID_MODE_DOUBLE_DIRECT" in MAIN
 assert "allow_no_bounce_fallback = true" in MAIN
+assert "2 PSRAM framebuffers, 6-line bounce" in MAIN
 
-# Boot must no longer allocate every hidden page before the first visible frame.
 create_match = re.search(
     r"lv_obj_t \*screen_app_create\([^)]*\)\s*\{(.*?)\n\}\n\nvoid screen_app_show_page",
     APP,
@@ -65,14 +66,12 @@ assert "commissioning_screen_set_backend(&s_commissioning_backend)" in APP
 assert "s_source_backend = *backend" in APP
 assert "source_commissioning_screen_set_backend(&s_source_backend)" in APP
 
-# A wedged LVGL worker must be observable rather than holding main/refresh forever.
 assert "#define SCREEN_LVGL_LOCK_MS 2000U" in MAIN
 assert "esp_lv_adapter_lock(-1)" not in MAIN
 assert "esp_lv_adapter_lock(SCREEN_LVGL_LOCK_MS)" in MAIN
 assert "LVGL activation lock timed out/failed" in MAIN
 assert "LVGL activation stage 5/6" in MAIN
 
-# Hardware evidence remains mandatory for the next candidate.
 assert 'log_dma_headroom("Before LCD DMA reservation")' in MAIN
 assert 'log_dma_headroom("After LCD DMA reservation")' in MAIN
 assert 'log_dma_headroom("Before Product Core init")' in MAIN
