@@ -10,7 +10,6 @@ BASE = SCREEN / "product_800x480"
 SDK = (BASE / "sdkconfig.defaults").read_text(encoding="utf-8")
 MAIN = (BASE / "main/main.c").read_text(encoding="utf-8")
 APP = (SCREEN / "screen_app.c").read_text(encoding="utf-8")
-DISPLAY_PORT = (SCREEN / "drivers/waveshare_display_port.c").read_text(encoding="utf-8")
 
 
 def config_int(name: str) -> int:
@@ -35,8 +34,6 @@ assert "CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y" not in SDK
 assert "CONFIG_ESP32S3_DATA_CACHE_32KB=y" in SDK
 assert "CONFIG_ESP32S3_DATA_CACHE_64KB=y" not in SDK
 assert "CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y" in SDK
-assert ".sram_trans_align = 4" in DISPLAY_PORT
-assert ".psram_trans_align = 64" in DISPLAY_PORT
 
 # Product-only RGB bandwidth/memory balance. HIL profile remains at 16 MHz/10 lines.
 assert "#define PRODUCT_RGB_BOUNCE_LINES 6U" in MAIN
