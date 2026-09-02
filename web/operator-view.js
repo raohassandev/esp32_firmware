@@ -1,10 +1,14 @@
 (() => {
     'use strict';
 
+    const REFRESH_MS = 5000;
+    const REQUEST_TIMEOUT_MS = 5000;
+    const ACTIVE_ROUTES = new Set(['dashboard', 'meters', 'inverters', 'control', 'system']);
     const byId = (id) => document.getElementById(id);
     const state = {
         busy: false,
         timer: null,
+        controllers: new Set(),
         gridTrend: [],
         solarTrend: [],
         lastPayload: null,
@@ -28,6 +32,7 @@
 
     function isOperator() { return document.documentElement.dataset.access !== 'engineering'; }
     function route() { return location.hash.replace(/^#\/?/, '') || 'dashboard'; }
+    function pollingActive() { return isOperator() && !document.hidden && ACTIVE_ROUTES.has(route()); }
     function node(tag, className = '', text = null) {
         const item = document.createElement(tag);
         if (className) item.className = className;
@@ -62,10 +67,35 @@
         if (series.length > 36) series.shift();
     }
     async function api(path) {
-        const response = await fetch(path, { cache: 'no-store', credentials: 'same-origin' });
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
-        return payload;
+        const controller = new AbortController();
+        state.controllers.add(controller);
+        const timer = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+        try {
+            const response = await fetch(path, {
+                cache: 'no-store',
+                credentials: 'same-origin',
+                signal: controller.signal
+            });
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+            return payload;
+        } catch (error) {
+            if (error?.name === 'AbortError') throw new Error('Controller request timed out');
+            throw error;
+        } finally {
+            window.clearTimeout(timer);
+            state.controllers.delete(controller);
+        }
+    }
+
+    function cancelTimer() {
+        if (state.timer) window.clearTimeout(state.timer);
+        state.timer = null;
+    }
+
+    function cancelRequests() {
+        state.controllers.forEach((controller) => controller.abort());
+        state.controllers.clear();
     }
 
     function sparkline(values, label) {
@@ -122,7 +152,7 @@
         if (actionLabel) {
             const button = node('button', 'button secondary op-refresh', actionLabel);
             button.type = 'button';
-            button.addEventListener('click', refreshAll);
+            button.addEventListener('click', manualRefresh);
             head.append(button);
         }
         return head;
@@ -451,7 +481,7 @@
     }
 
     async function refreshAll() {
-        if (!isOperator() || state.busy) return;
+        if (!pollingActive() || state.busy) return;
         state.busy = true;
         document.querySelectorAll('.op-refresh').forEach((button) => { button.disabled = true; button.textContent = 'Refreshing…'; });
         try {
@@ -464,6 +494,7 @@
             pushTrend(state.solarTrend, solar);
             renderCurrent();
         } catch (error) {
+            if (!pollingActive()) return;
             const view = document.querySelector('.page.active .operator-product-view');
             if (view) {
                 view.replaceChildren(sectionHeader('Controller status', 'Live information unavailable', 'The controller did not return a valid operator response.'));
@@ -476,6 +507,29 @@
             state.busy = false;
             document.querySelectorAll('.op-refresh').forEach((button) => { button.disabled = false; button.textContent = 'Refresh'; });
         }
+    }
+
+    function schedulePolling(delay = REFRESH_MS) {
+        cancelTimer();
+        if (!pollingActive()) return;
+        state.timer = window.setTimeout(async () => {
+            state.timer = null;
+            await refreshAll();
+            schedulePolling();
+        }, delay);
+    }
+
+    function reconcilePolling(immediate = false) {
+        cancelTimer();
+        cancelRequests();
+        if (!pollingActive()) return;
+        if (immediate) Promise.resolve(refreshAll()).finally(() => schedulePolling());
+        else schedulePolling();
+    }
+
+    function manualRefresh() {
+        cancelTimer();
+        Promise.resolve(refreshAll()).finally(() => schedulePolling());
     }
 
     function renderCurrent() {
@@ -509,7 +563,11 @@
         updateRouteTitles();
         hideLegacyOperatorContent();
         renderCurrent();
-        if (isOperator() && !state.lastPayload) refreshAll();
+    }
+
+    function handleRouteChange() {
+        onRoute();
+        reconcilePolling(true);
     }
 
     function start() {
@@ -517,7 +575,7 @@
         updateLanguage();
         hideLegacyOperatorContent();
         onRoute();
-        window.addEventListener('hashchange', onRoute);
+        window.addEventListener('hashchange', handleRouteChange);
         window.addEventListener('amx-site-telemetry', (event) => {
             state.siteTelemetry = event.detail || null;
             if (state.lastPayload) {
@@ -525,12 +583,18 @@
                 renderCurrent();
             }
         });
-        state.timer = window.setInterval(refreshAll, 5000);
+        document.addEventListener('visibilitychange', () => reconcilePolling(true));
+        window.addEventListener('beforeunload', () => {
+            cancelTimer();
+            cancelRequests();
+        });
         new MutationObserver(() => {
             updateLanguage();
             hideLegacyOperatorContent();
             onRoute();
+            reconcilePolling(true);
         }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-access'] });
+        reconcilePolling(true);
     }
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
