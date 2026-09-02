@@ -1,0 +1,23 @@
+name: Operator view lifecycle checks
+
+on:
+  pull_request:
+    paths:
+      - 'web/operator-view.js'
+      - 'tests/operator_view_lifecycle_source_contract.py'
+      - '.github/workflows/operator-view-lifecycle.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lifecycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check operator view syntax
+        run: node --check web/operator-view.js
+      - name: Check polling and request lifecycle
+        run: python3 tests/operator_view_lifecycle_source_contract.py
