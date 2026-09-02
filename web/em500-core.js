@@ -3,6 +3,7 @@
 
     const utils = window.PvdgEm500Utils;
     if (!utils) return;
+    const LIVE_REFRESH_MS = 5000;
 
     const state = {
         profiles: [],
@@ -118,6 +119,26 @@
 
     function currentRoute() {
         return window.location.hash.replace(/^#\/?/, '') || 'dashboard';
+    }
+
+    function livePollingActive() {
+        return !document.hidden && currentRoute() === 'meters' &&
+            state.activeTab === 'live' && meterScopeAllowed();
+    }
+
+    function cancelPolling() {
+        if (state.pollTimer) window.clearTimeout(state.pollTimer);
+        state.pollTimer = null;
+    }
+
+    function schedulePolling(delay = LIVE_REFRESH_MS) {
+        cancelPolling();
+        if (!livePollingActive()) return;
+        state.pollTimer = window.setTimeout(async () => {
+            state.pollTimer = null;
+            await refreshActive(true);
+            schedulePolling();
+        }, delay);
     }
 
     function setBusy(busy) {
@@ -431,45 +452,51 @@
         }
     }
 
+    function resetPollingAfter(action) {
+        cancelPolling();
+        Promise.resolve(action).finally(() => schedulePolling());
+    }
+
     function bind() {
         byId('em500MeterSelect')?.addEventListener('change', (event) => {
             state.selectedIndex = Number(event.target.value) || 0;
-            refreshActive();
+            resetPollingAfter(refreshActive(false));
         });
         byId('em500Function')?.addEventListener('change', (event) => {
             state.functionCode = Number(event.target.value) || 3;
-            refreshActive();
+            resetPollingAfter(refreshActive(false));
         });
         byId('em500AddressBase')?.addEventListener('change', (event) => {
             state.addressBase = Number(event.target.value) || 0;
-            refreshActive();
+            resetPollingAfter(refreshActive(false));
         });
-        byId('em500Refresh')?.addEventListener('click', () => refreshActive(false));
+        byId('em500Refresh')?.addEventListener('click', () => resetPollingAfter(refreshActive(false)));
         document.querySelectorAll('.em500-tab').forEach((tab) => {
             tab.addEventListener('click', () => {
                 state.activeTab = tab.dataset.tab;
                 updateTabState();
-                refreshActive(false);
+                resetPollingAfter(refreshActive(false));
             });
         });
         window.addEventListener('hashchange', () => {
-            if (currentRoute() === 'meters') enterWorkspace();
+            cancelPolling();
+            if (currentRoute() === 'meters') resetPollingAfter(enterWorkspace());
             else state.requestController?.abort();
         });
         /* Unlocking Engineering while already on Meters must populate the
          * workspace without a manual refresh. */
-        access()?.onScopeChange(enterWorkspace);
+        access()?.onScopeChange(() => resetPollingAfter(enterWorkspace()));
         document.addEventListener('visibilitychange', () => {
+            cancelPolling();
             if (document.hidden) state.requestController?.abort();
-            else if (currentRoute() === 'meters' && state.activeTab === 'live') refreshActive(false);
+            else if (currentRoute() === 'meters' && state.activeTab === 'live') {
+                resetPollingAfter(refreshActive(false));
+            }
         });
-    }
-
-    function startPolling() {
-        if (state.pollTimer) window.clearInterval(state.pollTimer);
-        state.pollTimer = window.setInterval(() => {
-            if (!document.hidden && currentRoute() === 'meters' && state.activeTab === 'live') refreshActive(true);
-        }, 5000);
+        window.addEventListener('beforeunload', () => {
+            cancelPolling();
+            state.requestController?.abort();
+        });
     }
 
     async function enterWorkspace() {
@@ -491,8 +518,8 @@
         ensureScaffold();
         bind();
         updateTabState();
-        startPolling();
         await enterWorkspace();
+        schedulePolling();
     }
 
     window.PvdgEm500App = Object.freeze({

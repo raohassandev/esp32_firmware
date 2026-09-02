@@ -1,0 +1,23 @@
+name: EM500 core lifecycle checks
+
+on:
+  pull_request:
+    paths:
+      - 'web/em500-core.js'
+      - 'tests/em500_core_lifecycle_source_contract.py'
+      - '.github/workflows/em500-core-lifecycle.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lifecycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check EM500 core syntax
+        run: node --check web/em500-core.js
+      - name: Check live polling lifecycle
+        run: python3 tests/em500_core_lifecycle_source_contract.py
