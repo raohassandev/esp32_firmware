@@ -10,6 +10,7 @@ BASE = SCREEN / "product_800x480"
 SDK = (BASE / "sdkconfig.defaults").read_text(encoding="utf-8")
 MAIN = (BASE / "main/main.c").read_text(encoding="utf-8")
 APP = (SCREEN / "screen_app.c").read_text(encoding="utf-8")
+PORTAL = (ROOT / "components/network_manager/captive_portal.c").read_text(encoding="utf-8")
 
 
 def config_int(name: str) -> int:
@@ -34,6 +35,13 @@ assert "CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y" not in SDK
 assert "CONFIG_ESP32S3_DATA_CACHE_32KB=y" in SDK
 assert "CONFIG_ESP32S3_DATA_CACHE_64KB=y" not in SDK
 assert "CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y" in SDK
+
+# Any task created with xTaskCreateWithCaps() must use the matching deletion API.
+# The recovery captive-DNS task is self-deleting when AP mode stops, so this is
+# a real runtime path rather than a diagnostic-only contract.
+assert "xTaskCreateWithCaps(portal_task" in PORTAL
+assert "vTaskDeleteWithCaps(NULL)" in PORTAL
+assert re.search(r"\bvTaskDelete\s*\(\s*NULL\s*\)", PORTAL) is None
 
 # Product-only RGB bandwidth/memory balance. HIL profile remains at 16 MHz/10 lines.
 assert "#define PRODUCT_RGB_BOUNCE_LINES 6U" in MAIN
