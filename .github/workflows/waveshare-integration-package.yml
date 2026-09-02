@@ -177,3 +177,5 @@ jobs:
           path: waveshare-exact-integration-candidate
           if-no-files-found: error
           retention-days: 14
+
+# Diagnostic PRs may touch this comment only to request an exact-head package build.
