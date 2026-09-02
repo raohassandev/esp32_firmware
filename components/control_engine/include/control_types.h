@@ -32,6 +32,17 @@ typedef struct {
     bool generator_evidence_configured;
     bool generator_running;
     bool generator_breaker_closed;
+    /* Per-generator masks use bit 0..2 for Generator 1..3. Aggregate values are
+     * populated only from a fully validated running fleet; invalid/stale fleet
+     * totals remain zero/NAN and control fails closed. */
+    uint8_t generator_channel_configured_mask;
+    uint8_t generator_channel_running_mask;
+    uint8_t generator_channel_breaker_mask;
+    uint8_t generator_running_count;
+    float generator_running_rated_kw;
+    float generator_measured_total_kw;
+    float generator_required_minimum_kw;
+    float generator_safe_pv_limit_kw;
     bool transfer_active;
     bool grid_generator_synchronized;
     bool grid_recovery_stable;
