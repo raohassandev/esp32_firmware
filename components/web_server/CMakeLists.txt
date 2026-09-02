@@ -69,6 +69,7 @@ set(WEB_SERVER_C_SOURCES
     "em500_settings_plan_api.c"
     "solar_grid_api.c"
     "solar_grid_status_api.c"
+    "ota_api.c"
     # write_provenance.c is deliberately free of cJSON and ESP-IDF so the fleet
     # roll-up rule is executed by tests/write_provenance_test.c on the host
     # rather than asserted about. write_provenance_api.c is the cJSON side.
@@ -159,7 +160,7 @@ endif()
 idf_component_register(
     SRCS ${WEB_SERVER_C_SOURCES}
     INCLUDE_DIRS "include"
-    REQUIRES commissioning_gate meter_profiles esp_http_server esp_system esp_timer esp_hw_support esp_app_format esp_partition app_update spi_flash spiffs cjson nvs_flash mbedtls config_manager solar_grid_config source_detection network_manager meter_manager modbus_tcp inverter_manager control_engine safety_manager
+    REQUIRES commissioning_gate meter_profiles esp_http_server esp_system esp_timer esp_hw_support esp_app_format esp_partition app_update spi_flash spiffs cjson nvs_flash mbedtls config_manager solar_grid_config source_detection ota_manager network_manager meter_manager modbus_tcp inverter_manager control_engine safety_manager
     EMBED_FILES
         # The two bundles, each in both forms. Both are kept because every
         # browser sends Accept-Encoding: gzip but a commissioning script written
