@@ -4,8 +4,10 @@ on:
   pull_request:
     paths:
       - 'tools/waveshare_acceptance_check.py'
+      - 'tools/waveshare_final_acceptance.py'
       - 'tools/waveshare_package_verify.py'
       - 'tests/waveshare_acceptance_check_test.py'
+      - 'tests/waveshare_final_acceptance_test.py'
       - 'tests/waveshare_package_verify_test.py'
       - '.github/workflows/waveshare-acceptance-tools.yml'
       - '.github/workflows/waveshare-integration-package.yml'
@@ -14,8 +16,10 @@ on:
       - work/waveshare/stabilization-integration
     paths:
       - 'tools/waveshare_acceptance_check.py'
+      - 'tools/waveshare_final_acceptance.py'
       - 'tools/waveshare_package_verify.py'
       - 'tests/waveshare_acceptance_check_test.py'
+      - 'tests/waveshare_final_acceptance_test.py'
       - 'tests/waveshare_package_verify_test.py'
       - '.github/workflows/waveshare-acceptance-tools.yml'
       - '.github/workflows/waveshare-integration-package.yml'
@@ -31,9 +35,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run deterministic smoke-log gate tests
         run: python3 tests/waveshare_acceptance_check_test.py
+      - name: Run combined final acceptance gate tests
+        run: python3 tests/waveshare_final_acceptance_test.py
       - name: Run exact artifact verifier tests
         run: python3 tests/waveshare_package_verify_test.py
       - name: Check CLI syntax
         run: |
           python3 tools/waveshare_acceptance_check.py --help >/dev/null
+          python3 tools/waveshare_final_acceptance.py --help >/dev/null
           python3 tools/waveshare_package_verify.py --help >/dev/null
