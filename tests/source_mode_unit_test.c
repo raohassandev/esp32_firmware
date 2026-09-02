@@ -49,14 +49,16 @@ static void test_generator_fleet(void)
 {
     generator_channel_evidence_t channels[SOURCE_MAX_GENERATORS] = {
         {
-            .configured = true, .evidence_fresh = true, .running = true,
-            .breaker_closed = true, .rated_kw = 100.0f, .measured_kw = 45.0f,
+            .configured = true, .evidence_fresh = true, .measurement_fresh = true,
+            .running = true, .breaker_closed = true,
+            .rated_kw = 100.0f, .measured_kw = 45.0f,
             .minimum_loading_percent = 30.0f, .reserve_kw = 5.0f,
             .reverse_power_margin_kw = 2.0f,
         },
         {
-            .configured = true, .evidence_fresh = true, .running = true,
-            .breaker_closed = true, .rated_kw = 200.0f, .measured_kw = 90.0f,
+            .configured = true, .evidence_fresh = true, .measurement_fresh = true,
+            .running = true, .breaker_closed = true,
+            .rated_kw = 200.0f, .measured_kw = 90.0f,
             .minimum_loading_percent = 25.0f, .reserve_kw = 10.0f,
             .reverse_power_margin_kw = 3.0f,
         },
@@ -80,10 +82,28 @@ static void test_generator_fleet(void)
     assert(source_mode_generator_fleet_safe_pv_kw(250.0f, &r) == 0.0f);
 
     channels[1].running = true;
-    channels[1].measured_kw = NAN;
+    channels[1].measurement_fresh = false;
     r = source_mode_aggregate_generators(channels);
     assert(!r.valid && r.conflict);
-    assert(source_mode_generator_fleet_safe_pv_kw(250.0f, &r) == 0.0f);
+
+    channels[1].measurement_fresh = true;
+    channels[1].measured_kw = -1.0f;
+    r = source_mode_aggregate_generators(channels);
+    assert(!r.valid && r.conflict);
+
+    /* A stopped/open channel needs fresh contact evidence but not a fresh power
+     * sample. It must not invalidate another running generator. */
+    channels[1].measured_kw = NAN;
+    channels[1].measurement_fresh = false;
+    channels[1].running = false;
+    channels[1].breaker_closed = false;
+    r = source_mode_aggregate_generators(channels);
+    assert(r.valid && !r.conflict && r.running_count == 1U);
+    assert(fabsf(r.measured_total_kw - 45.0f) < 0.001f);
+
+    channels[1].evidence_fresh = false;
+    r = source_mode_aggregate_generators(channels);
+    assert(!r.valid && r.conflict);
 }
 
 static void test_generator_limit(void)
