@@ -9,6 +9,7 @@
      * working on a bench unit and do not commit that change.
      * tests/production_release_gate.py blocks a production release while it is non-empty. */
     const DEV_DEFAULT_ENGINEERING_PASSWORD = '';
+    const AUTH_REQUEST_TIMEOUT_MS = 5000;
 
     const PROTECTED_ROUTES = new Set(['wifi', 'control', 'system', 'commissioning']);
     const ENGINEERING_ONLY_SELECTORS = [
@@ -43,6 +44,26 @@
     const state = { authenticated: false, sessionExpired: false };
     const originalFetch = window.fetch.bind(window);
     let renewalPromise = null;
+
+    async function engineeringFetch(input, init = {}) {
+        const { signal: externalSignal, ...options } = init;
+        const controller = new AbortController();
+        const abort = () => controller.abort();
+        if (externalSignal) {
+            if (externalSignal.aborted) controller.abort();
+            else externalSignal.addEventListener('abort', abort, { once: true });
+        }
+        const timer = window.setTimeout(() => controller.abort(), AUTH_REQUEST_TIMEOUT_MS);
+        try {
+            return await originalFetch(input, { ...options, signal: controller.signal });
+        } catch (error) {
+            if (error?.name === 'AbortError') throw new Error('Engineering request timed out');
+            throw error;
+        } finally {
+            window.clearTimeout(timer);
+            externalSignal?.removeEventListener?.('abort', abort);
+        }
+    }
 
     function currentRoute() {
         return location.hash.replace(/^#\/?/, '') || 'dashboard';
@@ -81,7 +102,7 @@
         if (renewalPromise) return renewalPromise;
         renewalPromise = (async () => {
             try {
-                const response = await originalFetch('/api/engineering/session', {
+                const response = await engineeringFetch('/api/engineering/session', {
                     cache: 'no-store', credentials: 'same-origin'
                 });
                 const payload = await response.json().catch(() => ({}));
@@ -91,7 +112,8 @@
                     return true;
                 }
             } catch {
-                /* Controller restart or network transition; do not force a route change. */
+                /* Controller restart, network transition or bounded request timeout;
+                 * do not force a route change from a background renewal failure. */
             }
             return false;
         })().finally(() => { renewalPromise = null; });
@@ -237,7 +259,7 @@
     }
 
     async function login(password) {
-        const response = await originalFetch('/api/engineering/login', {
+        const response = await engineeringFetch('/api/engineering/login', {
             method: 'POST',
             credentials: 'same-origin',
             headers: { 'Content-Type': 'application/json' },
@@ -268,7 +290,7 @@
         });
         document.getElementById('engineeringLogout')?.addEventListener('click', async () => {
             try {
-                await originalFetch('/api/engineering/logout', { method: 'POST', credentials: 'same-origin' });
+                await engineeringFetch('/api/engineering/logout', { method: 'POST', credentials: 'same-origin' });
             } catch {}
             state.sessionExpired = false;
             setEngineering(false);
@@ -280,7 +302,7 @@
             const current = document.getElementById('engineeringCurrentPassword');
             const next = document.getElementById('engineeringNewPassword');
             try {
-                const response = await originalFetch('/api/engineering/password', {
+                const response = await engineeringFetch('/api/engineering/password', {
                     method: 'POST', credentials: 'same-origin',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ current_password: current.value, new_password: next.value })

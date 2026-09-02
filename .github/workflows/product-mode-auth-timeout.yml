@@ -1,0 +1,23 @@
+name: Product mode auth timeout checks
+
+on:
+  pull_request:
+    paths:
+      - 'web/product-mode.js'
+      - 'tests/product_mode_auth_timeout_source_contract.py'
+      - '.github/workflows/product-mode-auth-timeout.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  auth-timeout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check active Engineering auth module syntax
+        run: node --check web/product-mode.js
+      - name: Check bounded Engineering auth lifecycle
+        run: python3 tests/product_mode_auth_timeout_source_contract.py
