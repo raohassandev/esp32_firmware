@@ -46,6 +46,22 @@ static esp_err_t status_get(httpd_req_t *request)
     cJSON_AddBoolToObject(root, "generator_running", status.generator_running);
     cJSON_AddBoolToObject(root, "generator_breaker_closed",
                           status.generator_breaker_closed);
+    cJSON_AddNumberToObject(root, "generator_channel_configured_mask",
+                            status.generator_channel_configured_mask);
+    cJSON_AddNumberToObject(root, "generator_channel_running_mask",
+                            status.generator_channel_running_mask);
+    cJSON_AddNumberToObject(root, "generator_channel_breaker_mask",
+                            status.generator_channel_breaker_mask);
+    cJSON_AddNumberToObject(root, "generator_running_count",
+                            status.generator_running_count);
+    add_finite(root, "generator_running_rated_kw",
+               status.generator_running_rated_kw);
+    add_finite(root, "generator_measured_total_kw",
+               status.generator_measured_total_kw);
+    add_finite(root, "generator_required_minimum_kw",
+               status.generator_required_minimum_kw);
+    add_finite(root, "generator_safe_pv_limit_kw",
+               status.generator_safe_pv_limit_kw);
     cJSON_AddBoolToObject(root, "transfer_active", status.transfer_active);
     cJSON_AddBoolToObject(root, "grid_generator_synchronized",
                           status.grid_generator_synchronized);
