@@ -9,7 +9,6 @@
 #define OVERVIEW_VALUE_DRAW_HEIGHT 28
 #define OVERVIEW_STATUS_TEXT_MAX 64U
 #define OVERVIEW_STATUS_DRAW_WIDTH 300
-#define OVERVIEW_STATUS_DRAW_HEIGHT 24
 
 /* Presentation-only screen. No backend writes, control decisions or safety
  * policy. Labels come from the existing backend snapshots. */
@@ -39,7 +38,7 @@ typedef struct {
     char applied_text[OVERVIEW_VALUE_TEXT_MAX];
     /* RSSI is sampled on the 5-second status cadence and is expected to move by
      * a dBm or two even when the network is healthy. Keeping that value in a
-     * static fixed-size label prevents each sample from re-measuring a flex row
+     * static fixed-width label prevents each sample from re-measuring a flex row
      * and turning a tiny status change into visible RGB scanout movement. */
     char network_text[OVERVIEW_STATUS_TEXT_MAX];
 } overview_widgets_t;
@@ -113,7 +112,7 @@ static lv_obj_t *make_state_row(lv_obj_t *parent,
     lv_obj_remove_style_all(row);
     make_fixed_surface(row);
     lv_obj_set_width(row, LV_PCT(100));
-    lv_obj_set_height(row, OVERVIEW_STATUS_DRAW_HEIGHT);
+    lv_obj_set_height(row, LV_SIZE_CONTENT);
     lv_obj_set_layout(row, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
@@ -131,10 +130,10 @@ static lv_obj_t *make_state_row(lv_obj_t *parent,
     } else {
         lv_label_set_text(value, "--");
     }
-    /* Status values may change length (especially RSSI and alarm text). Keep the
-     * flex geometry invariant so a status poll can invalidate only this small
-     * rectangle instead of reflowing the lower half of the Overview page. */
-    lv_obj_set_size(value, OVERVIEW_STATUS_DRAW_WIDTH, OVERVIEW_STATUS_DRAW_HEIGHT);
+    /* Status values may change length (especially RSSI and alarm text). Fix the
+     * value width and clip to one line so changing text cannot alter flex-row
+     * geometry. The row keeps its original content-height contract. */
+    lv_obj_set_width(value, OVERVIEW_STATUS_DRAW_WIDTH);
     lv_label_set_long_mode(value, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_align(value, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
     lv_obj_set_style_text_color(value, lv_color_hex(0xF2F6FA), LV_PART_MAIN);
@@ -175,8 +174,8 @@ static void set_static_value_text(lv_obj_t *label,
     if (strncmp(buffer, text, capacity) == 0) return;
     snprintf(buffer, capacity, "%s", text);
     buffer[capacity - 1U] = '\0';
-    /* Fixed width + fixed height means no text-size layout refresh is required.
-     * The draw event reads the same static buffer pointer with its new contents. */
+    /* Fixed width + fixed height/line geometry means no text-size layout refresh
+     * is required. The draw event reads the same static buffer pointer. */
     lv_obj_invalidate(label);
 }
 
@@ -263,13 +262,12 @@ lv_obj_t *overview_screen_create(lv_obj_t *parent)
 
     s_ui.source = lv_label_create(chips);
     lv_label_set_text(s_ui.source, "Source: unknown");
-    lv_obj_set_size(s_ui.source, 220, OVERVIEW_STATUS_DRAW_HEIGHT);
+    lv_obj_set_width(s_ui.source, 220);
     lv_label_set_long_mode(s_ui.source, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_color(s_ui.source, lv_color_hex(0xD5DEE8), LV_PART_MAIN);
 
     s_ui.control_mode = lv_label_create(chips);
     lv_label_set_text(s_ui.control_mode, "Control: --");
-    lv_obj_set_height(s_ui.control_mode, OVERVIEW_STATUS_DRAW_HEIGHT);
     lv_obj_set_flex_grow(s_ui.control_mode, 1);
     lv_label_set_long_mode(s_ui.control_mode, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_color(s_ui.control_mode, lv_color_hex(0xD5DEE8), LV_PART_MAIN);
@@ -313,13 +311,11 @@ lv_obj_t *overview_screen_create(lv_obj_t *parent)
     lv_label_set_text(s_ui.inhibit_reason, "Control reason: --");
     lv_label_set_long_mode(s_ui.inhibit_reason, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(s_ui.inhibit_reason, LV_PCT(100));
-    lv_obj_set_height(s_ui.inhibit_reason, 40);
     lv_obj_set_style_text_color(s_ui.inhibit_reason, lv_color_hex(0xC7D0DA), LV_PART_MAIN);
 
     s_ui.firmware_version = lv_label_create(bottom);
     lv_label_set_text(s_ui.firmware_version, "Firmware: --");
     lv_obj_set_width(s_ui.firmware_version, LV_PCT(100));
-    lv_obj_set_height(s_ui.firmware_version, OVERVIEW_STATUS_DRAW_HEIGHT);
     lv_label_set_long_mode(s_ui.firmware_version, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_color(s_ui.firmware_version, lv_color_hex(0x7F8B99), LV_PART_MAIN);
     return root;
