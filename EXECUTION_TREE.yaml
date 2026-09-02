@@ -1,0 +1,77 @@
+version: 1
+updated_at: 2026-09-02T15:48:00+05:00
+repo: raohassandev/esp32_firmware
+integration_branch: dev
+integration_head_at_snapshot: ef076d98daddee0ee9542066c69615ef9650bb01
+truth_rule: live_repository_over_stale_docs
+
+programs:
+  software_core:
+    status: EXECUTING
+    children:
+      generator_strong_evidence:
+        status: MERGED
+        pr: 58
+        merge_sha: ee296dbe62baed4b837f487898c6d50adf416d98
+        next: per_generator_runtime_aggregation
+      browser_poller_lifecycle_batch_1:
+        status: MERGED
+        pr: 59
+        merge_sha: ef076d98daddee0ee9542066c69615ef9650bb01
+        next: operator_operations_lifecycle
+      operator_operations_lifecycle:
+        status: EXECUTING
+        branch: work/browser/operator-operations-lifecycle-dev2
+      per_generator_runtime_aggregation:
+        status: PLANNED
+        constraints:
+          - no_invented_registers
+          - no_invented_timing_values
+          - fail_closed_when_uncommissioned
+      modbus_socket_modes:
+        status: PLANNED
+        remaining:
+          - persistent_mode_qualification
+          - reconnect_on_error_qualification
+          - per_transaction_mode_qualification
+          - hardware_tcp_pcb_time_wait_endurance
+      inverter_profile_qualification:
+        status: BLOCKED
+        blocker: exact manufacturer manuals plus bench/readback evidence are required per model
+
+  waveshare_hardware_lane:
+    status: EXECUTING
+    owner: physical_executor
+    active_pr: 57
+    current_head: e7c6a027234e08ec33d06859b59e3518d918d717
+    facts:
+      - earlier scanout sweep root cause was physically isolated and fixed on an earlier PR57 head
+      - current head also fixes Alarms-page LVGL wedge and therefore requires its own exact-head qualification
+    blocked_promotions:
+      - pr: 46
+        status: BLOCKED
+      - pr: 20
+        status: BLOCKED
+    superseded_closed_prs: [47, 48, 49]
+
+  phase1_frozen_baseline_work:
+    status: BLOCKED
+    reason: do not move phase1-fix while Waveshare exact-candidate qualification is active
+    reviewed_prs:
+      - pr: 52
+        status: TESTED_SOFTWARE_BLOCKED_PHYSICAL
+        scope: rollback-safe secure web OTA
+      - pr: 54
+        status: TESTED_SOFTWARE_BLOCKED_BASELINE
+        scope: operator continuity and truthful plant verdict
+
+  physical_release:
+    status: BLOCKED
+    requires:
+      - exact_current_candidate_visual_touch_acceptance
+      - resource_headroom
+      - integrated_soak
+      - meter_source_inverter_FAT
+      - source_transfer_FAT
+      - per_profile_command_readback_rollback_FAT
+      - signed_SAT_tied_to_exact_SHA
