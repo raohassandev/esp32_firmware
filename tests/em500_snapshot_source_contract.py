@@ -55,7 +55,6 @@ require("modbus_tcp_write" not in MANAGER.split("meter_manager_read_registers", 
 # low-priority cache task may call the meter manager and block on Modbus.
 for token in [
     "background acquisition cache started",
-    "xTaskCreate(cache_task",
     "EM500_INSTANTANEOUS_PERIOD_MS 2000U",
     "EM500_ENERGY_PERIOD_MS 30000U",
     "EM500_SETUP_PERIOD_MS 300000U",
@@ -65,6 +64,22 @@ for token in [
 ]:
     require(token in CACHE or token in ADAPTER or token in CACHE_HEADER,
             f"EM500 asynchronous cache missing: {token}")
+# The cache task is created with the capability-aware API so its stack lives in
+# PSRAM. It performs only Modbus/TCP acquisition and esp_timer reads - it never
+# touches NVS, esp_partition or esp_flash - so its stack is never accessed while
+# the flash cache is disabled, and keeping it out of internal RAM preserves the
+# scarce internal DMA pool for the Product Core's control and safety tasks.
+require("xTaskCreateWithCaps(cache_task" in CACHE,
+        "EM500 cache task must be created with the capability-aware API")
+require("MALLOC_CAP_SPIRAM" in CACHE,
+        "EM500 cache task stack must be requested from PSRAM")
+for forbidden in ("nvs_", "esp_partition_", "esp_flash_"):
+    require(forbidden not in CACHE,
+            f"EM500 cache task must not touch flash ({forbidden}): a PSRAM stack "
+            "is unsafe while the cache is disabled")
+require("return ESP_ERR_NO_MEM" in CACHE,
+        "EM500 cache task creation failure must stay explicitly checked")
+
 require("meter_manager_read_registers" in CACHE,
         "background cache must own the real serialized Modbus reads")
 require("meter_manager_read_registers" not in ADAPTER,

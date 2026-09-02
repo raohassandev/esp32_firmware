@@ -1,5 +1,6 @@
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #include "app_core.h"
 #include "esp_err.h"
@@ -283,6 +284,26 @@ static void refresh_active_context(screen_page_t page, uint32_t elapsed_ms, bool
     }
 }
 
+/* Per-task stack high-water marks. The remaining internal DMA shortfall is
+ * dominated by FreeRTOS stacks, and right-sizing them has to be driven by
+ * measured peak usage rather than by the configured numbers. Reported once per
+ * soak interval alongside the memory line. */
+static void log_task_stacks(const char *stage)
+{
+    const UBaseType_t count = uxTaskGetNumberOfTasks();
+    TaskStatus_t *tasks = calloc(count, sizeof(TaskStatus_t));
+    if (!tasks) return;
+    const UBaseType_t got = uxTaskGetSystemState(tasks, count, NULL);
+    for (UBaseType_t i = 0; i < got; ++i) {
+        ESP_LOGI(TAG, "%s stack: %-16s hwm=%u prio=%u",
+                 stage,
+                 tasks[i].pcTaskName,
+                 (unsigned)tasks[i].usStackHighWaterMark,
+                 (unsigned)tasks[i].uxCurrentPriority);
+    }
+    free(tasks);
+}
+
 static void screen_refresh_task(void *argument)
 {
     (void)argument;
@@ -298,6 +319,7 @@ static void screen_refresh_task(void *argument)
         elapsed_ms += SCREEN_FAST_MS;
         if ((elapsed_ms % SCREEN_RESOURCE_LOG_MS) == 0U) {
             log_runtime_headroom("Screen soak");
+            log_task_stacks("Screen soak");
         }
         vTaskDelayUntil(&wake, pdMS_TO_TICKS(SCREEN_FAST_MS));
     }

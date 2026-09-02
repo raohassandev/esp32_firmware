@@ -6,6 +6,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
+#include "esp_heap_caps.h"
 #include "freertos/task.h"
 #include "meter_manager.h"
 
@@ -281,9 +282,16 @@ esp_err_t em500_cache_init(void)
         memset(slot, 0, sizeof(*slot));
         slot->lock = (portMUX_TYPE)portMUX_INITIALIZER_UNLOCKED;
     }
-    BaseType_t created = xTaskCreate(cache_task, "em500_cache",
-                                     EM500_CACHE_TASK_STACK, NULL,
-                                     EM500_CACHE_TASK_PRIORITY, &s_task);
+    /* NONCRITICAL_PSRAM_ELIGIBLE. This worker only performs Modbus/TCP
+     * acquisition and esp_timer reads: it never calls an NVS, esp_partition or
+     * esp_flash API, so its stack is never touched while the flash cache is
+     * disabled, and it carries no control deadline. Moving it out of the scarce
+     * internal DMA-capable pool returns its stack to the Product Core's
+     * safety/control tasks, which stay internal by design. */
+    BaseType_t created = xTaskCreateWithCaps(cache_task, "em500_cache",
+                                             EM500_CACHE_TASK_STACK, NULL,
+                                             EM500_CACHE_TASK_PRIORITY, &s_task,
+                                             MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (created != pdPASS) {
         s_task = NULL;
         return ESP_ERR_NO_MEM;

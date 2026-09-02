@@ -7,6 +7,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
+#include "esp_heap_caps.h"
 #include "freertos/task.h"
 #include "meter_manager.h"
 
@@ -155,9 +156,13 @@ esp_err_t meter_read_jobs_init(void)
     portENTER_CRITICAL(&s_lock);
     memset(s_jobs, 0, sizeof(s_jobs));
     portEXIT_CRITICAL(&s_lock);
-    BaseType_t created = xTaskCreate(read_job_task, "meter_read_jobs",
-                                     METER_READ_JOB_TASK_STACK, NULL,
-                                     METER_READ_JOB_TASK_PRIORITY, &s_task);
+    /* NONCRITICAL_PSRAM_ELIGIBLE. Bounded background Modbus read queue serving
+     * the web UI. No NVS/esp_partition/esp_flash call sites, no ISR context and
+     * no control deadline, so a PSRAM-backed stack is safe here. */
+    BaseType_t created = xTaskCreateWithCaps(read_job_task, "meter_read_jobs",
+                                             METER_READ_JOB_TASK_STACK, NULL,
+                                             METER_READ_JOB_TASK_PRIORITY, &s_task,
+                                             MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (created != pdPASS) {
         s_task = NULL;
         return ESP_ERR_NO_MEM;

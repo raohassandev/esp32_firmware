@@ -46,6 +46,26 @@ def strip_comments(text):
 portal = strip_comments(PORTAL.read_text(encoding="utf-8", errors="replace"))
 manager = strip_comments(MANAGER.read_text(encoding="utf-8", errors="replace"))
 
+# The responder task's stack lives in PSRAM. It only reads and writes lwip UDP
+# sockets and touches no NVS, esp_partition or esp_flash, so its stack is never
+# accessed while the flash cache is disabled, and keeping it out of internal RAM
+# preserves the scarce internal DMA pool for control and safety tasks.
+require(
+    "xTaskCreateWithCaps(portal_task" in portal,
+    "the captive portal task must be created with the capability-aware API so "
+    "its stack is allocated from PSRAM",
+)
+require(
+    "MALLOC_CAP_SPIRAM" in portal,
+    "the captive portal task stack must be requested from PSRAM",
+)
+for _forbidden in ("nvs_", "esp_partition_", "esp_flash_"):
+    require(
+        _forbidden not in portal,
+        "the captive portal task must not touch flash (%s): a PSRAM stack is "
+        "unsafe while the cache is disabled" % _forbidden,
+    )
+
 # --- THE ONE THAT MATTERS ---------------------------------------------------
 
 require(

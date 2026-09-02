@@ -62,3 +62,7 @@ CONFIG_MDNS_PREDEF_NETIF_AP=y
 CONFIG_MDNS_PREDEF_NETIF_ETH=n
 CONFIG_MDNS_MAX_INTERFACES=2
 CONFIG_MDNS_MAX_SERVICES=2
+
+# Diagnostic only: lets the product reportper-task stack high-water marks so
+# support stacks can be right-sized from measurement instead of guesswork.
+CONFIG_FREERTOS_USE_TRACE_FACILITY=y
