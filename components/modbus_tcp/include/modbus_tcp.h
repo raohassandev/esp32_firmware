@@ -4,6 +4,7 @@
 
 esp_err_t modbus_tcp_connection_init(modbus_connection_t *connection, const modbus_endpoint_t *endpoint);
 void modbus_tcp_connection_close(modbus_connection_t *connection);
+const char *modbus_tcp_connection_mode_name(uint8_t mode);
 esp_err_t modbus_tcp_read_registers(modbus_connection_t *connection, uint8_t function_code,
                                     uint16_t address, uint16_t count, uint16_t *registers);
 esp_err_t modbus_tcp_write_single(modbus_connection_t *connection, uint16_t address, uint16_t value);
