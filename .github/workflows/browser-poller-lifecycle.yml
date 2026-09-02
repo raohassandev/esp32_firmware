@@ -22,5 +22,6 @@ jobs:
           set -euo pipefail
           node --check web/inverter-telemetry.js
           node --check web/prelab-readiness.js
+          node --check web/operator-product-suite.js
       - name: Check route, timeout and cancellation contracts
         run: python3 tests/browser_poller_lifecycle_source_contract.py
