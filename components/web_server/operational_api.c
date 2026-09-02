@@ -2382,9 +2382,9 @@ esp_err_t operational_api_register(httpd_handle_t server)
 {
     alarm_journal_init();
     if (!s_task) {
-        /* Pinned to CPU0. This task takes portENTER_CRITICAL once per sample
-         * period, which disables interrupts on whichever core it happens to be
-         * running on. The Waveshare board allocates its RGB scanout refill
+        /* Pinned to CPU0. This task takes its interrupt-disabling lock once
+         * per sample period, which stops interrupts on whichever core it happens
+         * to be running on. The Waveshare board allocates its RGB scanout refill
          * interrupt on CPU1 precisely to stay clear of that; without an explicit
          * affinity here this task can still land on CPU1 and stall the refill,
          * which the operator sees as a periodic sweep across the panel.
