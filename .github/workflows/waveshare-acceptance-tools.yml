@@ -5,6 +5,7 @@ on:
     paths:
       - 'tools/waveshare_acceptance_check.py'
       - 'tools/waveshare_final_acceptance.py'
+      - 'tools/waveshare_observations.example.json'
       - 'tools/waveshare_package_verify.py'
       - 'tests/waveshare_acceptance_check_test.py'
       - 'tests/waveshare_final_acceptance_test.py'
@@ -17,6 +18,7 @@ on:
     paths:
       - 'tools/waveshare_acceptance_check.py'
       - 'tools/waveshare_final_acceptance.py'
+      - 'tools/waveshare_observations.example.json'
       - 'tools/waveshare_package_verify.py'
       - 'tests/waveshare_acceptance_check_test.py'
       - 'tests/waveshare_final_acceptance_test.py'
@@ -39,6 +41,18 @@ jobs:
         run: python3 tests/waveshare_final_acceptance_test.py
       - name: Run exact artifact verifier tests
         run: python3 tests/waveshare_package_verify_test.py
+      - name: Check physical observation template
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('tools/waveshare_observations.example.json').read_text())
+          required = {'candidate_sha', 'artifact_digest', 'page_cycles', 'alarms_opened',
+                      'touch_responsive', 'sweep_absent', 'reload_absent',
+                      'tear_or_corruption_absent'}
+          assert required <= data.keys()
+          assert all(data[key] is False for key in required if key not in {'candidate_sha', 'artifact_digest', 'page_cycles'})
+          PY
       - name: Check CLI syntax
         run: |
           python3 tools/waveshare_acceptance_check.py --help >/dev/null
