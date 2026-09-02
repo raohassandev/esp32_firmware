@@ -19,13 +19,17 @@ I (7100) waveshare_product: Local Engineering commissioning backend bound to tou
 I (7200) waveshare_product: Local source-evidence commissioning backend bound to touchscreen
 I (7300) waveshare_product: Screen refresh task created in PSRAM
 """
+QUALIFIED_SCANOUT = (
+    "I (5500) waveshare_display: RGB 800x480 pclk=16000000 Hz frame_buffers=2 "
+    "bounce_lines=6 internal_dma_free=32000 largest=28000\n"
+)
 
 PASS_LOG = """
 I (1000) app: Before LCD DMA reservation: internal DMA free=140000 largest=130000
 I (2000) app: After LCD DMA reservation: internal DMA free=105000 largest=90000
 I (3000) app: Before Product Core init: internal DMA free=104000 largest=89000
 I (5000) core: After Product Core init: internal DMA free=34000 largest=30000
-""" + CORE_READY_MARKERS + """
+""" + CORE_READY_MARKERS + QUALIFIED_SCANOUT + """
 I (6000) lcd: LVGL activation stage 1/6
 I (6100) lcd: LVGL activation stage 2/6
 I (6200) lcd: LVGL activation stage 3/6
@@ -71,6 +75,7 @@ NO_LARGEST = """
 I (1000) core: After Product Core init: internal DMA free=34000
 I (1050) waveshare_product: Shared Product Core started
 I (1100) waveshare_product: Espressif flash dispatcher ready; PSRAM-stacked HMI persistence is routed through internal RAM
+I (1500) waveshare_display: RGB 800x480 pclk=16000000 Hz frame_buffers=2 bounce_lines=6 internal_dma_free=32000 largest=28000
 I (2000) lcd: LVGL activation stage 1/6
 I (2100) lcd: LVGL activation stage 2/6
 I (2200) lcd: LVGL activation stage 3/6
@@ -86,10 +91,23 @@ I (61000) lcd: Screen soak: DMA free=27000
 I (121000) lcd: Screen soak: DMA free=26000
 """
 
+FALLBACK_LOG = PASS_LOG.replace(
+    QUALIFIED_SCANOUT,
+    QUALIFIED_SCANOUT
+    + "W (5550) waveshare_display: RGB bounce allocation unavailable; retrying direct PSRAM framebuffer mode\n"
+    + "I (5600) waveshare_display: RGB 800x480 pclk=16000000 Hz frame_buffers=2 bounce_lines=0 internal_dma_free=31800 largest=27600\n",
+)
+ZERO_BOUNCE_LOG = PASS_LOG.replace("bounce_lines=6", "bounce_lines=0")
+WRONG_BOUNCE_LOG = PASS_LOG.replace("bounce_lines=6", "bounce_lines=8")
+MISSING_SCANOUT_LOG = PASS_LOG.replace(QUALIFIED_SCANOUT, "")
+
 
 def main() -> None:
     good = MOD.analyse(PASS_LOG)
     assert good.passed, good.failures
+    assert good.scanout_bounce_lines == [6]
+    assert good.scanout_fallback_count == 0
+    assert good.required_bounce_lines == 6
     assert good.minimum_checked_dma_free == 25500
     assert good.minimum_checked_dma_largest == 21500
     assert good.runtime_dma_free == [27000, 26000, 25500]
@@ -102,6 +120,30 @@ def main() -> None:
     formal = MOD.analyse(PASS_LOG, min_runtime_seconds=300, min_dma_largest=20_000)
     assert formal.passed, formal.failures
     assert formal.observed_runtime_seconds == 360.0
+
+    fallback = MOD.analyse(FALLBACK_LOG)
+    assert not fallback.passed
+    assert fallback.scanout_bounce_lines == [6, 0]
+    assert fallback.scanout_fallback_count == 1
+    assert "scanout_attempts=2!=1" in fallback.failures
+    assert "scanout_fallback=1" in fallback.failures
+    assert "scanout_zero_bounce_observed" in fallback.failures
+
+    zero_bounce = MOD.analyse(ZERO_BOUNCE_LOG)
+    assert not zero_bounce.passed
+    assert zero_bounce.scanout_bounce_lines == [0]
+    assert "scanout_zero_bounce_observed" in zero_bounce.failures
+    assert "scanout_bounce_lines=[0]!=6" in zero_bounce.failures
+
+    wrong_bounce = MOD.analyse(WRONG_BOUNCE_LOG)
+    assert not wrong_bounce.passed
+    assert wrong_bounce.scanout_bounce_lines == [8]
+    assert "scanout_bounce_lines=[8]!=6" in wrong_bounce.failures
+    assert MOD.analyse(WRONG_BOUNCE_LOG, required_bounce_lines=8).passed
+
+    missing_scanout = MOD.analyse(MISSING_SCANOUT_LOG)
+    assert not missing_scanout.passed
+    assert "scanout_mode_evidence_missing" in missing_scanout.failures
 
     stalled = MOD.analyse(FAILED_02BC, min_dma_free=0, min_soak_samples=1, min_runtime_seconds=300)
     assert not stalled.passed
@@ -155,6 +197,7 @@ def main() -> None:
     missing = MOD.analyse("LVGL activation stage 1/6\n", min_runtime_seconds=300)
     assert not missing.passed
     assert "native_ready_missing" in missing.failures
+    assert "scanout_mode_evidence_missing" in missing.failures
     assert "dma_free_evidence_missing" in missing.failures
     assert "dma_largest_evidence_missing" in missing.failures
     assert "runtime_timestamp_evidence_missing" in missing.failures
