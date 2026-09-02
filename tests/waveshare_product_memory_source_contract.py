@@ -44,7 +44,12 @@ assert "vTaskDeleteWithCaps(NULL)" in PORTAL
 assert re.search(r"\bvTaskDelete\s*\(\s*NULL\s*\)", PORTAL) is None
 
 # Product-only RGB bandwidth/memory balance. HIL profile remains at 16 MHz/10 lines.
-assert "#define PRODUCT_RGB_BOUNCE_LINES 6U" in MAIN
+#
+# Bounce depth is the scanout's stall tolerance. At 12 MHz a line costs 68.3 us,
+# so this is ~820 us of slack; six lines gave only ~410 us and the panel swept
+# whenever Product Core's periodic work outran that. Do not reduce this without
+# re-testing the sweep on the physical board.
+assert "#define PRODUCT_RGB_BOUNCE_LINES 12U" in MAIN
 assert "#define PRODUCT_RGB_PCLK_HZ 12000000U" in MAIN
 assert "s_product_profile = *vendor_profile;" in MAIN
 assert "s_product_profile.pixel_clock_hz = PRODUCT_RGB_PCLK_HZ;" in MAIN
