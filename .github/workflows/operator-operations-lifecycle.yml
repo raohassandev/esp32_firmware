@@ -1,0 +1,23 @@
+name: Operator operations lifecycle checks
+
+on:
+  pull_request:
+    paths:
+      - 'web/operator-operations.js'
+      - 'tests/operator_operations_lifecycle_source_contract.py'
+      - '.github/workflows/operator-operations-lifecycle.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lifecycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check operator operations syntax
+        run: node --check web/operator-operations.js
+      - name: Check polling lifecycle and alarm semantics
+        run: python3 tests/operator_operations_lifecycle_source_contract.py

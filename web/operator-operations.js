@@ -1,12 +1,16 @@
 (() => {
     'use strict';
 
+    const REFRESH_MS = 10000;
+    const REQUEST_TIMEOUT_MS = 6000;
+    const OPERATOR_ROUTES = new Set(['dashboard', 'meters', 'inverters', 'alarms']);
     const state = {
         history: null,
         events: null,
         range: '15m',
         busy: false,
         timer: null,
+        controllers: new Set(),
         enhanceQueued: false,
         /* Alarm condition table from /api/operator/alarms. The controller has
          * published this ISA-18.2 state model since the condition-table work
@@ -23,6 +27,12 @@
     const byId = (id) => document.getElementById(id);
     const isOperator = () => document.documentElement.dataset.access !== 'engineering';
     const route = () => location.hash.replace(/^#\/?/, '') || 'dashboard';
+    const historyActive = () => !document.hidden && isOperator() && OPERATOR_ROUTES.has(route());
+    const alarmsActive = () => {
+        if (document.hidden) return false;
+        const current = route();
+        return current === 'alarms' || (isOperator() && OPERATOR_ROUTES.has(current));
+    };
 
     /* ------------------------------------------------------------ ISA-18.2
      *
@@ -85,7 +95,8 @@
 
     async function api(path, options = {}) {
         const controller = new AbortController();
-        const timer = window.setTimeout(() => controller.abort(), 6000);
+        state.controllers.add(controller);
+        const timer = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
         try {
             const response = await fetch(path, {
                 cache: 'no-store',
@@ -110,7 +121,18 @@
             throw error;
         } finally {
             window.clearTimeout(timer);
+            state.controllers.delete(controller);
         }
+    }
+
+    function cancelRequests() {
+        state.controllers.forEach((controller) => controller.abort());
+        state.controllers.clear();
+    }
+
+    function cancelTimer() {
+        if (state.timer) window.clearTimeout(state.timer);
+        state.timer = null;
     }
 
     function formatPower(value) {
@@ -427,6 +449,7 @@
     }
 
     async function refreshAlarms() {
+        if (!alarmsActive()) return;
         try {
             state.alarms = await api('/api/operator/alarms');
             state.alarmError = state.alarmError && state.alarmError.startsWith('Alarm conditions unavailable')
@@ -613,11 +636,12 @@
     }
 
     async function refreshHistory() {
+        if (!historyActive()) return;
         state.history = await api(`/api/operator/history?range=${encodeURIComponent(state.range)}`);
     }
 
     async function refreshAll() {
-        if (!isOperator() || state.busy) return;
+        if (!historyActive() || state.busy) return;
         state.busy = true;
         try {
             const [history, events] = await Promise.all([
@@ -638,17 +662,40 @@
         }
     }
 
+    function schedulePoll(delay = REFRESH_MS) {
+        cancelTimer();
+        if (!historyActive() && !alarmsActive()) return;
+        state.timer = window.setTimeout(async () => {
+            state.timer = null;
+            const tasks = [];
+            if (historyActive()) tasks.push(refreshAll());
+            if (alarmsActive()) tasks.push(refreshAlarms());
+            await Promise.allSettled(tasks);
+            schedulePoll();
+        }, delay);
+    }
+
+    function reconcileLifecycle() {
+        cancelTimer();
+        cancelRequests();
+        if (!historyActive() && !alarmsActive()) return;
+        const tasks = [];
+        if (historyActive()) tasks.push(refreshAll());
+        if (alarmsActive()) tasks.push(refreshAlarms());
+        Promise.allSettled(tasks).finally(() => schedulePoll());
+    }
+
     function start() {
         ensureAlarmPage();
         setRouteActive();
-        refreshAll();
-        refreshAlarms();
+        reconcileLifecycle();
         window.addEventListener('hashchange', () => {
             ensureAlarmPage();
             setRouteActive();
             scheduleEnhance();
             renderAlarmPage();
             renderAlarmConsole();
+            reconcileLifecycle();
         });
         new MutationObserver(() => {
             ensureAlarmPage();
@@ -658,18 +705,23 @@
              * anything, so the rows are rebuilt rather than left showing a
              * button that would only 401. */
             renderAlarmConsole();
+            reconcileLifecycle();
         }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-access'] });
-        window.addEventListener('amx-access-change', renderAlarmConsole);
+        window.addEventListener('amx-access-change', () => {
+            renderAlarmConsole();
+            reconcileLifecycle();
+        });
         const main = byId('mainContent');
         if (main) {
             new MutationObserver((records) => {
                 if (records.some((record) => record.target === main)) scheduleEnhance();
             }).observe(main, { childList: true });
         }
-        state.timer = window.setInterval(() => {
-            refreshAll();
-            refreshAlarms();
-        }, 10000);
+        document.addEventListener('visibilitychange', reconcileLifecycle);
+        window.addEventListener('beforeunload', () => {
+            cancelTimer();
+            cancelRequests();
+        });
     }
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
