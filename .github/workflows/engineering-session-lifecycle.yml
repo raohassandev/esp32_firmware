@@ -1,0 +1,23 @@
+name: Engineering session lifecycle checks
+
+on:
+  pull_request:
+    paths:
+      - 'web/engineering-session-resilience.js'
+      - 'tests/engineering_session_lifecycle_source_contract.py'
+      - '.github/workflows/engineering-session-lifecycle.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lifecycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check engineering session module syntax
+        run: node --check web/engineering-session-resilience.js
+      - name: Check renewal, timeout and restore contract
+        run: python3 tests/engineering_session_lifecycle_source_contract.py
