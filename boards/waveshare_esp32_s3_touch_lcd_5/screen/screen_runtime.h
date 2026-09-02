@@ -32,7 +32,12 @@ bool screen_runtime_init(const screen_api_provider_t *provider);
 /* Existing /api/live information cadence. */
 bool screen_runtime_refresh_fast(void);
 
-/* Existing status/readiness contracts. */
+/* Status-only projection for pages such as Overview that do not render the
+ * heavier /api/telemetry snapshot. This consumes the same existing status API
+ * contract and changes no backend/control semantics. */
+bool screen_runtime_refresh_status_only(void);
+
+/* Existing status/readiness contracts (status + telemetry). */
 bool screen_runtime_refresh_status(void);
 
 /* Existing operator meter/inverter contracts. */
