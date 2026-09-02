@@ -31,7 +31,10 @@ assert "status.control_enabled ? 'block' : 'pass'" in js, "enabled control must 
 assert "commandable_rated_kw" in js, "write eligibility must be surfaced"
 assert "Automatic control and physical inverter writes" not in js, "readiness UI must not claim approval"
 assert "Export snapshot" in js and "JSON.stringify(report" in js, "diagnostic export is required"
-assert "setInterval(refreshAll, 15000)" in js, "readiness must refresh periodically"
+assert "REFRESH_MS = 15000" in js and "window.setTimeout" in js, "readiness must refresh periodically"
+assert "setInterval(" not in js, "readiness periodic refresh must be cancellable"
+for token in ("AbortController", "REQUEST_TIMEOUT_MS", "document.hidden", "visibilitychange", "beforeunload"):
+    assert token in js, f"readiness lifecycle safeguard missing: {token}"
 assert "temporary_field_bypass" in js, "unexpected bypass state must remain visible in readiness"
 assert "AUTH_TEMPORARY_FIELD_BYPASS" not in auth, "production authentication must not contain a bypass switch"
 assert '"temporary_field_bypass", false' in auth, "session API must report that bypass is disabled"
