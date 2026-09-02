@@ -52,7 +52,12 @@ typedef struct {
 
 typedef struct {
     bool configured;
+    /* Contact/source evidence and active-power samples have independent
+     * freshness. A stopped/open channel does not need a current power sample,
+     * but a breaker-closed running channel does. Keeping the two separate avoids
+     * turning a harmless stale meter on a stopped genset into a fleet conflict. */
     bool evidence_fresh;
+    bool measurement_fresh;
     bool running;
     bool breaker_closed;
     float rated_kw;
