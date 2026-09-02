@@ -38,11 +38,17 @@ for token in [
     "nvs_set_blob",
     "nvs_commit",
     "nvs_get_blob",
-    "memcmp(&verify, config",
     "solar_grid_config_evidence_complete",
     "grid_available.enabled != config->grid_breaker_closed.enabled",
 ]:
     require(token in CONFIG_C, f"Solar-Grid persistence safeguard missing: {token}")
+# Schema 4 normalizes the Generator-1 compatibility mirror from generators[0]
+# before persistence. The readback must therefore compare against that exact
+# normalized blob, not an unnormalized caller copy.
+require("solar_grid_config_t normalized = *config;" in CONFIG_C and
+        "generator0_to_legacy(&normalized);" in CONFIG_C and
+        "memcmp(&verify, &normalized" in CONFIG_C,
+        "Solar-Grid persistence must verify the exact normalized schema-4 blob")
 
 require("solar_grid_config_init()" in APP_CORE,
         "Solar-Grid configuration must initialize before the control engine")
