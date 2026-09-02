@@ -54,6 +54,11 @@ CONFIG_HTTPD_MAX_URI_LEN=256
 CONFIG_PVDG_PRIMARY_WIFI_SSID="Automatrix-4G"
 CONFIG_PVDG_PRIMARY_WIFI_PASSWORD="Automatrix1234"
 CONFIG_PVDG_APPLY_BUILD_WIFI_PROVISIONING=y
+# BENCH CREDENTIAL PREFILL - REMOVE BEFORE PRODUCTION RELEASE.
+# Prefills the Engineering credential on the Commission and Source pages so the
+# bench operator does not retype it on every unlock. This string is compiled into
+# the image and is public knowledge for any unit built from this source.
+CONFIG_WAVESHARE_BENCH_ENGINEERING_CREDENTIAL="Automatrix1234"
 CONFIG_PVDG_WIFI_PROVISION_ID=1
 CONFIG_PVDG_DEFAULT_ZLAN_HOST="192.168.100.200"
 CONFIG_FREERTOS_HZ=1000

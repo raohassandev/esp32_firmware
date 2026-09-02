@@ -6,6 +6,25 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "esp_log.h"
+
+/* PRAGMA MARK: BENCH CREDENTIAL PREFILL — REMOVE BEFORE PRODUCTION RELEASE
+ *
+ * Prefills the Engineering credential field so a bench operator does not retype
+ * it on every unlock. Empty unless CONFIG_WAVESHARE_BENCH_ENGINEERING_CREDENTIAL
+ * is set, and that option defaults to empty, so a normal build is unaffected.
+ *
+ * A value here is compiled into the image. It is therefore identical on every
+ * unit built from this source and must be treated as public knowledge, exactly
+ * like the recovery access point's build default passphrase. It must not ship.
+ *
+ * Search the tree for "BENCH CREDENTIAL PREFILL" to find every instance. */
+#if defined(CONFIG_WAVESHARE_BENCH_ENGINEERING_CREDENTIAL)
+#define WAVESHARE_BENCH_CREDENTIAL CONFIG_WAVESHARE_BENCH_ENGINEERING_CREDENTIAL
+#else
+#define WAVESHARE_BENCH_CREDENTIAL ""
+#endif
+
 #define COMMISSION_STEP_COUNT 8U
 #define FORM_CONTROL_WIDTH 330
 #define KEYBOARD_HEIGHT 190
@@ -717,7 +736,13 @@ static void render_locked(void)
     lv_obj_t *form = form_container();
     heading(form, "Engineering unlock",
             "Use the same Engineering password as the protected web workspace. A fresh unit may use its one-time SETUP code from the serial console. Five failed attempts share the normal Engineering lockout.");
-    s_ui.credential = field(form, "Engineering credential", "", true);
+    /* BENCH CREDENTIAL PREFILL — see the pragma mark at the top of this file. */
+    s_ui.credential = field(form, "Engineering credential", WAVESHARE_BENCH_CREDENTIAL, true);
+    if (WAVESHARE_BENCH_CREDENTIAL[0] != '\0') {
+        ESP_LOGW("commissioning_screen",
+                 "BENCH BUILD: an Engineering credential is compiled into this image and "
+                 "prefilled on the unlock form. This build must not be shipped.");
+    }
     button(form, "Unlock commissioning", unlock_clicked, NULL);
 }
 
