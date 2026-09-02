@@ -1,0 +1,41 @@
+version: 1
+defaults:
+  software_merge:
+    require:
+      - branch_plus_PR
+      - current_base_rechecked_before_merge
+      - exact_current_PR_head
+      - zero_behind_target_at_merge_time
+      - fresh_required_CI_green
+      - tests_for_changed_behavior
+    forbid:
+      - direct_feature_write_to_integration_branch
+      - force_push_over_unmerged_work
+      - inferred_test_pass
+  firmware_safety:
+    require:
+      - preserve_NVS_and_commissioned_configuration
+      - automatic_control_fail_closed_without_qualified_evidence
+      - qualified_profile_before_physical_inverter_write
+    forbid:
+      - erase_flash
+      - nvs_flash_erase
+      - committed_real_credentials
+      - guessed_register_addresses
+      - guessed_timing_values
+      - guessed_protocol_semantics
+  hardware_acceptance:
+    require:
+      - exact_artifact_identity
+      - exact_source_head_recorded
+      - observed_visual_touch_result
+      - serial_resource_and_reset_evidence
+      - required_soak_on_same_candidate
+    rule: older_candidate_physical_pass_does_not_transfer_across_source_tree_change
+  release:
+    require:
+      - software_merge_gates
+      - hardware_acceptance_gates
+      - signed_FAT_SAT_where_required
+      - evidence_tied_to_exact_firmware_SHA
+      - no_open_critical_blockers
