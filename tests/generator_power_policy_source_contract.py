@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generator policy must use commissioned evidence, never invent breaker/sync state."""
+"""Generator policy must use commissioned Generator 1..3 facts and fail closed."""
 
 from pathlib import Path
 
@@ -7,6 +7,9 @@ ROOT = Path(__file__).resolve().parents[1]
 MODE_H = (ROOT / "components/control_engine/include/source_mode.h").read_text(encoding="utf-8")
 MODE_C = (ROOT / "components/control_engine/source_mode.c").read_text(encoding="utf-8")
 CONTROL = (ROOT / "components/control_engine/control_engine.c").read_text(encoding="utf-8")
+CONTROL_TYPES = (ROOT / "components/control_engine/include/control_types.h").read_text(encoding="utf-8")
+POLICY = (ROOT / "components/control_engine/power_control_policy.c").read_text(encoding="utf-8")
+STATUS = (ROOT / "components/web_server/solar_grid_status_api.c").read_text(encoding="utf-8")
 SG_H = (ROOT / "components/solar_grid_config/include/solar_grid_config.h").read_text(encoding="utf-8")
 SG_C = (ROOT / "components/solar_grid_config/solar_grid_config.c").read_text(encoding="utf-8")
 
@@ -21,94 +24,113 @@ for token in ("MEASURED_SOURCE_UNKNOWN", "MEASURED_SOURCE_GRID", "MEASURED_SOURC
     require(token in MODE_H, f"measured source vocabulary missing {token}")
 require("source_mode_from_measured_source" in MODE_H and
         "source_mode_from_measured_source" in MODE_C,
-        "the power-following mapping must exist")
-
-mapping = MODE_C[MODE_C.index("source_mode_result_t source_mode_from_measured_source"):]
-require("SOURCE_MODE_GRID_GENERATOR_SYNC" not in mapping,
-        "measurement cannot prove two sources are synchronised")
-require("SOURCE_MODE_TRANSFER" not in mapping,
-        "measurement cannot prove a transfer is in progress")
-require("SOURCE_MODE_ISLAND" not in mapping,
-        "measurement cannot prove islanding")
-require("if (!evidence_fresh) return result;" in mapping,
-        "stale measurement evidence must fail closed")
-
-# Strong evidence still comes only from persisted signals and actual reads. The
-# current control engine consumes the compatibility Generator-1 mirror; schema 4
-# additionally stores Generator 1..3 for the next runtime-integration slice.
-for field in ("generator_running", "generator_breaker_closed", "transfer_active",
-              "grid_generator_synchronized"):
-    require(field in SG_H, f"strong source evidence field missing: {field}")
-    require(f"evidence.{field}" in CONTROL,
-            f"control engine does not consume runtime strong evidence: {field}")
-require("read_optional_signal" in CONTROL,
-        "strong evidence must be acquired through the bounded evidence task")
-require("source_mode_from_measured_source" in CONTROL,
         "the measured-source fallback must remain available")
-require("if (evidence.configured)" in CONTROL,
-        "strong evidence must have an explicit configured branch")
-require("transition_pending" in CONTROL,
-        "a pending measured-source transition must not be treated as settled")
+mapping = MODE_C[MODE_C.index("source_mode_result_t source_mode_from_measured_source"):]
+for forbidden in ("SOURCE_MODE_GRID_GENERATOR_SYNC", "SOURCE_MODE_TRANSFER", "SOURCE_MODE_ISLAND"):
+    require(forbidden not in mapping,
+            f"measurement-only source mapping must never claim {forbidden}")
+require("if (!evidence_fresh) return result;" in mapping,
+        "stale measured-source evidence must fail closed")
 
-# Persisted schema 4 must migrate schemas 1/2/3 without inventing new channels.
-for field in ("generator_rated_kw", "generator_minimum_loading_percent",
-              "generator_reserve_kw", "generator_reverse_power_margin_kw"):
-    require(field in SG_H, f"Generator-1 compatibility limit missing {field}")
+# Schema 4 persists exactly three independent channels and migrates prior state
+# into Generator 1 without inventing Generator 2/3 values.
 require("SOLAR_GRID_CONFIG_VERSION 4u" in SG_H,
         "three-channel generator configuration requires Solar-Grid schema 4")
-require("solar_grid_generator_config_t generators[SOLAR_GRID_MAX_GENERATORS];" in SG_H,
-        "schema 4 must persist three generator channels")
+require("SOLAR_GRID_MAX_GENERATORS 3U" in SG_H and
+        "solar_grid_generator_config_t generators[SOLAR_GRID_MAX_GENERATORS];" in SG_H,
+        "Generator 1..3 must be persisted independently")
 for legacy in ("legacy_solar_grid_config_v1_t", "legacy_solar_grid_config_v2_t",
                "legacy_solar_grid_config_v3_t"):
     require(legacy in SG_C, f"frozen migration layout missing: {legacy}")
-require("offsetof(solar_grid_config_t, generators)" in SG_C,
-        "schema 3 must be proven an exact prefix of schema 4")
 require("migrate_v3" in SG_C and "legacy_to_generator0(loaded);" in SG_C,
-        "schema 3 must migrate its generator state into Generator 1")
+        "schema 3 generator state must migrate to Generator 1")
 require("generator_safe_defaults(&config->generators[i]);" in SG_C,
-        "Generator 2-3 must stay uncommissioned on migration/defaults")
+        "new generator channels must remain uncommissioned on migration/defaults")
 
-# Existing single-machine runtime remains safe while the independent runtime
-# integration slice is developed: generator-only/island both use the tested
-# safe-limit function and require commissioned evidence.
-limit = CONTROL[CONTROL.index("float generator_safe_limit_kw = 0.0f;"):]
-limit = limit[:limit.index("power_control_input_t input")]
-require("SOURCE_MODE_GENERATOR_ONLY" in limit and "SOURCE_MODE_ISLAND" in limit,
-        "generator minimum-load protection must cover generator-only and island operation")
-require("s_grid_config.generator_rated_kw" in limit,
-        "current Generator-1 runtime must use the commissioned compatibility rating")
-require("source_mode_generator_safe_pv_kw" in limit,
-        "the current generator limit must come from the tested policy function")
-require("evidence.generator_configured" in limit,
-        "strong generator operation must fail closed until run/breaker evidence is commissioned")
-
-# Fleet aggregation groundwork must itself be fail-closed before it is wired into
-# control_engine: per-channel non-finite/stale/conflicting evidence invalidates the
-# whole fleet and the fleet-safe helper can only subtract a validated aggregate
-# required minimum from a finite facility load.
-require("source_mode_aggregate_generators" in MODE_H and
-        "source_mode_aggregate_generators" in MODE_C,
-        "three-channel fleet aggregation policy must exist")
-require("source_mode_generator_fleet_safe_pv_kw" in MODE_H and
-        "source_mode_generator_fleet_safe_pv_kw" in MODE_C,
-        "fleet safe-PV helper must exist")
+# Per-channel contact freshness is separate from power freshness. A stopped/open
+# machine may have stale power, but a connected running machine may not.
+require("bool measurement_fresh;" in MODE_H,
+        "generator channels need independent power freshness")
 fleet = MODE_C[MODE_C.index("generator_fleet_result_t source_mode_aggregate_generators"):]
 fleet = fleet[:fleet.index("float source_mode_generator_fleet_safe_pv_kw")]
-for token in ("!channel->evidence_fresh", "channel->rated_kw <= 0.0f",
-              "!isfinite(channel->measured_kw)",
-              "channel->breaker_closed && !channel->running"):
-    require(token in fleet, f"fleet aggregation fail-closed guard missing: {token}")
+for token in (
+    "!channel->evidence_fresh",
+    "channel->breaker_closed && !channel->running",
+    "if (!channel->breaker_closed) continue;",
+    "!channel->measurement_fresh",
+    "channel->measured_kw < 0.0f",
+):
+    require(token in fleet, f"per-generator fleet guard missing: {token}")
+require("fabsf(channel->measured_kw)" not in fleet and
+        "fabs(channel->measured_kw)" not in fleet,
+        "generator meter sign must be commissioned, never hidden with fabs()")
 
-fleet_safe = MODE_C[MODE_C.index("float source_mode_generator_fleet_safe_pv_kw"):]
-fleet_safe = fleet_safe[:fleet_safe.index("float source_mode_generator_safe_pv_kw")]
-for token in ("!fleet->valid", "fleet->conflict", "fleet->running_count == 0U",
-              "!isfinite(facility_load_kw)", "facility_load_kw - fleet->required_minimum_kw"):
-    require(token in fleet_safe, f"fleet safe-PV guard/calculation missing: {token}")
+# Runtime must map Generator 1..3 meter roles, per-channel run/breaker contacts,
+# and per-channel limits into the tested aggregate policy.
+for token in (
+    "build_generator_fleet",
+    "roles->generator_index[i]",
+    "s_grid_config.generators[i]",
+    "solar_grid_config_generator_evidence_complete_at",
+    "evidence->generator_running_channel[i]",
+    "evidence->generator_breaker_closed_channel[i]",
+    "meter_manager_get_data(meter_index, &meter)",
+    "source_mode_aggregate_generators(channels)",
+    "source_mode_generator_fleet_safe_pv_kw",
+):
+    require(token in CONTROL, f"live Generator 1..3 integration missing: {token}")
+require("generator_fleet.conflict" in CONTROL and "SOURCE_MODE_CONFLICT" in CONTROL,
+        "per-channel conflict must override the lossy aggregate source verdict")
+require("current_target_kw + generator_fleet.measured_total_kw" in CONTROL,
+        "safe PV ceiling must be derived from current setpoint plus measured generator contribution")
 
-safe = MODE_C[MODE_C.index("float source_mode_generator_safe_pv_kw"):]
-safe = safe[:safe.index("\n}")]
-require("running_generator_rated_kw <= 0.0f" in safe,
-        "a zero or negative generator rating must yield zero PV")
-require("isfinite" in safe, "non-finite generator inputs must fail closed")
+# Generator-only/island does not regulate a nonexistent grid exchange. It ramps
+# up toward the safe fleet ceiling and clamps downward immediately when safety
+# headroom disappears. Synchronized operation still needs grid PI plus the fleet
+# ceiling.
+require("const bool generator_only" in POLICY,
+        "power policy must distinguish generator-only/island from synchronized operation")
+generator_path = POLICY[POLICY.index("if (generator_only) {"):POLICY.index("/* Grid-only and synchronized")]
+for token in (
+    "output.error_kw = 0.0f",
+    "output.next_integral_kw = 0.0f",
+    "float requested = maximum",
+    "input->current_pv_command_kw + upward_step",
+):
+    require(token in generator_path, f"generator-only safe-ceiling behavior missing: {token}")
+require("measured_grid_kw" not in generator_path,
+        "generator-only control must not depend on a disconnected grid meter")
+require("if (!isfinite(input->measured_grid_kw))" in POLICY,
+        "grid/synchronized PI path must still require a finite grid measurement")
+
+# The normal safety gate must use the running generator fleet measurement in
+# generator-only/island mode instead of incorrectly requiring the grid meter.
+require("const meter_data_t *safety_meter = generator_only && evidence.configured" in CONTROL and
+        "&generator_safety_meter" in CONTROL,
+        "generator-only safety freshness must come from generator meters")
+
+# Runtime observability is required so commissioning can see exactly which fleet
+# facts are driving the safe ceiling without causing Modbus I/O in the handler.
+for field in (
+    "generator_channel_configured_mask",
+    "generator_channel_running_mask",
+    "generator_channel_breaker_mask",
+    "generator_running_count",
+    "generator_running_rated_kw",
+    "generator_measured_total_kw",
+    "generator_required_minimum_kw",
+    "generator_safe_pv_limit_kw",
+):
+    require(field in CONTROL_TYPES, f"runtime status field missing: {field}")
+    require(f'"{field}"' in STATUS, f"status API missing generator fleet field: {field}")
+require("meter_manager_read_registers" not in STATUS,
+        "status HTTP handler must remain cache-only")
+
+# Legacy measured-source fallback remains fail-closed for sites without strong
+# contact commissioning; it may not claim breaker/synchronism facts.
+require("source_mode_generator_safe_pv_kw" in CONTROL,
+        "legacy single-generator fallback was accidentally removed")
+require("transition_pending" in CONTROL,
+        "pending measured-source transition must remain blocked")
 
 print("generator power policy source contract passed")

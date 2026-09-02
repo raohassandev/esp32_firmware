@@ -73,9 +73,12 @@ generator_fleet_result_t source_mode_aggregate_generators(
         if (!channel->configured) continue;
         any_configured = true;
 
+        /* Run/breaker evidence is required for every commissioned channel, but
+         * a stopped/open genset does not need a fresh power sample. Power is
+         * required only once the breaker is closed and the machine is carrying
+         * the plant. */
         if (!channel->evidence_fresh ||
             !isfinite(channel->rated_kw) || channel->rated_kw <= 0.0f ||
-            !isfinite(channel->measured_kw) ||
             !isfinite(channel->minimum_loading_percent) ||
             channel->minimum_loading_percent < 0.0f ||
             channel->minimum_loading_percent > 100.0f ||
@@ -91,6 +94,15 @@ generator_fleet_result_t source_mode_aggregate_generators(
             return result;
         }
         if (!channel->breaker_closed) continue;
+
+        /* meter_config.active_power_scale is the commissioning point for sign
+         * normalization. Runtime therefore requires generator contribution to
+         * arrive as non-negative kW and never takes fabs() to hide a wrong sign. */
+        if (!channel->measurement_fresh || !isfinite(channel->measured_kw) ||
+            channel->measured_kw < 0.0f) {
+            result.conflict = true;
+            return result;
+        }
 
         result.running_count++;
         result.running_rated_kw += channel->rated_kw;

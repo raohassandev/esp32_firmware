@@ -27,9 +27,8 @@ static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 
 typedef struct {
     /* Grid evidence remains the admission gate for the existing Solar+Grid
-     * product. Generator evidence is additional: when it is not commissioned,
-     * grid-only operation behaves exactly as before and generator operation
-     * cannot be inferred from missing contacts. */
+     * product. Generator evidence is additional and now stored per channel so
+     * Generator 1..3 can be validated independently before aggregation. */
     bool configured;
     bool generator_configured;
     bool grid_available;
@@ -38,10 +37,17 @@ typedef struct {
     bool generator_breaker_closed;
     bool transfer_active;
     bool grid_generator_synchronized;
+    bool generator_channel_configured[SOURCE_MAX_GENERATORS];
+    bool generator_running_channel[SOURCE_MAX_GENERATORS];
+    bool generator_breaker_closed_channel[SOURCE_MAX_GENERATORS];
     uint16_t grid_available_raw;
     uint16_t grid_breaker_raw;
+    /* Compatibility fields report Generator 1 (slot 0); channel arrays below
+     * are the authoritative per-generator runtime evidence. */
     uint16_t generator_running_raw;
     uint16_t generator_breaker_raw;
+    uint16_t generator_running_raw_channel[SOURCE_MAX_GENERATORS];
+    uint16_t generator_breaker_raw_channel[SOURCE_MAX_GENERATORS];
     uint16_t transfer_active_raw;
     uint16_t grid_generator_synchronized_raw;
     uint32_t last_attempt_ms;
@@ -56,6 +62,8 @@ static meter_role_assignment_t s_roles;
 
 _Static_assert(APP_MAX_GENERATORS == SOURCE_MAX_GENERATORS,
                "meter generator slots and source-mode generator channels must agree");
+_Static_assert(SOLAR_GRID_MAX_GENERATORS == SOURCE_MAX_GENERATORS,
+               "Solar-Grid generator channels and source-mode channels must agree");
 
 /* Converts a ramp profile into the kW/s the policy layer expects.
  *
@@ -189,30 +197,111 @@ static esp_err_t first_error(esp_err_t current, esp_err_t candidate)
     return current != ESP_OK ? current : candidate;
 }
 
+static bool generator_channel_requested(uint8_t index,
+                                        const meter_role_assignment_t *roles)
+{
+    if (index >= SOURCE_MAX_GENERATORS || !roles) return false;
+    const solar_grid_generator_config_t *config = &s_grid_config.generators[index];
+    return config->rated_kw > 0.0f || config->running.enabled ||
+           config->breaker_closed.enabled ||
+           roles->generator_index[index] != METER_ROLE_INDEX_NONE;
+}
+
+/* Build the generator fleet from independent facts only:
+ * - meter role chooses which configured meter measures each Generator 1..3;
+ * - run/breaker comes only from explicitly commissioned strong evidence;
+ * - active-power sign is not guessed or fabs()'d; commissioning must normalize
+ *   the meter scale so positive kW means generator contribution to the bus.
+ * Any partially commissioned channel is marked configured and therefore fails
+ * closed instead of disappearing from the fleet. */
+static generator_fleet_result_t build_generator_fleet(
+    const meter_role_assignment_t *roles,
+    const grid_evidence_runtime_t *evidence,
+    bool evidence_fresh,
+    uint32_t timestamp,
+    meter_data_t *safety_meter,
+    bool *any_configured)
+{
+    generator_channel_evidence_t channels[SOURCE_MAX_GENERATORS] = {0};
+    uint32_t oldest_running_update = timestamp;
+    bool have_running_update = false;
+    bool requested = false;
+
+    if (safety_meter) *safety_meter = (meter_data_t){0};
+    if (any_configured) *any_configured = false;
+    if (!roles || !evidence) return (generator_fleet_result_t){0};
+
+    for (uint8_t i = 0U; i < SOURCE_MAX_GENERATORS; ++i) {
+        if (!generator_channel_requested(i, roles)) continue;
+        requested = true;
+        const solar_grid_generator_config_t *config = &s_grid_config.generators[i];
+        generator_channel_evidence_t *channel = &channels[i];
+        channel->configured = true;
+        channel->evidence_fresh = evidence_fresh &&
+            solar_grid_config_generator_evidence_complete_at(&s_grid_config, i);
+        channel->running = evidence->generator_running_channel[i];
+        channel->breaker_closed = evidence->generator_breaker_closed_channel[i];
+        channel->rated_kw = config->rated_kw;
+        channel->minimum_loading_percent = config->minimum_loading_percent;
+        channel->reserve_kw = config->reserve_kw;
+        channel->reverse_power_margin_kw = config->reverse_power_margin_kw;
+        channel->measured_kw = NAN;
+
+        const uint8_t meter_index = roles->generator_index[i];
+        meter_data_t meter = {0};
+        const bool have_meter = meter_index != METER_ROLE_INDEX_NONE &&
+                                meter_manager_get_data(meter_index, &meter);
+        channel->measurement_fresh = have_meter && meter_sample_fresh(&meter, timestamp);
+        if (channel->measurement_fresh) channel->measured_kw = meter.active_power_kw;
+
+        if (channel->breaker_closed && channel->running && channel->measurement_fresh) {
+            if (!have_running_update || meter.last_update_ms < oldest_running_update) {
+                oldest_running_update = meter.last_update_ms;
+                have_running_update = true;
+            }
+        }
+    }
+
+    if (any_configured) *any_configured = requested;
+    generator_fleet_result_t fleet = source_mode_aggregate_generators(channels);
+    if (safety_meter && fleet.valid && have_running_update) {
+        safety_meter->online = true;
+        safety_meter->degraded = false;
+        safety_meter->last_update_ms = oldest_running_update;
+        safety_meter->active_power_kw = fleet.measured_total_kw;
+    }
+    return fleet;
+}
+
 static void grid_evidence_task(void *argument)
 {
     (void)argument;
     const solar_grid_signal_config_t available = s_grid_config.grid_available;
     const solar_grid_signal_config_t breaker = s_grid_config.grid_breaker_closed;
-    const solar_grid_signal_config_t generator_running = s_grid_config.generator_running;
-    const solar_grid_signal_config_t generator_breaker = s_grid_config.generator_breaker_closed;
+    solar_grid_signal_config_t generator_running[SOURCE_MAX_GENERATORS];
+    solar_grid_signal_config_t generator_breaker[SOURCE_MAX_GENERATORS];
+    bool shared_generator_register[SOURCE_MAX_GENERATORS] = {0};
+    for (uint8_t i = 0U; i < SOURCE_MAX_GENERATORS; ++i) {
+        generator_running[i] = s_grid_config.generators[i].running;
+        generator_breaker[i] = s_grid_config.generators[i].breaker_closed;
+        shared_generator_register[i] = same_signal_register(&generator_running[i],
+                                                            &generator_breaker[i]);
+    }
     const solar_grid_signal_config_t transfer = s_grid_config.transfer_active;
     const solar_grid_signal_config_t synchronized = s_grid_config.grid_generator_synchronized;
     const bool shared_grid_register = same_signal_register(&available, &breaker);
-    const bool shared_generator_register = same_signal_register(&generator_running,
-                                                                &generator_breaker);
 
     while (true) {
         uint16_t available_raw = 0U;
         uint16_t breaker_raw = 0U;
-        uint16_t generator_running_raw = 0U;
-        uint16_t generator_breaker_raw = 0U;
+        uint16_t generator_running_raw[SOURCE_MAX_GENERATORS] = {0};
+        uint16_t generator_breaker_raw[SOURCE_MAX_GENERATORS] = {0};
         uint16_t transfer_raw = 0U;
         uint16_t synchronized_raw = 0U;
         bool available_active = false;
         bool breaker_active = false;
-        bool generator_running_active = false;
-        bool generator_breaker_active = false;
+        bool generator_running_active[SOURCE_MAX_GENERATORS] = {0};
+        bool generator_breaker_active[SOURCE_MAX_GENERATORS] = {0};
         bool transfer_active = false;
         bool synchronized_active = false;
         uint32_t timestamp = now_ms();
@@ -228,19 +317,22 @@ static void grid_evidence_task(void *argument)
                                                      &breaker_active));
         }
 
-        esp_err_t generator_error =
-            read_optional_signal(&generator_running, &generator_running_raw,
-                                 &generator_running_active);
-        error = first_error(error, generator_error);
-        if (shared_generator_register && generator_error == ESP_OK) {
-            generator_breaker_raw = generator_running_raw;
-            generator_breaker_active = signal_active(&generator_breaker,
-                                                      generator_breaker_raw);
-        } else {
-            error = first_error(error,
-                                read_optional_signal(&generator_breaker,
-                                                     &generator_breaker_raw,
-                                                     &generator_breaker_active));
+        for (uint8_t i = 0U; i < SOURCE_MAX_GENERATORS; ++i) {
+            esp_err_t generator_error =
+                read_optional_signal(&generator_running[i],
+                                     &generator_running_raw[i],
+                                     &generator_running_active[i]);
+            error = first_error(error, generator_error);
+            if (shared_generator_register[i] && generator_error == ESP_OK) {
+                generator_breaker_raw[i] = generator_running_raw[i];
+                generator_breaker_active[i] =
+                    signal_active(&generator_breaker[i], generator_breaker_raw[i]);
+            } else {
+                error = first_error(error,
+                                    read_optional_signal(&generator_breaker[i],
+                                                         &generator_breaker_raw[i],
+                                                         &generator_breaker_active[i]));
+            }
         }
         error = first_error(error,
                             read_optional_signal(&transfer, &transfer_raw,
@@ -254,14 +346,29 @@ static void grid_evidence_task(void *argument)
         if (error == ESP_OK) {
             next.grid_available_raw = available_raw;
             next.grid_breaker_raw = breaker_raw;
-            next.generator_running_raw = generator_running_raw;
-            next.generator_breaker_raw = generator_breaker_raw;
-            next.transfer_active_raw = transfer_raw;
-            next.grid_generator_synchronized_raw = synchronized_raw;
             next.grid_available = available_active;
             next.grid_breaker_closed = breaker_active;
-            next.generator_running = generator_running_active;
-            next.generator_breaker_closed = generator_breaker_active;
+            next.generator_configured = false;
+            next.generator_running = false;
+            next.generator_breaker_closed = false;
+            for (uint8_t i = 0U; i < SOURCE_MAX_GENERATORS; ++i) {
+                next.generator_channel_configured[i] =
+                    generator_running[i].enabled && generator_breaker[i].enabled;
+                next.generator_running_raw_channel[i] = generator_running_raw[i];
+                next.generator_breaker_raw_channel[i] = generator_breaker_raw[i];
+                next.generator_running_channel[i] = generator_running_active[i];
+                next.generator_breaker_closed_channel[i] = generator_breaker_active[i];
+                next.generator_configured = next.generator_configured ||
+                                            next.generator_channel_configured[i];
+                next.generator_running = next.generator_running ||
+                                         generator_running_active[i];
+                next.generator_breaker_closed = next.generator_breaker_closed ||
+                                                generator_breaker_active[i];
+            }
+            next.generator_running_raw = generator_running_raw[0];
+            next.generator_breaker_raw = generator_breaker_raw[0];
+            next.transfer_active_raw = transfer_raw;
+            next.grid_generator_synchronized_raw = synchronized_raw;
             next.transfer_active = transfer_active;
             next.grid_generator_synchronized = synchronized_active;
             next.last_update_ms = timestamp;
@@ -339,10 +446,16 @@ static void control_task(void *argument)
                               timestamp - evidence.last_update_ms <=
                                   s_grid_config.evidence_stale_timeout_ms;
 
+        meter_data_t generator_safety_meter = {0};
+        bool generator_channels_configured = false;
+        const generator_fleet_result_t generator_fleet =
+            build_generator_fleet(&roles, &evidence, evidence_fresh, timestamp,
+                                  &generator_safety_meter,
+                                  &generator_channels_configured);
+
         /* Strong contact evidence wins when the existing grid evidence is
          * commissioned. Generator/transfer/synchronism contacts are populated
-         * only when explicitly configured; otherwise they remain false exactly
-         * as in the previous grid-only product. No power sign is promoted into
+         * only when explicitly configured. No power sign is promoted into
          * breaker or synchronism knowledge. */
         source_mode_result_t source;
         if (evidence.configured) {
@@ -358,6 +471,17 @@ static void control_task(void *argument)
                 .grid_generator_synchronized = evidence.grid_generator_synchronized,
             };
             source = source_mode_evaluate(&source_evidence);
+            /* Aggregate source_evidence_t cannot express "G1 healthy while G2
+             * breaker closed but not running". The per-channel fleet validator
+             * can, so any configured-channel conflict overrides the aggregate
+             * source verdict and fails closed. */
+            if (generator_channels_configured && generator_fleet.conflict) {
+                source = (source_mode_result_t){
+                    .mode = SOURCE_MODE_CONFLICT,
+                    .control_allowed = false,
+                    .evidence_conflict = true,
+                };
+            }
         } else {
             measured_source_t measured = MEASURED_SOURCE_UNKNOWN;
             bool measured_fresh = false;
@@ -387,19 +511,31 @@ static void control_task(void *argument)
         const bool generator_carrying = source.mode == SOURCE_MODE_GENERATOR_ONLY ||
                                         source.mode == SOURCE_MODE_ISLAND ||
                                         source.mode == SOURCE_MODE_GRID_GENERATOR_SYNC;
+        const bool generator_only = source.mode == SOURCE_MODE_GENERATOR_ONLY ||
+                                    source.mode == SOURCE_MODE_ISLAND;
         const ramp_profile_t ramp = generator_carrying ? s_config.generator_ramp
                                                        : s_config.grid_ramp;
 
-        /* The legacy single-generator limit remains in force for this first
-         * strong-evidence slice. It now covers island operation as well as
-         * Generator Only, because in both states the machine carries the plant.
-         * Multi-generator per-channel aggregation is a separate follow-up and
-         * remains fail-closed until its ratings and meter evidence are wired. */
+        /* With strong per-generator evidence, safe absolute PV is the current PV
+         * setpoint plus the measured generator headroom above the aggregate
+         * commissioned minimum. This is equivalent to estimating facility load
+         * as current PV + measured generator contribution, and it remains
+         * conservative in synchronized operation because it assumes every extra
+         * PV kW could displace a generator kW. */
         float generator_safe_limit_kw = 0.0f;
-        if (source.mode == SOURCE_MODE_GENERATOR_ONLY || source.mode == SOURCE_MODE_ISLAND) {
+        if (generator_carrying && evidence.configured) {
+            const float facility_load_estimate_kw = generator_fleet.valid
+                ? current_target_kw + generator_fleet.measured_total_kw
+                : NAN;
+            generator_safe_limit_kw =
+                source_mode_generator_fleet_safe_pv_kw(facility_load_estimate_kw,
+                                                       &generator_fleet);
+        } else if (generator_only) {
+            /* Legacy measured-source fallback is kept for sites that have not
+             * commissioned strong contacts yet. It never claims breaker or
+             * synchronism knowledge and remains fail-closed on stale data. */
             const generator_limit_input_t limit_input = {
-                .evidence_fresh = measurement_fresh &&
-                                  (!evidence.configured || evidence.generator_configured),
+                .evidence_fresh = measurement_fresh,
                 .facility_load_kw = fabsf(measured_grid_kw),
                 .running_generator_rated_kw = s_grid_config.generator_rated_kw,
                 .minimum_loading_percent = s_grid_config.generator_minimum_loading_percent,
@@ -409,8 +545,15 @@ static void control_task(void *argument)
             generator_safe_limit_kw = source_mode_generator_safe_pv_kw(&limit_input);
         }
 
+        bool control_measurement_fresh = measurement_fresh;
+        if (generator_only && evidence.configured) {
+            control_measurement_fresh = generator_fleet.valid;
+        } else if (source.mode == SOURCE_MODE_GRID_GENERATOR_SYNC && evidence.configured) {
+            control_measurement_fresh = measurement_fresh && generator_fleet.valid;
+        }
+
         power_control_input_t input = {
-            .measurement_fresh = measurement_fresh && fleet_valid && gate.control_allowed,
+            .measurement_fresh = control_measurement_fresh && fleet_valid && gate.control_allowed,
             .source_mode = source.mode,
             .policy = (grid_policy_t)s_grid_config.policy,
             .measured_grid_kw = measured_grid_kw,
@@ -442,7 +585,12 @@ static void control_task(void *argument)
         float requested_kw = control_enabled && policy.valid
                                  ? policy.requested_pv_kw
                                  : 0.0f;
-        float applied_kw = safety_manager_limit_target_kw(requested_kw, &grid, timestamp);
+        const meter_data_t *safety_meter = generator_only && evidence.configured
+                                               ? &generator_safety_meter
+                                               : &grid;
+        float applied_kw = safety_manager_limit_target_kw(requested_kw,
+                                                          safety_meter,
+                                                          timestamp);
         if (!isfinite(applied_kw) || applied_kw < 0.0f) applied_kw = 0.0f;
 
         uint32_t alarm_flags = safety_manager_get_alarm_flags();
@@ -516,6 +664,14 @@ static void control_task(void *argument)
             .generator_evidence_configured = evidence.generator_configured,
             .generator_running = evidence.generator_running,
             .generator_breaker_closed = evidence.generator_breaker_closed,
+            .generator_running_count = generator_fleet.valid ? generator_fleet.running_count : 0U,
+            .generator_running_rated_kw = generator_fleet.valid
+                                              ? generator_fleet.running_rated_kw : 0.0f,
+            .generator_measured_total_kw = generator_fleet.valid
+                                               ? generator_fleet.measured_total_kw : NAN,
+            .generator_required_minimum_kw = generator_fleet.valid
+                                                 ? generator_fleet.required_minimum_kw : NAN,
+            .generator_safe_pv_limit_kw = generator_safe_limit_kw,
             .transfer_active = evidence.transfer_active,
             .grid_generator_synchronized = evidence.grid_generator_synchronized,
             .grid_recovery_stable = gate.recovery_stable,
@@ -534,14 +690,32 @@ static void control_task(void *argument)
             .last_cycle_ms = timestamp,
             .command_authority = control_enabled && policy.valid && alarm_flags == 0U,
         };
+        for (uint8_t i = 0U; i < SOURCE_MAX_GENERATORS; ++i) {
+            if (evidence.generator_channel_configured[i]) {
+                next.generator_channel_configured_mask |= (uint8_t)(1U << i);
+            }
+            if (evidence.generator_running_channel[i]) {
+                next.generator_channel_running_mask |= (uint8_t)(1U << i);
+            }
+            if (evidence.generator_breaker_closed_channel[i]) {
+                next.generator_channel_breaker_mask |= (uint8_t)(1U << i);
+            }
+        }
         /* One authoritative answer, in the firmware's own words, rather than the
          * interface inferring intent from several scattered flags. Ordered most
          * specific first so the operator is told the thing they can act on. */
         const char *inhibit =
             !control_enabled          ? "Automatic control is disabled; engineering authorisation is required."
             : alarm_flags != 0U       ? "An active safety alarm is blocking commands."
-            : !roles.valid            ? "No single enabled meter is assigned the grid role."
-            : !measurement_fresh      ? "The grid measurement is missing, stale or non-finite."
+            : !roles.valid            ? "No single enabled meter is assigned the grid role, or generator meter roles conflict."
+            : generator_channels_configured && generator_fleet.conflict
+                                      ? "Generator channel evidence, meter freshness or active-power sign is conflicting."
+            : generator_carrying && evidence.configured && !generator_fleet.valid
+                                      ? "The running generator fleet is not fully commissioned or its power evidence is stale."
+            : generator_only && !evidence.configured && !measurement_fresh
+                                      ? "The generator-mode fallback measurement is missing, stale or non-finite."
+            : !generator_only && !measurement_fresh
+                                      ? "The grid measurement is missing, stale or non-finite."
             : !fleet_valid            ? "No commissioned inverter capacity is available to command."
             : !gate.control_allowed   ? "The grid-evidence gate has not confirmed a stable source."
             : !source.control_allowed ? "The source carrying the plant is not settled."
@@ -602,12 +776,18 @@ esp_err_t control_engine_init(void)
         return error == ESP_OK ? ESP_ERR_INVALID_STATE : error;
     }
 
+    bool any_generator_evidence = false;
     grid_evidence_runtime_t evidence = {
         .configured = solar_grid_config_evidence_complete(&s_grid_config),
-        .generator_configured =
-            solar_grid_config_generator_evidence_complete(&s_grid_config),
         .last_error = ESP_OK,
     };
+    for (uint8_t i = 0U; i < SOURCE_MAX_GENERATORS; ++i) {
+        evidence.generator_channel_configured[i] =
+            solar_grid_config_generator_evidence_complete_at(&s_grid_config, i);
+        any_generator_evidence = any_generator_evidence ||
+                                 evidence.generator_channel_configured[i];
+    }
+    evidence.generator_configured = any_generator_evidence;
     evidence_store(&evidence);
 
     portENTER_CRITICAL(&s_lock);
@@ -628,6 +808,8 @@ esp_err_t control_engine_init(void)
                                                : GRID_GATE_UNCONFIGURED,
         .grid_evidence_configured = evidence.configured,
         .generator_evidence_configured = evidence.generator_configured,
+        .generator_measured_total_kw = NAN,
+        .generator_required_minimum_kw = NAN,
     };
     portEXIT_CRITICAL(&s_lock);
 
@@ -642,10 +824,10 @@ esp_err_t control_engine_init(void)
     if (!evidence.configured) {
         ESP_LOGW(TAG, "Automatic Solar-Grid control remains fail-closed: explicit grid availability and breaker evidence are not configured");
     } else if (!evidence.generator_configured) {
-        ESP_LOGI(TAG, "Solar-Grid policy '%s' loaded with grid evidence; generator run/breaker evidence is not commissioned, so strong generator operation remains unavailable",
+        ESP_LOGI(TAG, "Solar-Grid policy '%s' loaded with grid evidence; Generator 1-3 run/breaker evidence is not commissioned, so strong generator operation remains unavailable",
                  solar_grid_policy_name(s_grid_config.policy));
     } else {
-        ESP_LOGI(TAG, "Solar-Grid policy '%s' loaded with explicit grid and generator source evidence",
+        ESP_LOGI(TAG, "Solar-Grid policy '%s' loaded with explicit grid and per-generator source evidence",
                  solar_grid_policy_name(s_grid_config.policy));
     }
     return ESP_OK;
