@@ -1,0 +1,30 @@
+name: Dead Engineering session asset checks
+
+on:
+  pull_request:
+    paths:
+      - 'components/web_server/CMakeLists.txt'
+      - 'components/web_server/web_assets.c'
+      - 'components/web_server/include/web_assets.h'
+      - 'components/web_server/web_server.c'
+      - 'web/engineering-session-resilience.js'
+      - 'web/product-mode.js'
+      - 'tests/dead_engineering_session_asset_source_contract.py'
+      - '.github/workflows/dead-engineering-session-asset.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  single-auth-owner:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify obsolete wrapper is not embedded or served
+        run: python3 tests/dead_engineering_session_asset_source_contract.py
+      - name: Check active and historical auth module syntax
+        run: |
+          node --check web/product-mode.js
+          node --check web/engineering-session-resilience.js
