@@ -57,6 +57,28 @@ static void signal_to_json(cJSON *parent, const char *name,
     cJSON_AddNumberToObject(object, "active_value", signal->active_value);
 }
 
+static void generator_to_json(cJSON *array, const solar_grid_config_t *config,
+                              uint8_t index)
+{
+    const solar_grid_generator_config_t *generator = &config->generators[index];
+    cJSON *object = cJSON_CreateObject();
+    if (!object) return;
+    cJSON_AddNumberToObject(object, "index", index);
+    cJSON_AddNumberToObject(object, "rated_kw", generator->rated_kw);
+    cJSON_AddNumberToObject(object, "minimum_loading_percent",
+                            generator->minimum_loading_percent);
+    cJSON_AddNumberToObject(object, "reserve_kw", generator->reserve_kw);
+    cJSON_AddNumberToObject(object, "reverse_power_margin_kw",
+                            generator->reverse_power_margin_kw);
+    cJSON_AddBoolToObject(object, "commissioned", generator->rated_kw > 0.0f);
+    signal_to_json(object, "running", &generator->running);
+    signal_to_json(object, "breaker_closed", &generator->breaker_closed);
+    cJSON_AddBoolToObject(object, "evidence_complete",
+                          solar_grid_config_generator_evidence_complete_at(config,
+                                                                          index));
+    cJSON_AddItemToArray(array, object);
+}
+
 static cJSON *config_json(const solar_grid_config_t *config)
 {
     cJSON *root = cJSON_CreateObject();
@@ -80,21 +102,34 @@ static cJSON *config_json(const solar_grid_config_t *config)
                             config->grid_loss_trip_ms);
     cJSON_AddNumberToObject(root, "grid_recovery_stable_ms",
                             config->grid_recovery_stable_ms);
-    cJSON_AddNumberToObject(root, "generator_rated_kw", config->generator_rated_kw);
+
+    /* Compatibility aliases for existing commissioning clients. They mirror
+     * Generator 1 (index 0); schema 4 clients should use the generators array. */
+    const solar_grid_generator_config_t *generator0 = &config->generators[0];
+    cJSON_AddNumberToObject(root, "generator_rated_kw", generator0->rated_kw);
     cJSON_AddNumberToObject(root, "generator_minimum_loading_percent",
-                            config->generator_minimum_loading_percent);
-    cJSON_AddNumberToObject(root, "generator_reserve_kw",
-                            config->generator_reserve_kw);
+                            generator0->minimum_loading_percent);
+    cJSON_AddNumberToObject(root, "generator_reserve_kw", generator0->reserve_kw);
     cJSON_AddNumberToObject(root, "generator_reverse_power_margin_kw",
-                            config->generator_reverse_power_margin_kw);
-    cJSON_AddBoolToObject(root, "generator_commissioned",
-                          config->generator_rated_kw > 0.0f);
+                            generator0->reverse_power_margin_kw);
+    cJSON_AddBoolToObject(root, "generator_commissioned", generator0->rated_kw > 0.0f);
+    signal_to_json(root, "generator_running", &generator0->running);
+    signal_to_json(root, "generator_breaker_closed", &generator0->breaker_closed);
+
+    cJSON *generators = cJSON_AddArrayToObject(root, "generators");
+    if (!generators) {
+        cJSON_Delete(root);
+        return NULL;
+    }
+    for (uint8_t i = 0U; i < SOLAR_GRID_MAX_GENERATORS; ++i) {
+        generator_to_json(generators, config, i);
+    }
+    cJSON_AddNumberToObject(root, "generator_channel_count",
+                            SOLAR_GRID_MAX_GENERATORS);
 
     /* Strong source evidence is configuration, not a hard-coded plant model.
      * Every signal is read back exactly as commissioned. A disabled signal has
      * no implied address/polarity and is never treated as proof of a contact. */
-    signal_to_json(root, "generator_running", &config->generator_running);
-    signal_to_json(root, "generator_breaker_closed", &config->generator_breaker_closed);
     signal_to_json(root, "transfer_active", &config->transfer_active);
     signal_to_json(root, "grid_generator_synchronized",
                    &config->grid_generator_synchronized);
@@ -188,6 +223,61 @@ static bool parse_optional_signal(cJSON *root, const char *key,
     return parse_signal(object, signal);
 }
 
+static bool parse_generator(cJSON *object, solar_grid_generator_config_t *generator,
+                            char *error, size_t error_size)
+{
+    if (!cJSON_IsObject(object)) return false;
+    bool parsed = read_limit(object, "rated_kw", SOLAR_GRID_KW_MAX,
+                             &generator->rated_kw, error, error_size) &&
+                  read_limit(object, "minimum_loading_percent",
+                             SOLAR_GRID_PERCENT_MAX,
+                             &generator->minimum_loading_percent,
+                             error, error_size) &&
+                  read_limit(object, "reserve_kw", SOLAR_GRID_KW_MAX,
+                             &generator->reserve_kw, error, error_size) &&
+                  read_limit(object, "reverse_power_margin_kw",
+                             SOLAR_GRID_KW_MAX,
+                             &generator->reverse_power_margin_kw,
+                             error, error_size);
+    parsed = parsed && parse_optional_signal(object, "running",
+                                             &generator->running) &&
+             parse_optional_signal(object, "breaker_closed",
+                                   &generator->breaker_closed);
+    return parsed;
+}
+
+static bool parse_generators(cJSON *root, solar_grid_config_t *config,
+                             char *error, size_t error_size)
+{
+    cJSON *array = cJSON_GetObjectItemCaseSensitive(root, "generators");
+    if (!array) return true;
+    if (!cJSON_IsArray(array) || cJSON_GetArraySize(array) > SOLAR_GRID_MAX_GENERATORS) {
+        snprintf(error, error_size,
+                 "Solar-Grid generators must be an array of at most %u channels",
+                 (unsigned)SOLAR_GRID_MAX_GENERATORS);
+        return false;
+    }
+    const int count = cJSON_GetArraySize(array);
+    for (int i = 0; i < count; ++i) {
+        if (!parse_generator(cJSON_GetArrayItem(array, i),
+                             &config->generators[i], error, error_size)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static void sync_generator0_compat(solar_grid_config_t *config)
+{
+    const solar_grid_generator_config_t *generator = &config->generators[0];
+    config->generator_rated_kw = generator->rated_kw;
+    config->generator_minimum_loading_percent = generator->minimum_loading_percent;
+    config->generator_reserve_kw = generator->reserve_kw;
+    config->generator_reverse_power_margin_kw = generator->reverse_power_margin_kw;
+    config->generator_running = generator->running;
+    config->generator_breaker_closed = generator->breaker_closed;
+}
+
 static esp_err_t config_get(httpd_req_t *request)
 {
     solar_grid_config_t config;
@@ -259,33 +349,38 @@ static esp_err_t config_post(httpd_req_t *request)
     next.grid_recovery_stable_ms = value;
 
     char field_error[SOLAR_GRID_FIELD_ERROR_MAX] = {0};
+    /* Legacy Generator-1 fields remain accepted. They update the authoritative
+     * slot-0 channel; an optional schema-4 generators array is parsed after this
+     * and therefore wins when both forms are supplied. */
     parsed = parsed &&
              read_limit(root, "generator_rated_kw", SOLAR_GRID_KW_MAX,
-                        &next.generator_rated_kw, field_error,
+                        &next.generators[0].rated_kw, field_error,
                         sizeof(field_error)) &&
              read_limit(root, "generator_minimum_loading_percent",
                         SOLAR_GRID_PERCENT_MAX,
-                        &next.generator_minimum_loading_percent, field_error,
-                        sizeof(field_error)) &&
+                        &next.generators[0].minimum_loading_percent,
+                        field_error, sizeof(field_error)) &&
              read_limit(root, "generator_reserve_kw", SOLAR_GRID_KW_MAX,
-                        &next.generator_reserve_kw, field_error,
+                        &next.generators[0].reserve_kw, field_error,
                         sizeof(field_error)) &&
              read_limit(root, "generator_reverse_power_margin_kw",
                         SOLAR_GRID_KW_MAX,
-                        &next.generator_reverse_power_margin_kw, field_error,
-                        sizeof(field_error));
+                        &next.generators[0].reverse_power_margin_kw,
+                        field_error, sizeof(field_error));
 
     parsed = parsed &&
              parse_optional_signal(root, "generator_running",
-                                   &next.generator_running) &&
+                                   &next.generators[0].running) &&
              parse_optional_signal(root, "generator_breaker_closed",
-                                   &next.generator_breaker_closed) &&
+                                   &next.generators[0].breaker_closed) &&
              parse_optional_signal(root, "transfer_active",
                                    &next.transfer_active) &&
              parse_optional_signal(root, "grid_generator_synchronized",
-                                   &next.grid_generator_synchronized);
+                                   &next.grid_generator_synchronized) &&
+             parse_generators(root, &next, field_error, sizeof(field_error));
     cJSON_Delete(root);
 
+    sync_generator0_compat(&next);
     next.magic = SOLAR_GRID_CONFIG_MAGIC;
     next.version = SOLAR_GRID_CONFIG_VERSION;
     if (!parsed || !solar_grid_config_valid(&next)) {

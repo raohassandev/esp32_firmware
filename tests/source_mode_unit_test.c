@@ -67,15 +67,23 @@ static void test_generator_fleet(void)
     assert(fabsf(r.measured_total_kw - 135.0f) < 0.001f);
     assert(fabsf(r.required_minimum_kw - 100.0f) < 0.001f);
 
+    /* Facility load 250 kW must leave the two running machines their aggregate
+     * required 100 kW, so PV is capped at 150 kW. */
+    assert(fabsf(source_mode_generator_fleet_safe_pv_kw(250.0f, &r) - 150.0f) < 0.001f);
+    assert(source_mode_generator_fleet_safe_pv_kw(80.0f, &r) == 0.0f);
+    assert(source_mode_generator_fleet_safe_pv_kw(NAN, &r) == 0.0f);
+
     channels[1].breaker_closed = true;
     channels[1].running = false;
     r = source_mode_aggregate_generators(channels);
     assert(!r.valid && r.conflict);
+    assert(source_mode_generator_fleet_safe_pv_kw(250.0f, &r) == 0.0f);
 
     channels[1].running = true;
     channels[1].measured_kw = NAN;
     r = source_mode_aggregate_generators(channels);
     assert(!r.valid && r.conflict);
+    assert(source_mode_generator_fleet_safe_pv_kw(250.0f, &r) == 0.0f);
 }
 
 static void test_generator_limit(void)

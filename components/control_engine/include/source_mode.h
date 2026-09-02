@@ -94,9 +94,14 @@ source_mode_result_t source_mode_from_measured_source(measured_source_t source,
 generator_fleet_result_t source_mode_aggregate_generators(
     const generator_channel_evidence_t channels[SOURCE_MAX_GENERATORS]);
 
-/* Returns the largest safe aggregate PV command while generators are carrying
- * the plant bus. Invalid, stale, conflicting, or non-finite inputs fail closed
- * to zero. */
+/* Fleet form: the aggregator has already summed each running machine's
+ * individual minimum-load, reserve and reverse-power margin. Invalid or
+ * conflicting fleet evidence fails closed to zero. */
+float source_mode_generator_fleet_safe_pv_kw(float facility_load_kw,
+                                             const generator_fleet_result_t *fleet);
+
+/* Legacy/single-machine form retained for measured-source fallback and backwards
+ * compatible commissioning. */
 float source_mode_generator_safe_pv_kw(const generator_limit_input_t *input);
 
 const char *source_mode_name(source_mode_t mode);
