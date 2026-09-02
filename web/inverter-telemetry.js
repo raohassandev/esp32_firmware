@@ -1,8 +1,11 @@
 (() => {
     'use strict';
 
-    const state = { loading: false, timer: null };
+    const REFRESH_MS = 2000;
+    const REQUEST_TIMEOUT_MS = 5000;
+    const state = { loading: false, timer: null, controller: null };
     const byId = (id) => document.getElementById(id);
+    const active = () => !document.hidden && location.hash === '#/inverters';
 
     function node(tag, className = '', text = null) {
         const item = document.createElement(tag);
@@ -39,7 +42,7 @@
                     node('h3', '', 'Inverter telemetry and readback'));
         const refresh = node('button', 'button secondary', 'Refresh telemetry');
         refresh.type = 'button';
-        refresh.addEventListener('click', load);
+        refresh.addEventListener('click', () => load(true));
         header.append(copy, refresh);
         const message = node('div', 'device-readiness-note', 'Waiting for inverter telemetry…');
         message.id = 'inverterTelemetryLiveMessage';
@@ -120,38 +123,76 @@
         message.textContent = `Updated ${new Date().toLocaleTimeString()}. Endpoint confirms writes_issued=false.`;
     }
 
-    async function load() {
-        if (state.loading || location.hash !== '#/inverters') return;
+    function cancelRequest() {
+        state.controller?.abort();
+        state.controller = null;
+    }
+
+    function cancelTimer() {
+        if (state.timer) window.clearTimeout(state.timer);
+        state.timer = null;
+    }
+
+    function schedule(delay = REFRESH_MS) {
+        cancelTimer();
+        if (!active()) return;
+        state.timer = window.setTimeout(async () => {
+            state.timer = null;
+            await load(false);
+            schedule();
+        }, delay);
+    }
+
+    async function load(manual = false) {
+        if (state.loading || (!manual && !active())) return;
+        if (manual && location.hash !== '#/inverters') return;
         state.loading = true;
+        cancelRequest();
+        const controller = new AbortController();
+        state.controller = controller;
+        const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
         ensureScaffold();
         const message = byId('inverterTelemetryLiveMessage');
         if (message) message.textContent = 'Loading read-only inverter telemetry…';
         try {
-            const response = await fetch('/api/inverter-telemetry', { cache: 'no-store' });
+            const response = await fetch('/api/inverter-telemetry', {
+                cache: 'no-store',
+                signal: controller.signal
+            });
             if (!response.ok) throw new Error(await response.text() || `HTTP ${response.status}`);
             const payload = await response.json();
             if (payload.writes_issued !== false || payload.read_only_endpoint !== true) {
                 throw new Error('Telemetry endpoint safety declaration is missing');
             }
-            render(payload);
+            if (active() || manual) render(payload);
         } catch (error) {
-            if (message) message.textContent = `Inverter telemetry unavailable: ${error.message}`;
+            if (error?.name !== 'AbortError' && message && (active() || manual)) {
+                message.textContent = `Inverter telemetry unavailable: ${error.message}`;
+            }
         } finally {
+            window.clearTimeout(timeout);
+            if (state.controller === controller) state.controller = null;
             state.loading = false;
         }
     }
 
-    function schedule() {
-        clearInterval(state.timer);
-        state.timer = setInterval(load, 2000);
+    function reconcileLifecycle() {
+        if (!active()) {
+            cancelTimer();
+            cancelRequest();
+            return;
+        }
+        load(false).finally(() => schedule());
     }
 
     document.addEventListener('DOMContentLoaded', () => {
         ensureScaffold();
-        if (location.hash === '#/inverters') load();
-        schedule();
+        reconcileLifecycle();
     });
-    window.addEventListener('hashchange', () => {
-        if (location.hash === '#/inverters') load();
+    window.addEventListener('hashchange', reconcileLifecycle);
+    document.addEventListener('visibilitychange', reconcileLifecycle);
+    window.addEventListener('beforeunload', () => {
+        cancelTimer();
+        cancelRequest();
     });
 })();
