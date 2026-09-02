@@ -113,6 +113,19 @@ generator_fleet_result_t source_mode_aggregate_generators(
     return result;
 }
 
+float source_mode_generator_fleet_safe_pv_kw(float facility_load_kw,
+                                             const generator_fleet_result_t *fleet)
+{
+    if (!fleet || !fleet->valid || fleet->conflict || fleet->running_count == 0U ||
+        !isfinite(facility_load_kw) || facility_load_kw < 0.0f ||
+        !isfinite(fleet->running_rated_kw) || fleet->running_rated_kw <= 0.0f ||
+        !isfinite(fleet->required_minimum_kw) || fleet->required_minimum_kw < 0.0f) {
+        return 0.0f;
+    }
+    const float safe_pv_kw = facility_load_kw - fleet->required_minimum_kw;
+    return isfinite(safe_pv_kw) && safe_pv_kw > 0.0f ? safe_pv_kw : 0.0f;
+}
+
 float source_mode_generator_safe_pv_kw(const generator_limit_input_t *input)
 {
     if (!input || !input->evidence_fresh ||
