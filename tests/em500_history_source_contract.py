@@ -40,7 +40,6 @@ for token in [
     "METER_READ_JOB_FRESH_MS 5000U",
     "claim_pending_job",
     "read_job_task",
-    "xTaskCreate(read_job_task",
     "meter_read_jobs_cached_read",
     "returns ESP_ERR_INVALID_STATE",
 ]:
@@ -54,6 +53,22 @@ require("meter_manager_read_registers=meter_read_jobs_cached_read" in CMAKE,
         "history/settings sources are not compile-routed through background jobs")
 for source in ("em500_history_api.c", "em500_settings_api.c", "em500_settings_plan_api.c"):
     require(f'"{source}"' in CMAKE, f"{source} is missing from the component")
+# The read-job worker is created with the capability-aware API so its stack sits
+# in PSRAM. It performs only bounded Modbus/TCP reads for the web UI and touches
+# no NVS, esp_partition or esp_flash, so its stack is never accessed while the
+# flash cache is disabled. Keeping it out of internal RAM preserves the scarce
+# internal DMA pool for the Product Core's control and safety tasks.
+require("xTaskCreateWithCaps(read_job_task" in JOBS,
+        "read-job worker must be created with the capability-aware API")
+require("MALLOC_CAP_SPIRAM" in JOBS,
+        "read-job worker stack must be requested from PSRAM")
+for _forbidden in ("nvs_", "esp_partition_", "esp_flash_"):
+    require(_forbidden not in JOBS,
+            f"read-job worker must not touch flash ({_forbidden}): a PSRAM stack "
+            "is unsafe while the cache is disabled")
+require("return ESP_ERR_NO_MEM" in JOBS,
+        "read-job worker creation failure must stay explicitly checked")
+
 require("meter_read_jobs_init()" in SERVER,
         "meter read-job queue is not initialized")
 require(SERVER.index("meter_read_jobs_init()") < SERVER.index("httpd_start"),
