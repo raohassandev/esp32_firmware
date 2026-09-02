@@ -1,0 +1,29 @@
+name: Operator continuity and verdict checks
+
+on:
+  pull_request:
+    paths:
+      - 'web/operator-continuity-verdict.js'
+      - 'web/operator-continuity-verdict.css'
+      - 'web/app.js.order'
+      - 'web/app.css.order'
+      - 'tests/operator_continuity_verdict_source_contract.py'
+      - '.github/workflows/operator-continuity-verdict.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check presentation module syntax
+        run: node --check web/operator-continuity-verdict.js
+      - name: Verify current-baseline continuity and verdict contract
+        run: python3 tests/operator_continuity_verdict_source_contract.py
+      - name: Verify complete browser modules remain syntactically valid
+        run: |
+          for file in web/*.js; do node --check "$file"; done
