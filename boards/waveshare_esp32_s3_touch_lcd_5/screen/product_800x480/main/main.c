@@ -213,6 +213,18 @@ static void refresh_fast(void)
     }
 }
 
+/* Overview renders /api/status but does not render the readiness telemetry or
+ * commissioning snapshot. Keep its 5-second cadence, but do not build/serialize/
+ * parse those unused PSRAM-backed models on every Overview status tick. */
+static void refresh_overview_status(void)
+{
+    (void)local_backend_provider_fetch(SCREEN_API_STATUS_PATH);
+    if (esp_lv_adapter_lock(SCREEN_LVGL_LOCK_MS) == ESP_OK) {
+        (void)screen_runtime_refresh_status_only();
+        esp_lv_adapter_unlock();
+    }
+}
+
 static void refresh_status(void)
 {
     (void)local_backend_provider_fetch(SCREEN_API_STATUS_PATH);
@@ -261,7 +273,7 @@ static void refresh_active_context(screen_page_t page, uint32_t elapsed_ms, bool
     switch (page) {
     case SCREEN_PAGE_OVERVIEW:
         refresh_fast();
-        if (page_changed || (elapsed_ms % SCREEN_STATUS_MS) == 0U) refresh_status();
+        if (page_changed || (elapsed_ms % SCREEN_STATUS_MS) == 0U) refresh_overview_status();
         break;
     case SCREEN_PAGE_GRID:
     case SCREEN_PAGE_SOLAR:
