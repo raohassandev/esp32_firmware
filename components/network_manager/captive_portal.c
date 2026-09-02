@@ -165,7 +165,9 @@ static void portal_task(void *argument)
     }
 
     s_task = NULL;
-    vTaskDelete(NULL);
+    /* Created with xTaskCreateWithCaps(), so ESP-IDF requires the matching
+     * capability-aware deletion path to release the PSRAM stack correctly. */
+    vTaskDeleteWithCaps(NULL);
 }
 
 esp_err_t captive_portal_start(uint32_t portal_address_network_order)
