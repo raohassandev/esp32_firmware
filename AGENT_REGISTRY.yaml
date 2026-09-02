@@ -1,0 +1,40 @@
+version: 1
+updated_at: 2026-09-02T15:48:00+05:00
+agents:
+  orchestrator:
+    role: PM_ORCHESTRATOR_CONTROLLER
+    owner: ChatGPT
+    responsibilities:
+      - inspect_live_repo_truth
+      - decompose_and_parallelize_safe_lanes
+      - enforce_branch_pr_and_exact_head_gates
+      - review_ci_failures_and_integrate_green_work
+      - reconcile_execution_state_after_merges
+  software_implementation:
+    role: CODER
+    owner: ChatGPT
+    current_lanes:
+      - work/browser/operator-operations-lifecycle-dev2
+    rule: implementation_must_have_test_coverage
+  hardware_verification:
+    role: PHYSICAL_EXECUTOR_QA
+    owner: Claude_Code_or_site_operator
+    current_lane: PR_57
+    rule: only_observed_hardware_evidence_may_be_recorded_as_physical_pass
+  qa_ci:
+    role: QA
+    owner: GitHub_Actions
+    rule: exact_head_required_for_mergeable_software_evidence
+  product_owner:
+    role: OWNER
+    owner: user
+    responsibilities:
+      - product_decisions
+      - credentials_not_committed_to_repo
+      - manufacturer_documentation
+      - physical_site_authorization
+separation_rules:
+  - QA_does_not_silently_repair_implementation
+  - software_tests_do_not_equal_physical_acceptance
+  - physical_executor_does_not_invent_missing_protocol_details
+  - orchestrator_keeps_independent_lanes_running_while_other_lanes_wait
