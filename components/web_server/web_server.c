@@ -18,6 +18,7 @@
 #include "meter_config_api.h"
 #include "meter_read_jobs.h"
 #include "operational_api.h"
+#include "ota_api.h"
 #include "solar_grid_api.h"
 #include "solar_grid_status_api.h"
 #include "source_detection_api.h"
@@ -135,15 +136,9 @@ esp_err_t web_server_start(void)
     ESP_RETURN_ON_ERROR(em500_cache_init(), "web", "EM500 acquisition cache init failed");
     ESP_RETURN_ON_ERROR(meter_read_jobs_init(), "web", "meter read-job queue init failed");
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    /* Raised alongside the commissioning-gate and write-confirmation
-     * endpoints. httpd refuses to register beyond this limit, and a
-     * refused safety endpoint would be a silent loss of visibility. */
-    /* Must stay ahead of the routes actually registered: every registration site
-     * propagates failure, so an overflow does not drop one endpoint, it aborts
-     * web_server start and leaves the unit with no web interface. A slot is a
-     * few bytes, headroom is not. tests/uri_handler_capacity_source_contract.py
-     * counts the routes and fails if this number stops leading them. */
-    config.max_uri_handlers = 62;
+    /* Must stay ahead of the routes actually registered. The source contract
+     * counts every httpd_uri_t initializer and enforces four spare slots. */
+    config.max_uri_handlers = 66;
     config.stack_size = 8192;
     /* The default of 7 leaves only 4 client sockets once httpd takes its 3
      * internal ones, and a browser opens up to 6 keep-alive connections per
@@ -189,6 +184,7 @@ esp_err_t web_server_start(void)
     ESP_RETURN_ON_ERROR(em500_settings_plan_api_register(s_server), "web", "EM500 settings plan API registration failed");
     ESP_RETURN_ON_ERROR(solar_grid_api_register(s_server), "web", "Solar-Grid configuration API registration failed");
     ESP_RETURN_ON_ERROR(solar_grid_status_api_register(s_server), "web", "Solar-Grid status API registration failed");
+    ESP_RETURN_ON_ERROR(ota_api_register(s_server), "web", "secure OTA API registration failed");
     return commissioning_gate_api_register(s_server);
 }
 
