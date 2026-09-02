@@ -4,12 +4,17 @@
     const utils = window.PvdgDeviceUtils;
     if (!utils) return;
 
+    const POLL_MS = 5000;
+    const REQUEST_TIMEOUT_MS = 5000;
+    const DEVICE_ROUTES = new Set(['dashboard', 'meters', 'inverters']);
     const state = {
         telemetry: null,
         meters: null,
         inverters: null,
         loading: false,
-        lastUpdated: null
+        lastUpdated: null,
+        timer: null,
+        controllers: new Set()
     };
 
     const byId = (id) => document.getElementById(id);
@@ -342,14 +347,53 @@
     }
 
     async function api(path) {
-        const response = await fetch(path, { cache: 'no-store' });
-        const text = await response.text();
-        if (!response.ok) throw new Error(text || `${response.status} ${response.statusText}`);
-        return JSON.parse(text);
+        const controller = new AbortController();
+        state.controllers.add(controller);
+        let timedOut = false;
+        const timeout = window.setTimeout(() => {
+            timedOut = true;
+            controller.abort();
+        }, REQUEST_TIMEOUT_MS);
+        try {
+            const response = await fetch(path, {
+                cache: 'no-store',
+                credentials: 'same-origin',
+                signal: controller.signal
+            });
+            const text = await response.text();
+            if (!response.ok) throw new Error(text || `${response.status} ${response.statusText}`);
+            try {
+                return text ? JSON.parse(text) : {};
+            } catch {
+                throw new Error('Controller returned an incomplete response');
+            }
+        } catch (error) {
+            if (error?.name === 'AbortError' && timedOut) {
+                throw new Error('Controller request timed out');
+            }
+            throw error;
+        } finally {
+            window.clearTimeout(timeout);
+            state.controllers.delete(controller);
+        }
     }
 
     function currentRoute() {
         return window.location.hash.replace(/^#\/?/, '') || 'dashboard';
+    }
+
+    function lifecycleActive() {
+        return !document.hidden && DEVICE_ROUTES.has(currentRoute());
+    }
+
+    function cancelRequests() {
+        state.controllers.forEach((controller) => controller.abort());
+        state.controllers.clear();
+    }
+
+    function cancelTimer() {
+        if (state.timer != null) window.clearTimeout(state.timer);
+        state.timer = null;
     }
 
     function errorMessage(reason) {
@@ -367,9 +411,9 @@
         window.dispatchEvent(new CustomEvent('amx-site-telemetry', { detail: payload || null }));
     }
 
-    async function refresh(force = false) {
+    async function refresh() {
         const route = currentRoute();
-        if (state.loading || (!force && !['dashboard', 'meters', 'inverters'].includes(route))) return;
+        if (state.loading || !lifecycleActive()) return;
         state.loading = true;
         setLoading(true);
 
@@ -393,6 +437,11 @@
                 setText('inverterTelemetryMessage', `Runtime diagnostics updated ${state.lastUpdated.toLocaleTimeString()}`);
             }
         } catch (error) {
+            /* Route/visibility cleanup deliberately aborts the browser request.
+             * It does not cancel any ESP-side work already admitted, and it must
+             * not paint a false diagnostics failure onto a page the user left. */
+            if (error?.name === 'AbortError') return;
+            if (route !== currentRoute() || document.hidden) return;
             if (route === 'dashboard') {
                 state.telemetry = null;
                 renderDashboard();
@@ -412,17 +461,42 @@
         }
     }
 
+    function schedulePoll(delay = POLL_MS) {
+        cancelTimer();
+        if (!lifecycleActive()) return;
+        state.timer = window.setTimeout(async () => {
+            state.timer = null;
+            await refresh();
+            schedulePoll();
+        }, delay);
+    }
+
+    function reconcileLifecycle() {
+        cancelTimer();
+        cancelRequests();
+        schedulePoll(0);
+    }
+
+    function manualRefresh() {
+        cancelTimer();
+        refresh().finally(() => schedulePoll());
+    }
+
     function bind() {
-        byId('meterTelemetryRefresh')?.addEventListener('click', () => refresh(true));
-        byId('inverterTelemetryRefresh')?.addEventListener('click', () => refresh(true));
-        window.addEventListener('hashchange', () => refresh(false));
-        window.setInterval(() => refresh(false), 5000);
+        byId('meterTelemetryRefresh')?.addEventListener('click', manualRefresh);
+        byId('inverterTelemetryRefresh')?.addEventListener('click', manualRefresh);
+        window.addEventListener('hashchange', reconcileLifecycle);
+        document.addEventListener('visibilitychange', reconcileLifecycle);
+        window.addEventListener('beforeunload', () => {
+            cancelTimer();
+            cancelRequests();
+        });
     }
 
     function start() {
         ensureScaffold();
         bind();
-        refresh(false);
+        schedulePoll(0);
     }
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
