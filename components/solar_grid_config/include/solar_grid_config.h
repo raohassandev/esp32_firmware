@@ -10,7 +10,8 @@ extern "C" {
 #endif
 
 #define SOLAR_GRID_CONFIG_MAGIC 0x53475244u
-#define SOLAR_GRID_CONFIG_VERSION 3u
+#define SOLAR_GRID_CONFIG_VERSION 4u
+#define SOLAR_GRID_MAX_GENERATORS 3U
 
 typedef enum {
     SOLAR_GRID_POLICY_ZERO_EXPORT = 0,
@@ -32,6 +33,19 @@ typedef struct {
     uint16_t active_value;
 } solar_grid_signal_config_t;
 
+/* One explicitly commissioned generator channel. No address, polarity, rating
+ * or policy value is implied by its slot number. A zero rated kW value is a
+ * valid fail-closed/uncommissioned state. Run + breaker evidence are a pair:
+ * enabling only one is invalid. */
+typedef struct {
+    float rated_kw;
+    float minimum_loading_percent;
+    float reserve_kw;
+    float reverse_power_margin_kw;
+    solar_grid_signal_config_t running;
+    solar_grid_signal_config_t breaker_closed;
+} solar_grid_generator_config_t;
+
 typedef struct {
     uint32_t magic;
     uint16_t version;
@@ -45,20 +59,23 @@ typedef struct {
     uint32_t evidence_stale_timeout_ms;
     uint32_t grid_loss_trip_ms;
     uint32_t grid_recovery_stable_ms;
-    /* Schema 2 generator limits. Zero rated kW means "not commissioned" and
-     * keeps PV at zero whenever generator operation is otherwise detected. */
+    /* Schema 2/3 single-generator fields are retained as a compatibility mirror
+     * of generators[0]. Existing web clients therefore keep working while new
+     * commissioning clients can address Generator 1..3 independently. Never
+     * use these fields as a second source of truth. */
     float generator_rated_kw;
     float generator_minimum_loading_percent;
     float generator_reserve_kw;
     float generator_reverse_power_margin_kw;
-    /* Schema 3 strong source evidence. All signals are disabled on migration;
-     * no register address or polarity is guessed. Run + breaker form a pair:
-     * enabling only one is invalid. Transfer and synchronism are optional, but
-     * when enabled their read failure makes strong evidence stale/fail-closed. */
     solar_grid_signal_config_t generator_running;
     solar_grid_signal_config_t generator_breaker_closed;
+    /* Plant-level transfer/synchronism evidence remains separate from any one
+     * generator channel. These contacts are optional and never inferred from
+     * measured power. */
     solar_grid_signal_config_t transfer_active;
     solar_grid_signal_config_t grid_generator_synchronized;
+    /* Schema 4 per-generator channels. Schema 3 is a byte-exact prefix. */
+    solar_grid_generator_config_t generators[SOLAR_GRID_MAX_GENERATORS];
 } solar_grid_config_t;
 
 esp_err_t solar_grid_config_init(void);
@@ -68,6 +85,8 @@ void solar_grid_config_defaults(solar_grid_config_t *config);
 bool solar_grid_config_valid(const solar_grid_config_t *config);
 bool solar_grid_config_evidence_complete(const solar_grid_config_t *config);
 bool solar_grid_config_generator_evidence_complete(const solar_grid_config_t *config);
+bool solar_grid_config_generator_evidence_complete_at(const solar_grid_config_t *config,
+                                                       uint8_t index);
 const char *solar_grid_policy_name(solar_grid_policy_t policy);
 const char *solar_grid_orientation_name(solar_grid_meter_orientation_t orientation);
 
