@@ -21,6 +21,8 @@
 
     const WIFI_STATES = ['Idle', 'Scanning', 'Connecting primary', 'Connecting fallback', 'Connected', 'Setup AP', 'Disconnected'];
     const CONTROL_MODES = ['Disabled', 'Grid', 'Generator', 'Manual', 'Failsafe', 'Emergency'];
+    const STATUS_REFRESH_MS = 2000;
+    const STATUS_REQUEST_TIMEOUT_MS = 5000;
 
     const state = {
         route: 'dashboard',
@@ -36,7 +38,9 @@
         sourceDetection: null,
         refreshing: false,
         saving: false,
-        lastUpdatedAt: null
+        lastUpdatedAt: null,
+        statusTimer: null,
+        statusController: null
     };
 
     const byId = (id) => document.getElementById(id);
@@ -396,18 +400,66 @@
         setText('systemSsid', status.ssid || 'Unavailable');
     }
 
-    async function refreshStatus() {
-        if (state.refreshing) return;
+    const statusPollingActive = () => !document.hidden;
+
+    function cancelStatusTimer() {
+        if (state.statusTimer != null) window.clearTimeout(state.statusTimer);
+        state.statusTimer = null;
+    }
+
+    function cancelStatusRequest() {
+        state.statusController?.abort();
+        state.statusController = null;
+    }
+
+    async function refreshStatus(manual = false) {
+        if (state.refreshing || (!manual && !statusPollingActive())) return;
         state.refreshing = true;
+        const controller = new AbortController();
+        state.statusController = controller;
+        let timedOut = false;
+        const timeout = window.setTimeout(() => {
+            timedOut = true;
+            controller.abort();
+        }, STATUS_REQUEST_TIMEOUT_MS);
         try {
-            state.status = await api('/api/status');
+            state.status = await api('/api/status', { signal: controller.signal });
             state.lastUpdatedAt = new Date();
             renderStatus();
         } catch (error) {
-            renderControllerUnavailable();
+            const lifecycleAbort = error?.name === 'AbortError' && !timedOut && !statusPollingActive();
+            if (!lifecycleAbort) renderControllerUnavailable();
         } finally {
+            window.clearTimeout(timeout);
+            if (state.statusController === controller) state.statusController = null;
             state.refreshing = false;
         }
+    }
+
+    function scheduleStatusRefresh(delay = STATUS_REFRESH_MS) {
+        cancelStatusTimer();
+        if (!statusPollingActive()) return;
+        state.statusTimer = window.setTimeout(async () => {
+            state.statusTimer = null;
+            await refreshStatus(false);
+            scheduleStatusRefresh();
+        }, delay);
+    }
+
+    function reconcileStatusLifecycle() {
+        cancelStatusTimer();
+        if (!statusPollingActive()) {
+            cancelStatusRequest();
+            return;
+        }
+        if (state.refreshing) return;
+        refreshStatus(false).finally(() => scheduleStatusRefresh());
+    }
+
+    function manualRefreshStatus() {
+        cancelStatusTimer();
+        if (state.refreshing) return;
+        refreshStatus(true).finally(() => scheduleStatusRefresh());
     }
 
     function setProfileForm(prefix, profile = {}) {
@@ -766,7 +818,7 @@
         document.addEventListener('click', (event) => {
             if (document.body.classList.contains('menu-open') && !event.target.closest('.sidebar') && !event.target.closest('#menuButton')) closeMenu();
         });
-        byId('refreshButton').addEventListener('click', refreshStatus);
+        byId('refreshButton').addEventListener('click', manualRefreshStatus);
         byId('primaryMode').addEventListener('change', () => updateStaticFieldState('primary'));
         byId('fallbackMode').addEventListener('change', () => updateStaticFieldState('fallback'));
         byId('wifiForm').addEventListener('submit', handleWifiSave);
@@ -785,6 +837,11 @@
             try { await restartController(); }
             catch (error) { setMessage('systemMessage', error.message, 'bad'); }
         });
+        document.addEventListener('visibilitychange', reconcileStatusLifecycle);
+        window.addEventListener('beforeunload', () => {
+            cancelStatusTimer();
+            cancelStatusRequest();
+        });
     }
 
     async function start() {
@@ -792,13 +849,15 @@
         bindSiteTelemetry();
         if (!window.location.hash) window.location.hash = '#/dashboard';
         navigate();
-        await Promise.allSettled([loadConfig(), refreshStatus()]);
-        window.setInterval(refreshStatus, 2000);
+        await Promise.allSettled([loadConfig(), refreshStatus(true)]);
+        scheduleStatusRefresh();
         window.AutomatrixEngineeringAccess?.onScopeChange(refreshSourceDetection);
         refreshSourceDetection();
     }
 
     start().catch((error) => {
+        cancelStatusTimer();
+        cancelStatusRequest();
         renderControllerUnavailable();
         toast(`Application startup failed: ${error.message}`, 'bad');
     });

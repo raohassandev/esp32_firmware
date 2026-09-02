@@ -1,0 +1,23 @@
+name: Main status poller lifecycle checks
+
+on:
+  pull_request:
+    paths:
+      - 'web/app.js'
+      - 'tests/main_status_poller_lifecycle_source_contract.py'
+      - '.github/workflows/main-status-poller-lifecycle.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lifecycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check app syntax
+        run: node --check web/app.js
+      - name: Check main status lifecycle contract
+        run: python3 tests/main_status_poller_lifecycle_source_contract.py
