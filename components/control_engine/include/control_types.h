@@ -27,6 +27,13 @@ typedef struct {
     bool grid_evidence_fresh;
     bool grid_available;
     bool grid_breaker_closed;
+    /* Strong generator/transfer evidence is runtime-only status. These fields
+     * are never persisted, so extending this struct has no NVS schema impact. */
+    bool generator_evidence_configured;
+    bool generator_running;
+    bool generator_breaker_closed;
+    bool transfer_active;
+    bool grid_generator_synchronized;
     bool grid_recovery_stable;
     bool grid_loss_confirmed;
     uint32_t grid_evidence_age_ms;
@@ -35,6 +42,10 @@ typedef struct {
     int32_t grid_evidence_last_error;
     uint16_t grid_available_raw;
     uint16_t grid_breaker_raw;
+    uint16_t generator_running_raw;
+    uint16_t generator_breaker_raw;
+    uint16_t transfer_active_raw;
+    uint16_t grid_generator_synchronized_raw;
     uint32_t alarm_flags;
     uint32_t last_cycle_ms;
     /* Control authority, so the interface can state one answer instead of

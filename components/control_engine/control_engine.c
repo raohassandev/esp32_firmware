@@ -26,11 +26,24 @@ static bool s_safe_zero_pending;
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 
 typedef struct {
+    /* Grid evidence remains the admission gate for the existing Solar+Grid
+     * product. Generator evidence is additional: when it is not commissioned,
+     * grid-only operation behaves exactly as before and generator operation
+     * cannot be inferred from missing contacts. */
     bool configured;
+    bool generator_configured;
     bool grid_available;
     bool grid_breaker_closed;
+    bool generator_running;
+    bool generator_breaker_closed;
+    bool transfer_active;
+    bool grid_generator_synchronized;
     uint16_t grid_available_raw;
     uint16_t grid_breaker_raw;
+    uint16_t generator_running_raw;
+    uint16_t generator_breaker_raw;
+    uint16_t transfer_active_raw;
+    uint16_t grid_generator_synchronized_raw;
     uint32_t last_attempt_ms;
     uint32_t last_update_ms;
     uint32_t success_count;
@@ -138,7 +151,8 @@ static bool signal_active(const solar_grid_signal_config_t *signal, uint16_t raw
 static bool same_signal_register(const solar_grid_signal_config_t *left,
                                  const solar_grid_signal_config_t *right)
 {
-    return left->meter_index == right->meter_index &&
+    return left->enabled && right->enabled &&
+           left->meter_index == right->meter_index &&
            left->function_code == right->function_code &&
            left->address == right->address;
 }
@@ -154,33 +168,102 @@ static esp_err_t read_signal(const solar_grid_signal_config_t *signal,
                                         raw);
 }
 
+/* Disabled means "not commissioned", not false evidence. It consumes no Modbus
+ * request and contributes no read error. Every enabled contact shares the same
+ * freshness transaction: if any enabled source signal cannot be read, the
+ * strong source snapshot is not advanced and therefore goes stale/fail-closed. */
+static esp_err_t read_optional_signal(const solar_grid_signal_config_t *signal,
+                                      uint16_t *raw, bool *active)
+{
+    if (!signal || !raw || !active) return ESP_ERR_INVALID_ARG;
+    *raw = 0U;
+    *active = false;
+    if (!signal->enabled) return ESP_OK;
+    esp_err_t error = read_signal(signal, raw);
+    if (error == ESP_OK) *active = signal_active(signal, *raw);
+    return error;
+}
+
+static esp_err_t first_error(esp_err_t current, esp_err_t candidate)
+{
+    return current != ESP_OK ? current : candidate;
+}
+
 static void grid_evidence_task(void *argument)
 {
     (void)argument;
     const solar_grid_signal_config_t available = s_grid_config.grid_available;
     const solar_grid_signal_config_t breaker = s_grid_config.grid_breaker_closed;
-    const bool shared_register = same_signal_register(&available, &breaker);
+    const solar_grid_signal_config_t generator_running = s_grid_config.generator_running;
+    const solar_grid_signal_config_t generator_breaker = s_grid_config.generator_breaker_closed;
+    const solar_grid_signal_config_t transfer = s_grid_config.transfer_active;
+    const solar_grid_signal_config_t synchronized = s_grid_config.grid_generator_synchronized;
+    const bool shared_grid_register = same_signal_register(&available, &breaker);
+    const bool shared_generator_register = same_signal_register(&generator_running,
+                                                                &generator_breaker);
 
     while (true) {
         uint16_t available_raw = 0U;
         uint16_t breaker_raw = 0U;
+        uint16_t generator_running_raw = 0U;
+        uint16_t generator_breaker_raw = 0U;
+        uint16_t transfer_raw = 0U;
+        uint16_t synchronized_raw = 0U;
+        bool available_active = false;
+        bool breaker_active = false;
+        bool generator_running_active = false;
+        bool generator_breaker_active = false;
+        bool transfer_active = false;
+        bool synchronized_active = false;
         uint32_t timestamp = now_ms();
-        esp_err_t available_error = read_signal(&available, &available_raw);
-        esp_err_t breaker_error = ESP_OK;
-        if (shared_register && available_error == ESP_OK) {
+
+        esp_err_t error = read_optional_signal(&available, &available_raw,
+                                               &available_active);
+        if (shared_grid_register && error == ESP_OK) {
             breaker_raw = available_raw;
+            breaker_active = signal_active(&breaker, breaker_raw);
         } else {
-            breaker_error = read_signal(&breaker, &breaker_raw);
+            error = first_error(error,
+                                read_optional_signal(&breaker, &breaker_raw,
+                                                     &breaker_active));
         }
+
+        esp_err_t generator_error =
+            read_optional_signal(&generator_running, &generator_running_raw,
+                                 &generator_running_active);
+        error = first_error(error, generator_error);
+        if (shared_generator_register && generator_error == ESP_OK) {
+            generator_breaker_raw = generator_running_raw;
+            generator_breaker_active = signal_active(&generator_breaker,
+                                                      generator_breaker_raw);
+        } else {
+            error = first_error(error,
+                                read_optional_signal(&generator_breaker,
+                                                     &generator_breaker_raw,
+                                                     &generator_breaker_active));
+        }
+        error = first_error(error,
+                            read_optional_signal(&transfer, &transfer_raw,
+                                                 &transfer_active));
+        error = first_error(error,
+                            read_optional_signal(&synchronized, &synchronized_raw,
+                                                 &synchronized_active));
 
         grid_evidence_runtime_t next = evidence_snapshot();
         next.last_attempt_ms = timestamp;
-        esp_err_t error = available_error != ESP_OK ? available_error : breaker_error;
         if (error == ESP_OK) {
             next.grid_available_raw = available_raw;
             next.grid_breaker_raw = breaker_raw;
-            next.grid_available = signal_active(&available, available_raw);
-            next.grid_breaker_closed = signal_active(&breaker, breaker_raw);
+            next.generator_running_raw = generator_running_raw;
+            next.generator_breaker_raw = generator_breaker_raw;
+            next.transfer_active_raw = transfer_raw;
+            next.grid_generator_synchronized_raw = synchronized_raw;
+            next.grid_available = available_active;
+            next.grid_breaker_closed = breaker_active;
+            next.generator_running = generator_running_active;
+            next.generator_breaker_closed = generator_breaker_active;
+            next.transfer_active = transfer_active;
+            next.grid_generator_synchronized = synchronized_active;
             next.last_update_ms = timestamp;
             next.success_count++;
             next.last_error = ESP_OK;
@@ -188,7 +271,7 @@ static void grid_evidence_task(void *argument)
             next.error_count++;
             next.last_error = error;
             if (next.error_count == 1U || next.error_count % 30U == 0U) {
-                ESP_LOGW(TAG, "Grid evidence read failed: %s [error %u]",
+                ESP_LOGW(TAG, "Source evidence read failed: %s [error %u]",
                          esp_err_to_name(error), (unsigned)next.error_count);
             }
         }
@@ -256,21 +339,23 @@ static void control_task(void *argument)
                               timestamp - evidence.last_update_ms <=
                                   s_grid_config.evidence_stale_timeout_ms;
 
-        /* Two independent ways to establish which source is carrying the plant.
-         * Breaker/synchronisation evidence from a genset controller is stronger
-         * and wins when configured. Otherwise fall back to the measured source
-         * identity, which says only which source is carrying load - it never
-         * claims a breaker position or that two sources are synchronised. */
+        /* Strong contact evidence wins when the existing grid evidence is
+         * commissioned. Generator/transfer/synchronism contacts are populated
+         * only when explicitly configured; otherwise they remain false exactly
+         * as in the previous grid-only product. No power sign is promoted into
+         * breaker or synchronism knowledge. */
         source_mode_result_t source;
         if (evidence.configured) {
             source_evidence_t source_evidence = {
                 .evidence_fresh = evidence_fresh,
-                .transfer_active = false,
+                .transfer_active = evidence.transfer_active,
                 .grid_available = evidence.grid_available,
                 .grid_breaker_closed = evidence.grid_breaker_closed,
-                .generator_running = false,
-                .generator_breaker_closed = false,
-                .grid_generator_synchronized = false,
+                .generator_running = evidence.generator_configured &&
+                                     evidence.generator_running,
+                .generator_breaker_closed = evidence.generator_configured &&
+                                            evidence.generator_breaker_closed,
+                .grid_generator_synchronized = evidence.grid_generator_synchronized,
             };
             source = source_mode_evaluate(&source_evidence);
         } else {
@@ -297,12 +382,6 @@ static void control_task(void *argument)
         };
         grid_gate_output_t gate = grid_control_gate_step(&gate_memory, &gate_input);
 
-        /* While a generator carries the plant, PV must leave enough load on the
-         * machine to satisfy its minimum loading and stay clear of reverse
-         * power. An uncommissioned rating yields zero, which holds PV off rather
-         * than commanding against a machine of unknown capacity. This reduces
-         * the likelihood of reverse power; it does not replace the generator's
-         * own protection relay. */
         /* Ramping is chosen by which source is carrying the plant: a generator
          * needs its rate limited, the grid does not. */
         const bool generator_carrying = source.mode == SOURCE_MODE_GENERATOR_ONLY ||
@@ -311,10 +390,16 @@ static void control_task(void *argument)
         const ramp_profile_t ramp = generator_carrying ? s_config.generator_ramp
                                                        : s_config.grid_ramp;
 
+        /* The legacy single-generator limit remains in force for this first
+         * strong-evidence slice. It now covers island operation as well as
+         * Generator Only, because in both states the machine carries the plant.
+         * Multi-generator per-channel aggregation is a separate follow-up and
+         * remains fail-closed until its ratings and meter evidence are wired. */
         float generator_safe_limit_kw = 0.0f;
-        if (source.mode == SOURCE_MODE_GENERATOR_ONLY) {
+        if (source.mode == SOURCE_MODE_GENERATOR_ONLY || source.mode == SOURCE_MODE_ISLAND) {
             const generator_limit_input_t limit_input = {
-                .evidence_fresh = measurement_fresh,
+                .evidence_fresh = measurement_fresh &&
+                                  (!evidence.configured || evidence.generator_configured),
                 .facility_load_kw = fabsf(measured_grid_kw),
                 .running_generator_rated_kw = s_grid_config.generator_rated_kw,
                 .minimum_loading_percent = s_grid_config.generator_minimum_loading_percent,
@@ -366,7 +451,9 @@ static void control_task(void *argument)
          * never be reported as a successful one. */
         bool command_accepted = false;
         if (control_enabled) {
-            mode = policy.valid && alarm_flags == 0U ? APP_MODE_GRID : APP_MODE_FAILSAFE;
+            mode = policy.valid && alarm_flags == 0U
+                       ? (generator_carrying ? APP_MODE_GENERATOR : APP_MODE_GRID)
+                       : APP_MODE_FAILSAFE;
             esp_err_t write_result = inverter_manager_set_total_power_kw(applied_kw);
             if (write_result != ESP_OK) {
                 if (applied_kw > 0.0f) {
@@ -426,6 +513,11 @@ static void control_task(void *argument)
             .grid_evidence_fresh = evidence_fresh,
             .grid_available = evidence.grid_available,
             .grid_breaker_closed = evidence.grid_breaker_closed,
+            .generator_evidence_configured = evidence.generator_configured,
+            .generator_running = evidence.generator_running,
+            .generator_breaker_closed = evidence.generator_breaker_closed,
+            .transfer_active = evidence.transfer_active,
+            .grid_generator_synchronized = evidence.grid_generator_synchronized,
             .grid_recovery_stable = gate.recovery_stable,
             .grid_loss_confirmed = gate.loss_confirmed,
             .grid_evidence_age_ms = evidence_age,
@@ -434,6 +526,10 @@ static void control_task(void *argument)
             .grid_evidence_last_error = evidence.last_error,
             .grid_available_raw = evidence.grid_available_raw,
             .grid_breaker_raw = evidence.grid_breaker_raw,
+            .generator_running_raw = evidence.generator_running_raw,
+            .generator_breaker_raw = evidence.generator_breaker_raw,
+            .transfer_active_raw = evidence.transfer_active_raw,
+            .grid_generator_synchronized_raw = evidence.grid_generator_synchronized_raw,
             .alarm_flags = alarm_flags,
             .last_cycle_ms = timestamp,
             .command_authority = control_enabled && policy.valid && alarm_flags == 0U,
@@ -508,6 +604,8 @@ esp_err_t control_engine_init(void)
 
     grid_evidence_runtime_t evidence = {
         .configured = solar_grid_config_evidence_complete(&s_grid_config),
+        .generator_configured =
+            solar_grid_config_generator_evidence_complete(&s_grid_config),
         .last_error = ESP_OK,
     };
     evidence_store(&evidence);
@@ -529,6 +627,7 @@ esp_err_t control_engine_init(void)
         .grid_gate_state = evidence.configured ? GRID_GATE_WAITING_EVIDENCE
                                                : GRID_GATE_UNCONFIGURED,
         .grid_evidence_configured = evidence.configured,
+        .generator_evidence_configured = evidence.generator_configured,
     };
     portEXIT_CRITICAL(&s_lock);
 
@@ -542,8 +641,11 @@ esp_err_t control_engine_init(void)
 
     if (!evidence.configured) {
         ESP_LOGW(TAG, "Automatic Solar-Grid control remains fail-closed: explicit grid availability and breaker evidence are not configured");
+    } else if (!evidence.generator_configured) {
+        ESP_LOGI(TAG, "Solar-Grid policy '%s' loaded with grid evidence; generator run/breaker evidence is not commissioned, so strong generator operation remains unavailable",
+                 solar_grid_policy_name(s_grid_config.policy));
     } else {
-        ESP_LOGI(TAG, "Solar-Grid policy '%s' loaded with explicit Modbus grid evidence",
+        ESP_LOGI(TAG, "Solar-Grid policy '%s' loaded with explicit grid and generator source evidence",
                  solar_grid_policy_name(s_grid_config.policy));
     }
     return ESP_OK;

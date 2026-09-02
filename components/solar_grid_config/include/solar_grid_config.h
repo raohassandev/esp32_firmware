@@ -10,7 +10,7 @@ extern "C" {
 #endif
 
 #define SOLAR_GRID_CONFIG_MAGIC 0x53475244u
-#define SOLAR_GRID_CONFIG_VERSION 2u
+#define SOLAR_GRID_CONFIG_VERSION 3u
 
 typedef enum {
     SOLAR_GRID_POLICY_ZERO_EXPORT = 0,
@@ -45,17 +45,20 @@ typedef struct {
     uint32_t evidence_stale_timeout_ms;
     uint32_t grid_loss_trip_ms;
     uint32_t grid_recovery_stable_ms;
-    /* Appended in schema 2: generator limits for the power-following topology.
-     * Kept last so schema 1 remains a byte-exact prefix.
-     *
-     * generator_rated_kw of zero means "not commissioned" and keeps PV at zero
-     * whenever the generator is carrying the plant. There is no safe default
-     * rating: guessing one would let PV be commanded against a machine whose
-     * capacity is unknown. */
+    /* Schema 2 generator limits. Zero rated kW means "not commissioned" and
+     * keeps PV at zero whenever generator operation is otherwise detected. */
     float generator_rated_kw;
     float generator_minimum_loading_percent;
     float generator_reserve_kw;
     float generator_reverse_power_margin_kw;
+    /* Schema 3 strong source evidence. All signals are disabled on migration;
+     * no register address or polarity is guessed. Run + breaker form a pair:
+     * enabling only one is invalid. Transfer and synchronism are optional, but
+     * when enabled their read failure makes strong evidence stale/fail-closed. */
+    solar_grid_signal_config_t generator_running;
+    solar_grid_signal_config_t generator_breaker_closed;
+    solar_grid_signal_config_t transfer_active;
+    solar_grid_signal_config_t grid_generator_synchronized;
 } solar_grid_config_t;
 
 esp_err_t solar_grid_config_init(void);
@@ -64,6 +67,7 @@ esp_err_t solar_grid_config_save(const solar_grid_config_t *config);
 void solar_grid_config_defaults(solar_grid_config_t *config);
 bool solar_grid_config_valid(const solar_grid_config_t *config);
 bool solar_grid_config_evidence_complete(const solar_grid_config_t *config);
+bool solar_grid_config_generator_evidence_complete(const solar_grid_config_t *config);
 const char *solar_grid_policy_name(solar_grid_policy_t policy);
 const char *solar_grid_orientation_name(solar_grid_meter_orientation_t orientation);
 

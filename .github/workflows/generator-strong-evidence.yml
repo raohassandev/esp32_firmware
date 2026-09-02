@@ -1,0 +1,36 @@
+name: Generator strong evidence checks
+
+on:
+  pull_request:
+    paths:
+      - 'components/solar_grid_config/**'
+      - 'components/control_engine/**'
+      - 'components/web_server/solar_grid_api.c'
+      - 'components/web_server/solar_grid_status_api.c'
+      - 'tests/generator_*'
+      - '.github/workflows/generator-strong-evidence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check generator strong-evidence source contract
+        run: python3 tests/generator_strong_evidence_source_contract.py
+      - name: Check generator power policy contract
+        run: python3 tests/generator_power_policy_source_contract.py
+      - name: Check generator limit API contract
+        run: python3 tests/generator_limits_api_source_contract.py
+      - name: Run source-mode unit tests
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -Wall -Wextra -Werror \
+            -Icomponents/control_engine/include \
+            tests/source_mode_unit_test.c components/control_engine/source_mode.c \
+            -lm -o /tmp/source_mode_unit_test
+          /tmp/source_mode_unit_test

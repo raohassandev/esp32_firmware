@@ -80,12 +80,6 @@ static cJSON *config_json(const solar_grid_config_t *config)
                             config->grid_loss_trip_ms);
     cJSON_AddNumberToObject(root, "grid_recovery_stable_ms",
                             config->grid_recovery_stable_ms);
-    /* Generator limits (schema 2). They are persisted, validated and consumed by
-     * the control engine, so a field this API never serialises can never be read
-     * back, never be edited and therefore never be commissioned: it would stay
-     * zero for the life of the unit. A generator_rated_kw of zero is reported
-     * as-is and means "not commissioned"; it holds PV at zero while a generator
-     * carries the plant, which is the safe state rather than an error. */
     cJSON_AddNumberToObject(root, "generator_rated_kw", config->generator_rated_kw);
     cJSON_AddNumberToObject(root, "generator_minimum_loading_percent",
                             config->generator_minimum_loading_percent);
@@ -95,8 +89,22 @@ static cJSON *config_json(const solar_grid_config_t *config)
                             config->generator_reverse_power_margin_kw);
     cJSON_AddBoolToObject(root, "generator_commissioned",
                           config->generator_rated_kw > 0.0f);
-    cJSON_AddBoolToObject(root, "evidence_complete",
+
+    /* Strong source evidence is configuration, not a hard-coded plant model.
+     * Every signal is read back exactly as commissioned. A disabled signal has
+     * no implied address/polarity and is never treated as proof of a contact. */
+    signal_to_json(root, "generator_running", &config->generator_running);
+    signal_to_json(root, "generator_breaker_closed", &config->generator_breaker_closed);
+    signal_to_json(root, "transfer_active", &config->transfer_active);
+    signal_to_json(root, "grid_generator_synchronized",
+                   &config->grid_generator_synchronized);
+    cJSON_AddBoolToObject(root, "grid_evidence_complete",
                           solar_grid_config_evidence_complete(config));
+    cJSON_AddBoolToObject(root, "generator_evidence_complete",
+                          solar_grid_config_generator_evidence_complete(config));
+    cJSON_AddBoolToObject(root, "evidence_complete",
+                          solar_grid_config_evidence_complete(config) &&
+                          solar_grid_config_generator_evidence_complete(config));
     cJSON_AddBoolToObject(root, "control_requires_restart", true);
     return root;
 }
@@ -133,16 +141,6 @@ static bool read_float(cJSON *object, const char *key, float *value)
     return isfinite(*value);
 }
 
-/* Read an optional non-negative float with an upper bound, naming the field in
- * the caller's error buffer when it is rejected. An absent key leaves the stored
- * value untouched, so a partial POST cannot silently zero a commissioned limit.
- *
- * Zero is accepted for every field that uses this helper. For
- * generator_rated_kw that is deliberate and load-bearing: zero is the
- * "not commissioned" state that keeps PV at zero whenever a generator carries
- * the plant. It must never be rejected, and no non-zero default may be
- * substituted, because guessing a machine's rating would let PV be commanded
- * against a generator of unknown capacity. Zero is the safe state, not an error. */
 static bool read_limit(cJSON *object, const char *key, float maximum,
                        float *value, char *error, size_t error_size)
 {
@@ -180,6 +178,14 @@ static bool parse_signal(cJSON *object, solar_grid_signal_config_t *signal)
     if (!read_uint(object, "active_value", UINT16_MAX, &value)) return false;
     signal->active_value = (uint16_t)value;
     return true;
+}
+
+static bool parse_optional_signal(cJSON *root, const char *key,
+                                  solar_grid_signal_config_t *signal)
+{
+    cJSON *object = cJSON_GetObjectItemCaseSensitive(root, key);
+    if (!object) return true; /* partial POST preserves commissioned value */
+    return parse_signal(object, signal);
 }
 
 static esp_err_t config_get(httpd_req_t *request)
@@ -252,12 +258,6 @@ static esp_err_t config_post(httpd_req_t *request)
                                  &value);
     next.grid_recovery_stable_ms = value;
 
-    /* Generator limits (schema 2). Accepting them here is what makes them
-     * commissionable at all: until now nothing could ever write them, so they
-     * were permanently zero. Zero remains a legal value for all four - notably a
-     * zero generator_rated_kw, which is the uncommissioned state that holds PV at
-     * zero while a generator carries the plant. It is accepted, not rejected, and
-     * no rating is invented on the operator's behalf. */
     char field_error[SOLAR_GRID_FIELD_ERROR_MAX] = {0};
     parsed = parsed &&
              read_limit(root, "generator_rated_kw", SOLAR_GRID_KW_MAX,
@@ -274,6 +274,16 @@ static esp_err_t config_post(httpd_req_t *request)
                         SOLAR_GRID_KW_MAX,
                         &next.generator_reverse_power_margin_kw, field_error,
                         sizeof(field_error));
+
+    parsed = parsed &&
+             parse_optional_signal(root, "generator_running",
+                                   &next.generator_running) &&
+             parse_optional_signal(root, "generator_breaker_closed",
+                                   &next.generator_breaker_closed) &&
+             parse_optional_signal(root, "transfer_active",
+                                   &next.transfer_active) &&
+             parse_optional_signal(root, "grid_generator_synchronized",
+                                   &next.grid_generator_synchronized);
     cJSON_Delete(root);
 
     next.magic = SOLAR_GRID_CONFIG_MAGIC;

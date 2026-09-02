@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Phase 3: the power-following generator policy must never claim breaker or
-synchronisation knowledge, and must hold PV off when the machine is unknown."""
+"""Generator policy must use commissioned evidence, never invent breaker/sync state."""
 
 from pathlib import Path
 
@@ -26,50 +25,61 @@ require("source_mode_from_measured_source" in MODE_H and
 
 mapping = MODE_C[MODE_C.index("source_mode_result_t source_mode_from_measured_source"):]
 require("SOURCE_MODE_GRID_GENERATOR_SYNC" not in mapping,
-        "measurement cannot prove two sources are synchronised; the power-following mapping "
-        "must never return GRID_GENERATOR_SYNC")
+        "measurement cannot prove two sources are synchronised")
 require("SOURCE_MODE_TRANSFER" not in mapping,
         "measurement cannot prove a transfer is in progress")
-require("SOURCE_MODE_ISLAND" not in mapping, "measurement cannot prove islanding")
+require("SOURCE_MODE_ISLAND" not in mapping,
+        "measurement cannot prove islanding")
 require("if (!evidence_fresh) return result;" in mapping,
-        "stale evidence must fail closed before any source is considered")
+        "stale measurement evidence must fail closed")
 
-# The control engine must not fabricate breaker or synchronisation evidence.
-require(".generator_breaker_closed = false," in CONTROL,
-        "generator breaker evidence must stay unset while no genset controller is integrated")
-require(".grid_generator_synchronized = false," in CONTROL,
-        "synchronisation evidence must stay unset while no genset controller is integrated")
+# Strong evidence must now come from persisted signals and actual reads. The
+# measured-source fallback remains only for sites without commissioned grid
+# contact evidence and may not populate breaker/synchronism fields itself.
+for field in ("generator_running", "generator_breaker_closed", "transfer_active",
+              "grid_generator_synchronized"):
+    require(field in SG_H, f"strong source evidence field missing: {field}")
+    require(f"evidence.{field}" in CONTROL,
+            f"control engine does not consume runtime strong evidence: {field}")
+require("read_optional_signal" in CONTROL,
+        "strong evidence must be acquired through the bounded evidence task")
 require("source_mode_from_measured_source" in CONTROL,
-        "the control engine must use the measured-source path when no evidence is configured")
+        "the measured-source fallback must remain available")
+require("if (evidence.configured)" in CONTROL,
+        "strong evidence must have an explicit configured branch")
 require("transition_pending" in CONTROL,
-        "a pending source transition must not be treated as a settled source")
+        "a pending measured-source transition must not be treated as settled")
 
-# Generator limits are configuration, and uncommissioned means PV off.
+# Persisted schema 3 must migrate schemas 1 and 2 without guessing new signals.
 for field in ("generator_rated_kw", "generator_minimum_loading_percent",
               "generator_reserve_kw", "generator_reverse_power_margin_kw"):
     require(field in SG_H, f"generator limit configuration missing {field}")
-require("SOLAR_GRID_CONFIG_VERSION 2u" in SG_H, "generator limits require schema 2")
-require("legacy_solar_grid_config_v1_t" in SG_C,
-        "schema 1 layout must be frozen so a commissioned policy is upgraded, not discarded")
-require("_Static_assert(sizeof(solar_grid_config_t) ==" in SG_C,
-        "schema 1 must be proven a byte-exact prefix of schema 2")
-require("Migrated Solar-Grid configuration schema 1" in SG_C,
-        "schema 1 must be migrated rather than replaced by defaults")
+require("SOLAR_GRID_CONFIG_VERSION 3u" in SG_H,
+        "strong source evidence requires Solar-Grid schema 3")
+for legacy in ("legacy_solar_grid_config_v1_t", "legacy_solar_grid_config_v2_t"):
+    require(legacy in SG_C, f"frozen migration layout missing: {legacy}")
+require("offsetof(solar_grid_config_t, generator_running)" in SG_C,
+        "schema 2 must be proven an exact prefix of schema 3")
+require("Migrated Solar-Grid configuration schema 2" in SG_C,
+        "schema 2 must migrate rather than fall back to defaults")
+require("signal_safe_defaults(&loaded->generator_running)" in SG_C,
+        "migration must leave generator evidence disabled instead of guessing it")
 
 limit = CONTROL[CONTROL.index("float generator_safe_limit_kw = 0.0f;"):]
 limit = limit[:limit.index("power_control_input_t input")]
-require("SOURCE_MODE_GENERATOR_ONLY" in limit,
-        "the generator limit must only apply while a generator carries the plant")
+require("SOURCE_MODE_GENERATOR_ONLY" in limit and "SOURCE_MODE_ISLAND" in limit,
+        "generator minimum-load protection must cover generator-only and island operation")
 require("s_grid_config.generator_rated_kw" in limit,
-        "the generator limit must use the commissioned rating, never an assumed one")
+        "the generator limit must use the commissioned rating")
 require("source_mode_generator_safe_pv_kw" in limit,
         "the generator limit must come from the tested policy function")
+require("evidence.generator_configured" in limit,
+        "strong generator operation must fail closed until run/breaker evidence is commissioned")
 
-# The policy function itself must fail closed on an uncommissioned rating.
 safe = MODE_C[MODE_C.index("float source_mode_generator_safe_pv_kw"):]
 safe = safe[:safe.index("\n}")]
 require("running_generator_rated_kw <= 0.0f" in safe,
-        "a zero or negative generator rating must yield zero PV, not an unlimited machine")
+        "a zero or negative generator rating must yield zero PV")
 require("isfinite" in safe, "non-finite generator inputs must fail closed")
 
 print("generator power policy source contract passed")
