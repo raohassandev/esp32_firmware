@@ -7,6 +7,8 @@
 #define OVERVIEW_VALUE_TEXT_MAX 24U
 #define OVERVIEW_VALUE_DRAW_WIDTH 120
 #define OVERVIEW_VALUE_DRAW_HEIGHT 28
+#define OVERVIEW_STATUS_TEXT_MAX 64U
+#define OVERVIEW_STATUS_DRAW_WIDTH 300
 
 /* Presentation-only screen. No backend writes, control decisions or safety
  * policy. Labels come from the existing backend snapshots. */
@@ -34,6 +36,11 @@ typedef struct {
     char solar_text[OVERVIEW_VALUE_TEXT_MAX];
     char requested_text[OVERVIEW_VALUE_TEXT_MAX];
     char applied_text[OVERVIEW_VALUE_TEXT_MAX];
+    /* RSSI is sampled on the 5-second status cadence and is expected to move by
+     * a dBm or two even when the network is healthy. Keeping that value in a
+     * static fixed-width label prevents each sample from re-measuring a flex row
+     * and turning a tiny status change into visible RGB scanout movement. */
+    char network_text[OVERVIEW_STATUS_TEXT_MAX];
 } overview_widgets_t;
 
 static overview_widgets_t s_ui;
@@ -95,7 +102,11 @@ static lv_obj_t *make_value_card(lv_obj_t *parent,
     return card;
 }
 
-static lv_obj_t *make_state_row(lv_obj_t *parent, const char *name, lv_obj_t **value_out)
+static lv_obj_t *make_state_row(lv_obj_t *parent,
+                                const char *name,
+                                lv_obj_t **value_out,
+                                char *value_buffer,
+                                size_t value_capacity)
 {
     lv_obj_t *row = lv_obj_create(parent);
     lv_obj_remove_style_all(row);
@@ -112,15 +123,26 @@ static lv_obj_t *make_state_row(lv_obj_t *parent, const char *name, lv_obj_t **v
     lv_obj_set_style_text_color(name_label, lv_color_hex(0x9EADBF), LV_PART_MAIN);
 
     lv_obj_t *value = lv_label_create(row);
-    lv_label_set_text(value, "--");
+    if (value_buffer && value_capacity > 0U) {
+        snprintf(value_buffer, value_capacity, "--");
+        value_buffer[value_capacity - 1U] = '\0';
+        lv_label_set_text_static(value, value_buffer);
+    } else {
+        lv_label_set_text(value, "--");
+    }
+    /* Status values may change length (especially RSSI and alarm text). Fix the
+     * value width and clip to one line so changing text cannot alter flex-row
+     * geometry. The row keeps its original content-height contract. */
+    lv_obj_set_width(value, OVERVIEW_STATUS_DRAW_WIDTH);
+    lv_label_set_long_mode(value, LV_LABEL_LONG_CLIP);
+    lv_obj_set_style_text_align(value, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
     lv_obj_set_style_text_color(value, lv_color_hex(0xF2F6FA), LV_PART_MAIN);
     if (value_out) *value_out = value;
     return row;
 }
 
 /* LVGL invalidates a label when lv_label_set_text() is called even when the
- * visible string is identical.  The slower status lane still uses this helper;
- * unchanged strings are suppressed at the UI edge. */
+ * visible string is identical. Suppress no-op writes at the UI edge. */
 static bool set_text_if_changed(lv_obj_t *label, const char *text)
 {
     if (!label || !text) return false;
@@ -152,9 +174,26 @@ static void set_static_value_text(lv_obj_t *label,
     if (strncmp(buffer, text, capacity) == 0) return;
     snprintf(buffer, capacity, "%s", text);
     buffer[capacity - 1U] = '\0';
-    /* Fixed width + fixed height means no text-size layout refresh is required.
-     * The draw event reads the same static buffer pointer with its new contents. */
+    /* Fixed width + fixed height/line geometry means no text-size layout refresh
+     * is required. The draw event reads the same static buffer pointer. */
     lv_obj_invalidate(label);
+}
+
+static void set_static_value_fmt(lv_obj_t *label,
+                                 char *buffer,
+                                 size_t capacity,
+                                 const char *format,
+                                 ...)
+{
+    if (!label || !buffer || capacity == 0U || !format) return;
+    char text[OVERVIEW_STATUS_TEXT_MAX];
+    va_list args;
+    va_start(args, format);
+    const int written = vsnprintf(text, sizeof(text), format, args);
+    va_end(args);
+    if (written < 0) return;
+    text[sizeof(text) - 1U] = '\0';
+    set_static_value_text(label, buffer, capacity, text);
 }
 
 static void set_kw_static(lv_obj_t *label,
@@ -223,10 +262,14 @@ lv_obj_t *overview_screen_create(lv_obj_t *parent)
 
     s_ui.source = lv_label_create(chips);
     lv_label_set_text(s_ui.source, "Source: unknown");
+    lv_obj_set_width(s_ui.source, 220);
+    lv_label_set_long_mode(s_ui.source, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_color(s_ui.source, lv_color_hex(0xD5DEE8), LV_PART_MAIN);
 
     s_ui.control_mode = lv_label_create(chips);
     lv_label_set_text(s_ui.control_mode, "Control: --");
+    lv_obj_set_flex_grow(s_ui.control_mode, 1);
+    lv_label_set_long_mode(s_ui.control_mode, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_color(s_ui.control_mode, lv_color_hex(0xD5DEE8), LV_PART_MAIN);
 
     lv_obj_t *values = lv_obj_create(root);
@@ -258,10 +301,11 @@ lv_obj_t *overview_screen_create(lv_obj_t *parent)
     lv_obj_set_flex_flow(bottom, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(bottom, 8, LV_PART_MAIN);
 
-    make_state_row(bottom, "Meter", &s_ui.meter_state);
-    make_state_row(bottom, "Network", &s_ui.network_state);
-    make_state_row(bottom, "Controller", &s_ui.controller_state);
-    make_state_row(bottom, "Alarms", &s_ui.alarm_state);
+    make_state_row(bottom, "Meter", &s_ui.meter_state, NULL, 0U);
+    make_state_row(bottom, "Network", &s_ui.network_state,
+                   s_ui.network_text, sizeof(s_ui.network_text));
+    make_state_row(bottom, "Controller", &s_ui.controller_state, NULL, 0U);
+    make_state_row(bottom, "Alarms", &s_ui.alarm_state, NULL, 0U);
 
     s_ui.inhibit_reason = lv_label_create(bottom);
     lv_label_set_text(s_ui.inhibit_reason, "Control reason: --");
@@ -271,6 +315,8 @@ lv_obj_t *overview_screen_create(lv_obj_t *parent)
 
     s_ui.firmware_version = lv_label_create(bottom);
     lv_label_set_text(s_ui.firmware_version, "Firmware: --");
+    lv_obj_set_width(s_ui.firmware_version, LV_PCT(100));
+    lv_label_set_long_mode(s_ui.firmware_version, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_color(s_ui.firmware_version, lv_color_hex(0x7F8B99), LV_PART_MAIN);
     return root;
 }
@@ -312,8 +358,12 @@ void overview_screen_apply_status(const screen_status_snapshot_t *snapshot)
 {
     if (!snapshot || !snapshot->valid || !s_ui.root) return;
 
-    (void)set_text_fmt_if_changed(s_ui.network_state, "%s  %d dBm",
-                                  snapshot->network_online ? "Online" : "Offline", snapshot->rssi);
+    set_static_value_fmt(s_ui.network_state,
+                         s_ui.network_text,
+                         sizeof(s_ui.network_text),
+                         "%s  %d dBm",
+                         snapshot->network_online ? "Online" : "Offline",
+                         snapshot->rssi);
 
     if (snapshot->controller_state[0] != '\0') {
         (void)set_text_fmt_if_changed(s_ui.controller_state, "%s%s",
@@ -369,7 +419,10 @@ void overview_screen_show_backend_unavailable(void)
     (void)set_text_if_changed(s_ui.source, "Source: unknown");
     (void)set_text_if_changed(s_ui.control_mode, "Control: unknown");
     (void)set_text_if_changed(s_ui.meter_state, "Unavailable");
-    (void)set_text_if_changed(s_ui.network_state, "Unavailable");
+    set_static_value_text(s_ui.network_state,
+                          s_ui.network_text,
+                          sizeof(s_ui.network_text),
+                          "Unavailable");
     (void)set_text_if_changed(s_ui.controller_state, "Unavailable");
     (void)set_text_if_changed(s_ui.alarm_state, "Unknown");
     (void)set_text_if_changed(s_ui.inhibit_reason, "Control reason: backend unavailable");

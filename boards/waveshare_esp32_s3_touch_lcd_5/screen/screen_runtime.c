@@ -67,29 +67,37 @@ bool screen_runtime_refresh_fast(void)
     return true;
 }
 
+bool screen_runtime_refresh_status_only(void)
+{
+    const char *json = NULL;
+    if (!get_payload(SCREEN_API_STATUS_PATH, &json)) return false;
+
+    const bool ok = screen_api_parse_status_json(json, &s_status);
+    release_payload(SCREEN_API_STATUS_PATH, json);
+    if (!ok) return false;
+
+    screen_app_apply_status(&s_status);
+    return true;
+}
+
+static bool refresh_telemetry_only(void)
+{
+    const char *json = NULL;
+    if (!get_payload(SCREEN_API_TELEMETRY_PATH, &json)) return false;
+
+    const bool ok = screen_api_parse_telemetry_json(json, &s_telemetry);
+    release_payload(SCREEN_API_TELEMETRY_PATH, json);
+    if (!ok) return false;
+
+    screen_app_apply_telemetry(&s_telemetry);
+    return true;
+}
+
 bool screen_runtime_refresh_status(void)
 {
-    bool all_ok = true;
-    const char *json = NULL;
-
-    if (get_payload(SCREEN_API_STATUS_PATH, &json)) {
-        const bool ok = screen_api_parse_status_json(json, &s_status);
-        release_payload(SCREEN_API_STATUS_PATH, json);
-        if (ok) screen_app_apply_status(&s_status);
-        else all_ok = false;
-    } else {
-        all_ok = false;
-    }
-
-    json = NULL;
-    if (get_payload(SCREEN_API_TELEMETRY_PATH, &json)) {
-        const bool ok = screen_api_parse_telemetry_json(json, &s_telemetry);
-        release_payload(SCREEN_API_TELEMETRY_PATH, json);
-        if (ok) screen_app_apply_telemetry(&s_telemetry);
-        else all_ok = false;
-    } else {
-        all_ok = false;
-    }
+    const bool status_ok = screen_runtime_refresh_status_only();
+    const bool telemetry_ok = refresh_telemetry_only();
+    const bool all_ok = status_ok && telemetry_ok;
 
     if (!all_ok) screen_app_show_readiness_unavailable();
     return all_ok;

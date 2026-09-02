@@ -2382,7 +2382,16 @@ esp_err_t operational_api_register(httpd_handle_t server)
 {
     alarm_journal_init();
     if (!s_task) {
-        BaseType_t created = xTaskCreate(operational_task, "op_history", 5120, NULL, 4, &s_task);
+        /* Pinned to CPU0. This task takes its interrupt-disabling lock once
+         * per sample period, which stops interrupts on whichever core it happens
+         * to be running on. The Waveshare board allocates its RGB scanout refill
+         * interrupt on CPU1 precisely to stay clear of that; without an explicit
+         * affinity here this task can still land on CPU1 and stall the refill,
+         * which the operator sees as a periodic sweep across the panel.
+         * Affinity only - no control, alarm, journal or persistence semantics
+         * change, and the journal write keeps its original synchronous timing. */
+        BaseType_t created = xTaskCreatePinnedToCore(operational_task, "op_history", 5120, NULL,
+                                                     4, &s_task, 0);
         if (created != pdPASS) return ESP_ERR_NO_MEM;
     }
     const httpd_uri_t handlers[] = {

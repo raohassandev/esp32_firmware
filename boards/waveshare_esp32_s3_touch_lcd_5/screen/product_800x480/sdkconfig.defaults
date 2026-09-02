@@ -54,6 +54,18 @@ CONFIG_HTTPD_MAX_URI_LEN=256
 CONFIG_PVDG_PRIMARY_WIFI_SSID="Automatrix-4G"
 CONFIG_PVDG_PRIMARY_WIFI_PASSWORD="Automatrix1234"
 CONFIG_PVDG_APPLY_BUILD_WIFI_PROVISIONING=y
+# BENCH CREDENTIAL PREFILL - REMOVE BEFORE PRODUCTION RELEASE.
+# Prefills the Engineering credential on the Commission and Source pages so the
+# bench operator does not retype it on every unlock. This string is compiled into
+# the image and is public knowledge for any unit built from this source.
+#
+# Left EMPTY deliberately. The Engineering credential is NOT the Wi-Fi password,
+# and it is not recoverable from this repository: engineering_auth reports
+# "Engineering password is not configured" on a fresh unit and prints a one-time
+# SETUP code to the serial console instead. Putting a guessed value here only
+# produces "Engineering credential rejected" on the panel. Set this to the real
+# bench password once, and it will be prefilled from then on.
+CONFIG_WAVESHARE_BENCH_ENGINEERING_CREDENTIAL=""
 CONFIG_PVDG_WIFI_PROVISION_ID=1
 CONFIG_PVDG_DEFAULT_ZLAN_HOST="192.168.100.200"
 CONFIG_FREERTOS_HZ=1000
@@ -63,6 +75,25 @@ CONFIG_MDNS_PREDEF_NETIF_ETH=n
 CONFIG_MDNS_MAX_INTERFACES=2
 CONFIG_MDNS_MAX_SERVICES=2
 
-# Diagnostic only: lets the product reportper-task stack high-water marks so
+# Diagnostic only: lets the product report per-task stack high-water marks so
 # support stacks can be right-sized from measurement instead of guesswork.
 CONFIG_FREERTOS_USE_TRACE_FACILITY=y
+
+# LVGL allocates from the ESP heap, not from a fixed private pool.
+#
+# The Alarms page could not open and wedged the UI. The decoded watchdog
+# backtrace ends in lv_obj_allocate_spec_attr, reached through lv_label_create
+# from init_event_rows: LVGL was failing to allocate while building the page,
+# not looping in layout.
+#
+# The cause was LV_USE_BUILTIN_MALLOC with LV_MEM_SIZE_KILOBYTES=64 and
+# LV_MEM_POOL_EXPAND_SIZE_KILOBYTES=0 - a fixed 64 kB pool with expansion
+# disabled. Every LVGL object on every lazily created page comes out of it, and
+# Alarms alone adds 16 alarm rows and 16 event rows of several objects each, so
+# by the time that page is opened the pool is exhausted and cannot grow.
+#
+# The C library allocator routes LVGL through the ESP heap instead, where the
+# board's PSRAM is available, so widget memory is no longer capped at 64 kB and
+# does not compete with the scarce internal DMA pool the RGB scanout needs.
+CONFIG_LV_USE_BUILTIN_MALLOC=n
+CONFIG_LV_USE_CLIB_MALLOC=y

@@ -21,7 +21,21 @@
 #include "waveshare_display_profile.h"
 
 #define SCREEN_REFRESH_STACK_BYTES 12288
-#define PRODUCT_RGB_BOUNCE_LINES 6U
+/* Bounce depth is the scanout's tolerance to being stalled, so it is sized in
+ * time, not in bytes. At PRODUCT_RGB_PCLK_HZ each line costs
+ * (800 + 8 + 8 + 4) / 12e6 = 68.3 us, so six lines gave the refill only ~410 us
+ * of slack. Anything that stops the refill for longer than that empties the
+ * buffer and slips the scanout, which the operator sees as a top-to-bottom
+ * sweep. Product Core's periodic critical sections and its journal flash writes
+ * both exceed 410 us comfortably, which is why the sweep tracked the sampling
+ * period exactly.
+ *
+ * Twelve lines doubles that slack to ~820 us. The two bounce buffers are
+ * internal DMA memory, so this costs 12 * 800 * 2 * 2 = 38.4 kB against the
+ * ~22 kB of headroom measured at runtime plus the 19.2 kB the six-line pair
+ * already held. Deeper would be better still, but 24 lines would need roughly
+ * 77 kB and does not fit; this is the largest step the measured budget allows. */
+#define PRODUCT_RGB_BOUNCE_LINES 12U
 #define PRODUCT_RGB_PCLK_HZ 12000000U
 #define PRODUCT_TEAR_MODE ESP_LV_ADAPTER_TEAR_AVOID_MODE_DOUBLE_DIRECT
 #define SCREEN_LVGL_LOCK_MS 2000U
@@ -213,6 +227,18 @@ static void refresh_fast(void)
     }
 }
 
+/* Overview renders /api/status but does not render the readiness telemetry or
+ * commissioning snapshot. Keep its 5-second cadence, but do not build/serialize/
+ * parse those unused PSRAM-backed models on every Overview status tick. */
+static void refresh_overview_status(void)
+{
+    (void)local_backend_provider_fetch(SCREEN_API_STATUS_PATH);
+    if (esp_lv_adapter_lock(SCREEN_LVGL_LOCK_MS) == ESP_OK) {
+        (void)screen_runtime_refresh_status_only();
+        esp_lv_adapter_unlock();
+    }
+}
+
 static void refresh_status(void)
 {
     (void)local_backend_provider_fetch(SCREEN_API_STATUS_PATH);
@@ -261,7 +287,7 @@ static void refresh_active_context(screen_page_t page, uint32_t elapsed_ms, bool
     switch (page) {
     case SCREEN_PAGE_OVERVIEW:
         refresh_fast();
-        if (page_changed || (elapsed_ms % SCREEN_STATUS_MS) == 0U) refresh_status();
+        if (page_changed || (elapsed_ms % SCREEN_STATUS_MS) == 0U) refresh_overview_status();
         break;
     case SCREEN_PAGE_GRID:
     case SCREEN_PAGE_SOLAR:

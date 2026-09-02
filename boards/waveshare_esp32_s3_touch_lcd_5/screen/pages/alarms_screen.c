@@ -53,6 +53,31 @@ static void set_visible(lv_obj_t *obj, bool visible)
     else lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
 }
 
+/* Row labels are clipped to a fixed width instead of wrapping.
+ *
+ * Tapping Alarms wedged the LVGL task: the serial log showed the task watchdog
+ * firing with "IDLE0 (CPU 0)" starved and "CPU 0: lvgl" running, the page never
+ * appeared, and every button stopped responding because the one LVGL task was
+ * no longer servicing input.
+ *
+ * The cause is layout, not data. Each row panel is LV_SIZE_CONTENT tall inside a
+ * scrollable flex column, and its labels defaulted to wrapping. A wrapping label
+ * changes height when its width changes, while the panel's height depends on the
+ * label - so the two re-measure each other, and across 16 alarm rows plus 16
+ * event rows that reflow does not settle in reasonable time.
+ *
+ * Fixing a width and clipping breaks the circular dependency: label height no
+ * longer depends on the measured width, so the pass terminates. This is the same
+ * remedy already applied to the Overview status labels for the same reason. */
+#define ALARM_ROW_TEXT_WIDTH 300
+
+static void clip_row_label(lv_obj_t *label)
+{
+    if (!label) return;
+    lv_obj_set_width(label, ALARM_ROW_TEXT_WIDTH);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_CLIP);
+}
+
 static void init_alarm_rows(void)
 {
     s_ui.alarm_empty = screen_ui_muted_label(s_ui.alarm_list, "No alarm conditions recorded");
@@ -71,6 +96,10 @@ static void init_alarm_rows(void)
         ui->detail = screen_ui_muted_label(ui->panel, "--");
         ui->suppression = screen_ui_muted_label(ui->panel, "--");
         ui->action = screen_ui_muted_label(ui->panel, "--");
+        clip_row_label(ui->heading);
+        clip_row_label(ui->detail);
+        clip_row_label(ui->suppression);
+        clip_row_label(ui->action);
         set_visible(ui->panel, false);
     }
 }
@@ -92,6 +121,9 @@ static void init_event_rows(void)
         ui->heading = screen_ui_title(ui->panel, "--");
         ui->age = screen_ui_muted_label(ui->panel, "--");
         ui->detail = screen_ui_muted_label(ui->panel, "--");
+        clip_row_label(ui->heading);
+        clip_row_label(ui->age);
+        clip_row_label(ui->detail);
         set_visible(ui->panel, false);
     }
 }
