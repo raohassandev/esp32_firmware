@@ -41,6 +41,14 @@ static esp_err_t status_get(httpd_req_t *request)
     cJSON_AddBoolToObject(root, "grid_available", status.grid_available);
     cJSON_AddBoolToObject(root, "grid_breaker_closed",
                           status.grid_breaker_closed);
+    cJSON_AddBoolToObject(root, "generator_evidence_configured",
+                          status.generator_evidence_configured);
+    cJSON_AddBoolToObject(root, "generator_running", status.generator_running);
+    cJSON_AddBoolToObject(root, "generator_breaker_closed",
+                          status.generator_breaker_closed);
+    cJSON_AddBoolToObject(root, "transfer_active", status.transfer_active);
+    cJSON_AddBoolToObject(root, "grid_generator_synchronized",
+                          status.grid_generator_synchronized);
     cJSON_AddBoolToObject(root, "grid_recovery_stable",
                           status.grid_recovery_stable);
     cJSON_AddBoolToObject(root, "grid_loss_confirmed",
@@ -63,6 +71,14 @@ static esp_err_t status_get(httpd_req_t *request)
                             status.grid_available_raw);
     cJSON_AddNumberToObject(root, "grid_breaker_raw",
                             status.grid_breaker_raw);
+    cJSON_AddNumberToObject(root, "generator_running_raw",
+                            status.generator_running_raw);
+    cJSON_AddNumberToObject(root, "generator_breaker_raw",
+                            status.generator_breaker_raw);
+    cJSON_AddNumberToObject(root, "transfer_active_raw",
+                            status.transfer_active_raw);
+    cJSON_AddNumberToObject(root, "grid_generator_synchronized_raw",
+                            status.grid_generator_synchronized_raw);
     add_finite(root, "raw_grid_power_kw", status.raw_grid_power_kw);
     add_finite(root, "grid_power_kw", status.grid_power_kw);
     add_finite(root, "grid_target_kw", status.grid_target_kw);
