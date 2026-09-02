@@ -43,6 +43,7 @@ em500-profiles.js
 em500-plan.js
 source-detection.js
 solar-grid.js
+ota.js
 operator-view.js
 operator-network.js
 operator-operations.js
