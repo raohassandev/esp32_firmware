@@ -33,7 +33,7 @@ power_control_output_t power_control_step(const power_control_input_t *input)
 {
     power_control_output_t output = {0};
     if (!input || !input->measurement_fresh || !source_mode_is_stable(input->source_mode) ||
-        !isfinite(input->measured_grid_kw) || !isfinite(input->current_pv_command_kw) ||
+        !isfinite(input->current_pv_command_kw) ||
         !isfinite(input->fleet_capacity_kw) || input->fleet_capacity_kw <= 0.0f ||
         !isfinite(input->kp) || input->kp < 0.0f ||
         !isfinite(input->ki) || input->ki < 0.0f ||
@@ -48,8 +48,9 @@ power_control_output_t power_control_step(const power_control_input_t *input)
         return output;
     }
 
-    const bool generator_mode = input->source_mode == SOURCE_MODE_GENERATOR_ONLY ||
-                                input->source_mode == SOURCE_MODE_ISLAND ||
+    const bool generator_only = input->source_mode == SOURCE_MODE_GENERATOR_ONLY ||
+                                input->source_mode == SOURCE_MODE_ISLAND;
+    const bool generator_mode = generator_only ||
                                 input->source_mode == SOURCE_MODE_GRID_GENERATOR_SYNC;
     float maximum = input->fleet_capacity_kw;
     if (generator_mode) {
@@ -63,6 +64,36 @@ power_control_output_t power_control_step(const power_control_input_t *input)
         }
     }
 
+    /* In generator-only/island operation there is no grid exchange target to
+     * regulate. The useful objective is maximum PV that still leaves the
+     * running generator fleet at its commissioned minimum load + reserve +
+     * reverse-power margin. Rise toward that safe ceiling with the configured
+     * generator ramp; if the ceiling falls, clamp to it in the same cycle so a
+     * ramp can never delay a safety curtailment. */
+    if (generator_only) {
+        output.target_grid_kw = 0.0f;
+        output.error_kw = 0.0f;
+        output.next_integral_kw = 0.0f;
+
+        float requested = maximum;
+        if (requested > input->current_pv_command_kw) {
+            const float upward_step = input->ramp_up_kw_per_second * input->interval_seconds;
+            const float upper = input->current_pv_command_kw + upward_step;
+            if (requested > upper) requested = upper;
+        }
+        output.requested_pv_kw = clamp_zero_max(requested, maximum);
+        output.valid = true;
+        return output;
+    }
+
+    /* Grid-only and synchronized Grid+Generator modes still regulate grid
+     * exchange. The synchronized case additionally carries the generator safe
+     * ceiling above, so both export/import policy and generator loading are
+     * enforced at once. */
+    if (!isfinite(input->measured_grid_kw)) {
+        output.transition_blocked = true;
+        return output;
+    }
     output.target_grid_kw = target_grid_kw(input);
     output.error_kw = input->measured_grid_kw - output.target_grid_kw;
     if (fabsf(output.error_kw) <= input->deadband_kw) output.error_kw = 0.0f;
