@@ -1,0 +1,27 @@
+name: Browser poller lifecycle checks
+
+on:
+  pull_request:
+    paths:
+      - 'web/**'
+      - 'tests/browser_poller_lifecycle_source_contract.py'
+      - '.github/workflows/browser-poller-lifecycle.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lifecycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check affected browser modules
+        run: |
+          set -euo pipefail
+          node --check web/inverter-telemetry.js
+          node --check web/prelab-readiness.js
+          node --check web/operator-product-suite.js
+      - name: Check route, timeout and cancellation contracts
+        run: python3 tests/browser_poller_lifecycle_source_contract.py

@@ -2,15 +2,22 @@
     'use strict';
 
     const PREF_KEY = 'amx-product-preferences-v1';
+    const REFRESH_MS = 10000;
+    const REQUEST_TIMEOUT_MS = 5000;
+    const PAYLOAD_ROUTES = new Set(['meters', 'inverters', 'commissioning']);
     const state = {
         preferences: { density: 'comfortable', kiosk: false },
         payload: null,
         modal: null,
         timer: null,
+        controller: null,
+        loading: false,
     };
     const byId = (id) => document.getElementById(id);
     const isEngineering = () => document.documentElement.dataset.access === 'engineering';
     const currentRoute = () => location.hash.replace(/^#\/?/, '') || 'dashboard';
+    const payloadActive = () => !document.hidden && PAYLOAD_ROUTES.has(currentRoute()) &&
+        (currentRoute() !== 'commissioning' || isEngineering());
 
     function node(tag, className = '', text = null) {
         const item = document.createElement(tag);
@@ -19,8 +26,10 @@
         return item;
     }
 
-    async function api(path) {
-        const response = await fetch(path, { cache: 'no-store', credentials: 'same-origin' });
+    async function api(path, signal) {
+        const response = await fetch(path, {
+            cache: 'no-store', credentials: 'same-origin', signal
+        });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
         return payload;
@@ -361,12 +370,55 @@
         downloadJson(`automatrix-commissioning-${stamp}.json`, report);
     }
 
-    async function refreshPayload() {
-        const [status, meters, inverters, inverterTelemetry] = await Promise.all([
-            api('/api/status'), api('/api/meters'), api('/api/inverters'), api('/api/inverter-telemetry')
-        ]);
-        state.payload = { status, meters, inverters, inverterTelemetry };
-        renderCommissioning();
+    function cancelPayloadPolling() {
+        if (state.timer) window.clearTimeout(state.timer);
+        state.timer = null;
+        state.controller?.abort();
+        state.controller = null;
+    }
+
+    function schedulePayload() {
+        if (state.timer || !payloadActive()) return;
+        state.timer = window.setTimeout(async () => {
+            state.timer = null;
+            await refreshPayload(false);
+            schedulePayload();
+        }, REFRESH_MS);
+    }
+
+    async function refreshPayload(force = false) {
+        if (state.loading || (!force && !payloadActive())) return;
+        if (force && !PAYLOAD_ROUTES.has(currentRoute())) return;
+        state.loading = true;
+        state.controller?.abort();
+        const controller = new AbortController();
+        state.controller = controller;
+        const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+        try {
+            const signal = controller.signal;
+            const [status, meters, inverters, inverterTelemetry] = await Promise.all([
+                api('/api/status', signal), api('/api/meters', signal),
+                api('/api/inverters', signal), api('/api/inverter-telemetry', signal)
+            ]);
+            if (payloadActive() || force) {
+                state.payload = { status, meters, inverters, inverterTelemetry };
+                renderCommissioning();
+            }
+        } catch (error) {
+            if (error?.name !== 'AbortError') console.warn('Product suite refresh failed:', error);
+        } finally {
+            window.clearTimeout(timeout);
+            if (state.controller === controller) state.controller = null;
+            state.loading = false;
+        }
+    }
+
+    function reconcilePayloadLifecycle() {
+        if (!payloadActive()) {
+            cancelPayloadPolling();
+            return;
+        }
+        refreshPayload(false).finally(schedulePayload);
     }
 
     function handleRoute() {
@@ -375,6 +427,7 @@
         ensureCommissioningPage();
         if (currentRoute() === 'commissioning' && !isEngineering()) location.hash = '#/dashboard';
         renderCommissioning();
+        reconcilePayloadLifecycle();
     }
 
     function start() {
@@ -384,8 +437,9 @@
         ensureCommissioningPage();
         normalizeNavigation();
         attachEquipmentDrilldown();
-        refreshPayload().catch((error) => console.warn('Product suite refresh failed:', error));
         window.addEventListener('hashchange', handleRoute);
+        document.addEventListener('visibilitychange', reconcilePayloadLifecycle);
+        window.addEventListener('beforeunload', cancelPayloadPolling);
         document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeModal(); });
         document.addEventListener('fullscreenchange', () => {
             if (!document.fullscreenElement && state.preferences.kiosk) {
@@ -397,8 +451,9 @@
             normalizeNavigation();
             ensureCommissioningPage();
             renderCommissioning();
+            reconcilePayloadLifecycle();
         }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-access'] });
-        state.timer = window.setInterval(() => refreshPayload().catch(() => {}), 10000);
+        reconcilePayloadLifecycle();
     }
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });

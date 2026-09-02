@@ -1,9 +1,12 @@
 (() => {
     'use strict';
 
-    const state = { payload: null, busy: false, timer: null };
+    const REFRESH_MS = 15000;
+    const REQUEST_TIMEOUT_MS = 5000;
+    const state = { payload: null, busy: false, timer: null, controller: null };
     const byId = (id) => document.getElementById(id);
     const route = () => location.hash.replace(/^#\/?/, '') || 'dashboard';
+    const active = () => !document.hidden && route() === 'readiness';
     const node = (tag, className = '', text = '') => {
         const element = document.createElement(tag);
         if (className) element.className = className;
@@ -11,8 +14,8 @@
         return element;
     };
 
-    async function api(path) {
-        const response = await fetch(path, { cache: 'no-store', credentials: 'same-origin' });
+    async function api(path, signal) {
+        const response = await fetch(path, { cache: 'no-store', credentials: 'same-origin', signal });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
         return payload;
@@ -47,9 +50,7 @@
         document.title = 'Pre-Lab Readiness · Automatrix PV-DG';
     }
 
-    function check(id, label, status, detail, action = '') {
-        return { id, label, status, detail, action };
-    }
+    function check(id, label, status, detail, action = '') { return { id, label, status, detail, action }; }
 
     function evaluate(payload) {
         const status = payload.status || {};
@@ -65,7 +66,6 @@
         const activeCritical = Number(events.summary?.active_critical) || 0;
         const activeWarning = Number(events.summary?.active_warning) || 0;
         const authBypass = session.temporary_field_bypass === true;
-
         return [
             check('controller', 'Controller API', status && Object.keys(status).length ? 'pass' : 'block', status && Object.keys(status).length ? 'Controller API is responding.' : 'Controller status API is unavailable.', 'Check firmware boot and HTTP server.'),
             check('network', 'Primary network', status.network_online ? 'pass' : status.fallback_ap_active ? 'warn' : 'block', status.network_online ? `Connected to ${status.ssid || 'configured network'} at ${status.ip || 'an assigned address'}.` : status.fallback_ap_active ? 'Recovery access point is active; primary Wi-Fi is not connected.' : 'No active network connection.', 'Confirm the configured Wi-Fi credentials and coverage.'),
@@ -80,10 +80,7 @@
         ];
     }
 
-    function tone(status) {
-        return status === 'pass' ? 'good' : status === 'warn' ? 'warning' : 'bad';
-    }
-
+    function tone(status) { return status === 'pass' ? 'good' : status === 'warn' ? 'warning' : 'bad'; }
     function summary(checks) {
         const blocked = checks.filter((item) => item.status === 'block').length;
         const warnings = checks.filter((item) => item.status === 'warn').length;
@@ -95,10 +92,7 @@
         if (!view || route() !== 'readiness') return;
         view.replaceChildren();
         const payload = state.payload;
-        if (!payload) {
-            view.append(node('div', 'op-empty-state', 'Collecting controller readiness data…'));
-            return;
-        }
+        if (!payload) { view.append(node('div', 'op-empty-state', 'Collecting controller readiness data…')); return; }
         const checks = evaluate(payload);
         const result = summary(checks);
         const head = node('div', 'op-section-head');
@@ -107,18 +101,16 @@
         const actions = node('div', 'prelab-actions');
         const refresh = node('button', 'button secondary', 'Run checks');
         refresh.type = 'button';
-        refresh.addEventListener('click', refreshAll);
+        refresh.addEventListener('click', () => refreshAll(true));
         const exportButton = node('button', 'button primary', 'Export snapshot');
         exportButton.type = 'button';
         exportButton.addEventListener('click', exportSnapshot);
         actions.append(refresh, exportButton);
         head.append(copy, actions);
         view.append(head);
-
         const banner = node('article', `prelab-banner ${result.ready ? 'ready' : 'blocked'}`);
         banner.append(node('strong', '', result.ready ? 'Software ready for controlled lab testing' : 'Lab testing is blocked'), node('span', '', `${result.blocked} blocker(s) · ${result.warnings} warning(s)`));
         view.append(banner);
-
         const grid = node('div', 'prelab-grid');
         checks.forEach((item) => {
             const card = node('article', `prelab-check ${tone(item.status)}`);
@@ -127,66 +119,77 @@
             body.append(node('strong', '', item.label), node('p', '', item.detail));
             if (item.action && item.status !== 'pass') body.append(node('small', '', item.action));
             const pill = node('span', `op-state-pill ${tone(item.status)}`, item.status === 'pass' ? 'Pass' : item.status === 'warn' ? 'Review' : 'Block');
-            card.append(icon, body, pill);
-            grid.append(card);
+            card.append(icon, body, pill); grid.append(card);
         });
         view.append(grid);
-
         const navState = byId('prelabNavState');
-        if (navState) {
-            navState.textContent = result.ready ? 'Ready' : result.blocked;
-            navState.className = `prelab-nav-state ${result.ready ? 'good' : 'bad'}`;
-        }
+        if (navState) { navState.textContent = result.ready ? 'Ready' : result.blocked; navState.className = `prelab-nav-state ${result.ready ? 'good' : 'bad'}`; }
     }
 
-    async function refreshAll() {
-        if (state.busy) return;
+    function cancelPolling() {
+        if (state.timer) window.clearTimeout(state.timer);
+        state.timer = null;
+        state.controller?.abort();
+        state.controller = null;
+    }
+
+    function schedule() {
+        if (state.timer || !active()) return;
+        state.timer = window.setTimeout(async () => {
+            state.timer = null;
+            await refreshAll(false);
+            schedule();
+        }, REFRESH_MS);
+    }
+
+    async function refreshAll(manual = false) {
+        if (state.busy || (!manual && !active()) || (manual && route() !== 'readiness')) return;
         state.busy = true;
+        state.controller?.abort();
+        const controller = new AbortController();
+        state.controller = controller;
+        const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
         try {
+            const signal = controller.signal;
             const [status, meters, inverters, history, events, session] = await Promise.all([
-                api('/api/status'),
-                api('/api/meters'),
-                api('/api/inverters'),
-                api('/api/operator/history?range=15m'),
-                api('/api/operator/events'),
-                api('/api/engineering/session')
+                api('/api/status', signal), api('/api/meters', signal), api('/api/inverters', signal),
+                api('/api/operator/history?range=15m', signal), api('/api/operator/events', signal),
+                api('/api/engineering/session', signal)
             ]);
-            state.payload = { status, meters, inverters, history, events, session };
+            if (active() || manual) state.payload = { status, meters, inverters, history, events, session };
         } catch (error) {
-            state.payload = { error: error.message };
+            if (error?.name !== 'AbortError' && (active() || manual)) state.payload = { error: error.message };
         } finally {
+            window.clearTimeout(timeout);
+            if (state.controller === controller) state.controller = null;
             state.busy = false;
-            render();
+            if (active() || manual) render();
         }
     }
 
     function exportSnapshot() {
         if (!state.payload) return;
         const checks = evaluate(state.payload);
-        const report = {
-            report_type: 'Automatrix PV-DG pre-lab readiness snapshot',
-            generated_at: new Date().toISOString(),
-            checks,
-            summary: summary(checks),
-            controller: state.payload
-        };
+        const report = { report_type: 'Automatrix PV-DG pre-lab readiness snapshot', generated_at: new Date().toISOString(), checks, summary: summary(checks), controller: state.payload };
         const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
-        link.href = url;
-        link.download = `automatrix-prelab-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
-        document.body.append(link);
-        link.click();
-        link.remove();
-        URL.revokeObjectURL(url);
+        link.href = url; link.download = `automatrix-prelab-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+        document.body.append(link); link.click(); link.remove(); URL.revokeObjectURL(url);
+    }
+
+    function reconcileLifecycle() {
+        ensurePage(); activateRoute(); render();
+        if (!active()) { cancelPolling(); return; }
+        refreshAll(false).finally(schedule);
     }
 
     function start() {
-        ensurePage();
-        activateRoute();
-        refreshAll();
-        window.addEventListener('hashchange', () => { ensurePage(); activateRoute(); render(); });
-        state.timer = window.setInterval(refreshAll, 15000);
+        ensurePage(); activateRoute();
+        window.addEventListener('hashchange', reconcileLifecycle);
+        document.addEventListener('visibilitychange', reconcileLifecycle);
+        window.addEventListener('beforeunload', cancelPolling);
+        reconcileLifecycle();
     }
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
