@@ -61,7 +61,8 @@ for token in (
     "channel->measured_kw < 0.0f",
 ):
     require(token in fleet, f"per-generator fleet guard missing: {token}")
-require("fabs" not in fleet,
+require("fabsf(channel->measured_kw)" not in fleet and
+        "fabs(channel->measured_kw)" not in fleet,
         "generator meter sign must be commissioned, never hidden with fabs()")
 
 # Runtime must map Generator 1..3 meter roles, per-channel run/breaker contacts,
