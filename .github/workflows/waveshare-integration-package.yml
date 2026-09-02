@@ -74,6 +74,7 @@ jobs:
           for test_file in \
             tests/waveshare_product_memory_source_contract.py \
             tests/waveshare_flicker_source_contract.py \
+            tests/waveshare_status_scan_source_contract.py \
             tests/waveshare_backend_parity_gate.py \
             tests/waveshare_persistence_readback_gate.py
           do
