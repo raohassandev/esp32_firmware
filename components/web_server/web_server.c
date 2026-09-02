@@ -12,6 +12,7 @@
 #include "engineering_auth.h"
 #include "esp_check.h"
 #include "esp_http_server.h"
+#include "esp_log.h"
 #include "inverter_config_api.h"
 #include "live_api.h"
 #include "inverter_profile_api.h"
@@ -24,6 +25,15 @@
 #include "system_resource_api.h"
 #include "web_api.h"
 #include "web_assets.h"
+
+/* DIAGNOSTIC-ONLY branch switch. The exact 01c1c272 hardware candidate still
+ * showed the 5-second top-to-bottom RGB sweep. This single-variable image
+ * removes the operational history/event subsystem (including its 5-second
+ * task and journal open/flush path) while leaving Product Core, native screen,
+ * network, live/status APIs and display timing untouched. Never merge this
+ * switch into a release branch; its only purpose is physical root-cause
+ * isolation. */
+#define WAVESHARE_DIAG_SKIP_OPERATIONAL_API 1
 
 static httpd_handle_t s_server;
 
@@ -175,7 +185,11 @@ esp_err_t web_server_start(void)
     ESP_RETURN_ON_ERROR(engineering_auth_register(s_server), "web", "engineering auth API registration failed");
     ESP_RETURN_ON_ERROR(web_api_register(s_server), "web", "core API registration failed");
     ESP_RETURN_ON_ERROR(live_api_register(s_server), "web", "live API registration failed");
+#if WAVESHARE_DIAG_SKIP_OPERATIONAL_API
+    ESP_LOGW("web", "DIAGNOSTIC: operational history/event subsystem disabled for RGB scanout isolation");
+#else
     ESP_RETURN_ON_ERROR(operational_api_register(s_server), "web", "operator history/event API registration failed");
+#endif
     ESP_RETURN_ON_ERROR(device_api_register(s_server), "web", "device API registration failed");
     ESP_RETURN_ON_ERROR(inverter_profile_api_register(s_server), "web", "inverter profile API registration failed");
     ESP_RETURN_ON_ERROR(inverter_config_api_register(s_server), "web", "inverter configuration API registration failed");
