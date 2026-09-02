@@ -73,12 +73,14 @@ for token in [
 
 require(".source_mode = SOURCE_MODE_GRID_ONLY" not in CONTROL,
         "live control must not assume Grid Only from a fresh power meter")
-require("Any uncertain, stale, open-breaker or contradictory evidence blocks PV" in GATE,
-        "grid evidence gate must document immediate fail-closed behavior")
+require("Any transfer, stale/unknown source or contradictory evidence blocks PV" in GATE,
+        "source evidence gate must document immediate fail-closed behavior")
 require("output.control_allowed = output.recovery_stable" in GATE,
-        "grid recovery must remain blocked until continuous stabilization completes")
+        "source recovery must remain blocked until continuous stabilization completes")
+require("memory->recovery_mode != input->source_mode" in GATE,
+        "a carrying-source change must restart the stabilization dwell")
 require("output.loss_confirmed" in GATE,
-        "grid-loss confirmation timer contract is incomplete")
+        "persistent source-loss confirmation timer contract is incomplete")
 
 require("control_engine_force_disable" in CONTROL_H and
         "s_runtime_forced_disabled = true" in CONTROL,
@@ -156,4 +158,4 @@ require("/api/control" not in JS,
 require("window.setInterval(" not in JS,
         "Solar-Grid runtime polling must use bounded route-aware timeouts")
 
-print("Persisted Solar-Grid policy, evidence, runtime gate and UI source contract passed")
+print("Persisted Solar-Grid policy, evidence, source recovery gate and UI source contract passed")
