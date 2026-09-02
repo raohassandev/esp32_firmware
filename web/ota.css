@@ -9,7 +9,7 @@
 .ota-progress-wrap progress {
     width: 100%;
     height: 0.9rem;
-    accent-color: var(--accent, #f47a20);
+    accent-color: var(--accent);
 }
 
 .ota-progress-wrap strong {
