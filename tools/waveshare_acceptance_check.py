@@ -60,6 +60,11 @@ SOAK_RE = re.compile(r"Screen soak", re.I)
 ACTIVATION_RE = re.compile(r"LVGL activation stage\s+(\d)\s*/\s*6", re.I)
 READY_RE = re.compile(r"Native LCD/LVGL/touch ready", re.I)
 UPTIME_RE = re.compile(r"^[VDIWE]\s+\((\d+)\)")
+RGB_SCANOUT_RE = re.compile(r"\bRGB\s+\d+x\d+\b.*\bbounce_lines=(\d+)\b", re.I)
+RGB_FALLBACK_RE = re.compile(
+    r"RGB bounce allocation unavailable; retrying direct PSRAM framebuffer mode",
+    re.I,
+)
 
 
 @dataclass
@@ -70,6 +75,8 @@ class Result:
     activation_stages: list[int]
     activation_counts: dict[int, int]
     native_ready: bool
+    scanout_bounce_lines: list[int]
+    scanout_fallback_count: int
     soak_samples: int
     stage_dma_free: dict[str, int | None]
     stage_dma_largest: dict[str, int | None]
@@ -79,6 +86,7 @@ class Result:
     minimum_checked_dma_largest: int | None
     observed_runtime_seconds: float | None
     timestamp_rollbacks: int
+    required_bounce_lines: int
     required_min_dma_free: int
     required_min_dma_largest: int
     required_soak_samples: int
@@ -97,6 +105,7 @@ def analyse(
     min_soak_samples: int = 2,
     min_runtime_seconds: int = 0,
     min_dma_largest: int = 0,
+    required_bounce_lines: int = 6,
 ) -> Result:
     lines = text.splitlines()
     fatal_hits = {name: sum(1 for line in lines if rx.search(line)) for name, rx in FATAL_PATTERNS.items()}
@@ -106,6 +115,13 @@ def analyse(
     activation = sorted(set(activation_hits))
     activation_counts = {stage: activation_hits.count(stage) for stage in range(1, 7)}
     native_ready = any(READY_RE.search(line) for line in lines)
+    scanout_bounce_lines = [
+        int(m.group(1))
+        for line in lines
+        for m in [RGB_SCANOUT_RE.search(line)]
+        if m
+    ]
+    scanout_fallback_count = sum(1 for line in lines if RGB_FALLBACK_RE.search(line))
 
     uptimes_ms = [int(m.group(1)) for line in lines for m in [UPTIME_RE.search(line)] if m]
     timestamp_rollbacks = sum(1 for previous, current in zip(uptimes_ms, uptimes_ms[1:]) if current < previous)
@@ -157,6 +173,19 @@ def analyse(
         failures.append(f"activation_repeated={repeated_activation}")
     if not native_ready:
         failures.append("native_ready_missing")
+    if not scanout_bounce_lines:
+        failures.append("scanout_mode_evidence_missing")
+    else:
+        if len(scanout_bounce_lines) != 1:
+            failures.append(f"scanout_attempts={len(scanout_bounce_lines)}!=1")
+        if scanout_fallback_count:
+            failures.append(f"scanout_fallback={scanout_fallback_count}")
+        if any(lines_count == 0 for lines_count in scanout_bounce_lines):
+            failures.append("scanout_zero_bounce_observed")
+        if any(lines_count != required_bounce_lines for lines_count in scanout_bounce_lines):
+            failures.append(
+                f"scanout_bounce_lines={scanout_bounce_lines}!={required_bounce_lines}"
+            )
     if soak_samples < min_soak_samples:
         failures.append(f"screen_soak={soak_samples}<{min_soak_samples}")
     if len(runtime_free) < min_soak_samples:
@@ -186,6 +215,8 @@ def analyse(
         activation_stages=activation,
         activation_counts=activation_counts,
         native_ready=native_ready,
+        scanout_bounce_lines=scanout_bounce_lines,
+        scanout_fallback_count=scanout_fallback_count,
         soak_samples=soak_samples,
         stage_dma_free=stage_free,
         stage_dma_largest=stage_largest,
@@ -195,6 +226,7 @@ def analyse(
         minimum_checked_dma_largest=min_largest,
         observed_runtime_seconds=observed_runtime,
         timestamp_rollbacks=timestamp_rollbacks,
+        required_bounce_lines=required_bounce_lines,
         required_min_dma_free=min_dma_free,
         required_min_dma_largest=min_dma_largest,
         required_soak_samples=min_soak_samples,
@@ -206,6 +238,8 @@ def analyse(
 def main() -> int:
     p = argparse.ArgumentParser(description="Validate Waveshare physical-smoke serial evidence")
     p.add_argument("log", type=Path)
+    p.add_argument("--required-bounce-lines", type=int, default=6,
+                   help="Require the qualified RGB bounce-buffer line count; default is the 800x480 product value (6)")
     p.add_argument("--min-dma-free", type=int, default=20_000)
     p.add_argument("--min-dma-largest", type=int, default=0,
                    help="Optional minimum largest contiguous DMA-capable block; 0 requires evidence without inventing a threshold")
@@ -221,6 +255,7 @@ def main() -> int:
         min_soak_samples=args.min_soak_samples,
         min_runtime_seconds=args.min_runtime_seconds,
         min_dma_largest=args.min_dma_largest,
+        required_bounce_lines=args.required_bounce_lines,
     )
     payload = asdict(result)
     if args.json:
@@ -229,6 +264,8 @@ def main() -> int:
         print("SERIAL SMOKE PASS" if result.passed else "SERIAL SMOKE FAIL")
         for failure in result.failures:
             print(f"- {failure}")
+        print(f"- scanout_bounce_lines={result.scanout_bounce_lines}")
+        print(f"- scanout_fallback_count={result.scanout_fallback_count}")
         print(f"- soak_samples={result.soak_samples}")
         print(f"- min_dma_free={result.minimum_checked_dma_free}")
         print(f"- min_dma_largest={result.minimum_checked_dma_largest}")
