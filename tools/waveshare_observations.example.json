@@ -1,0 +1,10 @@
+{
+  "candidate_sha": "87841ecee727fe1d814d4186be8c8c26e4afafb4",
+  "artifact_digest": "sha256:89e621034d4c91096fc5d38dd57ac40eeeab34275e4af1fc0461b48575039096",
+  "page_cycles": 20,
+  "alarms_opened": false,
+  "touch_responsive": false,
+  "sweep_absent": false,
+  "reload_absent": false,
+  "tear_or_corruption_absent": false
+}

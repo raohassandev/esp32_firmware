@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guard Waveshare product memory and RGB transport configuration."""
+"""Guard Waveshare product memory, LVGL allocator and RGB transport configuration."""
 
 from pathlib import Path
 import re
@@ -36,6 +36,15 @@ assert "CONFIG_ESP32S3_DATA_CACHE_32KB=y" in SDK
 assert "CONFIG_ESP32S3_DATA_CACHE_64KB=y" not in SDK
 assert "CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y" in SDK
 
+# The decoded Alarms watchdog ended in lv_obj_allocate_spec_attr because the
+# old LVGL builtin allocator was capped at a private 64 kB pool with expansion
+# disabled. Waveshare must use ESP's C-library heap allocator so lazily-created
+# pages can use the normal ESP heap/PSRAM architecture instead of returning to
+# that hard ceiling.
+assert "CONFIG_LV_USE_BUILTIN_MALLOC=n" in SDK
+assert "CONFIG_LV_USE_CLIB_MALLOC=y" in SDK
+assert "CONFIG_LV_USE_BUILTIN_MALLOC=y" not in SDK
+
 # Any task created with xTaskCreateWithCaps() must use the matching deletion API.
 # The recovery captive-DNS task is self-deleting when AP mode stops, so this is
 # a real runtime path rather than a diagnostic-only contract.
@@ -43,20 +52,15 @@ assert "xTaskCreateWithCaps(portal_task" in PORTAL
 assert "vTaskDeleteWithCaps(NULL)" in PORTAL
 assert re.search(r"\bvTaskDelete\s*\(\s*NULL\s*\)", PORTAL) is None
 
-# Product-only RGB bandwidth/memory balance. HIL profile remains at 16 MHz/10 lines.
-#
-# Bounce depth is the scanout's stall tolerance. At 12 MHz a line costs 68.3 us,
-# so this is ~820 us of slack; six lines gave only ~410 us and the panel swept
-# whenever Product Core's periodic work outran that. Do not reduce this without
-# re-testing the sweep on the physical board.
+# Product-only RGB bandwidth/memory balance. HIL profile remains separately
+# qualified. Physical A/B established 12 lines together with CPU separation as
+# the current no-sweep arrangement; do not reduce it without physical re-test.
 assert "#define PRODUCT_RGB_BOUNCE_LINES 12U" in MAIN
 assert "#define PRODUCT_RGB_PCLK_HZ 12000000U" in MAIN
 assert "s_product_profile = *vendor_profile;" in MAIN
 assert "s_product_profile.pixel_clock_hz = PRODUCT_RGB_PCLK_HZ;" in MAIN
-assert 2 * 800 * 2 * (10 - 6) == 12800
 assert "#define PRODUCT_TEAR_MODE ESP_LV_ADAPTER_TEAR_AVOID_MODE_DOUBLE_DIRECT" in MAIN
 assert "allow_no_bounce_fallback = true" in MAIN
-assert "2 PSRAM framebuffers, 6-line bounce" in MAIN
 
 create_match = re.search(
     r"lv_obj_t \*screen_app_create\([^)]*\)\s*\{(.*?)\n\}\n\nvoid screen_app_show_page",
@@ -92,4 +96,4 @@ assert 'log_dma_headroom("After Product Core init")' in MAIN
 assert 'log_dma_headroom("After LVGL/UI activation")' in MAIN
 assert 'log_runtime_headroom("Screen soak")' in MAIN
 
-print("Waveshare product memory source contract: PASS")
+print("Waveshare product memory/LVGL allocator source contract: PASS")
