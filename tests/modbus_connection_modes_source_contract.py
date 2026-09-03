@@ -2,16 +2,18 @@
 """Source contract for configurable Modbus TCP connection modes.
 
 This lane deliberately keeps physical PCB/TIME_WAIT/endurance out of software
-acceptance.  These checks lock the software semantics and migration/API surface
+acceptance. These checks lock the software semantics and migration/API surface
 that can be proven in CI.
 """
 from pathlib import Path
-import re
 
 ROOT = Path(__file__).resolve().parents[1]
 TYPES = (ROOT / "components/modbus_tcp/include/modbus_types.h").read_text(encoding="utf-8")
+POLICY_H = (ROOT / "components/modbus_tcp/include/modbus_connection_policy.h").read_text(encoding="utf-8")
+POLICY_C = (ROOT / "components/modbus_tcp/modbus_connection_policy.c").read_text(encoding="utf-8")
 HEADER = (ROOT / "components/modbus_tcp/include/modbus_tcp.h").read_text(encoding="utf-8")
 TRANSPORT = (ROOT / "components/modbus_tcp/modbus_tcp.c").read_text(encoding="utf-8")
+MODBUS_CMAKE = (ROOT / "components/modbus_tcp/CMakeLists.txt").read_text(encoding="utf-8")
 CONFIG_TYPES = (ROOT / "components/config_manager/include/config_types.h").read_text(encoding="utf-8")
 CONFIG_V6 = (ROOT / "components/config_manager/config_manager_v6.c").read_text(encoding="utf-8")
 CONFIG_CMAKE = (ROOT / "components/config_manager/CMakeLists.txt").read_text(encoding="utf-8")
@@ -30,9 +32,13 @@ for token in (
     "MODBUS_CONNECTION_PER_TRANSACTION = 0",
     "MODBUS_CONNECTION_PERSISTENT = 1",
     "MODBUS_CONNECTION_RECONNECT_ON_ERROR = 2",
-    "uint8_t connection_mode",
 ):
-    require(token in TYPES, f"missing connection-mode contract: {token}")
+    require(token in POLICY_H, f"missing connection-mode enum contract: {token}")
+require('#include "modbus_connection_policy.h"' in TYPES and
+        "uint8_t connection_mode" in TYPES,
+        "persisted endpoint is not tied to the shared connection policy")
+require('"modbus_connection_policy.c"' in MODBUS_CMAKE,
+        "connection policy helper is not compiled into the Modbus component")
 require("#define APP_CONFIG_VERSION 6u" in CONFIG_TYPES,
         "connection-mode schema must remain version 6")
 require("modbus_tcp_connection_mode_name" in HEADER,
@@ -40,20 +46,25 @@ require("modbus_tcp_connection_mode_name" in HEADER,
 for name in ("per_transaction", "persistent", "reconnect_on_error"):
     require(f'"{name}"' in TRANSPORT, f"transport missing mode name {name}")
 
-# Transport policy.  A valid Modbus exception is a device response, not broken TCP.
-require("close_after_transaction" in TRANSPORT and
-        "c->endpoint.connection_mode == MODBUS_CONNECTION_PER_TRANSACTION" in TRANSPORT,
-        "per-transaction close policy missing")
-require("c->endpoint.connection_mode == MODBUS_CONNECTION_RECONNECT_ON_ERROR" in TRANSPORT,
-        "reconnect-on-error close policy missing")
-require("!device_exception" in TRANSPORT,
-        "persistent mode must distinguish valid Modbus exceptions from transport errors")
+# Transport policy. A valid Modbus exception is a device response, not broken TCP.
+require("modbus_connection_should_close(c->endpoint.connection_mode" in TRANSPORT,
+        "transport does not use the tested connection-close policy")
+require("result == ESP_OK" in TRANSPORT and "device_exception" in TRANSPORT,
+        "transport does not pass transaction/device-exception state to close policy")
 require("c->last_exchange_device_exception = true" in TRANSPORT,
         "valid Modbus exceptions are not classified as device responses")
 require("NEXT caller transaction" in TRANSPORT and "same-call retry" in TRANSPORT,
         "no-same-call-replay safety contract is not explicit")
-require("endpoint->connection_mode > MODBUS_CONNECTION_RECONNECT_ON_ERROR" in TRANSPORT,
-        "connection init does not reject invalid modes")
+require("!modbus_connection_mode_valid(endpoint->connection_mode)" in TRANSPORT,
+        "connection init does not reject invalid modes through shared policy")
+for token in (
+    "if (!modbus_connection_mode_valid(mode)) return true",
+    "mode == MODBUS_CONNECTION_PER_TRANSACTION",
+    "if (transaction_ok) return false",
+    "mode == MODBUS_CONNECTION_RECONNECT_ON_ERROR",
+    "return !device_exception",
+):
+    require(token in POLICY_C, f"connection policy implementation missing: {token}")
 
 
 def function_body(signature: str, next_signature: str) -> str:
@@ -74,16 +85,23 @@ for label, body in (("read", read_body), ("write_single", single_body), ("write_
     require("finish_transaction(c, err)" in body,
             f"{label} does not apply connection-mode finish policy")
 
-# Expected socket-close truth table for the source policy above.
+# Expected socket-close truth table mirrors the compiled pure-C policy, whose
+# host unit test independently executes every row.
 PER_TRANSACTION = 0
 PERSISTENT = 1
 RECONNECT_ON_ERROR = 2
 
 
 def should_close(mode: int, ok: bool, device_exception: bool) -> bool:
-    close_after_transaction = mode == PER_TRANSACTION
-    close_on_error = (not ok) and (mode == RECONNECT_ON_ERROR or not device_exception)
-    return close_after_transaction or close_on_error
+    if mode not in (PER_TRANSACTION, PERSISTENT, RECONNECT_ON_ERROR):
+        return True
+    if mode == PER_TRANSACTION:
+        return True
+    if ok:
+        return False
+    if mode == RECONNECT_ON_ERROR:
+        return True
+    return not device_exception
 
 
 cases = {
@@ -96,11 +114,12 @@ cases = {
     (RECONNECT_ON_ERROR, True, False): False,
     (RECONNECT_ON_ERROR, False, True): True,
     (RECONNECT_ON_ERROR, False, False): True,
+    (99, True, False): True,
 }
 for inputs, expected in cases.items():
     require(should_close(*inputs) is expected, f"connection close matrix failed for {inputs}")
 
-# Schema 5 has the same byte size as schema 6.  It must be recognized by version
+# Schema 5 has the same byte size as schema 6. It must be recognized by version
 # before the old core rejects it, and all legacy endpoint padding must normalize
 # to per_transaction while preserving every other commissioned field byte-for-byte.
 for token in (
