@@ -1,6 +1,6 @@
 # AISH-OS Requirements Closure Matrix v1
 
-Master program: #79. Live source/evidence overrides stale historical text. Audit baseline for this reconciliation: `dev` at `3096f2bfa10e86b3163b99ae7622bffded6791ac` after PR #124.
+Master program: #79. Live source/evidence overrides stale historical text. Audit baseline for this reconciliation: `dev` at `df282a3e8afee27dfc220694e4461e4ad49d2277` after PR #127.
 
 | ID | Requirement group | Current state | Tracking / done gate |
 |---|---|---|---|
@@ -23,12 +23,14 @@ Master program: #79. Live source/evidence overrides stale historical text. Audit
 | R-ACQ-02 | freshness/quality/last-good/backoff diagnostics | SOFTWARE VERIFIED / physical endurance remains | #83 |
 | R-CONFIG-01 | imported config numeric/depth/bounds fail closed and cannot arm control | SOFTWARE VERIFIED | `config_import_safety_source_contract.py` |
 | R-CONFIG-02 | legacy migration allocation failure cannot replace commissioned NVS | COMPLETE/MERGED | PR #122 head `2ca293...`; focused `33738503242`, full `33738503251`; merge `dfe93de50e2a5715f4d212ff3233d566d36e2cfd` |
+| R-CONFIG-03 | config/mapping changes invalidate live command authority before persistence | COMPLETE/MERGED | PR #127 head `4f6ebc03c12e9653cb73f7103e1be68ad7e3f4c0`; focused `33741274303`, full `33741274300`; merge `df282a3e8afee27dfc220694e4461e4ad49d2277` |
 | R-INV-01 | production profile manual/model/firmware/identity mapping | BLOCKED EXTERNAL | #82 |
 | R-INV-02 | command width/scale/range/finite + FC06/FC16 | COMPLETE/MERGED GENERIC CORE | PR #108 |
 | R-INV-03 | write/readback/tolerance/rollback/safe-zero core | GENERIC CORE VERIFIED / manufacturer bench pending | #82/#83 |
 | R-INV-04 | reconnect/stale identity reverification | COMPLETE/MERGED GENERIC CORE | PR #102; #82 bench remains |
 | R-INV-05 | profile assignment disables control before new map persists | COMPLETE/MERGED | PR #117 `1360c4a8356ff8acdc19878f65da311c0b0eccc6` |
 | R-INV-06 | positive writes require complete profile evidence + fresh mapped ON_GRID; zero remains fail-safe | COMPLETE/MERGED GENERIC AUTHORITY / profiles still blocked | PR #119 `d9cd81bcf500a034d6cc88ea92e3bb74e42ed258`; #82 |
+| R-INV-07 | pending manufacturer profiles do not claim unproven connection transport | COMPLETE/MERGED | PR #113 `4aa935dfcf944f83cbb96333be67f99878e32c30`; #82 still owns actual transport qualification |
 | R-NET-01 | Wi-Fi config preservation/no compiled site credentials | COMPLETE/MERGED | PR #100 |
 | R-NET-02 | retry/recovery AP/single scan owner | SOFTWARE VERIFIED / physical endurance remains | #83 |
 | R-WEB-01 | browser pollers bounded/cancellable | COMPLETE AUDIT | #90 closed |
@@ -65,5 +67,6 @@ Master program: #79. Live source/evidence overrides stale historical text. Audit
 1. Inspect current `dev` before opening work; do not resurrect stale findings without a live regression.
 2. Software-complete items requiring physical behavior remain release-open until observed evidence passes.
 3. External manual/site blockers remain explicit; software must fail closed rather than guess.
-4. Release evidence records exact SHA/run/artifact/config/profile identity.
-5. Physical PASS does not transfer silently across changed identities.
+4. Runtime configuration/mapping changes that invalidate live assumptions must remove command authority before persistence.
+5. Release evidence records exact SHA/run/artifact/config/profile identity.
+6. Physical PASS does not transfer silently across changed identities.
