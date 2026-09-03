@@ -1,7 +1,8 @@
 /* operator-continuity-verdict.js — presentation continuity and cautious verdict.
  *
  * This module owns no API request, routing authority, authentication or polling.
- * It consumes the existing status strip and the operator-view rendered event.
+ * One scoped observer watches only the existing operator/alarm render roots and
+ * status strip so polling-driven DOM replacement does not lose operator state.
  */
 (() => {
     'use strict';
@@ -62,26 +63,6 @@
         if (restoreQueued) return;
         restoreQueued = true;
         requestAnimationFrame(restore);
-    }
-
-    function startContinuity() {
-        document.addEventListener('focusin', (event) => {
-            const root = event.target.closest?.(ROOTS);
-            if (!root) return;
-            const key = focusKey(event.target);
-            if (key) recordFor(root).focus = key;
-        });
-        document.addEventListener('toggle', (event) => {
-            if (restoring || event.target.tagName !== 'DETAILS') return;
-            const root = event.target.closest(ROOTS);
-            if (!root) return;
-            const record = recordFor(root);
-            const key = detailKey(event.target);
-            if (event.target.open) record.open.add(key);
-            else record.open.delete(key);
-        }, true);
-        window.addEventListener('amx-operator-view-rendered', scheduleRestore);
-        window.addEventListener('hashchange', scheduleRestore);
     }
 
     const read = (id) => clean(document.getElementById(id)?.textContent);
@@ -212,9 +193,36 @@
         requestAnimationFrame(renderVerdict);
     }
 
+    function startContinuity() {
+        document.addEventListener('focusin', (event) => {
+            const root = event.target.closest?.(ROOTS);
+            if (!root) return;
+            const key = focusKey(event.target);
+            if (key) recordFor(root).focus = key;
+        });
+        document.addEventListener('toggle', (event) => {
+            if (restoring || event.target.tagName !== 'DETAILS') return;
+            const root = event.target.closest(ROOTS);
+            if (!root) return;
+            const record = recordFor(root);
+            const key = detailKey(event.target);
+            if (event.target.open) record.open.add(key);
+            else record.open.delete(key);
+        }, true);
+
+        const observer = new MutationObserver((records) => {
+            if (records.some((record) => record.target.closest?.(ROOTS))) scheduleRestore();
+            if (records.some((record) => record.target.closest?.('.status-strip'))) scheduleVerdict();
+        });
+        document.querySelectorAll(ROOTS).forEach((root) => {
+            observer.observe(root, { childList: true, subtree: true });
+        });
+        const statusStrip = document.querySelector('.status-strip');
+        if (statusStrip) observer.observe(statusStrip, { childList: true, subtree: true, characterData: true });
+        window.addEventListener('hashchange', scheduleRestore);
+    }
+
     function startVerdict() {
-        window.addEventListener('amx-controller-status', scheduleVerdict);
-        window.addEventListener('amx-operator-view-rendered', scheduleVerdict);
         window.addEventListener('hashchange', scheduleVerdict);
         window.addEventListener('amx-access-change', scheduleVerdict);
         scheduleVerdict();
