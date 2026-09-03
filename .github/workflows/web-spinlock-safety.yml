@@ -1,0 +1,21 @@
+name: Web spinlock safety checks
+
+on:
+  pull_request:
+    paths:
+      - 'components/web_server/**'
+      - 'tests/web_spinlock_safety_source_contract.py'
+      - '.github/workflows/web-spinlock-safety.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check web critical-section safety
+        run: python3 tests/web_spinlock_safety_source_contract.py
