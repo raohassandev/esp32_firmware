@@ -7,7 +7,6 @@ JS = (ROOT / "web/operator-continuity-verdict.js").read_text(encoding="utf-8")
 CSS = (ROOT / "web/operator-continuity-verdict.css").read_text(encoding="utf-8")
 SHELL_JS = (ROOT / "web/shell-current-fixes.js").read_text(encoding="utf-8")
 SHELL_CSS = (ROOT / "web/shell-current-fixes.css").read_text(encoding="utf-8")
-OPERATOR = (ROOT / "web/operator-view.js").read_text(encoding="utf-8")
 THEME = (ROOT / "web/theme.js").read_text(encoding="utf-8")
 SHELL = (ROOT / "web/product-shell-v2.js").read_text(encoding="utf-8")
 CMAKE = (ROOT / "components/web_server/CMakeLists.txt").read_text(encoding="utf-8")
@@ -21,12 +20,24 @@ def require(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
-for forbidden in ("fetch(", "XMLHttpRequest", "MutationObserver", "setInterval("):
-    require(forbidden not in JS, f"continuity/verdict module gained runtime ownership: {forbidden}")
-    require(forbidden not in SHELL_JS, f"shell repair gained runtime ownership: {forbidden}")
+for forbidden in ("fetch(", "XMLHttpRequest", "setInterval("):
+    require(forbidden not in JS, f"continuity/verdict module gained runtime acquisition/polling ownership: {forbidden}")
+    require(forbidden not in SHELL_JS, f"shell repair gained runtime acquisition/polling ownership: {forbidden}")
+
+require(JS.count("new MutationObserver(") == 1,
+        "continuity/verdict must use exactly one scoped DOM observer")
+for token in (
+    "document.querySelectorAll(ROOTS).forEach((root)",
+    "observer.observe(root, { childList: true, subtree: true })",
+    "observer.observe(statusStrip, { childList: true, subtree: true, characterData: true })",
+    "record.target.closest?.(ROOTS)",
+    "record.target.closest?.('.status-strip')",
+):
+    require(token in JS, f"scoped observer contract missing: {token}")
+require("observer.observe(document" not in JS and "observer.observe(document.body" not in JS,
+        "continuity observer broadened to the whole document/body")
 
 for token in (
-    "window.addEventListener('amx-operator-view-rendered', scheduleRestore)",
     "document.addEventListener('focusin'",
     "document.addEventListener('toggle'",
     "target.focus({ preventScroll: true })",
@@ -46,9 +57,6 @@ for status_id in (
 
 for forbidden in ("grid_power_kw", "active_power_kw", "Math.sign", "/api/"):
     require(forbidden not in JS, f"presentation module re-derived authority or acquired data: {forbidden}")
-
-require("amx-operator-view-rendered" in OPERATOR and "CustomEvent" in OPERATOR,
-        "operator-view must announce DOM replacement so continuity can restore state")
 
 require("themeToggleButton" in THEME, "current theme control id changed unexpectedly")
 require("clickExisting('themeToggle')" in SHELL,
