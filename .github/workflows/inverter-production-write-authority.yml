@@ -1,0 +1,33 @@
+name: Inverter production write authority checks
+
+on:
+  pull_request:
+    paths:
+      - 'components/inverter_manager/CMakeLists.txt'
+      - 'components/inverter_manager/inverter_manager.c'
+      - 'components/inverter_manager/inverter_write_authority_guard.c'
+      - 'components/inverter_manager/inverter_profiles.c'
+      - 'components/inverter_manager/inverter_profile_write_gate.c'
+      - 'tests/inverter_production_write_authority_source_contract.py'
+      - 'tests/production_release_gate.py'
+      - 'tests/production_profile_release_gate_source_contract.py'
+      - '.github/workflows/inverter-production-write-authority.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  write-authority:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check complete production inverter write authority
+        run: python3 tests/inverter_production_write_authority_source_contract.py
+      - name: Check production release profile gate
+        run: python3 tests/production_profile_release_gate_source_contract.py
+      - name: Re-run transactional runtime write gate
+        run: python3 tests/inverter_runtime_write_gate_source_contract.py
+      - name: Re-run operational status contract
+        run: python3 tests/inverter_status_source_contract.py
