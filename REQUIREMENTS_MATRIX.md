@@ -1,6 +1,6 @@
 # AISH-OS Requirements Closure Matrix v1
 
-Master program: #79. Live source/evidence overrides stale historical text. Audit baseline for this reconciliation: `dev` at `093954b5626c034e126fde3b773cedb1add92707` after PR #140.
+Master program: #79. Live source/evidence overrides stale historical text. Audit baseline for this reconciliation: `dev` at `d07dca2d2b20a2cf4e712df45fae9dfe7e3024c2` after PR #142.
 
 | ID | Requirement group | Current state | Tracking / done gate |
 |---|---|---|---|
@@ -53,9 +53,10 @@ Master program: #79. Live source/evidence overrides stale historical text. Audit
 | R-WAVE-01 | no recurring LCD sweep/reload/flicker | SHORT PASS EXACT CANDIDATE | #87/#27 `87841ece...` |
 | R-WAVE-02 | Alarms opens / touch responsive | SHORT PASS EXACT CANDIDATE | #87/#27 |
 | R-WAVE-03 | >=20 kB realistic DMA headroom | PASS ON CURRENT CANDIDATE | #87/#27 |
-| R-WAVE-04 | uninterrupted >=4 h exact-image soak | INCOMPLETE: ~2 h/121 samples clean then USB dock/power lost | #87/#27 |
+| R-WAVE-04 | uninterrupted >=4 h exact-image soak | INCOMPLETE: ~2 h/121 samples clean then USB dock/power lost | #87/#27; PR #142 validates evidence but cannot create it |
 | R-WAVE-05 | backend parity/recovery on accepted source | PENDING AFTER FINAL SOAK | #25/#87 |
 | R-WAVE-06 | persistence/ARM save-readback-reboot/failure | PENDING AFTER FINAL SOAK | #26/#87 |
+| R-WAVE-07 | deterministic final acceptance + exact package evidence validation available on live integration branch | COMPLETE/MERGED TOOLING | PR #142 `d07dca2d2b20a2cf4e712df45fae9dfe7e3024c2`; focused `33768630723`; full `33768630667`; physical thresholds remain authoritative |
 | R-OTA-01 | secure rollback-safe web OTA software | SOFTWARE COMPLETE | #50 / Draft PR #52 |
 | R-OTA-02 | interruption/power-loss/previous-slot/pending-verify/rollback | PENDING AFTER ACCEPTED WAVESHARE BASELINE | #86/#50 |
 | R-SITE-01 | real breaker/run/ATS/sync mappings and polarity | BLOCKED PARTIAL EXTERNAL | #81 |
@@ -65,7 +66,7 @@ Master program: #79. Live source/evidence overrides stale historical text. Audit
 | R-FAT-03 | source-transfer FAT | PENDING PHYSICAL | #80/#83 |
 | R-FAT-04 | communication-loss/fail-safe/endurance FAT | PENDING PHYSICAL | #83 |
 | R-SAT-01 | signed SAT tied to exact firmware/config/profile | PENDING | #83/#91 |
-| R-GOV-01 | live lane/owner/QA/dependency tracking | MERGED / CONTINUOUS | #79/#84 |
+| R-GOV-01 | live lane/owner/QA/dependency tracking | MERGED / CONTINUOUS | #79/#84; PR #141 reconciled through #140 |
 | R-GOV-02 | exact-head/zero-behind/expected-head merge gates | ACTIVE | #93 |
 | R-GOV-03 | exact evidence traceability/no cross-tree PASS | ACTIVE | #91 |
 | R-HW-01 | Rev-A PCB/enclosure/KiCad | SEPARATE TRACK | #85 / PR #18/#19 |
@@ -78,3 +79,4 @@ Master program: #79. Live source/evidence overrides stale historical text. Audit
 4. Runtime configuration/mapping changes that invalidate live assumptions must remove command authority before persistence.
 5. Release evidence records exact SHA/run/artifact/config/profile identity.
 6. Physical PASS does not transfer silently across changed identities.
+7. Evidence validators may reject insufficient evidence but must never lower physical thresholds or substitute CI for observation.
