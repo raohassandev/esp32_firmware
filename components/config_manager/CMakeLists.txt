@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "config_manager.c" "config_manager_v6.c" "config_manager_core_guard.c" "config_manager_json_guard.c"
+    SRCS "config_manager.c" "config_manager_v6.c" "config_manager_core_guard.c" "config_manager_json_guard.c" "config_manager_stack_safe.c"
     INCLUDE_DIRS "include"
     REQUIRES nvs_flash cjson modbus_tcp
 )
@@ -19,11 +19,15 @@ set_property(SOURCE "config_manager.c" APPEND PROPERTY COMPILE_DEFINITIONS
     nvs_set_blob=config_manager_guarded_nvs_set_blob
 )
 
-# Schema-6 parses import JSON before handing it to the legacy core so it can
-# extract endpoint connection modes. Route every cJSON parse in that wrapper
-# through the same bounded-depth policy rather than reintroducing a recursive
-# nesting path ahead of the core's CONFIG_JSON_MAX_DEPTH check.
-set_property(SOURCE "config_manager_v6.c" APPEND PROPERTY
-    COMPILE_DEFINITIONS cJSON_Parse=config_manager_guarded_cjson_parse)
+# Keep the original schema-6 implementation linked as a compatibility reference,
+# but move its three full-app-config stack entry points behind non-public names.
+# config_manager_stack_safe.c owns the public init/import/export symbols and keeps
+# every ~2.5 kB app_config_t snapshot off the main/httpd task stacks.
+set_property(SOURCE "config_manager_v6.c" APPEND PROPERTY COMPILE_DEFINITIONS
+    config_manager_init=config_manager_init_v6_stack_legacy
+    config_manager_import_json=config_manager_import_json_v6_stack_legacy
+    config_manager_export_json=config_manager_export_json_v6_stack_legacy
+    cJSON_Parse=config_manager_guarded_cjson_parse
+)
 set_property(SOURCE "config_manager_v6.c" APPEND PROPERTY
     COMPILE_OPTIONS "-include;config_manager_json_guard.h")
