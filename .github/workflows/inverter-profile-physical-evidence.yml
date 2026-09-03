@@ -1,0 +1,37 @@
+name: Inverter profile physical evidence tools
+
+on:
+  pull_request:
+    paths:
+      - 'tools/inverter_profile_physical_evidence_verify.py'
+      - 'tools/inverter_profile_physical_evidence.example.json'
+      - 'tests/inverter_profile_physical_evidence_test.py'
+      - 'docs/INVERTER_PROFILE_PHYSICAL_QUALIFICATION.md'
+      - '.github/workflows/inverter-profile-physical-evidence.yml'
+  push:
+    branches: [dev]
+    paths:
+      - 'tools/inverter_profile_physical_evidence_verify.py'
+      - 'tools/inverter_profile_physical_evidence.example.json'
+      - 'tests/inverter_profile_physical_evidence_test.py'
+      - 'docs/INVERTER_PROFILE_PHYSICAL_QUALIFICATION.md'
+      - '.github/workflows/inverter-profile-physical-evidence.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  evidence-tools:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile inverter physical evidence validator
+        run: python3 -m py_compile tools/inverter_profile_physical_evidence_verify.py
+      - name: Run inverter physical evidence tests
+        run: python3 tests/inverter_profile_physical_evidence_test.py
+      - name: Confirm blank manufacturer template fails closed
+        run: |
+          ! python3 tools/inverter_profile_physical_evidence_verify.py \
+            tools/inverter_profile_physical_evidence.example.json \
+            --expected-stage documented
