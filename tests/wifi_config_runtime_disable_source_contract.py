@@ -27,15 +27,19 @@ require("config_manager_save=web_wifi_config_manager_save_guarded" in CMAKE,
         "web_api Wi-Fi save is not routed through the runtime-disable guard")
 
 for token in (
-    "app_config_t guarded = *config;",
-    "guarded.control.enabled = false;",
+    "app_config_t *guarded = malloc(sizeof(*guarded));",
+    "*guarded = *config;",
+    "guarded->control.enabled = false;",
     "control_engine_force_disable();",
-    "config_manager_save(&guarded);",
+    "config_manager_save(guarded);",
+    "free(guarded);",
 ):
     require(token in GUARD, f"Wi-Fi persistence safety guard missing: {token}")
-require_before(GUARD, "guarded.control.enabled = false;", "control_engine_force_disable();",
+require("app_config_t guarded = *config;" not in GUARD,
+        "Wi-Fi HTTP guard must not place the full app config on its task stack")
+require_before(GUARD, "guarded->control.enabled = false;", "control_engine_force_disable();",
                "persisted control must be made disabled before runtime authority is revoked")
-require_before(GUARD, "control_engine_force_disable();", "config_manager_save(&guarded);",
+require_before(GUARD, "control_engine_force_disable();", "config_manager_save(guarded);",
                "Wi-Fi state may persist before live command authority is revoked")
 
 # The HTTP-side guard must never perform physical inverter or Modbus work.
