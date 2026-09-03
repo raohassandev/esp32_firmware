@@ -1,0 +1,37 @@
+name: OTA physical evidence tools
+
+on:
+  pull_request:
+    paths:
+      - 'tools/ota_physical_evidence_verify.py'
+      - 'tools/ota_physical_evidence.example.json'
+      - 'tests/ota_physical_evidence_tools_test.py'
+      - 'docs/OTA_PHYSICAL_EVIDENCE.md'
+      - '.github/workflows/ota-physical-evidence.yml'
+  push:
+    branches: [dev]
+    paths:
+      - 'tools/ota_physical_evidence_verify.py'
+      - 'tools/ota_physical_evidence.example.json'
+      - 'tests/ota_physical_evidence_tools_test.py'
+      - 'docs/OTA_PHYSICAL_EVIDENCE.md'
+      - '.github/workflows/ota-physical-evidence.yml'
+
+jobs:
+  evidence-tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile OTA physical evidence validator
+        run: python3 -m py_compile tools/ota_physical_evidence_verify.py
+      - name: Run OTA physical evidence validator tests
+        run: python3 tests/ota_physical_evidence_tools_test.py
+      - name: Confirm example record fails closed before physical execution
+        run: |
+          ! python3 tools/ota_physical_evidence_verify.py \
+            tools/ota_physical_evidence.example.json \
+            --expected-source-sha example-release-source \
+            --expected-tree-sha example-release-tree \
+            --expected-artifact-digest sha256:example-package \
+            --expected-app-digest sha256:example-app \
+            --expected-config-identity config-sha256:example

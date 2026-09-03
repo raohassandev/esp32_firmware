@@ -1,0 +1,15 @@
+{
+  "release_source_sha": "",
+  "release_tree_sha": "",
+  "release_artifact_digest": "",
+  "release_app_digest": "",
+  "config_identity": "",
+  "previous_valid_partition": "",
+  "target_partition": "",
+  "partition_table_identity": "",
+  "bootloader_rollback_enabled": false,
+  "engineering_auth_ref": "",
+  "fresh_ci_ref": "",
+  "package_identity_ref": "",
+  "scenarios": []
+}
