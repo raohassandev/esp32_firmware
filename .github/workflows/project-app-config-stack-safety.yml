@@ -1,0 +1,22 @@
+name: Project app-config stack safety checks
+
+on:
+  pull_request:
+    paths:
+      - 'components/**/*.c'
+      - 'components/config_manager/CMakeLists.txt'
+      - 'tests/project_app_config_stack_safety_source_contract.py'
+      - '.github/workflows/project-app-config-stack-safety.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  app-config-stack-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan runtime components for whole app-config stack frames
+        run: python3 tests/project_app_config_stack_safety_source_contract.py
