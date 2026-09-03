@@ -1,16 +1,11 @@
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>
+#include "modbus_connection_policy.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
 #define MODBUS_HOST_MAX_LEN 64
-
-typedef enum {
-    MODBUS_CONNECTION_PER_TRANSACTION = 0,
-    MODBUS_CONNECTION_PERSISTENT = 1,
-    MODBUS_CONNECTION_RECONNECT_ON_ERROR = 2
-} modbus_connection_mode_t;
 
 typedef struct {
     char host[MODBUS_HOST_MAX_LEN];
