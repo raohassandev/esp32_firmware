@@ -1,0 +1,29 @@
+name: Config migration OOM preservation checks
+
+on:
+  pull_request:
+    paths:
+      - 'components/config_manager/CMakeLists.txt'
+      - 'components/config_manager/config_manager.c'
+      - 'components/config_manager/config_manager_v6.c'
+      - 'components/config_manager/config_manager_core_guard.c'
+      - 'components/app_core/app_core.c'
+      - 'tests/config_migration_oom_source_contract.py'
+      - '.github/workflows/config-migration-oom.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  config-migration-oom:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check legacy migration OOM preservation
+        run: python3 tests/config_migration_oom_source_contract.py
+      - name: Re-run config migration safety contracts
+        run: |
+          python3 tests/config_import_safety_source_contract.py
+          python3 tests/modbus_connection_modes_source_contract.py
