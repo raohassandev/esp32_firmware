@@ -1,6 +1,7 @@
 #include "modbus_tcp.h"
 
 #include "lwip/inet.h"
+#include "lwip/sockets.h"
 
 /* modbus_tcp.c is compiled with this symbol renamed source-locally. */
 esp_err_t modbus_tcp_connection_init_core(modbus_connection_t *connection,
