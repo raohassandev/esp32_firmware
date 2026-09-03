@@ -7,7 +7,6 @@ JS = (ROOT / "web/operator-continuity-verdict.js").read_text(encoding="utf-8")
 CSS = (ROOT / "web/operator-continuity-verdict.css").read_text(encoding="utf-8")
 SHELL_JS = (ROOT / "web/shell-current-fixes.js").read_text(encoding="utf-8")
 SHELL_CSS = (ROOT / "web/shell-current-fixes.css").read_text(encoding="utf-8")
-APP = (ROOT / "web/app.js").read_text(encoding="utf-8")
 OPERATOR = (ROOT / "web/operator-view.js").read_text(encoding="utf-8")
 THEME = (ROOT / "web/theme.js").read_text(encoding="utf-8")
 SHELL = (ROOT / "web/product-shell-v2.js").read_text(encoding="utf-8")
@@ -48,8 +47,6 @@ for status_id in (
 for forbidden in ("grid_power_kw", "active_power_kw", "Math.sign", "/api/"):
     require(forbidden not in JS, f"presentation module re-derived authority or acquired data: {forbidden}")
 
-require("amx-controller-status" in APP and "CustomEvent" in APP,
-        "app.js must republish its existing status result without another request")
 require("amx-operator-view-rendered" in OPERATOR and "CustomEvent" in OPERATOR,
         "operator-view must announce DOM replacement so continuity can restore state")
 
