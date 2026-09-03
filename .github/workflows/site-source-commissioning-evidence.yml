@@ -1,0 +1,38 @@
+name: Site source commissioning evidence tools
+
+on:
+  pull_request:
+    paths:
+      - 'tools/site_source_commissioning_verify.py'
+      - 'tools/site_source_commissioning.example.json'
+      - 'tests/site_source_commissioning_tools_test.py'
+      - 'docs/SITE_SOURCE_COMMISSIONING_EVIDENCE.md'
+      - '.github/workflows/site-source-commissioning-evidence.yml'
+  push:
+    branches: [dev]
+    paths:
+      - 'tools/site_source_commissioning_verify.py'
+      - 'tools/site_source_commissioning.example.json'
+      - 'tests/site_source_commissioning_tools_test.py'
+      - 'docs/SITE_SOURCE_COMMISSIONING_EVIDENCE.md'
+      - '.github/workflows/site-source-commissioning-evidence.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  evidence-tools:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile site commissioning validator
+        run: python3 -m py_compile tools/site_source_commissioning_verify.py
+      - name: Run site commissioning validator tests
+        run: python3 tests/site_source_commissioning_tools_test.py
+      - name: Confirm blank commissioning template fails closed
+        run: |
+          ! python3 tools/site_source_commissioning_verify.py \
+            tools/site_source_commissioning.example.json \
+            --expected-firmware-sha aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+            --expected-artifact-digest sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
