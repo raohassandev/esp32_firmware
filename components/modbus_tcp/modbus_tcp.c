@@ -207,11 +207,6 @@ static void finish_transaction(modbus_connection_t *c, esp_err_t result)
     if (result != ESP_OK) c->error_count++;
 
     const bool device_exception = c->last_exchange_device_exception;
-    const bool close_after_transaction =
-        c->endpoint.connection_mode == MODBUS_CONNECTION_PER_TRANSACTION;
-    const bool close_on_error = result != ESP_OK &&
-        (c->endpoint.connection_mode == MODBUS_CONNECTION_RECONNECT_ON_ERROR ||
-         !device_exception);
 
     /* Never transparently replay a transaction here. A write may have reached
      * the device even when its response was lost; same-call retry could apply a
@@ -219,7 +214,11 @@ static void finish_transaction(modbus_connection_t *c, esp_err_t result)
      * on the NEXT caller transaction. Persistent mode may keep a healthy TCP
      * stream after a valid Modbus exception response, but never after malformed
      * framing or transport failure. */
-    if (close_after_transaction || close_on_error) close_socket(c);
+    if (modbus_connection_should_close(c->endpoint.connection_mode,
+                                       result == ESP_OK,
+                                       device_exception)) {
+        close_socket(c);
+    }
     c->last_exchange_device_exception = false;
 }
 
@@ -229,7 +228,7 @@ esp_err_t modbus_tcp_connection_init(modbus_connection_t *c, const modbus_endpoi
     memset(c, 0, sizeof(*c));
     c->socket_fd = -1;
     if (!endpoint || !endpoint->host[0] || !endpoint->port || !endpoint->unit_id ||
-        endpoint->connection_mode > MODBUS_CONNECTION_RECONNECT_ON_ERROR ||
+        !modbus_connection_mode_valid(endpoint->connection_mode) ||
         endpoint->timeout_ms < MODBUS_MIN_TIMEOUT_MS ||
         endpoint->timeout_ms > MODBUS_MAX_TIMEOUT_MS) {
         return ESP_ERR_INVALID_ARG;
