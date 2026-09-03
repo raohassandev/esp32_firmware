@@ -1,6 +1,6 @@
 # AISH-OS Live TODO v2
 
-Master program: #79. Live repository truth overrides stale historical checklists. Current software integration baseline: `3096f2bfa10e86b3163b99ae7622bffded6791ac`.
+Master program: #79. Live repository truth overrides stale historical checklists. Current software integration baseline: `df282a3e8afee27dfc220694e4461e4ad49d2277`.
 
 ## RELEASE-BLOCKING PHYSICAL / EXTERNAL WORK
 
@@ -35,13 +35,15 @@ Master program: #79. Live repository truth overrides stale historical checklists
 - [x] Engineering DOM/error stability — PR #105.
 - [x] Web spinlock/nonblocking regression — PR #107.
 - [x] Generic inverter command width/scale/range/finite + FC06/FC16 safety — PR #108.
+- [x] Pending manufacturer profiles no longer guess transport semantics — PR #113.
 - [x] Modbus endpoint admission closes synchronous-DNS cumulative-deadline gap — PR #114.
 - [x] Profile assignment disables running/persisted control before register-map persistence — PR #117.
 - [x] Complete production inverter write authority + fresh mapped ON_GRID gate — PR #119.
 - [x] Governance reconciliation through PR #119 — PR #120.
 - [x] Legacy schema migration OOM cannot replace commissioned NVS; startup fails closed — PR #122, focused `33738503242`, full `33738503251`, merge `dfe93de50e2a5715f4d212ff3233d566d36e2cfd`.
 - [x] Safety alarm flags published/read atomically; no transient false all-clear — PR #124, focused `33739241779`, full `33739241807`, merge `3096f2bfa10e86b3163b99ae7622bffded6791ac`.
-- [x] Stale replay PRs #115/#116/#118/#121/#123 closed and non-authoritative.
+- [x] Live generic config import, meter mapping, inverter mapping and profile assignment force-disable command authority before persistence — PR #127, focused `33741274303`, full `33741274300`, merge `df282a3e8afee27dfc220694e4461e4ad49d2277`.
+- [x] Stale replay PRs #115/#116/#118/#121/#123/#126 closed and non-authoritative.
 - [x] Waveshare short display/touch/Alarms gate on exact `87841ece...` — PASS; final continuous soak remains open.
 
 ## SEPARATE PRODUCT-HARDWARE TRACK
