@@ -1,0 +1,55 @@
+name: Waveshare final acceptance tooling
+
+on:
+  pull_request:
+    paths:
+      - 'tools/waveshare_acceptance_check.py'
+      - 'tools/waveshare_final_acceptance.py'
+      - 'tools/waveshare_package_verify.py'
+      - 'tools/waveshare_observations.example.json'
+      - 'tests/waveshare_acceptance_check_test.py'
+      - 'tests/waveshare_final_acceptance_test.py'
+      - 'tests/waveshare_package_verify_test.py'
+      - '.github/workflows/waveshare-final-acceptance-tools.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance-tools:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run serial acceptance validator tests
+        run: python3 tests/waveshare_acceptance_check_test.py
+      - name: Run combined final acceptance tests
+        run: python3 tests/waveshare_final_acceptance_test.py
+      - name: Run immutable package verifier tests
+        run: python3 tests/waveshare_package_verify_test.py
+      - name: Validate observation template defaults
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('tools/waveshare_observations.example.json').read_text())
+          required = {
+              'candidate_sha',
+              'artifact_digest',
+              'page_cycles',
+              'alarms_opened',
+              'touch_responsive',
+              'sweep_absent',
+              'reload_absent',
+              'tear_or_corruption_absent',
+          }
+          assert required <= data.keys()
+          for key in required - {'candidate_sha', 'artifact_digest', 'page_cycles'}:
+              assert data[key] is False
+          PY
+      - name: Check CLI syntax
+        run: |
+          python3 tools/waveshare_acceptance_check.py --help >/dev/null
+          python3 tools/waveshare_final_acceptance.py --help >/dev/null
+          python3 tools/waveshare_package_verify.py --help >/dev/null
