@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "config_manager.c" "config_manager_v6.c" "config_manager_core_guard.c"
+    SRCS "config_manager.c" "config_manager_v6.c" "config_manager_core_guard.c" "config_manager_json_guard.c"
     INCLUDE_DIRS "include"
     REQUIRES nvs_flash cjson modbus_tcp
 )
@@ -18,3 +18,12 @@ set_property(SOURCE "config_manager.c" APPEND PROPERTY COMPILE_DEFINITIONS
     malloc=config_manager_core_malloc
     nvs_set_blob=config_manager_guarded_nvs_set_blob
 )
+
+# Schema-6 parses import JSON before handing it to the legacy core so it can
+# extract endpoint connection modes. Route every cJSON parse in that wrapper
+# through the same bounded-depth policy rather than reintroducing a recursive
+# nesting path ahead of the core's CONFIG_JSON_MAX_DEPTH check.
+set_property(SOURCE "config_manager_v6.c" APPEND PROPERTY
+    COMPILE_DEFINITIONS cJSON_Parse=config_manager_guarded_cjson_parse)
+set_property(SOURCE "config_manager_v6.c" APPEND PROPERTY
+    COMPILE_OPTIONS "-include;config_manager_json_guard.h")
