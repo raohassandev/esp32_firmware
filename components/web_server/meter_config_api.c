@@ -7,6 +7,7 @@
 
 #include "cJSON.h"
 #include "config_manager.h"
+#include "control_engine.h"
 #include "http_json.h"
 #include "modbus_types.h"
 
@@ -330,8 +331,12 @@ static esp_err_t meters_config_post(httpd_req_t *request)
     }
     config->meter_count = (uint8_t)requested_count;
 
-    /* A meter mapping change invalidates every live-control assumption. */
+    /* A meter mapping change invalidates every live-control assumption. Persist
+     * the interlock and latch the already-running task off before the mapping
+     * can become authoritative. The control task performs safe-zero I/O on its
+     * own cycle; this HTTP handler never blocks on inverter communication. */
     config->control.enabled = false;
+    control_engine_force_disable();
 
     err = config_manager_save(config);
     free(config);
