@@ -46,6 +46,14 @@ static void complete_failure(uint32_t generation, esp_err_t error)
     xSemaphoreGive(s_snapshot_lock);
 }
 
+static void clear_driver_scan_results(void)
+{
+    esp_err_t clear_error = esp_wifi_clear_ap_list();
+    if (clear_error != ESP_OK && clear_error != ESP_ERR_WIFI_NOT_STARTED) {
+        ESP_LOGW(TAG, "Wi-Fi scan result cleanup failed: %s", esp_err_to_name(clear_error));
+    }
+}
+
 static esp_err_t collect_scan(network_scan_snapshot_t *next)
 {
     if (!next) return ESP_ERR_INVALID_ARG;
@@ -56,15 +64,26 @@ static esp_err_t collect_scan(network_scan_snapshot_t *next)
     esp_err_t err = esp_wifi_scan_start(&scan_config, true);
     if (err != ESP_OK) return err;
 
+    /* A successful scan allocates the AP result list inside the Wi-Fi driver.
+     * Every exit below must either fetch that list with get_ap_records() or
+     * explicitly clear it, otherwise repeated OOM/error paths leak driver heap. */
     uint16_t record_count = 0;
     err = esp_wifi_scan_get_ap_num(&record_count);
-    if (err != ESP_OK || record_count == 0) return err;
+    if (err != ESP_OK) {
+        clear_driver_scan_results();
+        return err;
+    }
+    if (record_count == 0) {
+        clear_driver_scan_results();
+        return ESP_OK;
+    }
     if (record_count > RAW_SCAN_LIMIT) record_count = RAW_SCAN_LIMIT;
 
     wifi_ap_record_t *records = calloc(record_count, sizeof(*records));
     network_scan_ap_t *candidates = calloc(record_count, sizeof(*candidates));
     app_config_t *config = malloc(sizeof(*config));
     if (!records || !candidates || !config) {
+        clear_driver_scan_results();
         free(records);
         free(candidates);
         free(config);
@@ -73,6 +92,10 @@ static esp_err_t collect_scan(network_scan_snapshot_t *next)
 
     err = esp_wifi_scan_get_ap_records(&record_count, records);
     if (err != ESP_OK) {
+        /* ESP-IDF documents that a failed AP-list retrieval must be followed by
+         * esp_wifi_clear_ap_list() so the driver's dynamic scan storage cannot
+         * accumulate across repeated commissioning scans. */
+        clear_driver_scan_results();
         free(records);
         free(candidates);
         free(config);
