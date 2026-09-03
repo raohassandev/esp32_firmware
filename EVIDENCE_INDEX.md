@@ -4,7 +4,7 @@ Master program: #79. Evidence is valid only for the exact source/head/artifact n
 
 ## Live integration baseline
 
-Current `dev`: `093954b5626c034e126fde3b773cedb1add92707` after governed PR #140 merge.
+Current `dev`: `d07dca2d2b20a2cf4e712df45fae9dfe7e3024c2` after governed PR #142 merge.
 
 ## Current merged software evidence chain
 
@@ -38,6 +38,8 @@ Current `dev`: `093954b5626c034e126fde3b773cedb1add92707` after governed PR #140
 | Schema-6 config stack headroom | PR #137 head `2f34e60ab8e42b088babdeaa39e4c0c738f00c56`; focused `33761025944`, full `33761025927`; merge `43d4bd509ea07aadbd9ea18e9813e3ec11c60297` | MERGED |
 | Runtime-component app-config stack safety contract | PR #138 head `316a619608c6e83f7af9444ad0721b4300df7535`; focused `33762133658`, full `33762133649`; 0-behind expected-head merge `dd10809f4246713ab99b3ccc9c3b515ece94fd0d` | MERGED |
 | Project-wide app-config stack guard completion | PR #140 head `1bb64b117971709a394674eb73e11d10c5f4f30d`; focused `33765114501`, full `33765114492`; 0-behind expected-head merge `093954b5626c034e126fde3b773cedb1add92707` | MERGED |
+| Governance through PR #140 | PR #141 head `9623ce519c40ef760e77f7b9ec0cf69cf42f62c5`; full `33766240186`; 0-behind expected-head merge `2272caefa87581f27e815ce4420a5880d2d16e38` | MERGED |
+| Current-dev Waveshare final acceptance/package tooling | PR #142 head `a4a0a64210b5a05acd02cdb1016948d593c8d213`; focused `33768630723`; full Firmware/Web/ESP32-S3 `33768630667`; 0-behind expected-head merge `d07dca2d2b20a2cf4e712df45fae9dfe7e3024c2` | MERGED TOOLING ONLY |
 
 PR #134 is stale/superseded by #135. PR #139 was closed unmerged when #140 advanced `dev`; neither is current evidence.
 
@@ -58,7 +60,9 @@ Draft PR #106 head `a1620789235d21b515f9f245f2329fab88b50558` is software-GREEN 
 - first continuous soak: ~2 h / 121 consecutive one-minute samples plus 25 clean backend health rounds; ended when USB dock/power path disappeared, with no recorded firmware crash
 - required uninterrupted >=4 h / >=240-sample same-image gate: **INCOMPLETE**
 
-PR #57/#20 remain unpromoted. After genuine final soak PASS, #25 backend parity and #26 persistence/ARM remain mandatory on the same accepted identity.
+PR #142 puts the generic deterministic evidence parser, explicit human-observation final gate and immutable package verifier on current `dev`. Its defaults require >=14,400 s timestamp span, >=240 Screen-soak samples and the configured DMA/resource evidence; those defaults must not be lowered merely to obtain PASS. Tooling CI is not physical evidence.
+
+PR #57/#20 remain unpromoted. Historical PR #67 remains tied to frozen-candidate/source-specific guards. After genuine final soak PASS, #25 backend parity and #26 persistence/ARM remain mandatory on the same accepted identity.
 
 ### Secure OTA
 PR #52 is software-qualified on the frozen Phase-1 line. #86 must later reconcile it onto the intended accepted release baseline and physically prove invalid/interrupted upload, power loss, previous-slot boot, pending verification, mark-valid and rollback. No hardware PASS is inherited from source CI.
@@ -83,4 +87,4 @@ Stale PRs #77/#101/#104/#109/#115/#116/#118/#121/#123/#126/#128/#134/#139 and ob
 6. #83 Modbus/network endurance, Grid/DG/mixed-source FAT and signed SAT.
 7. Final release SHA/config/profile/artifact traceability with no critical blocker.
 
-Partial physical intervals may not be combined to manufacture a required continuous PASS, and no physical PASS transfers across changed source/artifact/config/profile identities unless explicitly proven and allowed by the governing gate.
+Partial physical intervals may not be combined to manufacture a required continuous PASS, final-acceptance thresholds may not be lowered to manufacture PASS, and no physical PASS transfers across changed source/artifact/config/profile identities unless explicitly proven and allowed by the governing gate.
