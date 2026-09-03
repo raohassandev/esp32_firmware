@@ -1,0 +1,26 @@
+name: Modbus endpoint deadline checks
+
+on:
+  pull_request:
+    paths:
+      - 'components/modbus_tcp/CMakeLists.txt'
+      - 'components/modbus_tcp/modbus_tcp.c'
+      - 'components/modbus_tcp/modbus_endpoint_guard.c'
+      - 'components/modbus_tcp/include/modbus_tcp.h'
+      - 'tests/modbus_endpoint_deadline_source_contract.py'
+      - '.github/workflows/modbus-endpoint-deadline.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  endpoint-deadline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify bounded endpoint resolution contract
+        run: python3 tests/modbus_endpoint_deadline_source_contract.py
+      - name: Re-run general Modbus safety contract
+        run: python3 tests/modbus_runtime_safety_source_contract.py
