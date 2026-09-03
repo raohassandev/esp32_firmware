@@ -157,8 +157,8 @@ static const inverter_profile_t PROFILES[] = {
         .id = "huawei.sun2000.pending",
         .manufacturer = "Huawei",
         .model_family = "SUN2000 family",
-        .protocol = "Modbus",
-        .connection = INVERTER_PROFILE_CONNECTION_LOGGER_GATEWAY,
+        .protocol = "Modbus (transport unqualified)",
+        .connection = INVERTER_PROFILE_CONNECTION_UNQUALIFIED,
         .qualification = INVERTER_PROFILE_QUALIFICATION_DOCUMENTED,
         .manual_reference = "SolTrix/Manuals — exact model/manual revision extraction pending",
         .minimum_percent = 0.0f,
@@ -168,8 +168,8 @@ static const inverter_profile_t PROFILES[] = {
         .id = "goodwe.commercial.pending",
         .manufacturer = "GoodWe",
         .model_family = "Commercial inverter family",
-        .protocol = "Modbus",
-        .connection = INVERTER_PROFILE_CONNECTION_MODBUS_TCP,
+        .protocol = "Modbus (transport unqualified)",
+        .connection = INVERTER_PROFILE_CONNECTION_UNQUALIFIED,
         .qualification = INVERTER_PROFILE_QUALIFICATION_DOCUMENTED,
         .manual_reference = "SolTrix/Manuals — exact model/manual revision extraction pending",
         .minimum_percent = 0.0f,
@@ -179,8 +179,8 @@ static const inverter_profile_t PROFILES[] = {
         .id = "solis.commercial.pending",
         .manufacturer = "Solis",
         .model_family = "Commercial inverter family",
-        .protocol = "Modbus",
-        .connection = INVERTER_PROFILE_CONNECTION_LOGGER_GATEWAY,
+        .protocol = "Modbus (transport unqualified)",
+        .connection = INVERTER_PROFILE_CONNECTION_UNQUALIFIED,
         .qualification = INVERTER_PROFILE_QUALIFICATION_DOCUMENTED,
         .manual_reference = "SolTrix/Manuals — exact model/manual revision extraction pending",
         .minimum_percent = 0.0f,
@@ -190,8 +190,8 @@ static const inverter_profile_t PROFILES[] = {
         .id = "foxess.commercial.pending",
         .manufacturer = "FoxESS / Knox",
         .model_family = "Commercial inverter family",
-        .protocol = "Modbus",
-        .connection = INVERTER_PROFILE_CONNECTION_LOGGER_GATEWAY,
+        .protocol = "Modbus (transport unqualified)",
+        .connection = INVERTER_PROFILE_CONNECTION_UNQUALIFIED,
         .qualification = INVERTER_PROFILE_QUALIFICATION_DOCUMENTED,
         .manual_reference = "SolTrix/Manuals — exact model/manual revision extraction pending",
         .minimum_percent = 0.0f,
@@ -261,6 +261,7 @@ const char *inverter_profile_connection_label(inverter_profile_connection_t conn
         case INVERTER_PROFILE_CONNECTION_MODBUS_TCP: return "Direct Modbus TCP";
         case INVERTER_PROFILE_CONNECTION_MODBUS_RTU_GATEWAY: return "Modbus RTU gateway";
         case INVERTER_PROFILE_CONNECTION_LOGGER_GATEWAY: return "Manufacturer logger/gateway";
+        case INVERTER_PROFILE_CONNECTION_UNQUALIFIED: return "Unqualified — verify manufacturer transport";
         default: return "Unknown";
     }
 }
