@@ -37,6 +37,31 @@ def kconfig_default_for(symbol: str):
     return match.group(1) if match else None
 
 
+def catalogue_profile_blocks():
+    marker = "static const inverter_profile_t PROFILES[] = {"
+    if marker not in PROFILES:
+        return []
+    start = PROFILES.index(marker) + len(marker)
+    end = PROFILES.find("\n};", start)
+    if end < 0:
+        return []
+    return re.findall(r"\n    \{\n([\s\S]*?)\n    \},", PROFILES[start:end])
+
+
+def production_ready_profile_ids():
+    approved = []
+    for block in catalogue_profile_blocks():
+        if ".qualification = INVERTER_PROFILE_QUALIFICATION_PRODUCTION_APPROVED" not in block:
+            continue
+        if ".simulator_only = true" in block:
+            continue
+        if ".has_power_limit = true" not in block or ".has_power_limit_readback = true" not in block:
+            continue
+        match = re.search(r'\.id\s*=\s*"([^"]+)"', block)
+        approved.append(match.group(1) if match else "<non-literal-profile-id>")
+    return approved
+
+
 blockers = []
 
 # A missing macro means the bypass was removed outright, which is the safe state.
@@ -67,11 +92,22 @@ if "!profile->simulator_only" not in PROFILES:
 if "INVERTER_PROFILE_QUALIFICATION_PRODUCTION_APPROVED" not in PROFILES:
     blockers.append("production-approved inverter qualification gate is missing")
 
+# A production image with the gate mechanism present but zero profiles that can
+# actually pass it is not a completed PV-DG release. This check deliberately
+# looks only inside the compiled catalogue initializers, so the enum/comparison
+# used by inverter_profile_allows_write() cannot be mistaken for an approval.
+production_profiles = production_ready_profile_ids()
+if not production_profiles:
+    blockers.append(
+        "no non-simulator production-approved inverter profile with command readback is compiled"
+    )
+
 if production and blockers:
     raise SystemExit("PRODUCTION RELEASE BLOCKED:\n- " + "\n- ".join(blockers))
 
 if production:
     print("production release compile-time safety gate passed")
+    print("production-approved inverter profiles: " + ", ".join(production_profiles))
 else:
     print("development build: production release remains blocked by design")
     for blocker in blockers:
