@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "stage": "documented",
+  "manufacturer": "REPLACE_WITH_EXACT_MANUFACTURER",
+  "model": "REPLACE_WITH_EXACT_MODEL",
+  "inverter_firmware": "REPLACE_WITH_EXACT_INVERTER_FIRMWARE",
+  "profile_source_sha": "REPLACE_WITH_EXACT_40_HEX_PROFILE_SOURCE_SHA",
+  "controller_firmware_sha": "REPLACE_WITH_EXACT_40_HEX_CONTROLLER_SHA",
+  "controller_artifact_digest": "sha256:REPLACE_WITH_EXACT_64_HEX_DIGEST",
+  "third_party_or_guessed_map_used": false,
+  "automatic_production_write_allowed_before_approval": false,
+  "manual": {
+    "title": "UNQUALIFIED",
+    "manufacturer": "REPLACE_WITH_EXACT_MANUFACTURER",
+    "revision": "UNQUALIFIED",
+    "publication_date": "UNQUALIFIED",
+    "official_manufacturer_source": false,
+    "model_scope": [],
+    "document_sha256": "sha256:REPLACE_WITH_EXACT_MANUAL_FILE_SHA256",
+    "evidence_ref": "UNQUALIFIED",
+    "firmware_scope": {
+      "applicability_confirmed": false,
+      "basis": "UNQUALIFIED"
+    }
+  },
+  "connection": {
+    "topology": "direct_tcp",
+    "endpoint": "UNQUALIFIED",
+    "unit_id": 1,
+    "identity_probe_ref": "UNQUALIFIED"
+  }
+}
