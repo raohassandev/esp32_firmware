@@ -1,0 +1,32 @@
+name: Secure OTA always-on regression gate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - dev
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ota-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check OTA browser module
+        run: node --check web/ota.js
+      - name: Verify current-dev OTA safety contract
+        run: python3 tests/ota_current_baseline_source_contract.py
+      - name: Execute source-coupled OTA behavior proof
+        run: python3 tests/ota_update_behavior_contract.py
+      - name: Verify derived HTTP handler capacity
+        run: python3 tests/uri_handler_capacity_source_contract.py
+      - name: Verify bounded HTTP body ownership including OTA stream
+        run: python3 tests/http_body_parser_ownership_source_contract.py
+      - name: Recheck complete browser syntax
+        run: |
+          set -euo pipefail
+          for file in web/*.js; do node --check "$file"; done
