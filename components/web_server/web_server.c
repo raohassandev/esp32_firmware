@@ -133,7 +133,7 @@ esp_err_t web_server_start(void)
     ESP_RETURN_ON_ERROR(em500_cache_init(), "web", "EM500 acquisition cache init failed");
     ESP_RETURN_ON_ERROR(meter_read_jobs_init(), "web", "meter read-job queue init failed");
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 41;
+    config.max_uri_handlers = 40;
     config.stack_size = 8192;
     /* The default of 7 leaves only 4 client sockets once httpd takes its 3
      * internal ones, and a browser opens up to 6 keep-alive connections per
