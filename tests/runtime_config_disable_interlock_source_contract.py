@@ -60,21 +60,25 @@ require_before(IMPORT_GUARD, "control_engine_force_disable();",
                "generic config may persist before runtime command authority is removed")
 
 # Wi-Fi changes can invalidate the transport used by meters/inverters. The
-# source-local alias only affects the Wi-Fi save call in web_api.c.
+# source-local alias only affects the Wi-Fi save call in web_api.c. The full
+# candidate stays on the heap because this bridge runs on the shared HTTP task.
 require('"wifi_config_runtime_guard.c"' in CMAKE,
         "Wi-Fi runtime-disable guard is not compiled")
 require("config_manager_save=web_wifi_config_manager_save_guarded" in CMAKE,
         "Wi-Fi save is not routed through the source-local runtime-disable guard")
 require("config->wifi = next;" in WEB_API and "config_manager_save(config);" in WEB_API,
         "Wi-Fi config call shape changed; review guarded persistence")
-for token in ("guarded.control.enabled = false;", "control_engine_force_disable();",
-              "config_manager_save(&guarded);"):
+for token in ("app_config_t *guarded = malloc(sizeof(*guarded));",
+              "guarded->control.enabled = false;", "control_engine_force_disable();",
+              "config_manager_save(guarded);", "free(guarded);"):
     require(token in WIFI_GUARD, f"Wi-Fi runtime-disable guard missing: {token}")
-require_before(WIFI_GUARD, "guarded.control.enabled = false;",
+require("app_config_t guarded = *config;" not in WIFI_GUARD,
+        "Wi-Fi guard reintroduced a whole app-config HTTP stack frame")
+require_before(WIFI_GUARD, "guarded->control.enabled = false;",
                "control_engine_force_disable();",
                "Wi-Fi guard must build a persistently disabled candidate first")
 require_before(WIFI_GUARD, "control_engine_force_disable();",
-               "config_manager_save(&guarded);",
+               "config_manager_save(guarded);",
                "Wi-Fi configuration may persist before live command authority is removed")
 
 # Profile assignment uses a source-local guarded bridge to avoid a component cycle.
@@ -92,19 +96,24 @@ require("inverter_profile_store_set(inverter_index, profile->id);" in PROFILE_AP
 
 # Source-detection topology/register/threshold changes alter source evidence that
 # the control engine consumes when strong commissioned contacts are unavailable.
+# Its full app snapshot also stays off the shared HTTP task stack.
 require('"source_detection_runtime_guard.c"' in CMAKE,
         "source-detection runtime-disable guard is not compiled")
 require("source_detection_config_save=web_source_detection_config_save_guarded" in CMAKE,
         "source-detection save is not routed through the runtime-disable guard")
 require("source_detection_config_save(&config);" in SOURCE_API,
         "source-detection API shape changed; review guarded persistence")
-for token in ("application.control.enabled = false;", "config_manager_save(&application)",
-              "control_engine_force_disable();", "source_detection_config_save(source_config);"):
+for token in ("app_config_t *application = malloc(sizeof(*application));",
+              "application->control.enabled = false;", "config_manager_save(application)",
+              "free(application);", "control_engine_force_disable();",
+              "source_detection_config_save(source_config);"):
     require(token in SOURCE_GUARD, f"source-detection runtime-disable guard missing: {token}")
-require_before(SOURCE_GUARD, "application.control.enabled = false;",
-               "config_manager_save(&application)",
+require("app_config_t application;" not in SOURCE_GUARD,
+        "source-detection guard reintroduced a whole app-config HTTP stack frame")
+require_before(SOURCE_GUARD, "application->control.enabled = false;",
+               "config_manager_save(application)",
                "source-detection guard must persist the fail-closed app state first")
-require_before(SOURCE_GUARD, "config_manager_save(&application)",
+require_before(SOURCE_GUARD, "config_manager_save(application)",
                "control_engine_force_disable();",
                "source-detection guard may revoke only RAM state without persistent disable")
 require_before(SOURCE_GUARD, "control_engine_force_disable();",
