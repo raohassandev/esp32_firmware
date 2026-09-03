@@ -110,16 +110,21 @@ esp_err_t inverter_profile_store_set(uint8_t inverter_index, const char *profile
     strlcpy(next.profile_ids[inverter_index], profile_id,
             sizeof(next.profile_ids[inverter_index]));
 
-    ESP_RETURN_ON_ERROR(persist(&next), TAG, "profile assignment save failed");
-
+    /* Disable persisted automatic control BEFORE changing the profile map.
+     * If the control-config save fails, the profile assignment is untouched.
+     * If the later profile write fails, staying disabled is the safe outcome.
+     * This ordering prevents a reset/power loss between commits from booting
+     * an enabled controller against a newly-selected register map or scale. */
     app_config_t config;
     ESP_RETURN_ON_ERROR(config_manager_get_snapshot(&config), TAG,
                         "configuration unavailable");
     if (config.control.enabled) {
         config.control.enabled = false;
         ESP_RETURN_ON_ERROR(config_manager_save(&config), TAG,
-                            "failed to disable automatic control");
+                            "failed to disable automatic control before profile change");
     }
+
+    ESP_RETURN_ON_ERROR(persist(&next), TAG, "profile assignment save failed");
 
     portENTER_CRITICAL(&s_lock);
     s_store = next;
