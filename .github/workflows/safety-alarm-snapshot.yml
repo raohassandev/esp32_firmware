@@ -1,0 +1,25 @@
+name: Safety alarm snapshot checks
+
+on:
+  pull_request:
+    paths:
+      - 'components/safety_manager/safety_manager.c'
+      - 'tests/safety_alarm_snapshot_source_contract.py'
+      - '.github/workflows/safety-alarm-snapshot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  safety-alarm-snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check atomic safety alarm snapshot
+        run: python3 tests/safety_alarm_snapshot_source_contract.py
+      - name: Re-run control safety contracts
+        run: |
+          python3 tests/config_import_safety_source_contract.py
+          python3 tests/solar_grid_control_source_contract.py
