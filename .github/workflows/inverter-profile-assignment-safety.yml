@@ -1,0 +1,28 @@
+name: Inverter profile assignment safety checks
+
+on:
+  pull_request:
+    paths:
+      - 'components/inverter_manager/inverter_profile_store.c'
+      - 'components/web_server/inverter_profile_store_guard.c'
+      - 'components/web_server/inverter_profile_api.c'
+      - 'components/web_server/CMakeLists.txt'
+      - 'tests/inverter_profile_assignment_safety_source_contract.py'
+      - '.github/workflows/inverter-profile-assignment-safety.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  profile-assignment-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify runtime and persistence disable ordering
+        run: python3 tests/inverter_profile_assignment_safety_source_contract.py
+      - name: Re-run inverter catalogue contract
+        run: python3 tests/inverter_profile_catalogue_source_contract.py
+      - name: Re-run runtime inverter write gate
+        run: python3 tests/inverter_runtime_write_gate_source_contract.py
