@@ -1,15 +1,14 @@
 version: 2
-updated_at: 2026-09-03T14:38:00+05:00
+updated_at: 2026-09-03T16:35:00+05:00
 repo: raohassandev/esp32_firmware
 master_issue: 79
 integration_branch: dev
-integration_head_at_snapshot: 3096f2bfa10e86b3163b99ae7622bffded6791ac
+integration_head_at_snapshot: 41eaf22f8b92057cdbe5427c590ccd84d7fbce9b
 truth_rule: live_repository_over_stale_docs
 wip_limit_ci_active_software_prs: 3
 
 lanes:
   L1_modbus_connection_modes:
-    issues: [88, 78]
     owner: ChatGPT
     qa: GitHub_Actions
     status: COMPLETE_MERGED_PHYSICAL_ENDURANCE_SEPARATE
@@ -38,14 +37,16 @@ lanes:
     candidate_tree: 6ddd7900f9b4ece0fba9349b905e1c078fc3401e
     artifact_id: 9843536218
     artifact_digest: sha256:89e621034d4c91096fc5d38dd57ac40eeeab34275e4af1fc0461b48575039096
-    status: SHORT_PASS_FINAL_SOAK_INCOMPLETE
+    app_sha256: 8be2a2aad5f223d8b9bca498db2e12c04f7f205feaa9908b7922c37421c46593
+    status: SHORT_PASS_FINAL_CONTINUOUS_SOAK_INCOMPLETE
     facts:
       - short_display_touch_alarms_gate_passed
       - runtime_dma_headroom_above_20kb_target
-      - first_continuous_soak_about_2h_and_121_samples_clean
+      - first_continuous_soak_about_2h_and_121_samples_clean_plus_25_backend_rounds
       - first_soak_ended_when_usb_dock_power_path_disappeared_without_firmware_crash_evidence
+      - partial_soaks_are_not_additive
     remaining:
-      - uninterrupted_4h_same_image_soak_at_least_240_samples
+      - new_uninterrupted_4h_same_image_soak_at_least_240_samples
       - backend_parity_recovery_issue_25
       - persistence_arm_issue_26
       - exact_source_reconciliation_and_fresh_promotion
@@ -69,9 +70,11 @@ lanes:
     generic_merges:
       identity_revalidation_pr_102: b60bcb9474f4ed7dd0b0ed631410b54628a47d01
       command_schema_pr_108: b8996d5f834cc8edeb084f56c802ff5fc6ecd04d
+      production_profile_release_gate_pr_112: 7a683092696c6334870b5c1007e086f8556dbc88
+      unqualified_transport_truthfulness_pr_113: 4aa935dfcf944f83cbb96333be67f99878e32c30
       profile_assignment_order_pr_117: 1360c4a8356ff8acdc19878f65da311c0b0eccc6
       production_write_authority_pr_119: d9cd81bcf500a034d6cc88ea92e3bb74e42ed258
-    rule: no_production_write_without_official_manual_identity_status_readback_rollback_and_signed_qualification
+    rule: no_production_write_without_exact_official_manual_identity_status_readback_rollback_and_signed_qualification
 
   L7_integrated_fat_sat_endurance:
     issue: 83
@@ -83,6 +86,7 @@ lanes:
     owner: ChatGPT
     qa: GitHub_Actions_and_diff_review
     status: CONTINUOUS
+    active_reconciliation_pr: 132
 
   L9_reva_product_hardware:
     issue: 85
@@ -107,6 +111,10 @@ lanes:
     issue: 93
     status: CONTINUOUS
 
+  L14_live_state_monitoring:
+    issue: 94
+    status: CONTINUOUS
+
   L15_held_phase1_reconciliation:
     issue: 95
     held_prs: [52, 54]
@@ -120,12 +128,19 @@ recent_governed_merges:
   pr_105: 6569e36e019adf4b890d04f163091f04eec6020b
   pr_107: 6ae86b09294b3e3a2c8a8eaf085ce5c35c69cf74
   pr_108: b8996d5f834cc8edeb084f56c802ff5fc6ecd04d
+  pr_112: 7a683092696c6334870b5c1007e086f8556dbc88
+  pr_113: 4aa935dfcf944f83cbb96333be67f99878e32c30
   pr_114: fa8ca9b17e08f2478e104942b9d6dbfad4f0ca7f
   pr_117: 1360c4a8356ff8acdc19878f65da311c0b0eccc6
   pr_119: d9cd81bcf500a034d6cc88ea92e3bb74e42ed258
   pr_120: 1b7cfe57f4c236516e2b5595f544c3524dcead0c
   pr_122: dfe93de50e2a5715f4d212ff3233d566d36e2cfd
   pr_124: 3096f2bfa10e86b3163b99ae7622bffded6791ac
+  pr_125: f32d9ba1581350aeb178e3b94ad30303ef1b8a5d
+  pr_127: df282a3e8afee27dfc220694e4461e4ad49d2277
+  pr_129: 5e5a63dba3e157d2658227ff691e9f975cedff96
+  pr_130: 0969a119e4fcb97405da26a59b55ec44a5a292f4
+  pr_131: 41eaf22f8b92057cdbe5427c590ccd84d7fbce9b
 
 resolved_additional_safety_findings:
   legacy_migration_oom_nvs_preservation:
@@ -136,8 +151,12 @@ resolved_additional_safety_findings:
     pr: 124
     focused_run: 33739241779
     full_run: 33739241807
+  runtime_configuration_disable_interlocks:
+    prs: [127, 129, 130, 131]
+    current_inventory_focused_run: 33749197443
+    current_inventory_full_run: 33749196739
 
-stale_replays_closed: [115, 116, 118, 121, 123]
+stale_replays_closed: [115, 116, 118, 121, 123, 126, 128]
 
 release_done_definition:
   - all_release_target_software_merged_with_exact_head_zero_behind_gates
