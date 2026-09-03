@@ -1,0 +1,21 @@
+name: Inverter identity revalidation checks
+
+on:
+  pull_request:
+    paths:
+      - 'components/inverter_manager/**'
+      - 'tests/inverter_identity_revalidation_source_contract.py'
+      - '.github/workflows/inverter-identity-revalidation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check fail-closed identity freshness
+        run: python3 tests/inverter_identity_revalidation_source_contract.py
