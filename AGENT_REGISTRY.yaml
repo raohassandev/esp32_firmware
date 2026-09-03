@@ -80,6 +80,7 @@ agents:
     owner: Claude_Code_or_site_operator
     issue: 80
     implementation_pr: 106
+    implementation_head: a1620789235d21b515f9f245f2329fab88b50558
     status: BLOCKED_EXTERNAL_BENCH
     rule: no_merge_from_ci_alone_replay_current_dev_only_after_physical_pass
 
