@@ -1,0 +1,31 @@
+name: Runtime config disable interlock checks
+
+on:
+  pull_request:
+    paths:
+      - 'components/web_server/meter_config_api.c'
+      - 'components/web_server/inverter_config_api.c'
+      - 'components/web_server/inverter_profile_api.c'
+      - 'components/web_server/inverter_profile_store_guard.c'
+      - 'components/web_server/CMakeLists.txt'
+      - 'components/control_engine/control_engine.c'
+      - 'tests/runtime_config_disable_interlock_source_contract.py'
+      - '.github/workflows/runtime-config-disable-interlock.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-disable-interlock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check mapping/profile runtime-disable ordering
+        run: python3 tests/runtime_config_disable_interlock_source_contract.py
+      - name: Re-run core safety contracts
+        run: |
+          python3 tests/solar_grid_control_source_contract.py
+          python3 tests/config_import_safety_source_contract.py
+          python3 tests/inverter_config_source_contract.py
