@@ -5,7 +5,7 @@
 #include "modbus_types.h"
 
 #define APP_CONFIG_MAGIC 0x50564447u
-#define APP_CONFIG_VERSION 5u
+#define APP_CONFIG_VERSION 6u
 #define APP_MAX_METERS 4
 #define APP_MAX_INVERTERS 12
 /* Must equal SOURCE_MAX_GENERATORS in control_engine/source_mode.h. Defined
@@ -121,12 +121,14 @@ typedef struct {
     uint32_t interval_ms;
     uint32_t meter_stale_timeout_ms;
     /* Appended in schema 5. control_config_t is embedded in app_config_t ahead
-     * of wifi_provision_id, so growing it shifts that field: schema 4 is NOT a
+     * of wifi_provision_id, so growing it shifted that field: schema 4 is NOT a
      * byte-exact prefix of schema 5 and must be migrated field by field, never
-     * memcpy'd wholesale. The blob sizes differ, which is what keeps the two
-     * distinguishable on load.
-     * ramp_up/down_percent_per_second above are retained as the legacy fields
-     * that seed generator_ramp on upgrade. */
+     * memcpy'd wholesale. The blob sizes differ, which keeps them distinguishable.
+     *
+     * Schema 6 does NOT grow this structure or app_config_t: it gives the former
+     * alignment byte inside modbus_endpoint_t an explicit connection_mode meaning.
+     * Existing schema-5 blobs are therefore recognized by version and normalized
+     * to per-transaction before validation, preserving commissioned state. */
     ramp_profile_t grid_ramp;
     ramp_profile_t generator_ramp;
 } control_config_t;

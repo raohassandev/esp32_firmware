@@ -1,0 +1,45 @@
+name: Modbus connection-mode checks
+
+on:
+  pull_request:
+    paths:
+      - 'components/modbus_tcp/**'
+      - 'components/config_manager/**'
+      - 'components/web_server/modbus_connection_api.c'
+      - 'components/web_server/include/modbus_connection_api.h'
+      - 'components/web_server/web_server.c'
+      - 'components/web_server/CMakeLists.txt'
+      - 'tests/modbus_connection_modes_source_contract.py'
+      - 'tests/modbus_connection_policy_test.c'
+      - 'tests/modbus_runtime_safety_source_contract.py'
+      - 'tests/config_import_safety_source_contract.py'
+      - 'tests/meter_role_source_contract.py'
+      - '.github/workflows/modbus-connection-modes.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check connection-mode contract
+        run: python3 tests/modbus_connection_modes_source_contract.py
+      - name: Run connection policy unit tests
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -Wall -Wextra -Werror \
+            -Icomponents/modbus_tcp/include \
+            tests/modbus_connection_policy_test.c \
+            components/modbus_tcp/modbus_connection_policy.c \
+            -o /tmp/modbus_connection_policy_test
+          /tmp/modbus_connection_policy_test
+      - name: Check existing Modbus runtime safety contract
+        run: python3 tests/modbus_runtime_safety_source_contract.py
+      - name: Check configuration import and migration safety contract
+        run: python3 tests/config_import_safety_source_contract.py
+      - name: Check meter-role schema migration contract
+        run: python3 tests/meter_role_source_contract.py
