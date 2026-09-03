@@ -15,11 +15,22 @@ defaults:
       - inferred_test_pass
       - historical_CI_reused_for_replayed_head
       - merge_of_stale_or_behind_PR
+  regression_coverage:
+    require:
+      - full_firmware_web_esp32s3_gate_for_mergeable_runtime_changes
+      - secure_ota_contract_gate_on_every_PR_and_dev_push
+      - exact_head_evidence_only
+    forbid:
+      - path_filter_as_only_protection_for_release_critical_ota_contracts
+      - software_regression_gate_used_as_physical_acceptance
   firmware_safety:
     require:
       - preserve_NVS_and_commissioned_configuration
       - automatic_control_fail_closed_without_qualified_evidence
       - qualified_profile_before_physical_inverter_write
+      - bounded_reviewed_ota_binary_receive_path
+      - ota_identity_validation_before_first_firmware_write
+      - confirmed_safe_zero_before_first_ota_firmware_write
     forbid:
       - erase_flash
       - nvs_flash_erase
@@ -44,6 +55,24 @@ defaults:
       - acceptance_thresholds_lowered_to_manufacture_pass
       - physical_pass_silently_transferred_across_changed_identity
     rule: older_candidate_physical_pass_does_not_transfer_across_source_tree_change
+  ota_physical_acceptance:
+    require:
+      - one_exact_intended_ota_capable_release_identity
+      - authenticated_upload_observed
+      - invalid_image_rejected_before_write_observed
+      - interrupted_upload_observed
+      - power_loss_behavior_observed
+      - partial_image_not_selected_as_boot_target_observed
+      - previous_valid_slot_recovery_observed
+      - pending_verification_first_boot_observed
+      - mark_valid_stabilization_observed
+      - deliberate_rollback_observed
+      - fail_closed_control_observed_throughout
+      - no_NVS_or_full_flash_erase
+    forbid:
+      - ota_physical_pass_inferred_from_source_contract
+      - ota_physical_pass_inferred_from_esp32s3_build
+      - waveshare_physical_pass_transferred_to_newer_ota_enabled_image
   release:
     require:
       - software_merge_gates
