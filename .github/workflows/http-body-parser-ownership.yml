@@ -1,0 +1,23 @@
+name: HTTP body parser ownership checks
+
+on:
+  pull_request:
+    paths:
+      - 'components/web_server/**'
+      - 'tests/http_body_parser_ownership_source_contract.py'
+      - '.github/workflows/http-body-parser-ownership.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  body-parser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check bounded request-body/parser ownership
+        run: python3 tests/http_body_parser_ownership_source_contract.py
+      - name: Re-run existing configuration HTTP safety contract
+        run: python3 tests/config_import_safety_source_contract.py
