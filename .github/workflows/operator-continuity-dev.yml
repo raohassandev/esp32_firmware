@@ -1,0 +1,37 @@
+name: Operator continuity current-dev checks
+
+on:
+  pull_request:
+    paths:
+      - 'web/operator-continuity-verdict.js'
+      - 'web/operator-continuity-verdict.css'
+      - 'web/shell-current-fixes.js'
+      - 'web/shell-current-fixes.css'
+      - 'web/app.js'
+      - 'web/operator-view.js'
+      - 'components/web_server/CMakeLists.txt'
+      - 'components/web_server/web_assets.c'
+      - 'components/web_server/include/web_assets.h'
+      - 'components/web_server/web_server.c'
+      - 'tests/operator_continuity_verdict_dev_contract.py'
+      - '.github/workflows/operator-continuity-dev.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check presentation module syntax
+        run: |
+          node --check web/operator-continuity-verdict.js
+          node --check web/shell-current-fixes.js
+      - name: Verify current-dev continuity/verdict contract
+        run: python3 tests/operator_continuity_verdict_dev_contract.py
+      - name: Verify complete browser modules remain syntactically valid
+        run: |
+          for file in web/*.js; do node --check "$file"; done
