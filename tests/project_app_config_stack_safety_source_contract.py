@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Prevent whole app_config_t automatic variables from returning to runtime components."""
+"""Prevent whole app_config_t automatic variables from returning to runtime sources."""
 from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPONENTS = ROOT / "components"
+MAIN = ROOT / "main"
+RUNTIME_ROOTS = (COMPONENTS, MAIN)
 CMAKE = (COMPONENTS / "config_manager/CMakeLists.txt").read_text(encoding="utf-8")
 
 # config_manager_v6.c is intentionally retained only behind non-public compatibility
@@ -19,22 +21,64 @@ for token in (
     if token not in CMAKE:
         raise AssertionError(f"legacy config stack exception lost its non-public alias: {token}")
 
+for runtime_root in RUNTIME_ROOTS:
+    if not runtime_root.is_dir():
+        raise AssertionError(f"runtime source root is missing: {runtime_root.relative_to(ROOT)}")
+
 # The historical failure class is an automatic whole app_config_t object (~2.5 kB)
 # placed on a task stack. Pointers are allowed; static storage is allowed. Runtime
-# components should use heap/static snapshots instead of large automatic frames.
-stack_object = re.compile(
-    r"(?m)^[ \t]*(?!static\b)(?:const[ \t]+)?app_config_t[ \t]+"
-    r"([A-Za-z_]\w*)[ \t]*(?:=[^;\n]*)?;"
+# sources should use heap/static snapshots instead of large automatic frames.
+# Arrays and multi-declarator statements are also whole-object stack allocations
+# and must not provide an escape hatch around this source contract.
+declaration = re.compile(
+    r"(?m)^[ \t]*"
+    r"((?:(?:static|register|const|volatile)[ \t]+)*)"
+    r"app_config_t[ \t]+(?:(?:const|volatile)[ \t]+)*"
+    r"([A-Za-z_]\w*)[ \t]*(?:\[[^\]\n]*\][ \t]*)?(?:=[^;\n]*)?[,;]"
 )
 
+
+def is_forbidden_stack_object(match: re.Match) -> bool:
+    """Static whole objects are allowed; every other matched whole object is not."""
+    return "static" not in match.group(1).split()
+
+
+positive_contract_cases = (
+    "app_config_t cfg;",
+    "const app_config_t cfg = {0};",
+    "app_config_t const cfg = {0};",
+    "register volatile app_config_t cfg;",
+    "volatile app_config_t cfg[2];",
+    "app_config_t first, second;",
+)
+negative_contract_cases = (
+    "static app_config_t cfg;",
+    "const static app_config_t cfg = {0};",
+    "static const app_config_t cfg = {0};",
+    "app_config_t *cfg;",
+    "const app_config_t *cfg;",
+    "app_config_t **cfg;",
+)
+for source in positive_contract_cases:
+    match = declaration.search(source)
+    if match is None or not is_forbidden_stack_object(match):
+        raise AssertionError(f"stack-object detector missed guarded declaration: {source}")
+for source in negative_contract_cases:
+    match = declaration.search(source)
+    if match is not None and is_forbidden_stack_object(match):
+        raise AssertionError(f"stack-object detector rejected allowed declaration: {source}")
+
 violations = []
-for path in sorted(COMPONENTS.rglob("*.c")):
-    if path == LEGACY_ALIAS:
-        continue
-    text = path.read_text(encoding="utf-8")
-    for match in stack_object.finditer(text):
-        line = text.count("\n", 0, match.start()) + 1
-        violations.append(f"{path.relative_to(ROOT)}:{line}: app_config_t {match.group(1)}")
+for runtime_root in RUNTIME_ROOTS:
+    for path in sorted(runtime_root.rglob("*.c")):
+        if path == LEGACY_ALIAS:
+            continue
+        text = path.read_text(encoding="utf-8")
+        for match in declaration.finditer(text):
+            if not is_forbidden_stack_object(match):
+                continue
+            line = text.count("\n", 0, match.start()) + 1
+            violations.append(f"{path.relative_to(ROOT)}:{line}: app_config_t {match.group(2)}")
 
 if violations:
     raise AssertionError(
