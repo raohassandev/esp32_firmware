@@ -8,6 +8,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tools"))
 SPEC = importlib.util.spec_from_file_location("waveshare_soak_capture", ROOT / "tools" / "waveshare_soak_capture.py")
 MOD = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader
