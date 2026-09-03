@@ -4,7 +4,7 @@ Master program: #79. Evidence is valid only for the exact source/head/artifact n
 
 ## Live integration baseline
 
-Current `dev`: `3096f2bfa10e86b3163b99ae7622bffded6791ac` after governed PR #124 merge.
+Current `dev`: `41eaf22f8b92057cdbe5427c590ccd84d7fbce9b` after governed PR #131 merge.
 
 ## Current merged software evidence chain
 
@@ -18,12 +18,19 @@ Current `dev`: `3096f2bfa10e86b3163b99ae7622bffded6791ac` after governed PR #124
 | Engineering DOM/error stability | PR #105 -> `6569e36e019adf4b890d04f163091f04eec6020b` | MERGED |
 | Web spinlock/nonblocking regression | PR #107 -> `6ae86b09294b3e3a2c8a8eaf085ce5c35c69cf74`; focused `33722607313`, full `33722607276` | MERGED |
 | Inverter command schema safety | PR #108 head `0807c735...`; focused `33723570913`, full `33723570919`; merge `b8996d5f834cc8edeb084f56c802ff5fc6ecd04d` | MERGED |
+| Production profile release gate | PR #112 head `ccae3f2c4cfb24a5b8add6ddd6e175334736c10f`; merge `7a683092696c6334870b5c1007e086f8556dbc88` | MERGED |
+| Manufacturer transport truthfulness | PR #113 -> `4aa935dfcf944f83cbb96333be67f99878e32c30`; pending profiles remain unqualified instead of guessed | MERGED |
 | Modbus cumulative-deadline endpoint admission | PR #114 head `ecfbd77...`; mode `33728128805`, endpoint `33728128876`, full `33728128866`; merge `fa8ca9b17e08f2478e104942b9d6dbfad4f0ca7f` | MERGED |
 | Profile assignment ordering interlock | PR #117 head `115ec2f...`; full `33729168281`; merge `1360c4a8356ff8acdc19878f65da311c0b0eccc6` | MERGED |
 | Production inverter write authority | PR #119 head `eef24d...`; authority `33729644794`, release `33729644834`, identity `33729644804`, schema `33729644806`, full `33729644800`; merge `d9cd81bcf500a034d6cc88ea92e3bb74e42ed258` | MERGED |
 | Governance through PR119 | PR #120 head `18087bb...`; full `33730424946`; merge `1b7cfe57f4c236516e2b5595f544c3524dcead0c` | MERGED |
-| Legacy config migration OOM preservation | PR #122 head `2ca2933664d9146a0fe59a693074d47ecc2872aa`; config `33738503242`, Wi-Fi `33738503441`, Modbus `33738503220`, full `33738503251`; merge `dfe93de50e2a5715f4d212ff3233d566d36e2cfd` | MERGED |
+| Legacy config migration OOM preservation | PR #122 head `2ca2933664d9146a0fe59a693074d47ecc2872aa`; config `33738503242`, full `33738503251`; merge `dfe93de50e2a5715f4d212ff3233d566d36e2cfd` | MERGED |
 | Atomic safety-alarm snapshot | PR #124 head `269404aade57caf1e4e7ef3a877e786580cc691e`; focused `33739241779`, full `33739241807`; merge `3096f2bfa10e86b3163b99ae7622bffded6791ac` | MERGED |
+| Governance/stale-checklist reconciliation | PR #125 head `9cf90f5e80fa7a2a10660065ef4b75a701ce1aa6`; full `33740228534`; merge `f32d9ba1581350aeb178e3b94ad30303ef1b8a5d` | MERGED |
+| Runtime config/mapping disable interlock | PR #127 head `4f6ebc03c12e9653cb73f7103e1be68ad7e3f4c0`; focused `33741274303`, full `33741274300`; merge `df282a3e8afee27dfc220694e4461e4ad49d2277` | MERGED |
+| Wi-Fi configuration runtime-disable interlock | PR #129 head `955380e21ddefb606c4f1f8c3db82944401b50ea`; focused `33745056243`, full `33745056135`; merge `5e5a63dba3e157d2658227ff691e9f975cedff96` | MERGED |
+| Source-detection runtime-disable interlock | PR #130 head `665a02555d1f0f2cedb40bcc782258dc2a608d49`; focused `33745904234`, full `33745904243`; merge `0969a119e4fcb97405da26a59b55ec44a5a292f4` | MERGED |
+| Consolidated commissioning mutation interlock inventory | PR #131 head `d165dba03146eee75e5c0bd7adfeee7058e47d87`; focused `33749197443`, full `33749196739`; 0-behind expected-head merge `41eaf22f8b92057cdbe5427c590ccd84d7fbce9b` | MERGED |
 
 ## Held runtime / physical source identities
 
@@ -48,18 +55,20 @@ PR #52 is software-qualified on the frozen Phase-1 line. #86 must later reconcil
 
 ## Production inverter qualification boundary
 
-Generic protections merged through #119 prevent guessed/unqualified positive writes, but they do not approve any Huawei/GoodWe/Solis/FoxESS/Knox production mapping. #82 still requires official model/firmware/manual identity, physical read-only identity/telemetry/status verification, write/readback/rollback evidence and signed production approval.
+Generic protections merged through #119 prevent guessed/unqualified positive writes; PR #112 keeps production release blocked when no actual production-approved non-simulator profile exists; PR #113 prevents pending profiles from claiming unproven transport. These do not approve any Huawei/GoodWe/Solis/FoxESS/Knox production mapping. #82 still requires exact official model/firmware/manual identity, physical read-only identity/telemetry/status verification, write/readback/rollback evidence and signed production approval.
+
+Current official-document findings do not change that verdict: GoodWe public HT documentation identifies GW100K-HT communication as Modbus-RTU/SunSpec-compatible but does not provide the exact production control map used here; Huawei public documentation confirms the SUN2000-115KTL-M2 family, while a separately available SUN2000MB Modbus definition belongs to a different family and is not accepted as 115KTL-M2 register evidence.
 
 ## Stale/superseded rule
 
-Stale PRs #77/#101/#104/#109/#115/#116/#118/#121/#123 and obsolete Waveshare promotion #46 are not current merge/evidence sources. Historical CI belongs only to its historical exact head.
+Stale PRs #77/#101/#104/#109/#115/#116/#118/#121/#123/#126/#128 and obsolete Waveshare promotion #46 are not current merge/evidence sources. Historical CI belongs only to its historical exact head.
 
 ## Required remaining release evidence
 
 1. #87/#27 uninterrupted >=4 h Waveshare same-image evidence, then #25/#26.
 2. #80 source-transition physical matrix.
 3. #81 real site source-contact/polarity/meter mapping.
-4. #82 official-manual + bench record for each production inverter profile.
+4. #82 exact official-manual + bench record for each production inverter profile.
 5. #86 OTA rollback/interruption physical record on intended baseline.
 6. #83 Modbus/network endurance, Grid/DG/mixed-source FAT and signed SAT.
 7. Final release SHA/config/profile/artifact traceability with no critical blocker.

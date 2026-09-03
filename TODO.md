@@ -1,13 +1,13 @@
 # AISH-OS Live TODO v2
 
-Master program: #79. Live repository truth overrides stale historical checklists. Current software integration baseline: `3096f2bfa10e86b3163b99ae7622bffded6791ac`.
+Master program: #79. Live repository truth overrides stale historical checklists. Current software integration baseline: `41eaf22f8b92057cdbe5427c590ccd84d7fbce9b`.
 
 ## RELEASE-BLOCKING PHYSICAL / EXTERNAL WORK
 
 - [ ] **L3 / #87 — Waveshare final acceptance.** Exact candidate `87841ecee727fe1d814d4186be8c8c26e4afafb4`; short physical gate PASS. Obtain one uninterrupted >=4 h same-image soak (>=240 one-minute samples). First attempt reached ~2 h / 121 clean samples before USB dock/power loss. Partial runs cannot be combined. After PASS, complete #25 backend parity/recovery and #26 persistence/ARM before promotion.
 - [ ] **L2 / #80 — Generator source-transition bench qualification.** Draft PR #106 is software GREEN but physically gated. After physical PASS, replay the identical validated slice onto current `dev`, rerun exact-head CI, and merge only 0-behind.
 - [ ] **L5 / #81 — real site source evidence.** Record actual breaker/run/ATS/sync provenance, address/contact, mask, polarity, meter identity/sign/scaling and topology. No guessed values.
-- [ ] **L6 / #82 — production inverter profiles.** Each manufacturer/model requires official manual/model/firmware identity, physical identity/telemetry/status proof, write/readback/rollback bench evidence and signed production approval.
+- [ ] **L6 / #82 — production inverter profiles.** Each manufacturer/model requires exact official manual/model/firmware identity, physical identity/telemetry/status proof, write/readback/rollback bench evidence and signed production approval. Current production-release CI remains deliberately blocked because no such profile is compiled.
 - [ ] **L4 / #86 — Secure OTA physical qualification.** After accepted Waveshare baseline, reconcile PR #52 and physically prove interruption/power-loss/previous-slot/pending-verification/mark-valid/rollback without NVS/full-flash erase.
 - [ ] **L7 / #83 — integrated PV-DG FAT/SAT/endurance.** Execute Grid, DG, mixed-source, all three Modbus modes, slow/dead peer, exception, reset/reconnect, Wi-Fi recovery, multi-device load, lwIP/socket resource trends and signed SAT tied to exact identities.
 
@@ -35,13 +35,19 @@ Master program: #79. Live repository truth overrides stale historical checklists
 - [x] Engineering DOM/error stability — PR #105.
 - [x] Web spinlock/nonblocking regression — PR #107.
 - [x] Generic inverter command width/scale/range/finite + FC06/FC16 safety — PR #108.
+- [x] Production release fails closed without a real production-approved inverter profile — PR #112.
+- [x] Pending manufacturer profiles no longer guess connection transport — PR #113.
 - [x] Modbus endpoint admission closes synchronous-DNS cumulative-deadline gap — PR #114.
 - [x] Profile assignment disables running/persisted control before register-map persistence — PR #117.
 - [x] Complete production inverter write authority + fresh mapped ON_GRID gate — PR #119.
 - [x] Governance reconciliation through PR #119 — PR #120.
 - [x] Legacy schema migration OOM cannot replace commissioned NVS; startup fails closed — PR #122, focused `33738503242`, full `33738503251`, merge `dfe93de50e2a5715f4d212ff3233d566d36e2cfd`.
 - [x] Safety alarm flags published/read atomically; no transient false all-clear — PR #124, focused `33739241779`, full `33739241807`, merge `3096f2bfa10e86b3163b99ae7622bffded6791ac`.
-- [x] Stale replay PRs #115/#116/#118/#121/#123 closed and non-authoritative.
+- [x] Generic config import, meter mapping, inverter mapping and profile assignment force-disable command authority before persistence — PR #127, focused `33741274303`, full `33741274300`, merge `df282a3e8afee27dfc220694e4461e4ad49d2277`.
+- [x] Wi-Fi configuration persistence force-disables live command authority first — PR #129, focused `33745056243`, full `33745056135`, merge `5e5a63dba3e157d2658227ff691e9f975cedff96`.
+- [x] Source-detection topology/register/threshold persistence force-disables live command authority first — PR #130, focused `33745904234`, full `33745904243`, merge `0969a119e4fcb97405da26a59b55ec44a5a292f4`.
+- [x] Consolidated current commissioning mutation interlock inventory — PR #131, focused `33749197443`, full `33749196739`, merge `41eaf22f8b92057cdbe5427c590ccd84d7fbce9b`.
+- [x] Stale replay PRs #115/#116/#118/#121/#123/#126/#128 closed and non-authoritative.
 - [x] Waveshare short display/touch/Alarms gate on exact `87841ece...` — PASS; final continuous soak remains open.
 
 ## SEPARATE PRODUCT-HARDWARE TRACK
