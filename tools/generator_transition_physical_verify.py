@@ -53,6 +53,8 @@ REQUIRED_FATAL_COUNTS = (
     "resource_collapse",
 )
 
+VALID_AUTHORITY = {"blocked", "allowed"}
+
 
 @dataclass
 class GeneratorPhysicalResult:
@@ -101,6 +103,15 @@ def _meter_complete(value: object) -> bool:
     )
 
 
+def _authority_sequence(value: object) -> list[str] | None:
+    if not isinstance(value, list) or not value:
+        return None
+    sequence = [str(item).strip() for item in value]
+    if any(item not in VALID_AUTHORITY for item in sequence):
+        return None
+    return sequence
+
+
 def _check_scenario(scenario: dict[str, Any], supports_sync: bool, failures: list[str]) -> None:
     scenario_id = str(scenario.get("id", "")).strip()
     prefix = f"scenario:{scenario_id or 'missing'}"
@@ -137,13 +148,15 @@ def _check_scenario(scenario: dict[str, Any], supports_sync: bool, failures: lis
     ):
         failures.append(f"{prefix}:detected_modes_missing")
 
-    expected = scenario.get("expected_authority_sequence")
-    observed = scenario.get("observed_authority_sequence")
-    if not isinstance(expected, list) or not expected:
-        failures.append(f"{prefix}:expected_authority_sequence_missing")
+    expected_raw = scenario.get("expected_authority_sequence")
+    observed_raw = scenario.get("observed_authority_sequence")
+    expected = _authority_sequence(expected_raw)
+    observed = _authority_sequence(observed_raw)
+    if expected is None:
+        failures.append(f"{prefix}:expected_authority_sequence_invalid")
         expected = []
-    if not isinstance(observed, list) or not observed:
-        failures.append(f"{prefix}:observed_authority_sequence_missing")
+    if observed is None:
+        failures.append(f"{prefix}:observed_authority_sequence_invalid")
         observed = []
     if expected and observed and expected != observed:
         failures.append(f"{prefix}:authority_sequence_mismatch")
@@ -165,21 +178,37 @@ def _check_scenario(scenario: dict[str, Any], supports_sync: bool, failures: lis
     if scenario_id in BLOCKED_SCENARIOS:
         if not expected or any(item != "blocked" for item in expected):
             failures.append(f"{prefix}:invalid_state_must_remain_blocked")
-        if "expected_safe_pv_request" not in scenario:
-            failures.append(f"{prefix}:expected_safe_pv_request_missing")
-        if "observed_safe_pv_request" not in scenario:
-            failures.append(f"{prefix}:observed_safe_pv_request_missing")
-        if (
-            "expected_safe_pv_request" in scenario
-            and "observed_safe_pv_request" in scenario
-            and scenario.get("expected_safe_pv_request") != scenario.get("observed_safe_pv_request")
-        ):
-            failures.append(f"{prefix}:safe_pv_request_mismatch")
+        expected_safe = scenario.get("expected_safe_pv_request")
+        observed_safe = scenario.get("observed_safe_pv_request")
+        if not _finite_number(expected_safe):
+            failures.append(f"{prefix}:expected_safe_pv_request_invalid")
+        if not _finite_number(observed_safe):
+            failures.append(f"{prefix}:observed_safe_pv_request_invalid")
+        if _finite_number(expected_safe) and _finite_number(observed_safe):
+            if not math.isclose(float(expected_safe), float(observed_safe), rel_tol=0.0, abs_tol=1e-9):
+                failures.append(f"{prefix}:safe_pv_request_mismatch")
+
+    if scenario_id in {"island", "synchronized"} and expected and expected[-1] != "allowed":
+        failures.append(f"{prefix}:stable_carrying_mode_not_allowed")
 
     if not _meter_complete(scenario.get("grid_meter")):
         failures.append(f"{prefix}:grid_meter_evidence_incomplete")
     if not _meter_complete(scenario.get("generator_meter")):
         failures.append(f"{prefix}:generator_meter_evidence_incomplete")
+
+    if scenario_id == "generator_meter_sign":
+        proof = scenario.get("meter_sign_proof")
+        if not isinstance(proof, dict):
+            failures.append(f"{prefix}:meter_sign_proof_missing")
+        else:
+            if not _nonempty_text(proof.get("known_physical_direction"), 8):
+                failures.append(f"{prefix}:known_physical_direction_missing")
+            if not _nonempty_text(proof.get("independent_reference"), 4):
+                failures.append(f"{prefix}:independent_reference_missing")
+            if not _finite_number(proof.get("observed_generator_kw")):
+                failures.append(f"{prefix}:observed_generator_kw_invalid")
+            if proof.get("sign_matches") is not True:
+                failures.append(f"{prefix}:generator_meter_sign_not_proven")
 
     command_path = scenario.get("command_path")
     if not isinstance(command_path, dict):
@@ -189,8 +218,8 @@ def _check_scenario(scenario: dict[str, Any], supports_sync: bool, failures: lis
         if not isinstance(qualified, bool):
             failures.append(f"{prefix}:qualified_inverter_path_missing")
         elif qualified:
-            if "command" not in command_path or "readback" not in command_path:
-                failures.append(f"{prefix}:qualified_command_readback_missing")
+            if not _finite_number(command_path.get("command")) or not _finite_number(command_path.get("readback")):
+                failures.append(f"{prefix}:qualified_command_readback_invalid")
             if not _nonempty_text(command_path.get("evidence_ref"), 4):
                 failures.append(f"{prefix}:command_evidence_ref_missing")
         elif not _nonempty_text(command_path.get("safe_pv_observation"), 8):
