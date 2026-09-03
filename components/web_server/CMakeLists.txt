@@ -49,6 +49,7 @@ set(WEB_SERVER_C_SOURCES
     "web_server.c"
     "web_api.c"
     "config_import_runtime_guard.c"
+    "wifi_config_runtime_guard.c"
     "device_api.c"
     "modbus_connection_api.c"
     "engineering_auth.c"
@@ -135,7 +136,9 @@ endforeach()
 set_source_files_properties("engineering_guard.c" "operational_api.c" PROPERTIES
     COMPILE_DEFINITIONS ENGINEERING_GUARD_IMPLEMENTATION=1)
 set_property(SOURCE "web_api.c" APPEND PROPERTY
-    COMPILE_DEFINITIONS config_manager_import_json=web_config_manager_import_json_guarded)
+    COMPILE_DEFINITIONS
+        config_manager_import_json=web_config_manager_import_json_guarded
+        config_manager_save=web_wifi_config_manager_save_guarded)
 set_property(SOURCE "inverter_profile_api.c" APPEND PROPERTY
     COMPILE_DEFINITIONS inverter_profile_store_set=inverter_profile_store_set_guarded)
 set_property(SOURCE "em500_api.c" APPEND PROPERTY
