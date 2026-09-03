@@ -1,27 +1,46 @@
-# AISH-OS Live TODO
+# AISH-OS Live TODO v2
 
-This queue is subordinate to live repository truth. Stale historical TODOs must not re-open work already present in `dev`.
+Master program: #79. Live repository truth overrides stale historical checklists.
 
-## EXECUTING
+## EXECUTING NOW
 
-- [ ] Browser lifecycle batch 2: bound `web/operator-operations.js` polling to relevant routes/access/visibility; preserve alarm acknowledgement behavior; add focused CI.
-- [ ] Waveshare PR #57: complete exact-current-head CI and physical qualification after the Alarms-page LVGL fix.
+- [ ] **L1 / #88 + #78 — Modbus TCP connection modes (Coder: ChatGPT, QA: GitHub Actions).** Finish schema/NVS-safe migration, meter/inverter config + diagnostics exposure, tests for `per_transaction`, `persistent`, `reconnect_on_error`, full exact-head CI, PR and governed merge. Branch: `work/modbus/connection-modes`.
+- [ ] **L3 / #87 — Waveshare final acceptance (Physical: Claude/site operator, Integration: ChatGPT).** Exact candidate `87841ece...`; short physical PASS. Obtain one uninterrupted >=4 h same-image soak (>=240 one-minute samples), then finish #25 backend parity and #26 persistence/ARM matrix before source promotion.
+- [ ] **L8/L0 / #84 #89 — Governance reconciliation (ChatGPT).** Keep AGENT_REGISTRY, EXECUTION_TREE, TODO, BLOCKERS and EVIDENCE_INDEX synchronized with live repo/physical truth.
 
-## NEXT SOFTWARE LANES
+## READY PARALLEL SOFTWARE / AUDIT
 
-- [ ] Integrate the existing `source_mode_aggregate_generators()` into runtime using configured Generator 1–3 meter roles without guessing external evidence/registers.
-- [ ] Persist per-generator rated kW, minimum loading %, reserve and reverse margin with migration and fail-closed defaults.
-- [ ] Add multi-generator simulator/integration coverage for stale/conflicting/uncommissioned channels.
-- [ ] Qualify Modbus TCP connection modes in software; leave PCB/TIME_WAIT endurance as physical evidence.
-- [ ] Continue audit until every browser poller has timeout/finally/route-or-visibility lifecycle protection.
+- [ ] **L10 / #90 — final served-browser poller audit.** Audit only actually embedded/served assets. PRs #59/#62/#65/#69/#71/#73/#76 are already merged and must not be reopened without regression evidence.
+- [ ] **L12 / #92 — requirements closure matrix.** Map every requirement to coder, QA, software/physical status, blocker, PR/issue and exact evidence.
+- [ ] **L11 / #91 — evidence traceability.** Keep exact SHA/run/artifact evidence and superseded candidate records current.
+- [ ] **L13 / #93 — promotion graph hygiene.** Prevent stale/behind PR merges, use expected-head guards and fresh promotion PRs.
 
-## BLOCKED ON EXTERNAL EVIDENCE
+## SOFTWARE READY — PHYSICAL/BENCH GATED
 
-- [ ] Manufacturer-specific inverter production approval: exact manuals, model maps, bench write/readback/rollback, signed approval.
-- [ ] Real grid/generator evidence addresses and polarity: commission from site/manufacturer documentation only.
-- [ ] Physical FAT/SAT and source-transfer tests.
+- [ ] **L2 / #80 — Generator source-transition FAT.** PR #77 is software GREEN; do not merge until Grid<->Generator/Island/Sync/Transfer/conflict/stale bench matrix passes with actual run/breaker/ATS/meter evidence.
+- [ ] **L4 / #86 + #50 — Secure OTA physical qualification.** PR #52 software GREEN; after Waveshare source graph closes, reconcile to intended release baseline and run interruption/power-loss/rollback/mark-valid qualification.
+- [ ] **L15 / #95 — post-Waveshare held software reconciliation.** Re-evaluate/replay PR #52 and PR #54 onto final post-Waveshare baseline; do not merge stale branches blindly.
 
-## HELD / DO NOT PROMOTE YET
+## EXTERNAL EVIDENCE / COMMISSIONING
 
-- PR #46 and PR #20: Waveshare promotion chain; blocked by current exact-candidate physical gates.
-- PR #52 and PR #54: software-reviewed work on `phase1-fix`; hold while that baseline is frozen for Waveshare qualification.
+- [ ] **L5 / #81 — real site source evidence.** Document exact grid/generator/ATS/sync source, register/contact, mask, polarity, meter sign/scaling and topology. No guessed values.
+- [ ] **L6 / #82 — production inverter profiles.** Per manufacturer/model manual + identity + telemetry/write/readback/rollback + bench proof + signed production approval.
+- [ ] **L7 / #83 — integrated PV-DG FAT/SAT/endurance.** Grid, DG, mixed-source, Modbus TCP PCB/TIME_WAIT, network recovery, fail-closed, signed evidence tied to exact SHA.
+
+## SEPARATE PRODUCT-HARDWARE TRACK
+
+- [ ] **L9 / #85 — Rev-A PCB/KiCad.** PR #18/#19; separate from current Waveshare firmware release unless Owner explicitly couples the milestones.
+
+## COMPLETED — DO NOT REOPEN WITHOUT REGRESSION EVIDENCE
+
+- [x] Generator strong source evidence — PR #58.
+- [x] Generator 1–3 persisted configuration/schema migration — PR #63.
+- [x] Generator 1–3 runtime/fleet aggregation — PR #64.
+- [x] Browser lifecycle batches and active auth/poller owners — PRs #59, #62, #65, #69, #71, #73, #76.
+- [x] Dead Engineering wrapper firmware linkage cleanup — PR #75.
+- [x] AISH-OS initial control room — PR #60.
+- [x] Waveshare short physical display/touch gate on `87841ece...` — PASS; final continuous soak remains open.
+
+## GLOBAL RELEASE GATE
+
+Do not claim 100% until all release-target software is merged through exact-head/zero-behind gates, all required physical/FAT/SAT gates pass against exact identities, production mappings are qualified, and no critical blocker remains.
