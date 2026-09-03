@@ -50,6 +50,7 @@ set(WEB_SERVER_C_SOURCES
     "web_api.c"
     "config_import_runtime_guard.c"
     "wifi_config_runtime_guard.c"
+    "safe_restart.c"
     "device_api.c"
     "modbus_connection_api.c"
     "engineering_auth.c"
@@ -136,10 +137,12 @@ foreach(source IN LISTS WEB_SERVER_C_SOURCES)
 endforeach()
 set_source_files_properties("engineering_guard.c" "operational_api.c" PROPERTIES
     COMPILE_DEFINITIONS ENGINEERING_GUARD_IMPLEMENTATION=1)
+set_property(SOURCE "web_api.c" APPEND PROPERTY COMPILE_OPTIONS "-include;safe_restart.h")
 set_property(SOURCE "web_api.c" APPEND PROPERTY
     COMPILE_DEFINITIONS
         config_manager_import_json=web_config_manager_import_json_guarded
-        config_manager_save=web_wifi_config_manager_save_guarded)
+        config_manager_save=web_wifi_config_manager_save_guarded
+        esp_restart=web_safe_restart)
 set_property(SOURCE "source_detection_api.c" APPEND PROPERTY
     COMPILE_DEFINITIONS source_detection_config_save=web_source_detection_config_save_guarded)
 set_property(SOURCE "inverter_profile_api.c" APPEND PROPERTY
