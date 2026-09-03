@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Current phase1 secure-OTA integration and safety contract."""
+"""Current-dev rollback-safe secure OTA integration and safety contract."""
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -9,11 +9,13 @@ MANAGER_H = (ROOT / "components/ota_manager/include/ota_manager.h").read_text(en
 MANAGER = (ROOT / "components/ota_manager/ota_manager.c").read_text(encoding="utf-8")
 API = (ROOT / "components/web_server/ota_api.c").read_text(encoding="utf-8")
 WEB_CMAKE = (ROOT / "components/web_server/CMakeLists.txt").read_text(encoding="utf-8")
+ASSETS_H = (ROOT / "components/web_server/include/web_assets.h").read_text(encoding="utf-8")
+ASSETS_C = (ROOT / "components/web_server/web_assets.c").read_text(encoding="utf-8")
 SERVER = (ROOT / "components/web_server/web_server.c").read_text(encoding="utf-8")
+APP_CORE_CMAKE = (ROOT / "components/app_core/CMakeLists.txt").read_text(encoding="utf-8")
 APP_CORE = (ROOT / "components/app_core/app_core.c").read_text(encoding="utf-8")
+MAIN_CMAKE = (ROOT / "main/CMakeLists.txt").read_text(encoding="utf-8")
 APP_MAIN = (ROOT / "main/app_main.c").read_text(encoding="utf-8")
-JS_ORDER = (ROOT / "web/app.js.order").read_text(encoding="utf-8")
-CSS_ORDER = (ROOT / "web/app.css.order").read_text(encoding="utf-8")
 JS = (ROOT / "web/ota.js").read_text(encoding="utf-8")
 CSS = (ROOT / "web/ota.css").read_text(encoding="utf-8")
 
@@ -86,7 +88,7 @@ require("boot_before->address == boot_after->address" in abort,
         "abort path does not verify original boot partition")
 
 for forbidden in ("nvs_flash_erase", "erase_flash", "erase-flash"):
-    require(forbidden not in MANAGER and forbidden not in API,
+    require(forbidden not in MANAGER and forbidden not in API and forbidden not in APP_CORE and forbidden not in APP_MAIN,
             f"destructive erase token present: {forbidden}")
 
 require(upload.index("ota_manager_validate_prefix") < upload.index("wait_for_safe_zero()") <
@@ -109,6 +111,8 @@ require("update_staged" in reboot and "image_identity_verified" in reboot and
         "image_validated" in reboot,
         "reboot endpoint is not gated by fully validated staged state")
 
+require("ota_manager" in APP_CORE_CMAKE,
+        "app_core does not depend on OTA manager")
 require("ota_manager_init()" in APP_CORE and
         APP_CORE.index("ota_manager_init()") < APP_CORE.index("network_manager_init()"),
         "OTA state is not initialized before mandatory network startup")
@@ -116,6 +120,8 @@ require("ota_manager_running_pending_verify()" in APP_CORE,
         "degraded first boot can be accepted")
 require("ota_manager_schedule_boot_validation(30000U)" in APP_CORE,
         "first-boot stabilization window is missing")
+require("ota_manager" in MAIN_CMAKE,
+        "bootstrap component cannot call OTA rollback manager")
 require("ota_manager_rollback_pending_and_reboot()" in APP_MAIN,
         "mandatory startup failure cannot trigger OTA rollback")
 
@@ -123,8 +129,8 @@ for endpoint in ('"/api/ota/status"', '"/api/ota/upload"', '"/api/ota/reboot"'):
     require(endpoint in API, f"OTA endpoint missing: {endpoint}")
 require('"ota_api.c"' in WEB_CMAKE and "ota_manager" in WEB_CMAKE,
         "OTA API/component is not in current web build")
-# Every normal WEB_SERVER_C_SOURCES file is force-included behind the Engineering
-# registration gateway. Only these two implementation exceptions are public-side.
+# Current web build force-includes Engineering auth on every source except the
+# two explicit public-side implementations below. OTA must not join that exemption.
 require('source STREQUAL "engineering_guard.c"' in WEB_CMAKE and
         'source STREQUAL "operational_api.c"' in WEB_CMAKE,
         "Engineering gateway compile policy changed")
@@ -133,10 +139,20 @@ require('source STREQUAL "ota_api.c"' not in WEB_CMAKE,
 require("ota_api_register(s_server)" in SERVER,
         "OTA API is not registered by the current server")
 
-require("ota.js" in JS_ORDER and "ota.css" in CSS_ORDER,
-        "OTA UI is not included through the current single-source bundle order")
-require("web_assets_ota_js" not in SERVER and "web_assets_ota_css" not in SERVER,
-        "stale per-module asset architecture was reintroduced")
+for token in (
+    'configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/ota.js"',
+    'configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/ota.css"',
+    '"${CMAKE_CURRENT_BINARY_DIR}/ota.js"',
+    '"${CMAKE_CURRENT_BINARY_DIR}/ota.css"',
+):
+    require(token in WEB_CMAKE, f"current composite bundle is missing OTA asset: {token}")
+for getter in ("web_assets_ota_js", "web_assets_ota_css"):
+    require(getter in ASSETS_H and getter in ASSETS_C and getter in SERVER,
+            f"current bundle does not expose/serve {getter}")
+require(SERVER.index("web_assets_ota_js") > SERVER.index("web_assets_commissioning_release_v3_js"),
+        "OTA browser module must follow the existing product/system modules")
+require(SERVER.index("web_assets_ota_css") > SERVER.index("web_assets_commissioning_release_v3_css"),
+        "OTA CSS must follow the existing product/system styles")
 require("var(--accent, #" not in CSS,
         "OTA CSS reintroduced a literal theme fallback")
 
@@ -154,5 +170,7 @@ for token in (
 ):
     require(token in JS, f"OTA browser lifecycle safeguard missing: {token}")
 require("setInterval(" not in JS, "OTA UI added unconditional interval polling")
+require("NVS will be preserved" in JS,
+        "OTA UI no longer tells the operator that commissioned NVS is preserved")
 
-print("Current-baseline rollback-safe secure OTA contract passed")
+print("Current-dev rollback-safe secure OTA contract passed")
