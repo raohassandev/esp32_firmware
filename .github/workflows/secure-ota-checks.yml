@@ -1,4 +1,4 @@
-name: Secure OTA checks
+name: Secure OTA current-dev checks
 
 on:
   pull_request:
@@ -7,13 +7,13 @@ on:
       - 'components/web_server/ota_api.c'
       - 'components/web_server/include/ota_api.h'
       - 'components/web_server/CMakeLists.txt'
+      - 'components/web_server/include/web_assets.h'
+      - 'components/web_server/web_assets.c'
       - 'components/web_server/web_server.c'
       - 'components/app_core/**'
       - 'main/**'
       - 'web/ota.js'
       - 'web/ota.css'
-      - 'web/app.js.order'
-      - 'web/app.css.order'
       - 'sdkconfig.defaults'
       - 'partitions.csv'
       - 'tests/ota_*'
@@ -26,14 +26,17 @@ permissions:
 jobs:
   contracts:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Check OTA browser module
         run: node --check web/ota.js
-      - name: Verify current-baseline OTA safety contract
+      - name: Verify current-dev OTA safety contract
         run: python3 tests/ota_current_baseline_source_contract.py
       - name: Execute source-coupled OTA behavior proof
         run: python3 tests/ota_update_behavior_contract.py
       - name: Recheck HTTP handler capacity after OTA routes
         run: python3 tests/uri_handler_capacity_source_contract.py
+      - name: Recheck complete browser syntax
+        run: |
+          for file in web/*.js; do node --check "$file"; done
