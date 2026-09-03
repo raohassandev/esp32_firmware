@@ -49,6 +49,7 @@ set(WEB_SERVER_C_SOURCES
     "web_server.c"
     "web_api.c"
     "device_api.c"
+    "modbus_connection_api.c"
     "engineering_auth.c"
     "engineering_guard.c"
     "http_json.c"
