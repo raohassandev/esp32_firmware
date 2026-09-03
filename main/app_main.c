@@ -4,6 +4,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "app_core.h"
+#include "ota_manager.h"
 
 static const char *TAG = "app_main";
 
@@ -26,6 +27,11 @@ static void app_bootstrap_task(void *argument)
 
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Application initialization failed: %s (0x%x)", esp_err_to_name(err), err);
+        if (ota_manager_running_pending_verify()) {
+            esp_err_t rollback = ota_manager_rollback_pending_and_reboot();
+            ESP_LOGE(TAG, "OTA rollback could not be started: %s (0x%x)",
+                     esp_err_to_name(rollback), rollback);
+        }
         ESP_LOGE(TAG, "Controller halted safely instead of entering a reboot loop");
         while (true) vTaskDelay(pdMS_TO_TICKS(10000));
     }
