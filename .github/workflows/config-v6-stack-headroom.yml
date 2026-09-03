@@ -1,0 +1,31 @@
+name: Config v6 stack headroom checks
+
+on:
+  pull_request:
+    paths:
+      - 'components/config_manager/config_manager_v6.c'
+      - 'components/config_manager/config_manager_stack_safe.c'
+      - 'components/config_manager/config_manager_json_guard.c'
+      - 'components/config_manager/include/config_manager_json_guard.h'
+      - 'components/config_manager/CMakeLists.txt'
+      - 'tests/config_v6_stack_headroom_source_contract.py'
+      - 'tests/config_v6_json_depth_guard_source_contract.py'
+      - 'tests/config_import_safety_source_contract.py'
+      - '.github/workflows/config-v6-stack-headroom.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  config-v6-stack-headroom:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check schema-6 stack headroom
+        run: python3 tests/config_v6_stack_headroom_source_contract.py
+      - name: Re-run schema-6 JSON depth contract
+        run: python3 tests/config_v6_json_depth_guard_source_contract.py
+      - name: Re-run configuration import safety contract
+        run: python3 tests/config_import_safety_source_contract.py
