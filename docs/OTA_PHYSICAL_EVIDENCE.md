@@ -8,10 +8,10 @@ The validator is intentionally generic: it does **not** hardcode or inherit the 
 
 At execution time bind the evidence record to all of:
 
-- exact release source SHA;
-- exact Git tree SHA;
-- exact immutable package/artifact digest;
-- exact application-image digest;
+- exact 40-hex release source SHA;
+- exact 40-hex Git tree SHA;
+- exact immutable `sha256:<64-hex>` package/artifact digest;
+- exact `sha256:<64-hex>` application-image digest;
 - exact configuration identity;
 - previous valid and target OTA partitions;
 - partition-table identity;
@@ -23,20 +23,20 @@ At execution time bind the evidence record to all of:
 
 The record must include physical observations for:
 
-1. authenticated valid upload and exact staged app digest;
-2. invalid image rejection before boot selection;
+1. authenticated valid upload, completed firmware write, staged-image validation and exact staged app digest;
+2. invalid image rejection **before firmware write and before boot selection**;
 3. interrupted upload without completion/selection;
-4. controlled power loss during update with previous valid partition recovery;
+4. controlled power loss during update with previous valid running partition, boot target and NVS recovery;
 5. partial image explicitly not selected;
-6. previous valid slot boot;
-7. staged image explicit authenticated reboot;
+6. previous valid slot restored as both running partition and boot target;
+7. staged image already selected as boot target, followed only by explicit authenticated reboot into the target partition;
 8. pending-verification first boot without premature mark-valid;
 9. mark-valid only after at least 30 seconds stabilization;
-10. deliberate rollback to the previous valid slot;
+10. deliberate rollback restoring the previous valid running partition and boot target;
 11. fail-closed control through OTA uncertainty states;
 12. NVS/config persistence with no NVS or full-flash erase.
 
-Every scenario also requires aware timestamps, running/boot partitions before and after, lifecycle states, blocked expected/observed control state, zero fatal/resource-collapse counters, reboot reason/count, serial/API-HMI references, and a substantive evidence note. Reboot/power-loss scenarios require exact NVS before/after equality.
+Every scenario also requires timezone-aware timestamps, running/boot partitions before and after, lifecycle states, blocked expected/observed control state, zero fatal/resource-collapse counters, reboot reason/count, serial/API-HMI references, and a substantive evidence note. Reboot/power-loss scenarios require exact NVS before/after equality.
 
 ## Use
 
