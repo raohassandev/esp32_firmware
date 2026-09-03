@@ -7,6 +7,7 @@
 
 #include "cJSON.h"
 #include "config_manager.h"
+#include "control_engine.h"
 #include "http_json.h"
 
 #define INVERTER_CONFIG_MAX_BODY 12288U
@@ -243,7 +244,13 @@ static esp_err_t inverters_config_post(httpd_req_t *request)
     memset(config->inverters, 0, sizeof(config->inverters));
     memcpy(config->inverters, parsed, sizeof(parsed));
     config->inverter_count = (uint8_t)requested_count;
+
+    /* Never let a changed endpoint/rated-power map become authoritative while
+     * the already-running control task still has command authority. Persist the
+     * disable and latch runtime control off before saving. Safe-zero is applied
+     * asynchronously by the control task, not by this HTTP handler. */
     config->control.enabled = false;
+    control_engine_force_disable();
 
     err = config_manager_save(config);
     free(config);
