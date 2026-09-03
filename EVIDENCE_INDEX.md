@@ -4,7 +4,7 @@ Master program: #79. Evidence is valid only for the exact source/head/artifact n
 
 ## Live integration baseline
 
-Current `dev`: `41eaf22f8b92057cdbe5427c590ccd84d7fbce9b` after governed PR #131 merge.
+Current `dev`: `093954b5626c034e126fde3b773cedb1add92707` after governed PR #140 merge.
 
 ## Current merged software evidence chain
 
@@ -31,11 +31,20 @@ Current `dev`: `41eaf22f8b92057cdbe5427c590ccd84d7fbce9b` after governed PR #131
 | Wi-Fi configuration runtime-disable interlock | PR #129 head `955380e21ddefb606c4f1f8c3db82944401b50ea`; focused `33745056243`, full `33745056135`; merge `5e5a63dba3e157d2658227ff691e9f975cedff96` | MERGED |
 | Source-detection runtime-disable interlock | PR #130 head `665a02555d1f0f2cedb40bcc782258dc2a608d49`; focused `33745904234`, full `33745904243`; merge `0969a119e4fcb97405da26a59b55ec44a5a292f4` | MERGED |
 | Consolidated commissioning mutation interlock inventory | PR #131 head `d165dba03146eee75e5c0bd7adfeee7058e47d87`; focused `33749197443`, full `33749196739`; 0-behind expected-head merge `41eaf22f8b92057cdbe5427c590ccd84d7fbce9b` | MERGED |
+| Governance through PR #131 | PR #132 -> `2e0c946d30027419dfbd0723598ac34315cf6a86` | MERGED |
+| Wi-Fi scan result lifetime cleanup | PR #133 head `9ba7ec20cc396a46fae015201ed06f1a5ccb9111`; full `33755126372`; merge `e918aef8465435d4af87eaa6c1f001767a9d2170` | MERGED |
+| Schema-6 JSON depth guard | PR #135 head `71015e952fc8df5bcd40877027eb590ea9f8fb24`; focused `33756048306`, full `33756048441`; merge `ad6316b5e3dec6bca630d351a80c8e786fd61b69` | MERGED |
+| Inverter profile store stack headroom | PR #136 head `9ac9ec4718920c4b8f9f829542d2b9c266911872`; focused `33756766924`, full `33756767088`; merge `321198bb5d970aa5f4842331a229ce63475e0776` | MERGED |
+| Schema-6 config stack headroom | PR #137 head `2f34e60ab8e42b088babdeaa39e4c0c738f00c56`; focused `33761025944`, full `33761025927`; merge `43d4bd509ea07aadbd9ea18e9813e3ec11c60297` | MERGED |
+| Runtime-component app-config stack safety contract | PR #138 head `316a619608c6e83f7af9444ad0721b4300df7535`; focused `33762133658`, full `33762133649`; 0-behind expected-head merge `dd10809f4246713ab99b3ccc9c3b515ece94fd0d` | MERGED |
+| Project-wide app-config stack guard completion | PR #140 head `1bb64b117971709a394674eb73e11d10c5f4f30d`; focused `33765114501`, full `33765114492`; 0-behind expected-head merge `093954b5626c034e126fde3b773cedb1add92707` | MERGED |
+
+PR #134 is stale/superseded by #135. PR #139 was closed unmerged when #140 advanced `dev`; neither is current evidence.
 
 ## Held runtime / physical source identities
 
 ### Generator source transition
-Draft PR #106 head `a1620789235d21b515f9f245f2329fab88b50558` is software-GREEN but remains physically gated by #80. Its physical PASS cannot be inferred from CI and, after dev advances, any eventual merge must use an exact current-base replay plus fresh CI.
+Draft PR #106 head `a1620789235d21b515f9f245f2329fab88b50558` is software-GREEN but remains physically gated by #80. Its physical PASS cannot be inferred from CI and, after `dev` advances, any eventual merge must use an exact current-base replay plus fresh CI.
 
 ### Waveshare exact physical candidate
 - source `87841ecee727fe1d814d4186be8c8c26e4afafb4`
@@ -45,6 +54,7 @@ Draft PR #106 head `a1620789235d21b515f9f245f2329fab88b50558` is software-GREEN 
 - ZIP digest `sha256:89e621034d4c91096fc5d38dd57ac40eeeab34275e4af1fc0461b48575039096`
 - app SHA256 `8be2a2aad5f223d8b9bca498db2e12c04f7f205feaa9908b7922c37421c46593`
 - short physical display/touch/Alarms gate: PASS on this exact image
+- resources during short gate: internal DMA remained >20 kB with no collapse trend
 - first continuous soak: ~2 h / 121 consecutive one-minute samples plus 25 clean backend health rounds; ended when USB dock/power path disappeared, with no recorded firmware crash
 - required uninterrupted >=4 h / >=240-sample same-image gate: **INCOMPLETE**
 
@@ -61,7 +71,7 @@ Current official-document findings do not change that verdict: GoodWe public HT 
 
 ## Stale/superseded rule
 
-Stale PRs #77/#101/#104/#109/#115/#116/#118/#121/#123/#126/#128 and obsolete Waveshare promotion #46 are not current merge/evidence sources. Historical CI belongs only to its historical exact head.
+Stale PRs #77/#101/#104/#109/#115/#116/#118/#121/#123/#126/#128/#134/#139 and obsolete Waveshare promotion #46 are not current merge/evidence sources. Historical CI belongs only to its historical exact head.
 
 ## Required remaining release evidence
 

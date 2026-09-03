@@ -1,6 +1,6 @@
 # AISH-OS Requirements Closure Matrix v1
 
-Master program: #79. Live source/evidence overrides stale historical text. Audit baseline for this reconciliation: `dev` at `41eaf22f8b92057cdbe5427c590ccd84d7fbce9b` after PR #131.
+Master program: #79. Live source/evidence overrides stale historical text. Audit baseline for this reconciliation: `dev` at `093954b5626c034e126fde3b773cedb1add92707` after PR #140.
 
 | ID | Requirement group | Current state | Tracking / done gate |
 |---|---|---|---|
@@ -21,12 +21,14 @@ Master program: #79. Live source/evidence overrides stale historical text. Audit
 | R-MOD-04 | PCB/TIME_WAIT/multi-device/network endurance | NOT PHYSICALLY QUALIFIED | #83 |
 | R-ACQ-01 | no long Modbus scan in HTTP handler / cached acquisition | COMPLETE IN LIVE ENGINE | EM500 background acquisition contracts |
 | R-ACQ-02 | freshness/quality/last-good/backoff diagnostics | SOFTWARE VERIFIED / physical endurance remains | #83 |
-| R-CONFIG-01 | imported config numeric/depth/bounds fail closed and cannot arm control | SOFTWARE VERIFIED | `config_import_safety_source_contract.py` |
-| R-CONFIG-02 | legacy migration allocation failure cannot replace commissioned NVS | COMPLETE/MERGED | PR #122; merge `dfe93de50e2a5715f4d212ff3233d566d36e2cfd` |
+| R-CONFIG-01 | imported config numeric/depth/bounds fail closed and cannot arm control | SOFTWARE VERIFIED / HARDENED | legacy import contracts + PR #135 schema-6 pre-cJSON depth guard |
+| R-CONFIG-02 | legacy migration allocation failure cannot replace commissioned NVS | COMPLETE/MERGED | PR #122 `dfe93de50e2a5715f4d212ff3233d566d36e2cfd` |
 | R-CONFIG-03 | generic config/meter/inverter/profile mutations revoke live command authority before persistence | COMPLETE/MERGED | PR #127 `df282a3e8afee27dfc220694e4461e4ad49d2277` |
 | R-CONFIG-04 | Wi-Fi transport configuration revokes live command authority before persistence | COMPLETE/MERGED | PR #129 `5e5a63dba3e157d2658227ff691e9f975cedff96` |
 | R-CONFIG-05 | source-detection topology/register/threshold mutation revokes live command authority before persistence | COMPLETE/MERGED | PR #130 `0969a119e4fcb97405da26a59b55ec44a5a292f4` |
-| R-CONFIG-06 | current safety-relevant commissioning mutation surfaces are covered by one regression inventory | COMPLETE/MERGED | PR #131 `41eaf22f8b92057cdbe5427c590ccd84d7fbce9b` |
+| R-CONFIG-06 | current safety-relevant commissioning mutation surfaces covered by one regression inventory | COMPLETE/MERGED | PR #131 `41eaf22f8b92057cdbe5427c590ccd84d7fbce9b` |
+| R-CONFIG-07 | schema-6 init/import/export avoid whole config task-stack snapshots | COMPLETE/MERGED | PR #137 `43d4bd509ea07aadbd9ea18e9813e3ec11c60297` |
+| R-CONFIG-08 | project runtime C sources cannot introduce whole automatic `app_config_t` task-stack frames, including arrays/multi-declarators/common qualifiers | COMPLETE/MERGED REGRESSION GATE | PR #138 + PR #140 `093954b5626c034e126fde3b773cedb1add92707` |
 | R-INV-01 | production profile manual/model/firmware/identity mapping | BLOCKED EXTERNAL | #82 |
 | R-INV-02 | command width/scale/range/finite + FC06/FC16 | COMPLETE/MERGED GENERIC CORE | PR #108 |
 | R-INV-03 | write/readback/tolerance/rollback/safe-zero core | GENERIC CORE VERIFIED / manufacturer bench pending | #82/#83 |
@@ -34,14 +36,16 @@ Master program: #79. Live source/evidence overrides stale historical text. Audit
 | R-INV-05 | profile assignment disables control before new map persists | COMPLETE/MERGED | PR #117 `1360c4a8356ff8acdc19878f65da311c0b0eccc6` |
 | R-INV-06 | positive writes require complete profile evidence + fresh mapped ON_GRID; zero remains fail-safe | COMPLETE/MERGED GENERIC AUTHORITY / profiles still blocked | PR #119 `d9cd81bcf500a034d6cc88ea92e3bb74e42ed258`; #82 |
 | R-INV-07 | production release cannot pass with zero actual production-approved inverter profiles | COMPLETE/MERGED | PR #112 `7a683092696c6334870b5c1007e086f8556dbc88`; #82 remains blocking |
-| R-INV-08 | pending manufacturer profile transport is explicitly unqualified, never guessed | COMPLETE/MERGED | PR #113 `4aa935dfcf944f83cbb96333be67f99878e32c30` |
+| R-INV-08 | pending manufacturer profile transport explicitly unqualified, never guessed | COMPLETE/MERGED | PR #113 `4aa935dfcf944f83cbb96333be67f99878e32c30` |
+| R-INV-09 | profile-assignment config snapshot does not consume a full HTTP-task stack frame | COMPLETE/MERGED | PR #136 `321198bb5d970aa5f4842331a229ce63475e0776` |
 | R-NET-01 | Wi-Fi config preservation/no compiled site credentials | COMPLETE/MERGED | PR #100 |
 | R-NET-02 | retry/recovery AP/single scan owner | SOFTWARE VERIFIED / physical endurance remains | #83 |
+| R-NET-03 | successful Wi-Fi scan results are released on zero-result/allocation/fetch failure paths | COMPLETE/MERGED | PR #133 `e918aef8465435d4af87eaa6c1f001767a9d2170` |
 | R-WEB-01 | browser pollers bounded/cancellable | COMPLETE AUDIT | #90 closed |
 | R-WEB-02 | dead/unserved asset cleanup | COMPLETE | PR #75; #90 |
 | R-WEB-03 | error rendering/DOM mutation cannot freeze served UI | COMPLETE/MERGED | PR #105 |
 | R-AUTH-01 | production Engineering authentication/endpoints | SOFTWARE VERIFIED | production access contracts |
-| R-HTTP-01 | bounded body/depth/timeouts; no blocking/heap work under spinlocks | SOFTWARE VERIFIED/MERGED REGRESSION GATES | shared `http_json`; PR #107 |
+| R-HTTP-01 | bounded body/depth/timeouts; no blocking/heap work under spinlocks | SOFTWARE VERIFIED/MERGED REGRESSION GATES | shared `http_json`; PR #107; PR #135 |
 | R-NUM-01 | NaN/Inf/non-finite fail-safe | SOFTWARE VERIFIED | decoder/config/control contracts |
 | R-SAFE-01 | safety alarm snapshot cannot expose transient false all-clear | COMPLETE/MERGED | PR #124 `3096f2bfa10e86b3163b99ae7622bffded6791ac` |
 | R-OPS-01 | operator vs engineering product model | SOFTWARE MATURE / HELD PRESENTATION SLICE | current product contracts; PR #54 held |

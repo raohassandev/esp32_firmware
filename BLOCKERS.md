@@ -1,6 +1,6 @@
 # AISH-OS Blocker Ledger v2
 
-Master program: #79. Live evidence overrides stale snapshots. Current software integration baseline: `41eaf22f8b92057cdbe5427c590ccd84d7fbce9b`.
+Master program: #79. Live evidence overrides stale snapshots. Current software integration baseline: `093954b5626c034e126fde3b773cedb1add92707` after PR #140.
 
 ## B-001 — Waveshare final continuous acceptance
 
@@ -25,7 +25,7 @@ After final soak PASS, complete HMI/Core/backend parity/recovery and save->readb
 **Draft PR:** #106, exact head `a1620789235d21b515f9f245f2329fab88b50558`  
 **State:** SOFTWARE GREEN / EXTERNAL BENCH BLOCKED
 
-Physical Grid<->Generator/Transfer/Island/Sync/conflict/stale/source-loss behavior, actual run/breaker/ATS evidence and meter sign/scaling must pass before merge. Since `dev` has advanced, after physical PASS replay only the identical validated runtime slice onto current dev and obtain fresh exact-head CI.
+Physical Grid<->Generator/Transfer/Island/Sync/conflict/stale/source-loss behavior, actual run/breaker/ATS evidence and meter sign/scaling must pass before merge. Since `dev` has advanced, after physical PASS replay only the identical validated runtime slice onto current `dev` and obtain fresh exact-head CI.
 
 ## B-004 — Modbus/network physical endurance
 
@@ -82,6 +82,13 @@ Software CI cannot close Grid/DG/mixed-source FAT, communication-loss endurance,
 - Wi-Fi transport configuration leaving live command authority active during persistence — PR #129.
 - Source-detection topology/register/threshold changes leaving live command authority active during persistence — PR #130.
 - Missing single regression inventory for current safety-relevant commissioning mutation surfaces — PR #131.
+- Wi-Fi driver scan-result lifetime leak on failed/empty scan paths — PR #133.
+- Schema-6 wrapper parsing JSON ahead of the established depth gate — PR #135.
+- Whole `app_config_t` snapshot on the inverter-profile HTTP-task path — PR #136.
+- Whole schema-6 init/import/export config snapshots on main/HTTP task stacks — PR #137.
+- Runtime-component automatic `app_config_t` stack-frame regression gap — PR #138.
+- Project-wide app-config guard missing `main/` ownership and declaration escape forms — PR #140; focused `33765114501`, full `33765114492`, merge `093954b5626c034e126fde3b773cedb1add92707`.
+- Stale governance PR #139 — closed unmerged after #140 advanced `dev`; governance replay moved to a fresh current-base branch.
 
 ## Non-blocking separate track
 
