@@ -1,0 +1,30 @@
+name: Wi-Fi config runtime disable checks
+
+on:
+  pull_request:
+    paths:
+      - 'components/web_server/web_api.c'
+      - 'components/web_server/wifi_config_runtime_guard.c'
+      - 'components/web_server/CMakeLists.txt'
+      - 'components/control_engine/control_engine.c'
+      - 'tests/wifi_config_runtime_disable_source_contract.py'
+      - 'tests/config_import_safety_source_contract.py'
+      - 'tests/network_commissioning_flow_source_contract.py'
+      - '.github/workflows/wifi-config-runtime-disable.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wifi-runtime-disable:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Wi-Fi persistence runtime-disable ordering
+        run: python3 tests/wifi_config_runtime_disable_source_contract.py
+      - name: Re-run configuration and network contracts
+        run: |
+          python3 tests/config_import_safety_source_contract.py
+          python3 tests/network_commissioning_flow_source_contract.py
