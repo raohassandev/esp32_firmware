@@ -1,0 +1,28 @@
+name: Safe restart checks
+
+on:
+  pull_request:
+    paths:
+      - 'components/web_server/web_api.c'
+      - 'components/web_server/safe_restart.c'
+      - 'components/web_server/include/safe_restart.h'
+      - 'components/web_server/CMakeLists.txt'
+      - 'components/control_engine/control_engine.c'
+      - 'tests/safe_restart_source_contract.py'
+      - 'tests/solar_grid_control_source_contract.py'
+      - '.github/workflows/safe-restart.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  safe-restart:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check safe-zero-before-restart contract
+        run: python3 tests/safe_restart_source_contract.py
+      - name: Re-run control safe-zero contract
+        run: python3 tests/solar_grid_control_source_contract.py
