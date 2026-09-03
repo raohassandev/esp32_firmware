@@ -1,0 +1,39 @@
+name: Waveshare soak capture tooling
+
+on:
+  pull_request:
+    paths:
+      - 'tools/waveshare_soak_capture.py'
+      - 'tests/waveshare_soak_capture_test.py'
+      - 'docs/WAVESHARE_SOAK_EXECUTOR.md'
+      - '.github/workflows/waveshare-soak-capture-tools.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  soak-capture-tools:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run capture helper tests
+        run: python3 tests/waveshare_soak_capture_test.py
+      - name: Check CLI syntax without physical serial dependency
+        run: python3 tools/waveshare_soak_capture.py --help >/dev/null
+      - name: Assert final-soak defaults remain release strict
+        run: |
+          python3 - <<'PY'
+          import importlib.util, sys
+          from pathlib import Path
+          p=Path('tools/waveshare_soak_capture.py')
+          s=importlib.util.spec_from_file_location('waveshare_soak_capture_ci',p)
+          m=importlib.util.module_from_spec(s); sys.modules[s.name]=m; s.loader.exec_module(m)
+          a=m.build_parser().parse_args([])
+          assert a.duration_seconds == 14400
+          assert a.min_runtime_seconds == 14400
+          assert a.min_soak_samples == 240
+          assert a.min_dma_free == 20000
+          print('strict Waveshare soak defaults PASS')
+          PY
