@@ -1,0 +1,24 @@
+name: Inverter command schema safety checks
+
+on:
+  pull_request:
+    paths:
+      - 'components/inverter_manager/**'
+      - 'tests/inverter_command_schema_safety_source_contract.py'
+      - 'tests/inverter_runtime_write_gate_source_contract.py'
+      - '.github/workflows/inverter-command-schema-safety.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  command-schema:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check command width, scale and range safety
+        run: python3 tests/inverter_command_schema_safety_source_contract.py
+      - name: Re-run transactional write/readback/rollback contract
+        run: python3 tests/inverter_runtime_write_gate_source_contract.py
