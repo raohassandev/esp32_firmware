@@ -1,0 +1,23 @@
+name: Engineering error DOM stability checks
+
+on:
+  pull_request:
+    paths:
+      - 'web/engineering-errors.js'
+      - 'tests/engineering_error_dom_stability_source_contract.py'
+      - '.github/workflows/engineering-error-dom-stability.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Engineering error script syntax
+        run: node --check web/engineering-errors.js
+      - name: Check DOM stability contract
+        run: python3 tests/engineering_error_dom_stability_source_contract.py
