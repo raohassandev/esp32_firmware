@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -70,6 +71,8 @@ REQUIRED_FATAL_COUNTS = (
 )
 
 MIN_MARK_VALID_STABILIZATION_SECONDS = 30.0
+GIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 @dataclass
@@ -86,6 +89,14 @@ class OtaPhysicalResult:
 
 def _text(value: object, minimum: int = 1) -> bool:
     return len(str(value or "").strip()) >= minimum
+
+
+def _git_sha(value: object) -> bool:
+    return GIT_SHA_RE.fullmatch(str(value or "").strip().lower()) is not None
+
+
+def _sha256(value: object) -> bool:
+    return SHA256_RE.fullmatch(str(value or "").strip().lower()) is not None
 
 
 def _timestamp(value: object) -> datetime | None:
@@ -211,6 +222,10 @@ def _check_common_scenario(
             failures.append(f"{prefix}:engineering_auth_not_proven")
         if scenario.get("upload_accepted") is not True:
             failures.append(f"{prefix}:valid_upload_not_accepted")
+        if scenario.get("firmware_write_completed") is not True:
+            failures.append(f"{prefix}:firmware_write_completion_not_proven")
+        if scenario.get("staged_image_validated") is not True:
+            failures.append(f"{prefix}:staged_image_validation_not_proven")
         staged_digest = str(scenario.get("staged_app_digest", "")).strip().lower()
         if staged_digest != expected_release_app_digest.lower():
             failures.append(f"{prefix}:staged_app_digest_mismatch")
@@ -222,6 +237,8 @@ def _check_common_scenario(
             failures.append(f"{prefix}:engineering_auth_not_proven")
         if scenario.get("upload_rejected") is not True:
             failures.append(f"{prefix}:invalid_upload_not_rejected")
+        if scenario.get("rejected_before_firmware_write") is not True:
+            failures.append(f"{prefix}:rejection_before_firmware_write_not_proven")
         if scenario.get("rejected_before_boot_selection") is not True:
             failures.append(f"{prefix}:rejection_before_boot_selection_not_proven")
 
@@ -236,6 +253,8 @@ def _check_common_scenario(
             failures.append(f"{prefix}:controlled_power_loss_not_proven")
         if running_after and running_after != previous_valid_partition:
             failures.append(f"{prefix}:previous_valid_partition_not_running_after_power_loss")
+        if boot_after and boot_after != previous_valid_partition:
+            failures.append(f"{prefix}:previous_valid_partition_not_boot_target_after_power_loss")
 
     elif scenario_id == "partial_image_not_selected":
         if scenario.get("partial_image_present") is not True:
@@ -246,16 +265,24 @@ def _check_common_scenario(
     elif scenario_id == "previous_slot_boot":
         if running_after and running_after != previous_valid_partition:
             failures.append(f"{prefix}:previous_slot_not_running")
+        if boot_after and boot_after != previous_valid_partition:
+            failures.append(f"{prefix}:previous_slot_not_boot_target")
         if scenario.get("previous_slot_boot_proven") is not True:
             failures.append(f"{prefix}:previous_slot_boot_not_proven")
 
     elif scenario_id == "staged_explicit_reboot":
+        if boot_before and boot_before != target_partition:
+            failures.append(f"{prefix}:staged_target_not_boot_target_before_reboot")
+        if running_before and running_before != previous_valid_partition:
+            failures.append(f"{prefix}:previous_partition_not_running_before_explicit_reboot")
         if scenario.get("staged_image_validated") is not True:
             failures.append(f"{prefix}:staged_image_validation_not_proven")
         if scenario.get("explicit_authenticated_reboot") is not True:
             failures.append(f"{prefix}:explicit_authenticated_reboot_not_proven")
         if running_after and running_after != target_partition:
             failures.append(f"{prefix}:target_partition_not_running_after_explicit_reboot")
+        if boot_after and boot_after != target_partition:
+            failures.append(f"{prefix}:target_partition_not_boot_target_after_explicit_reboot")
 
     elif scenario_id == "pending_verification_first_boot":
         if lifecycle_after != "pending_verification":
@@ -264,6 +291,8 @@ def _check_common_scenario(
             failures.append(f"{prefix}:first_boot_prematurely_marked_valid")
         if running_after and running_after != target_partition:
             failures.append(f"{prefix}:target_partition_not_running_pending_verification")
+        if boot_after and boot_after != target_partition:
+            failures.append(f"{prefix}:target_partition_not_boot_target_pending_verification")
 
     elif scenario_id == "mark_valid_stabilization":
         seconds = scenario.get("stabilization_seconds")
@@ -275,6 +304,8 @@ def _check_common_scenario(
             failures.append(f"{prefix}:valid_lifecycle_not_observed")
         if running_after and running_after != target_partition:
             failures.append(f"{prefix}:validated_target_not_running")
+        if boot_after and boot_after != target_partition:
+            failures.append(f"{prefix}:validated_target_not_boot_target")
 
     elif scenario_id == "deliberate_rollback":
         if scenario.get("rollback_triggered") is not True:
@@ -283,6 +314,8 @@ def _check_common_scenario(
             failures.append(f"{prefix}:previous_slot_recovery_not_proven")
         if running_after and running_after != previous_valid_partition:
             failures.append(f"{prefix}:rollback_did_not_restore_previous_partition")
+        if boot_after and boot_after != previous_valid_partition:
+            failures.append(f"{prefix}:rollback_did_not_restore_previous_boot_target")
 
     elif scenario_id == "fail_closed_control":
         if scenario.get("uncertainty_states_exercised") is not True:
@@ -309,15 +342,26 @@ def evaluate(
 ) -> OtaPhysicalResult:
     failures: list[str] = []
 
-    source_sha = str(record.get("release_source_sha", "")).strip()
-    tree_sha = str(record.get("release_tree_sha", "")).strip()
+    source_sha = str(record.get("release_source_sha", "")).strip().lower()
+    tree_sha = str(record.get("release_tree_sha", "")).strip().lower()
     artifact_digest = str(record.get("release_artifact_digest", "")).strip().lower()
     app_digest = str(record.get("release_app_digest", "")).strip().lower()
     config_identity = str(record.get("config_identity", "")).strip()
 
-    if source_sha != expected_source_sha:
+    if not _git_sha(source_sha):
+        failures.append("release_source_sha_invalid")
+    if not _git_sha(tree_sha):
+        failures.append("release_tree_sha_invalid")
+    if not _sha256(artifact_digest):
+        failures.append("release_artifact_digest_invalid")
+    if not _sha256(app_digest):
+        failures.append("release_app_digest_invalid")
+    if not _text(config_identity, 8):
+        failures.append("config_identity_invalid")
+
+    if source_sha != expected_source_sha.strip().lower():
         failures.append("release_source_sha_mismatch")
-    if tree_sha != expected_tree_sha:
+    if tree_sha != expected_tree_sha.strip().lower():
         failures.append("release_tree_sha_mismatch")
     if artifact_digest != expected_artifact_digest.strip().lower():
         failures.append("release_artifact_digest_mismatch")
