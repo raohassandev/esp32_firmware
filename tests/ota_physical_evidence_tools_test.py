@@ -11,10 +11,10 @@ sys.path.insert(0, str(TOOLS))
 from ota_physical_evidence_verify import REQUIRED_SCENARIOS, evaluate
 
 
-SOURCE = "release-source-sha"
-TREE = "release-tree-sha"
-ARTIFACT = "sha256:release-package"
-APP = "sha256:release-app"
+SOURCE = "a" * 40
+TREE = "b" * 40
+ARTIFACT = "sha256:" + "c" * 64
+APP = "sha256:" + "d" * 64
 CONFIG = "config-sha256:release"
 PREVIOUS = "ota_0"
 TARGET = "ota_1"
@@ -51,6 +51,8 @@ def base_scenario(scenario_id: str) -> dict:
         result.update({
             "engineering_authenticated": True,
             "upload_accepted": True,
+            "firmware_write_completed": True,
+            "staged_image_validated": True,
             "staged_app_digest": APP,
             "boot_partition_after": TARGET,
             "lifecycle_after": "staged"
@@ -59,6 +61,7 @@ def base_scenario(scenario_id: str) -> dict:
         result.update({
             "engineering_authenticated": True,
             "upload_rejected": True,
+            "rejected_before_firmware_write": True,
             "rejected_before_boot_selection": True,
             "partial_or_invalid_selected": False
         })
@@ -93,7 +96,9 @@ def base_scenario(scenario_id: str) -> dict:
         result.update({
             "staged_image_validated": True,
             "explicit_authenticated_reboot": True,
+            "running_partition_before": PREVIOUS,
             "running_partition_after": TARGET,
+            "boot_partition_before": TARGET,
             "boot_partition_after": TARGET,
             "lifecycle_before": "staged",
             "lifecycle_after": "pending_verification",
@@ -181,17 +186,35 @@ class OtaPhysicalEvidenceTests(unittest.TestCase):
         self.assertTrue(evaluate(passing_record(), SOURCE, TREE, ARTIFACT, APP, CONFIG).passed)
 
     def test_wrong_release_identity_fails(self) -> None:
-        result = evaluate(passing_record(), "wrong", TREE, ARTIFACT, APP, CONFIG)
+        result = evaluate(passing_record(), "e" * 40, TREE, ARTIFACT, APP, CONFIG)
         self.assertFalse(result.passed)
         self.assertIn("release_source_sha_mismatch", result.failures)
 
-    def test_invalid_image_cannot_change_boot_target(self) -> None:
+    def test_malformed_identity_fails_even_if_expected_matches(self) -> None:
+        record = passing_record()
+        record["release_source_sha"] = "not-a-git-sha"
+        record["release_artifact_digest"] = "sha256:not-a-digest"
+        result = evaluate(
+            record,
+            "not-a-git-sha",
+            TREE,
+            "sha256:not-a-digest",
+            APP,
+            CONFIG,
+        )
+        self.assertFalse(result.passed)
+        self.assertIn("release_source_sha_invalid", result.failures)
+        self.assertIn("release_artifact_digest_invalid", result.failures)
+
+    def test_invalid_image_rejected_before_write_and_boot_selection(self) -> None:
         record = passing_record()
         item = next(x for x in record["scenarios"] if x["id"] == "invalid_image_rejection")
+        item["rejected_before_firmware_write"] = False
         item["boot_partition_after"] = TARGET
         item["partial_or_invalid_selected"] = True
         result = evaluate(record, SOURCE, TREE, ARTIFACT, APP, CONFIG)
         self.assertFalse(result.passed)
+        self.assertIn("scenario:invalid_image_rejection:rejection_before_firmware_write_not_proven", result.failures)
         self.assertIn("scenario:invalid_image_rejection:incomplete_or_invalid_image_selected", result.failures)
         self.assertIn("scenario:invalid_image_rejection:partial_or_invalid_selected_not_false", result.failures)
 
@@ -203,15 +226,25 @@ class OtaPhysicalEvidenceTests(unittest.TestCase):
         self.assertFalse(result.passed)
         self.assertIn("scenario:interrupted_upload:interrupted_upload_marked_complete", result.failures)
 
-    def test_power_loss_must_recover_previous_valid_partition_and_nvs(self) -> None:
+    def test_power_loss_must_recover_previous_valid_partition_boot_target_and_nvs(self) -> None:
         record = passing_record()
         item = next(x for x in record["scenarios"] if x["id"] == "power_loss_during_update")
         item["running_partition_after"] = TARGET
+        item["boot_partition_after"] = TARGET
         item["nvs_after"] = {"sentinel": 999}
         result = evaluate(record, SOURCE, TREE, ARTIFACT, APP, CONFIG)
         self.assertFalse(result.passed)
         self.assertIn("scenario:power_loss_during_update:previous_valid_partition_not_running_after_power_loss", result.failures)
+        self.assertIn("scenario:power_loss_during_update:previous_valid_partition_not_boot_target_after_power_loss", result.failures)
         self.assertIn("scenario:power_loss_during_update:nvs_continuity_failed", result.failures)
+
+    def test_staged_reboot_requires_target_already_selected(self) -> None:
+        record = passing_record()
+        item = next(x for x in record["scenarios"] if x["id"] == "staged_explicit_reboot")
+        item["boot_partition_before"] = PREVIOUS
+        result = evaluate(record, SOURCE, TREE, ARTIFACT, APP, CONFIG)
+        self.assertFalse(result.passed)
+        self.assertIn("scenario:staged_explicit_reboot:staged_target_not_boot_target_before_reboot", result.failures)
 
     def test_pending_first_boot_cannot_be_prematurely_valid(self) -> None:
         record = passing_record()
@@ -231,15 +264,17 @@ class OtaPhysicalEvidenceTests(unittest.TestCase):
         self.assertFalse(result.passed)
         self.assertIn("scenario:mark_valid_stabilization:stabilization_too_short", result.failures)
 
-    def test_deliberate_rollback_must_restore_previous_slot(self) -> None:
+    def test_deliberate_rollback_must_restore_previous_slot_and_boot_target(self) -> None:
         record = passing_record()
         item = next(x for x in record["scenarios"] if x["id"] == "deliberate_rollback")
         item["running_partition_after"] = TARGET
+        item["boot_partition_after"] = TARGET
         item["previous_slot_recovered"] = False
         result = evaluate(record, SOURCE, TREE, ARTIFACT, APP, CONFIG)
         self.assertFalse(result.passed)
         self.assertIn("scenario:deliberate_rollback:previous_slot_recovery_not_proven", result.failures)
         self.assertIn("scenario:deliberate_rollback:rollback_did_not_restore_previous_partition", result.failures)
+        self.assertIn("scenario:deliberate_rollback:rollback_did_not_restore_previous_boot_target", result.failures)
 
     def test_control_must_remain_blocked(self) -> None:
         record = passing_record()
