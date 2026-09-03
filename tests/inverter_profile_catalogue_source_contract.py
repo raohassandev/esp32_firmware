@@ -14,6 +14,8 @@ def require(condition: bool, message: str) -> None:
 require("inverter_profiles.c" in CMAKE, "profile catalogue must be compiled")
 require("INVERTER_PROFILE_QUALIFICATION_PRODUCTION_APPROVED" in HEADER,
         "catalogue must expose an explicit production approval gate")
+require("INVERTER_PROFILE_CONNECTION_UNQUALIFIED" in HEADER,
+        "catalogue must expose an explicit unqualified transport state")
 require("inverter_profile_allows_write" in HEADER and "inverter_profile_allows_write" in SOURCE,
         "catalogue must expose a centralized write-eligibility decision")
 require("profile->has_power_limit" in SOURCE,
@@ -27,6 +29,8 @@ require("!profile->simulator_only" in SOURCE,
 require("profile->simulator_only" in SOURCE and
         "INVERTER_PROFILE_QUALIFICATION_SIMULATOR_VERIFIED" in SOURCE,
         "simulator-only profiles must have an explicit read qualification path")
+require('case INVERTER_PROFILE_CONNECTION_UNQUALIFIED: return "Unqualified — verify manufacturer transport";' in SOURCE,
+        "unqualified transport must be truthful in the Engineering API")
 
 for profile_id in [
     "soltrix.sim.huawei.v1",
@@ -51,5 +55,9 @@ for profile_id in [
             f"{profile_id} must stay write-locked until manual extraction and qualification")
     require("PRODUCTION_APPROVED" not in block,
             f"{profile_id} must not claim production approval")
+    require(".connection = INVERTER_PROFILE_CONNECTION_UNQUALIFIED" in block,
+            f"{profile_id} must not guess TCP/RTU/logger transport before model-specific qualification")
+    require('Modbus (transport unqualified)' in block,
+            f"{profile_id} protocol label must state that transport is unqualified")
 
 print("Inverter profile catalogue safety contract passed")
