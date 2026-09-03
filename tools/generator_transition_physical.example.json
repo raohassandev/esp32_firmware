@@ -1,0 +1,15 @@
+{
+  "firmware_sha": "",
+  "artifact_digest": "",
+  "site_id": "",
+  "config_identity": "",
+  "topology": {
+    "topology_ref": "",
+    "supports_sync": false,
+    "power_sign_used_as_source_authority": false
+  },
+  "source_signal_refs": [],
+  "meter_refs": [],
+  "manual_wiring_refs": [],
+  "scenarios": []
+}
