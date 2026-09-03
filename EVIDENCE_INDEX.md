@@ -4,67 +4,73 @@ Master program: #79. Evidence is valid only for the exact source/head/artifact n
 
 ## Live integration baseline
 
-- current `dev` snapshot: `430e9157eb82196501f896d9323da16c86f9255e`
-- PR #97 AISH-OS v2 governance head: `3e8eef412ad4356b2be309e356c19658732572b8`
-- PR #97 full Firmware/Web/ESP32-S3 run `33716216708`: GREEN
-- PR #97 merge: `430e9157eb82196501f896d9323da16c86f9255e`
+Current `dev`: `d9cd81bcf500a034d6cc88ea92e3bb74e42ed258` after governed PR #119 merge.
 
-## Merged software evidence
+## Current merged software evidence chain
 
-| Capability | Evidence | State |
+| Capability | Exact evidence | State |
 |---|---|---|
-| Generator strong evidence | PR #58 / merge `ee296dbe62baed4b837f487898c6d50adf416d98`; focused `33619278241`; full `33619278180` | MERGED |
-| Generator 1–3 persisted config/schema migration | PR #63 | MERGED |
-| Generator 1–3 runtime/fleet aggregation | PR #64 | MERGED |
-| Browser lifecycle batch | PR #59; head `42572c5717abe97e32cdba70aa31a7f14a95b221`; focused `33620764632`; full `33620764635` | MERGED |
-| Operator history/alarm lifecycle | PR #62 | MERGED |
-| Device diagnostics lifecycle | PR #65 | MERGED |
-| Active Engineering auth deadlines | PR #69 | MERGED |
-| EM500 lifecycle | PR #71 | MERGED |
-| Operator product-view lifecycle | PR #73 | MERGED |
-| Dead Engineering asset cleanup | PR #75 | MERGED |
-| Main app status lifecycle | PR #76 | MERGED |
-| AISH-OS v2 program governance | PR #97 head `3e8eef412ad4356b2be309e356c19658732572b8`; full run `33716216708` | MERGED as `430e9157...` |
+| AISH-OS v2 governance | PR #97 -> `430e9157eb82196501f896d9323da16c86f9255e`; full run `33716216708` | MERGED |
+| Modbus connection modes | PR #99 -> `3aa69162a6847a852e9b648ef8ec6988f5e3f296` | MERGED |
+| Production Wi-Fi build credential protection | PR #100 -> `7d9abdccb032b387525df9240b2943b74324a8e9` | MERGED |
+| Inverter identity revalidation | PR #102 -> `b60bcb9474f4ed7dd0b0ed631410b54628a47d01` | MERGED |
+| Requirements reconciliation | PR #103 -> `81b02a4b6188b9f7150d9161883f0465e14ba6f5` | MERGED |
+| Engineering DOM/error stability | PR #105 -> `6569e36e019adf4b890d04f163091f04eec6020b` | MERGED |
+| Web spinlock/nonblocking regression | PR #107 -> `6ae86b09294b3e3a2c8a8eaf085ce5c35c69cf74`; focused `33722607313`, full `33722607276` | MERGED |
+| Inverter command width/scale/range/FC06/FC16 safety | PR #108 head `0807c735375de6d749c1f9eda0eeb252336453a4`; focused `33723570913`, full `33723570919`; merge `b8996d5f834cc8edeb084f56c802ff5fc6ecd04d` | MERGED |
+| Modbus cumulative-deadline endpoint admission | PR #114 head `ecfbd77a58fc0ec052058938304b37e8ad850beb`; mode `33728128805`, endpoint `33728128876`, full `33728128866`; merge `fa8ca9b17e08f2478e104942b9d6dbfad4f0ca7f` | MERGED |
+| Profile assignment ordering interlock | PR #117 head `115ec2fbe84cddc0b898027e07c25e0028f5003b`; full `33729168281` plus focused regressions GREEN; merge `1360c4a8356ff8acdc19878f65da311c0b0eccc6` | MERGED |
+| Production inverter write authority | PR #119 head `eef24d355f8cc8f01955cd2ff743aab171738af0`; authority `33729644794`, release gate `33729644834`, identity `33729644804`, command schema `33729644806`, full `33729644800`; merge `d9cd81bcf500a034d6cc88ea92e3bb74e42ed258` | MERGED |
 
-## Software ready but physical/baseline gated
+Earlier merged generator/browser/auth/acquisition work remains valid historical evidence where its exact source identity is cited; current release claims must be checked against live `dev`.
 
-| Lane | Exact head | Software evidence/state | Physical/baseline state |
-|---|---|---|---|
-| Generator source-transition admission | PR #77 `b36cfa40b9cc3bf389199663ceaf0855aeecb18e` | Generator checks `33647531871` GREEN; full `33647531955` GREEN | #80 bench FAT required before merge; rebase/replay to current dev after physical PASS if behind |
-| Secure OTA | PR #52 `f36a302953f453ca968d2f0714e3ebd97432176a` | Secure OTA `33615987142` GREEN; full `33615987013` GREEN | #86/#50 physical rollback qualification; baseline held by Waveshare |
-| Operator continuity/verdict | PR #54 `61f95a2ca87f659884f372cff6568b7e88e136d8` | focused `33617779040` GREEN; full `33617778825` GREEN | replay/reconcile after Waveshare source graph closes |
+## Held runtime / physical source identities
 
-## Waveshare current physical candidate
+### Generator source transition
+- Draft PR #106 head `a1620789235d21b515f9f245f2329fab88b50558`.
+- Software CI is GREEN.
+- #80 physical bench matrix is mandatory before merge; if `dev` has advanced, replay identical validated runtime content onto live `dev` only after physical PASS and prove equivalence with fresh CI.
 
-- PR #57 source: `87841ecee727fe1d814d4186be8c8c26e4afafb4`
-- tree: `6ddd7900f9b4ece0fba9349b905e1c078fc3401e`
-- package run: `33622358267`
-- artifact: `9843536218` / `waveshare-800x480-87841ece`
-- ZIP digest: `sha256:89e621034d4c91096fc5d38dd57ac40eeeab34275e4af1fc0461b48575039096`
-- app SHA256: `8be2a2aad5f223d8b9bca498db2e12c04f7f205feaa9908b7922c37421c46593`
-- package checksums: 16/16 PASS
-- short physical display/touch/Alarms gate: PASS
-- short-gate runtime: zero WDT/panic/NO_MEM/unexpected reboot; DMA/resources healthy above >=20 kB floor
-- continuous soak attempt: about 2 h / 121 consecutive one-minute samples clean; ended when USB hub/power path disappeared, with no firmware crash evidence
-- final continuous >=4 h / >=240-sample gate: INCOMPLETE
+### Waveshare exact physical candidate
+- PR #57 source `87841ecee727fe1d814d4186be8c8c26e4afafb4`.
+- tree `6ddd7900f9b4ece0fba9349b905e1c078fc3401e`.
+- package run `33622358267`.
+- artifact `9843536218` / `waveshare-800x480-87841ece`.
+- ZIP digest `sha256:89e621034d4c91096fc5d38dd57ac40eeeab34275e4af1fc0461b48575039096`.
+- application SHA256 `8be2a2aad5f223d8b9bca498db2e12c04f7f205feaa9908b7922c37421c46593`.
+- package checksums 16/16 PASS.
+- short physical display/touch/Alarms gate PASS on this exact image: no recurring ~5 s sweep/reload/flicker/corruption, Alarms opens, touch responsive, zero WDT/panic/NO_MEM/unexpected reset, healthy DMA/resources and fail-closed commissioning gate.
+- first continuous soak: ~2 h / 121 consecutive one-minute samples clean with 25 backend health rounds; terminated by disappearance of the USB dock/power path, not by recorded firmware crash.
+- final required uninterrupted >=4 h / >=240-sample same-image soak: **INCOMPLETE**. Partial runs must not be added together.
 
-Therefore PR #57 and PR #20 remain unpromoted. Issue #87 coordinates final soak/parity/persistence/promotion.
+Therefore PR #57/#20 remain unpromoted. #87 owns the remaining Waveshare sequence; after final soak PASS, #25 backend parity and #26 persistence/ARM remain required before promotion.
 
-## Active WIP
+### Secure OTA
+PR #52 is software-qualified on the frozen Phase-1 line. Physical interrupted-upload, power-loss, previous-slot, pending-verification, mark-valid and rollback evidence must be executed later against the intended accepted release baseline under #86; current source CI cannot be inherited as physical PASS.
 
-- **L1 #88/#78** `work/modbus/connection-modes`: pre-PR97 snapshot head `3cac10e34682274fc6362e025e1b1456d0421cd7`; it was 4 commits ahead / 0 behind old dev and touched only four Modbus/config files. Live dev has since advanced by governance PR #97, so reconcile WIP to current dev before final PR/merge. Do not treat branch as completed evidence until safe config migration, API exposure, tests, exact-head full CI and governed merge finish.
-- **L10 #90:** final served-browser poller audit pending closure.
-- **L12 #92:** requirements closure matrix live-verification pending.
+## Production inverter qualification boundary
 
-## Superseded/failed Waveshare candidates — never reuse for release evidence
+PRs #102/#108/#117/#119 harden the generic engine and fail closed, but they do **not** approve Huawei/GoodWe/Solis/FoxESS/Knox production register maps. #82 still requires exact official manual/model/firmware identity plus physical identity/telemetry/status/write/readback/rollback evidence and signed approval. Positive production commands are now additionally gated by complete profile evidence and fresh mapped ON_GRID fleet status; fail-safe zero remains available.
 
-`ec4fb846...`, `02bc128a...`, `09c137f3...`, `01c1c272...`.
+## Stale/superseded rule
+
+Closed stale replay PRs #115/#116/#118 are not release evidence. Historical stale PRs #77/#101/#104/#109 and obsolete Waveshare promotion PR #46 are not merge sources. A current-base replay becomes authoritative only after its own exact-head CI and governed merge.
+
+## Required remaining release evidence
+
+1. #87/#27 uninterrupted >=4 h Waveshare same-image evidence, then #25 and #26.
+2. #80 source-transition physical matrix tied to exact runtime source.
+3. #81 real site source-contact/polarity/meter mapping.
+4. #82 each production inverter profile official manual + bench qualification record.
+5. #86 OTA rollback/interruption physical record on intended baseline.
+6. #83 all three Modbus modes/network endurance, Grid/DG/mixed-source FAT and signed SAT.
+7. Final release SHA/config/profile/artifact traceability and no critical blocker.
 
 ## Evidence rules
 
-1. Re-fetch the exact current PR head immediately before merge.
-2. A physical PASS does not transfer across a changed source tree unless identity is explicitly proven and the governing gate allows it.
+1. Re-fetch exact current PR head and live target immediately before merge.
+2. Physical PASS never transfers to a changed source/artifact/config/profile identity unless equivalence is explicitly proven and the governing gate permits transfer.
 3. CI/source/simulator evidence cannot manufacture a hardware PASS.
-4. Generic Modbus behavior cannot approve a production inverter profile.
-5. Partial soak intervals are evidence of stability but cannot be added together to fake one required uninterrupted duration.
-6. Failed/superseded candidates remain historical evidence only and must never become active promotion sources.
+4. Generic Modbus or inverter-engine behavior cannot approve a manufacturer profile.
+5. Partial soak intervals cannot be added together to fake one required uninterrupted duration.
+6. Failed/superseded candidates remain historical evidence only.
