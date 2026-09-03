@@ -21,6 +21,8 @@ esp_err_t config_manager_init_core(void);
 esp_err_t config_manager_save_core(const app_config_t *config);
 esp_err_t config_manager_import_json_core(const char *json_text);
 esp_err_t config_manager_export_json_core(char **out_json);
+void config_manager_core_allocation_guard_begin(void);
+bool config_manager_core_allocation_guard_end(void);
 
 /* config_manager.c historically attempted a destructive NVS recovery.  AISH-OS
  * forbids that for commissioned controllers.  The source-local rename in
@@ -185,7 +187,20 @@ esp_err_t config_manager_init(void)
     }
     free(stored);
 
+    /* The legacy core historically treats a schema-1..4 migration malloc
+     * failure as "no valid config", loads defaults and then tries to persist
+     * them. Guard its allocation and NVS-write boundary so recoverable
+     * commissioned state can never be replaced because heap was temporarily
+     * exhausted. The core may set in-memory defaults before it returns, but the
+     * guarded NVS write is refused and this wrapper returns NO_MEM, causing
+     * app_core initialization to stop fail-closed with stored NVS untouched. */
+    config_manager_core_allocation_guard_begin();
     error = config_manager_init_core();
+    bool core_allocation_failed = config_manager_core_allocation_guard_end();
+    if (core_allocation_failed) {
+        ESP_LOGE(TAG, "Configuration core allocation failed; refusing default fallback startup");
+        return ESP_ERR_NO_MEM;
+    }
     if (error != ESP_OK) return error;
 
     /* Schemas 1..4 are migrated by the established core field-by-field logic.
