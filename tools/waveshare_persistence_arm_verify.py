@@ -97,9 +97,9 @@ def evaluate(
             failures.append(f"step_operation_missing:{index}")
         if not str(step.get("observed_at", "")).strip():
             failures.append(f"step_timestamp_missing:{index}")
-        if "before" not in step:
+        if step.get("before") is None:
             failures.append(f"step_before_missing:{index}")
-        if "after" not in step:
+        if step.get("after") is None:
             failures.append(f"step_after_missing:{index}")
 
     for operation in sorted(REQUIRED_OPERATIONS - operations_seen):
