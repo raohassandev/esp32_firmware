@@ -8,8 +8,7 @@ on:
       - 'components/web_server/CMakeLists.txt'
       - 'components/control_engine/control_engine.c'
       - 'tests/source_detection_runtime_disable_source_contract.py'
-      - 'tests/source_detection_api_source_contract.py'
-      - 'tests/source_detection_source_contract.py'
+      - 'tests/em500_source_detection_source_contract.py'
       - '.github/workflows/source-detection-runtime-disable.yml'
   workflow_dispatch:
 
@@ -24,7 +23,5 @@ jobs:
       - uses: actions/checkout@v4
       - name: Check source-detection persistence runtime-disable ordering
         run: python3 tests/source_detection_runtime_disable_source_contract.py
-      - name: Re-run source-detection contracts
-        run: |
-          test -f tests/source_detection_api_source_contract.py && python3 tests/source_detection_api_source_contract.py || true
-          test -f tests/source_detection_source_contract.py && python3 tests/source_detection_source_contract.py || true
+      - name: Re-run Phase-1 source-detection contract
+        run: python3 tests/em500_source_detection_source_contract.py
