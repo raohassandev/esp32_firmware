@@ -2,14 +2,14 @@
 
 Authoritative master: Issue #79. Live repository truth overrides this snapshot when they diverge. Software CI never substitutes for required physical acceptance.
 
-Current `dev` snapshot: `093954b5626c034e126fde3b773cedb1add92707` after governed PR #140 merge.
+Current `dev` snapshot: `d07dca2d2b20a2cf4e712df45fae9dfe7e3024c2` after governed PR #142 merge.
 
 | Lane | Scope | State | Primary evidence / dependency |
 |---|---|---|---|
-| L0/L8 | Governance and live reconciliation | CONTINUOUS / HEALTHY | #79/#84/#91/#93; fresh reconciliation follows #140 |
+| L0/L8 | Governance and live reconciliation | CONTINUOUS / HEALTHY | #79/#84/#91/#93; fresh reconciliation follows #142 |
 | L1 | Modbus TCP connection modes and bounded endpoint admission | COMPLETE/MERGED | PR #99, PR #114; physical endurance #83 |
 | L2 | Generator source-transition admission | SOFTWARE GREEN / PHYSICAL BENCH BLOCKED | #80 / Draft PR #106 |
-| L3 | Waveshare release | SHORT PHYSICAL PASS / FINAL SOAK INCOMPLETE | #87/#27; exact `87841ece...`; uninterrupted >=4 h / >=240-sample soak still required |
+| L3 | Waveshare release | SHORT PHYSICAL PASS / FINAL SOAK INCOMPLETE | #87/#27; exact `87841ece...`; current-dev acceptance tooling PR #142; uninterrupted >=4 h / >=240-sample soak still required |
 | L4 | Secure OTA | SOFTWARE GREEN / BASELINE + PHYSICAL BLOCKED | #86/#50 / Draft PR #52; depends on accepted Waveshare graph |
 | L5 | Real site source commissioning | BLOCKED EXTERNAL | #81; actual breaker/run/ATS/sync/polarity/meter evidence |
 | L6 | Production inverter profiles | GENERIC CORE HARDENED / MANUFACTURER QUALIFICATION BLOCKED | #82; exact official manuals + bench proof; release gate PR #112 |
@@ -29,13 +29,17 @@ Current `dev` snapshot: `093954b5626c034e126fde3b773cedb1add92707` after governe
 - PR #137 — schema-6 init/import/export full config snapshots moved off task stacks -> `43d4bd509ea07aadbd9ea18e9813e3ec11c60297`; focused `33761025944`, full `33761025927` GREEN.
 - PR #138 — runtime-component regression contract forbidding whole automatic `app_config_t` stack frames -> `dd10809f4246713ab99b3ccc9c3b515ece94fd0d`; focused `33762133658`, full `33762133649` GREEN.
 - PR #140 — completed the app-config source contract across `components/` and `main/`, added `main/**/*.c` workflow ownership, and closed array/multi-declarator/qualifier escape forms -> `093954b5626c034e126fde3b773cedb1add92707`; focused `33765114501`, full `33765114492` GREEN.
-- PR #139 was intentionally closed unmerged after #140 advanced `dev`; its governance slice is being replayed here on the current base.
+- PR #139 was intentionally closed unmerged after #140 advanced `dev`; its governance slice was replayed on current base.
+- PR #141 — governance reconciliation through PR #140 -> `2272caefa87581f27e815ce4420a5880d2d16e38`; exact-head full `33766240186` GREEN and 0-behind expected-head merge.
+- PR #142 — generic Waveshare final-acceptance tooling replayed to current `dev` -> `d07dca2d2b20a2cf4e712df45fae9dfe7e3024c2`; head `a4a0a64210b5a05acd02cdb1016948d593c8d213`; focused `33768630723` GREEN; full Firmware/Web/ESP32-S3 `33768630667` GREEN; 0-behind expected-head merge. This changes tooling/tests only and creates no physical PASS.
 
 ## Current Waveshare physical truth
 
 Exact candidate remains `87841ecee727fe1d814d4186be8c8c26e4afafb4` / tree `6ddd7900f9b4ece0fba9349b905e1c078fc3401e` / artifact `9843536218`.
 
 Short physical display/touch/Alarms acceptance is PASS: no recurring sweep/reload/flicker/corruption, Alarms opens, touch remains responsive, zero recorded WDT/panic/NO_MEM, and DMA/resource floor is healthy. The first continuous same-image soak reached about 2 h / 121 one-minute samples plus 25 clean backend rounds, then the USB dock/power path disappeared. This is neither firmware-failure evidence nor a final PASS. A new uninterrupted >=4 h / >=240-sample run is required; partial runs are not additive.
+
+Current `dev` now carries deterministic serial acceptance parsing, the combined final gate, and immutable package identity/checksum/flash-layout verification from PR #142. Those tools validate supplied evidence; they do not replace the required observed hardware run.
 
 ## Remaining release work
 
@@ -54,4 +58,5 @@ Short physical display/touch/Alarms acceptance is PASS: no recurring sweep/reloa
 - Runtime configuration/mapping changes that can invalidate live control assumptions must remove command authority before persistence.
 - No full-flash erase, NVS erase, guessed register/polarity/timing/protocol semantics, or production write from an unqualified profile.
 - Physical evidence is valid only for its exact source/artifact/config/profile identity.
+- Final-acceptance defaults must not be weakened to manufacture a PASS.
 - Do not call the project 100% complete until every physical/external release gate above is genuinely satisfied.
