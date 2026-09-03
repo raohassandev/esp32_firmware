@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'components/**/*.c'
+      - 'main/**/*.c'
       - 'components/config_manager/CMakeLists.txt'
       - 'tests/project_app_config_stack_safety_source_contract.py'
       - '.github/workflows/project-app-config-stack-safety.yml'
@@ -18,5 +19,5 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Scan runtime components for whole app-config stack frames
+      - name: Scan runtime sources for whole app-config stack frames
         run: python3 tests/project_app_config_stack_safety_source_contract.py
