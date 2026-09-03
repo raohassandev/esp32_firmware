@@ -15,6 +15,7 @@ AUTH = (ROOT / "components/web_server/engineering_auth.c").read_text(encoding="u
 KCONFIG = (ROOT / "main/Kconfig.projbuild").read_text(encoding="utf-8")
 SDKCONFIG = (ROOT / "sdkconfig").read_text(encoding="utf-8") if (ROOT / "sdkconfig").exists() else ""
 PROFILES = (ROOT / "components/inverter_manager/inverter_profiles.c").read_text(encoding="utf-8")
+PROFILE_GATE = (ROOT / "components/inverter_manager/inverter_profile_write_gate.c").read_text(encoding="utf-8")
 PRODUCT_MODE = (ROOT / "web/product-mode.js").read_text(encoding="utf-8")
 
 production = os.environ.get("PVDG_PRODUCTION_RELEASE", "0") == "1"
@@ -51,11 +52,18 @@ def catalogue_profile_blocks():
 def production_ready_profile_ids():
     approved = []
     for block in catalogue_profile_blocks():
-        if ".qualification = INVERTER_PROFILE_QUALIFICATION_PRODUCTION_APPROVED" not in block:
+        required = (
+            ".qualification = INVERTER_PROFILE_QUALIFICATION_PRODUCTION_APPROVED",
+            ".has_identity_probe = true",
+            ".has_active_power = true",
+            ".has_power_limit = true",
+            ".has_power_limit_readback = true",
+            ".status_register = {",
+            ".configured = true",
+        )
+        if any(token not in block for token in required):
             continue
         if ".simulator_only = true" in block:
-            continue
-        if ".has_power_limit = true" not in block or ".has_power_limit_readback = true" not in block:
             continue
         match = re.search(r'\.id\s*=\s*"([^"]+)"', block)
         approved.append(match.group(1) if match else "<non-literal-profile-id>")
@@ -92,14 +100,23 @@ if "!profile->simulator_only" not in PROFILES:
 if "INVERTER_PROFILE_QUALIFICATION_PRODUCTION_APPROVED" not in PROFILES:
     blockers.append("production-approved inverter qualification gate is missing")
 
+for token, reason in (
+    ("profile->has_identity_probe", "production write gate does not require inverter identity"),
+    ("profile->has_active_power", "production write gate does not require live active-power telemetry"),
+    ("inverter_profile_has_status_register(profile)",
+     "production write gate does not require a validated operational-status register"),
+):
+    if token not in PROFILE_GATE:
+        blockers.append(reason)
+
 # A production image with the gate mechanism present but zero profiles that can
 # actually pass it is not a completed PV-DG release. This check deliberately
-# looks only inside the compiled catalogue initializers, so the enum/comparison
-# used by inverter_profile_allows_write() cannot be mistaken for an approval.
+# looks only inside compiled catalogue initializers, so enums/comparisons in
+# helper functions cannot be mistaken for evidence or approval.
 production_profiles = production_ready_profile_ids()
 if not production_profiles:
     blockers.append(
-        "no non-simulator production-approved inverter profile with command readback is compiled"
+        "no non-simulator production-approved inverter profile with identity, telemetry, status, command and readback is compiled"
     )
 
 if production and blockers:
