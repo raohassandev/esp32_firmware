@@ -13,6 +13,7 @@
 #include "inverter_profile_api.h"
 #include "meter_config_api.h"
 #include "meter_read_jobs.h"
+#include "modbus_connection_api.h"
 #include "operational_api.h"
 #include "solar_grid_api.h"
 #include "solar_grid_status_api.h"
@@ -132,7 +133,7 @@ esp_err_t web_server_start(void)
     ESP_RETURN_ON_ERROR(em500_cache_init(), "web", "EM500 acquisition cache init failed");
     ESP_RETURN_ON_ERROR(meter_read_jobs_init(), "web", "meter read-job queue init failed");
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 40;
+    config.max_uri_handlers = 41;
     config.stack_size = 8192;
     /* The default of 7 leaves only 4 client sockets once httpd takes its 3
      * internal ones, and a browser opens up to 6 keep-alive connections per
@@ -165,6 +166,7 @@ esp_err_t web_server_start(void)
     ESP_RETURN_ON_ERROR(web_api_register(s_server), "web", "core API registration failed");
     ESP_RETURN_ON_ERROR(operational_api_register(s_server), "web", "operator history/event API registration failed");
     ESP_RETURN_ON_ERROR(device_api_register(s_server), "web", "device API registration failed");
+    ESP_RETURN_ON_ERROR(modbus_connection_api_register(s_server), "web", "Modbus connection diagnostics registration failed");
     ESP_RETURN_ON_ERROR(inverter_profile_api_register(s_server), "web", "inverter profile API registration failed");
     ESP_RETURN_ON_ERROR(inverter_config_api_register(s_server), "web", "inverter configuration API registration failed");
     ESP_RETURN_ON_ERROR(meter_config_api_register(s_server), "web", "meter configuration API registration failed");
