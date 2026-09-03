@@ -230,8 +230,8 @@ bool inverter_profile_allows_read(const inverter_profile_t *profile)
 
 bool inverter_profile_allows_write(const inverter_profile_t *profile)
 {
-    return profile && !profile->simulator_only && profile->has_power_limit &&
-           profile->has_power_limit_readback &&
+    return profile && !profile->simulator_only && profile->has_identity_probe &&
+           profile->has_power_limit && profile->has_power_limit_readback &&
            profile->qualification == INVERTER_PROFILE_QUALIFICATION_PRODUCTION_APPROVED;
 }
 
