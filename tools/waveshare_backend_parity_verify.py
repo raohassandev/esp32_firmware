@@ -34,6 +34,8 @@ REQUIRED_REFERENCES = (
     "hmi_http_capture_ref",
 )
 
+ABSOLUTE_MIN_OBSERVATION_MINUTES = 30
+
 
 @dataclass
 class BackendParityResult:
@@ -59,11 +61,12 @@ def evaluate(
     record: dict,
     expected_candidate_sha: str,
     expected_artifact_digest: str,
-    min_observation_minutes: int = 30,
+    min_observation_minutes: int = ABSOLUTE_MIN_OBSERVATION_MINUTES,
 ) -> BackendParityResult:
     failures: list[str] = []
     candidate_sha = str(record.get("candidate_sha", "")).strip()
     artifact_digest = str(record.get("artifact_digest", "")).strip().lower()
+    effective_min_minutes = max(ABSOLUTE_MIN_OBSERVATION_MINUTES, int(min_observation_minutes))
 
     if candidate_sha != expected_candidate_sha:
         failures.append("candidate_sha_mismatch")
@@ -76,9 +79,9 @@ def evaluate(
         observation_minutes = int(record.get("observation_minutes", 0))
     except (TypeError, ValueError):
         observation_minutes = 0
-    if observation_minutes < min_observation_minutes:
+    if observation_minutes < effective_min_minutes:
         failures.append(
-            f"observation_minutes={observation_minutes}<{min_observation_minutes}"
+            f"observation_minutes={observation_minutes}<{effective_min_minutes}"
         )
 
     started = _parse_timestamp(record.get("started_at"))
@@ -88,10 +91,13 @@ def evaluate(
     if ended is None:
         failures.append("ended_at_invalid")
     if started is not None and ended is not None:
-        if ended <= started:
-            failures.append("observation_time_not_increasing")
-        elif (ended - started).total_seconds() < observation_minutes * 60:
-            failures.append("timestamp_span_shorter_than_observation_minutes")
+        try:
+            if ended <= started:
+                failures.append("observation_time_not_increasing")
+            elif (ended - started).total_seconds() < observation_minutes * 60:
+                failures.append("timestamp_span_shorter_than_observation_minutes")
+        except TypeError:
+            failures.append("timestamp_timezone_mismatch")
 
     raw_checks = record.get("checks")
     checks = raw_checks if isinstance(raw_checks, dict) else {}
@@ -130,7 +136,12 @@ def main() -> int:
     parser.add_argument("evidence_json", type=Path)
     parser.add_argument("--expected-candidate-sha", required=True)
     parser.add_argument("--expected-artifact-digest", required=True)
-    parser.add_argument("--min-observation-minutes", type=int, default=30)
+    parser.add_argument(
+        "--min-observation-minutes",
+        type=int,
+        default=ABSOLUTE_MIN_OBSERVATION_MINUTES,
+        help="May raise the gate; values below 30 never lower the release minimum",
+    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
