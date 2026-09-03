@@ -1,0 +1,42 @@
+name: Waveshare post-soak evidence tools
+
+on:
+  pull_request:
+    paths:
+      - 'tools/waveshare_backend_parity_verify.py'
+      - 'tools/waveshare_persistence_arm_verify.py'
+      - 'tools/waveshare_backend_parity.example.json'
+      - 'tools/waveshare_persistence_arm.example.json'
+      - 'tests/waveshare_post_soak_evidence_tools_test.py'
+      - 'docs/WAVESHARE_POST_SOAK_EVIDENCE.md'
+      - '.github/workflows/waveshare-post-soak-evidence.yml'
+  push:
+    branches: [dev]
+    paths:
+      - 'tools/waveshare_backend_parity_verify.py'
+      - 'tools/waveshare_persistence_arm_verify.py'
+      - 'tools/waveshare_backend_parity.example.json'
+      - 'tools/waveshare_persistence_arm.example.json'
+      - 'tests/waveshare_post_soak_evidence_tools_test.py'
+      - 'docs/WAVESHARE_POST_SOAK_EVIDENCE.md'
+      - '.github/workflows/waveshare-post-soak-evidence.yml'
+
+jobs:
+  evidence-tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile evidence validators
+        run: |
+          python3 -m py_compile tools/waveshare_backend_parity_verify.py
+          python3 -m py_compile tools/waveshare_persistence_arm_verify.py
+      - name: Run post-soak evidence validator tests
+        run: python3 tests/waveshare_post_soak_evidence_tools_test.py
+      - name: Confirm example records fail closed before physical execution
+        run: |
+          ! python3 tools/waveshare_backend_parity_verify.py tools/waveshare_backend_parity.example.json \
+            --expected-candidate-sha 87841ecee727fe1d814d4186be8c8c26e4afafb4 \
+            --expected-artifact-digest sha256:89e621034d4c91096fc5d38dd57ac40eeeab34275e4af1fc0461b48575039096
+          ! python3 tools/waveshare_persistence_arm_verify.py tools/waveshare_persistence_arm.example.json \
+            --expected-candidate-sha 87841ecee727fe1d814d4186be8c8c26e4afafb4 \
+            --expected-artifact-digest sha256:89e621034d4c91096fc5d38dd57ac40eeeab34275e4af1fc0461b48575039096
