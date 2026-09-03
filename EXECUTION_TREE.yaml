@@ -1,77 +1,173 @@
-version: 1
-updated_at: 2026-09-02T15:48:00+05:00
+version: 2
+updated_at: 2026-09-03T09:40:00+05:00
 repo: raohassandev/esp32_firmware
+master_issue: 79
 integration_branch: dev
-integration_head_at_snapshot: ef076d98daddee0ee9542066c69615ef9650bb01
+integration_head_at_snapshot: a7d547f2f1909527538ec529d1f44b4ad2733861
 truth_rule: live_repository_over_stale_docs
+wip_limit_ci_active_software_prs: 3
 
-programs:
-  software_core:
+lanes:
+  L0_governance_reconciliation:
+    issue: 89
+    owner: ChatGPT
+    qa: GitHub_Actions_and_diff_review
     status: EXECUTING
-    children:
-      generator_strong_evidence:
-        status: MERGED
-        pr: 58
-        merge_sha: ee296dbe62baed4b837f487898c6d50adf416d98
-        next: per_generator_runtime_aggregation
-      browser_poller_lifecycle_batch_1:
-        status: MERGED
-        pr: 59
-        merge_sha: ef076d98daddee0ee9542066c69615ef9650bb01
-        next: operator_operations_lifecycle
-      operator_operations_lifecycle:
-        status: EXECUTING
-        branch: work/browser/operator-operations-lifecycle-dev2
-      per_generator_runtime_aggregation:
-        status: PLANNED
-        constraints:
-          - no_invented_registers
-          - no_invented_timing_values
-          - fail_closed_when_uncommissioned
-      modbus_socket_modes:
-        status: PLANNED
-        remaining:
-          - persistent_mode_qualification
-          - reconnect_on_error_qualification
-          - per_transaction_mode_qualification
-          - hardware_tcp_pcb_time_wait_endurance
-      inverter_profile_qualification:
-        status: BLOCKED
-        blocker: exact manufacturer manuals plus bench/readback evidence are required per model
+    depends_on: []
 
-  waveshare_hardware_lane:
+  L1_modbus_connection_modes:
+    issues: [88, 78]
+    owner: ChatGPT
+    qa: GitHub_Actions
+    branch: work/modbus/connection-modes
     status: EXECUTING
-    owner: physical_executor
-    active_pr: 57
-    current_head: e7c6a027234e08ec33d06859b59e3518d918d717
+    done_when:
+      - config_schema_migrates_existing_devices_to_per_transaction
+      - meter_and_inverter_config_and_diagnostics_expose_mode
+      - all_three_modes_have_tests
+      - no_same_call_write_replay
+      - exact_head_full_ci_green
+      - zero_behind_governed_merge
+    physical_followup_issue: 83
+
+  L2_generator_source_transition:
+    issue: 80
+    implementation_pr: 77
+    implementation_head: b36cfa40b9cc3bf389199663ceaf0855aeecb18e
+    software_status: GREEN_DRAFT
+    owner_physical: Claude_Code_or_site_operator
+    owner_integration: ChatGPT
+    qa: GitHub_Actions_plus_physical_evidence
+    status: BLOCKED_EXTERNAL_BENCH
+    merge_forbidden_until_physical_pass: true
+
+  L3_waveshare_release:
+    issue: 87
+    detailed_issues: [24, 25, 26, 27]
+    implementation_pr: 57
+    parent_pr: 20
+    owner_physical: Claude_Code_or_site_operator
+    owner_integration: ChatGPT
+    qa: GitHub_Actions
+    candidate_sha: 87841ecee727fe1d814d4186be8c8c26e4afafb4
+    candidate_tree: 6ddd7900f9b4ece0fba9349b905e1c078fc3401e
+    status: SHORT_PASS_FINAL_SOAK_INCOMPLETE
     facts:
-      - earlier scanout sweep root cause was physically isolated and fixed on an earlier PR57 head
-      - current head also fixes Alarms-page LVGL wedge and therefore requires its own exact-head qualification
-    blocked_promotions:
-      - pr: 46
-        status: BLOCKED
-      - pr: 20
-        status: BLOCKED
-    superseded_closed_prs: [47, 48, 49]
+      - short_display_touch_gate_passed
+      - dma_runtime_headroom_above_20kb_target
+      - first_continuous_soak_reached_about_2h_and_121_samples_clean
+      - first_soak_ended_when_bench_usb_hub_disappeared_without_firmware_crash_evidence
+    remaining:
+      - uninterrupted_4h_same_image_soak_at_least_240_samples
+      - backend_parity_recovery_matrix_issue_25
+      - persistence_arm_matrix_issue_26
+      - exact_source_reconciliation_and_fresh_promotion_pr
+      - parent_pr_20_requalification
 
-  phase1_frozen_baseline_work:
-    status: BLOCKED
-    reason: do not move phase1-fix while Waveshare exact-candidate qualification is active
-    reviewed_prs:
-      - pr: 52
-        status: TESTED_SOFTWARE_BLOCKED_PHYSICAL
-        scope: rollback-safe secure web OTA
-      - pr: 54
-        status: TESTED_SOFTWARE_BLOCKED_BASELINE
-        scope: operator continuity and truthful plant verdict
+  L4_secure_ota:
+    issues: [86, 50]
+    implementation_pr: 52
+    implementation_head: f36a302953f453ca968d2f0714e3ebd97432176a
+    owner_software: ChatGPT
+    owner_physical: Claude_Code_or_site_operator
+    qa: GitHub_Actions
+    status: SOFTWARE_GREEN_BLOCKED_BY_WAVESHARE_AND_PHYSICAL_QUALIFICATION
+    depends_on: [L3_waveshare_release]
 
-  physical_release:
-    status: BLOCKED
-    requires:
-      - exact_current_candidate_visual_touch_acceptance
-      - resource_headroom
-      - integrated_soak
-      - meter_source_inverter_FAT
-      - source_transfer_FAT
-      - per_profile_command_readback_rollback_FAT
-      - signed_SAT_tied_to_exact_SHA
+  L5_site_source_commissioning:
+    issue: 81
+    owner_software: ChatGPT
+    owner_evidence: user_or_site_engineer
+    owner_physical: Claude_Code_or_site_operator
+    qa: ChatGPT_and_GitHub_Actions
+    status: BLOCKED_PARTIAL_EXTERNAL_EVIDENCE
+    rule: no_guessed_register_mask_polarity_timing_or_topology
+
+  L6_inverter_profile_qualification:
+    issue: 82
+    owner_software: ChatGPT
+    owner_evidence: user
+    owner_physical: Claude_Code_or_site_operator
+    qa: ChatGPT_and_GitHub_Actions
+    status: BLOCKED_EXTERNAL_MANUALS_AND_BENCH
+    rule: no_production_write_without_manual_readback_rollback_qualification
+
+  L7_integrated_fat_sat_endurance:
+    issue: 83
+    owner_plan: ChatGPT
+    owner_physical: Claude_Code_or_site_operator
+    qa: GitHub_Actions_plus_owner_signoff
+    status: WAITING_ON_COMPONENT_AND_SOURCE_QUALIFICATION
+    depends_on: [L1_modbus_connection_modes, L2_generator_source_transition, L5_site_source_commissioning, L6_inverter_profile_qualification]
+
+  L8_governance_service:
+    issue: 84
+    owner: ChatGPT
+    qa: GitHub_Actions_and_diff_review
+    status: CONTINUOUS
+
+  L9_reva_product_hardware:
+    issue: 85
+    prs: [18, 19]
+    owner: ChatGPT_and_hardware_engineer
+    status: SEPARATE_TRACK
+    blocks_current_waveshare_release: false
+
+  L10_browser_final_audit:
+    issue: 90
+    owner: ChatGPT
+    qa: GitHub_Actions
+    status: READY_PARALLEL
+    completed_prs: [59, 62, 65, 69, 71, 73, 75, 76]
+
+  L11_evidence_traceability:
+    issue: 91
+    owner: ChatGPT
+    sources: [GitHub_Actions, Claude_Code_or_site_operator]
+    status: CONTINUOUS
+
+  L12_requirements_closure_matrix:
+    issue: 92
+    owner: ChatGPT
+    qa: independent_review
+    status: READY_PARALLEL
+
+  L13_promotion_graph_hygiene:
+    issue: 93
+    owner: ChatGPT
+    qa: GitHub_Actions_and_tree_compare
+    status: CONTINUOUS
+
+  L14_live_monitoring_cadence:
+    issue: 94
+    owner: ChatGPT
+    status: CONTINUOUS_PER_ORCHESTRATION_CYCLE
+
+  L15_held_phase1_reconciliation:
+    issue: 95
+    held_prs: [52, 54]
+    owner: ChatGPT
+    qa: GitHub_Actions
+    status: BLOCKED_BY_L3
+    depends_on: [L3_waveshare_release]
+
+  L16_stale_todo_cleanup:
+    issue: 96
+    owner: ChatGPT
+    status: EXECUTING_WITH_L0
+
+completed_major_work:
+  - pr_58_generator_strong_evidence
+  - pr_63_generator_1_to_3_persistence_and_schema_migration
+  - pr_64_generator_fleet_runtime_aggregation
+  - pr_59_62_65_69_71_73_76_browser_and_auth_lifecycle
+  - pr_75_dead_engineering_asset_cleanup
+  - pr_60_initial_aish_control_room
+
+release_done_definition:
+  - all_release_target_software_merged_with_exact_head_zero_behind_gates
+  - all_required_physical_acceptance_passed_against_exact_source_and_artifact
+  - site_source_and_inverter_mappings_documentation_backed_and_physically_qualified
+  - integrated_fat_sat_endurance_complete
+  - evidence_index_traceable_to_final_release_sha
+  - no_open_critical_blockers
