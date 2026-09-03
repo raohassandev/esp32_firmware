@@ -1,21 +1,13 @@
 version: 2
-updated_at: 2026-09-03T12:37:00+05:00
+updated_at: 2026-09-03T14:38:00+05:00
 repo: raohassandev/esp32_firmware
 master_issue: 79
 integration_branch: dev
-integration_head_at_snapshot: d9cd81bcf500a034d6cc88ea92e3bb74e42ed258
+integration_head_at_snapshot: 3096f2bfa10e86b3163b99ae7622bffded6791ac
 truth_rule: live_repository_over_stale_docs
 wip_limit_ci_active_software_prs: 3
 
 lanes:
-  L0_governance_reconciliation:
-    issue: 89
-    owner: ChatGPT
-    qa: GitHub_Actions_and_diff_review
-    status: COMPLETE
-    merge_pr: 97
-    merge_sha: 430e9157eb82196501f896d9323da16c86f9255e
-
   L1_modbus_connection_modes:
     issues: [88, 78]
     owner: ChatGPT
@@ -32,11 +24,9 @@ lanes:
     implementation_pr: 106
     implementation_head: a1620789235d21b515f9f245f2329fab88b50558
     software_status: GREEN_DRAFT
-    owner_physical: Claude_Code_or_site_operator
-    owner_integration: ChatGPT
-    qa: GitHub_Actions_plus_physical_evidence
     status: BLOCKED_EXTERNAL_BENCH
     merge_forbidden_until_physical_pass: true
+    post_pass_rule: replay_identical_validated_slice_onto_current_dev_then_fresh_ci
 
   L3_waveshare_release:
     issue: 87
@@ -44,9 +34,6 @@ lanes:
     implementation_pr: 57
     parent_pr: 20
     tooling_pr: 67
-    owner_physical: Claude_Code_or_site_operator
-    owner_integration: ChatGPT
-    qa: GitHub_Actions_plus_observed_hardware_evidence
     candidate_sha: 87841ecee727fe1d814d4186be8c8c26e4afafb4
     candidate_tree: 6ddd7900f9b4ece0fba9349b905e1c078fc3401e
     artifact_id: 9843536218
@@ -54,41 +41,30 @@ lanes:
     status: SHORT_PASS_FINAL_SOAK_INCOMPLETE
     facts:
       - short_display_touch_alarms_gate_passed
-      - dma_runtime_headroom_above_20kb_target
+      - runtime_dma_headroom_above_20kb_target
       - first_continuous_soak_about_2h_and_121_samples_clean
-      - first_soak_ended_when_bench_usb_dock_power_path_disappeared_without_firmware_crash_evidence
+      - first_soak_ended_when_usb_dock_power_path_disappeared_without_firmware_crash_evidence
     remaining:
       - uninterrupted_4h_same_image_soak_at_least_240_samples
-      - backend_parity_recovery_matrix_issue_25
-      - persistence_arm_matrix_issue_26
-      - exact_source_reconciliation_and_fresh_promotion_pr
+      - backend_parity_recovery_issue_25
+      - persistence_arm_issue_26
+      - exact_source_reconciliation_and_fresh_promotion
       - parent_pr_20_requalification
 
   L4_secure_ota:
     issues: [86, 50]
     implementation_pr: 52
     implementation_head: f36a302953f453ca968d2f0714e3ebd97432176a
-    owner_software: ChatGPT
-    owner_physical: Claude_Code_or_site_operator
-    qa: GitHub_Actions
     status: SOFTWARE_GREEN_BLOCKED_BY_ACCEPTED_WAVESHARE_BASELINE_AND_PHYSICAL_QUALIFICATION
     depends_on: [L3_waveshare_release]
 
   L5_site_source_commissioning:
     issue: 81
-    owner_software: ChatGPT
-    owner_evidence: user_or_site_engineer
-    owner_physical: Claude_Code_or_site_operator
-    qa: ChatGPT_and_GitHub_Actions
     status: BLOCKED_PARTIAL_EXTERNAL_EVIDENCE
     rule: no_guessed_register_mask_polarity_timing_or_topology
 
   L6_inverter_profile_qualification:
     issue: 82
-    owner_software: ChatGPT
-    owner_evidence: user
-    owner_physical: Claude_Code_or_site_operator
-    qa: ChatGPT_and_GitHub_Actions
     status: GENERIC_CORE_HARDENED_MANUFACTURER_QUALIFICATION_BLOCKED
     generic_merges:
       identity_revalidation_pr_102: b60bcb9474f4ed7dd0b0ed631410b54628a47d01
@@ -99,16 +75,8 @@ lanes:
 
   L7_integrated_fat_sat_endurance:
     issue: 83
-    owner_plan: ChatGPT
-    owner_physical: Claude_Code_or_site_operator
-    qa: GitHub_Actions_plus_owner_signoff
     status: WAITING_ON_PHYSICAL_SITE_AND_PROFILE_QUALIFICATION
-    depends_on:
-      - L2_generator_source_transition
-      - L3_waveshare_release
-      - L4_secure_ota
-      - L5_site_source_commissioning
-      - L6_inverter_profile_qualification
+    depends_on: [L2_generator_source_transition, L3_waveshare_release, L4_secure_ota, L5_site_source_commissioning, L6_inverter_profile_qualification]
 
   L8_governance_service:
     issue: 84
@@ -119,42 +87,30 @@ lanes:
   L9_reva_product_hardware:
     issue: 85
     prs: [18, 19]
-    owner: ChatGPT_and_hardware_engineer
     status: SEPARATE_TRACK
     blocks_current_waveshare_release: false
 
   L10_browser_final_audit:
     issue: 90
-    owner: ChatGPT
-    qa: GitHub_Actions
     status: COMPLETE_CLOSED
 
   L11_evidence_traceability:
     issue: 91
-    owner: ChatGPT
-    sources: [GitHub_Actions, Claude_Code_or_site_operator]
     status: CONTINUOUS
 
   L12_requirements_closure_matrix:
     issue: 92
-    owner: ChatGPT
-    qa: independent_review
     status: COMPLETE_CLOSED
     reconciliation_pr: 103
 
   L13_promotion_graph_hygiene:
     issue: 93
-    owner: ChatGPT
-    qa: GitHub_Actions_and_tree_compare
     status: CONTINUOUS
 
   L15_held_phase1_reconciliation:
     issue: 95
     held_prs: [52, 54]
-    owner: ChatGPT
-    qa: GitHub_Actions
     status: BLOCKED_BY_L3
-    depends_on: [L3_waveshare_release]
 
 recent_governed_merges:
   pr_99: 3aa69162a6847a852e9b648ef8ec6988f5e3f296
@@ -167,8 +123,21 @@ recent_governed_merges:
   pr_114: fa8ca9b17e08f2478e104942b9d6dbfad4f0ca7f
   pr_117: 1360c4a8356ff8acdc19878f65da311c0b0eccc6
   pr_119: d9cd81bcf500a034d6cc88ea92e3bb74e42ed258
+  pr_120: 1b7cfe57f4c236516e2b5595f544c3524dcead0c
+  pr_122: dfe93de50e2a5715f4d212ff3233d566d36e2cfd
+  pr_124: 3096f2bfa10e86b3163b99ae7622bffded6791ac
 
-stale_replays_closed: [115, 116, 118]
+resolved_additional_safety_findings:
+  legacy_migration_oom_nvs_preservation:
+    pr: 122
+    focused_run: 33738503242
+    full_run: 33738503251
+  atomic_safety_alarm_snapshot:
+    pr: 124
+    focused_run: 33739241779
+    full_run: 33739241807
+
+stale_replays_closed: [115, 116, 118, 121, 123]
 
 release_done_definition:
   - all_release_target_software_merged_with_exact_head_zero_behind_gates
