@@ -82,6 +82,20 @@ class BackendParityTests(unittest.TestCase):
         self.assertIn("check_not_passed:network_recovery_clean", result.failures)
         self.assertIn("evidence_missing:network_recovery_clean", result.failures)
 
+    def test_cli_threshold_cannot_lower_release_minimum(self) -> None:
+        record = passing_backend()
+        record["observation_minutes"] = 20
+        result = evaluate_backend(record, CANDIDATE, DIGEST, min_observation_minutes=1)
+        self.assertFalse(result.passed)
+        self.assertIn("observation_minutes=20<30", result.failures)
+
+    def test_mixed_timezone_timestamps_fail_instead_of_crashing(self) -> None:
+        record = passing_backend()
+        record["ended_at"] = "2026-09-03T10:35:00"
+        result = evaluate_backend(record, CANDIDATE, DIGEST)
+        self.assertFalse(result.passed)
+        self.assertIn("timestamp_timezone_mismatch", result.failures)
+
 
 class PersistenceArmTests(unittest.TestCase):
     def test_complete_record_passes(self) -> None:
@@ -100,6 +114,15 @@ class PersistenceArmTests(unittest.TestCase):
         result = evaluate_persistence(record, CANDIDATE, DIGEST)
         self.assertFalse(result.passed)
         self.assertIn("operation_missing:interrupted_save", result.failures)
+
+    def test_null_before_after_is_not_evidence(self) -> None:
+        record = passing_persistence()
+        record["steps"][0]["before"] = None
+        record["steps"][0]["after"] = None
+        result = evaluate_persistence(record, CANDIDATE, DIGEST)
+        self.assertFalse(result.passed)
+        self.assertIn("step_before_missing:0", result.failures)
+        self.assertIn("step_after_missing:0", result.failures)
 
     def test_erase_or_arm_claim_must_be_explicitly_safe(self) -> None:
         record = passing_persistence()
