@@ -27,18 +27,22 @@ require("source_detection_config_save=web_source_detection_config_save_guarded" 
         "source-detection API is not source-locally routed through the guard")
 
 for token in (
-    "config_manager_get_snapshot(&application)",
-    "application.control.enabled = false;",
-    "config_manager_save(&application)",
+    "app_config_t *application = malloc(sizeof(*application));",
+    "config_manager_get_snapshot(application)",
+    "application->control.enabled = false;",
+    "config_manager_save(application)",
+    "free(application);",
     "control_engine_force_disable();",
     "source_detection_config_save(source_config);",
 ):
     require(token in GUARD, f"source-detection safety guard missing: {token}")
 
-require_before(GUARD, "application.control.enabled = false;",
-               "config_manager_save(&application)",
+require("app_config_t application;" not in GUARD,
+        "source-detection HTTP guard must not place the full app config on its task stack")
+require_before(GUARD, "application->control.enabled = false;",
+               "config_manager_save(application)",
                "persisted automatic control is not disabled before source-model persistence")
-require_before(GUARD, "config_manager_save(&application)",
+require_before(GUARD, "config_manager_save(application)",
                "control_engine_force_disable();",
                "live control may be revoked without first persisting the fail-closed state")
 require_before(GUARD, "control_engine_force_disable();",
