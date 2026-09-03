@@ -83,7 +83,8 @@ require("ESP_ERR_NOT_SUPPORTED" in write,
 # the established transactional gate must keep readback/retry/rollback active.
 require("Build and validate the complete immutable fleet plan" in MANAGER,
         "fleet commands are not fully planned before writes begin")
-require("encode_command(runtime->profile, percent" in MANAGER,
+require("encode_command(target->profile, percent" in MANAGER and
+        "target->words, &target->word_count" in MANAGER,
         "fleet planner does not use the guarded command encoder")
 for token in (
     "inverter_profile_readback_matches",
