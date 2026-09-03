@@ -45,7 +45,8 @@ require("app_config_t *migrated = (app_config_t *)blob" in SAFE,
 
 # Import must reuse one allocation before/after the core import rather than hold
 # two full snapshots simultaneously, and every error/success branch must release it.
-import_body = SAFE.split("esp_err_t config_manager_import_json", 1)[1].split(
+import_signature = "esp_err_t config_manager_import_json(const char *json_text)"
+import_body = SAFE.split(import_signature, 1)[1].split(
     "static void add_mode_to_array", 1
 )[0]
 require(import_body.count("malloc(sizeof(*snapshot))") == 1,
@@ -55,7 +56,8 @@ require(import_body.count("free(snapshot);") >= 5,
 require("before_meter_count" in import_body and "before_inverter_count" in import_body,
         "config import must preserve pre-import counts before reusing its snapshot")
 
-export_body = SAFE.split("esp_err_t config_manager_export_json", 1)[1]
+export_signature = "esp_err_t config_manager_export_json(char **out_json)"
+export_body = SAFE.split(export_signature, 1)[1]
 require("free(snapshot);" in export_body,
         "config export must release its heap snapshot")
 require("config_manager_guarded_cjson_parse(core_json)" in export_body,
