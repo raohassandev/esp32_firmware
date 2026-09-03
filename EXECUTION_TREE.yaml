@@ -1,9 +1,9 @@
 version: 2
-updated_at: 2026-09-03T16:35:00+05:00
+updated_at: 2026-09-03T19:13:00+05:00
 repo: raohassandev/esp32_firmware
 master_issue: 79
 integration_branch: dev
-integration_head_at_snapshot: 41eaf22f8b92057cdbe5427c590ccd84d7fbce9b
+integration_head_at_snapshot: 093954b5626c034e126fde3b773cedb1add92707
 truth_rule: live_repository_over_stale_docs
 wip_limit_ci_active_software_prs: 3
 
@@ -21,7 +21,6 @@ lanes:
   L2_generator_source_transition:
     issue: 80
     implementation_pr: 106
-    implementation_head: a1620789235d21b515f9f245f2329fab88b50558
     software_status: GREEN_DRAFT
     status: BLOCKED_EXTERNAL_BENCH
     merge_forbidden_until_physical_pass: true
@@ -74,6 +73,7 @@ lanes:
       unqualified_transport_truthfulness_pr_113: 4aa935dfcf944f83cbb96333be67f99878e32c30
       profile_assignment_order_pr_117: 1360c4a8356ff8acdc19878f65da311c0b0eccc6
       production_write_authority_pr_119: d9cd81bcf500a034d6cc88ea92e3bb74e42ed258
+      profile_store_stack_headroom_pr_136: 321198bb5d970aa5f4842331a229ce63475e0776
     rule: no_production_write_without_exact_official_manual_identity_status_readback_rollback_and_signed_qualification
 
   L7_integrated_fat_sat_endurance:
@@ -86,7 +86,7 @@ lanes:
     owner: ChatGPT
     qa: GitHub_Actions_and_diff_review
     status: CONTINUOUS
-    active_reconciliation_pr: 132
+    active_reconciliation_branch: docs/governance-reconcile-pr140
 
   L9_reva_product_hardware:
     issue: 85
@@ -133,30 +133,48 @@ recent_governed_merges:
   pr_114: fa8ca9b17e08f2478e104942b9d6dbfad4f0ca7f
   pr_117: 1360c4a8356ff8acdc19878f65da311c0b0eccc6
   pr_119: d9cd81bcf500a034d6cc88ea92e3bb74e42ed258
-  pr_120: 1b7cfe57f4c236516e2b5595f544c3524dcead0c
   pr_122: dfe93de50e2a5715f4d212ff3233d566d36e2cfd
   pr_124: 3096f2bfa10e86b3163b99ae7622bffded6791ac
-  pr_125: f32d9ba1581350aeb178e3b94ad30303ef1b8a5d
   pr_127: df282a3e8afee27dfc220694e4461e4ad49d2277
   pr_129: 5e5a63dba3e157d2658227ff691e9f975cedff96
   pr_130: 0969a119e4fcb97405da26a59b55ec44a5a292f4
   pr_131: 41eaf22f8b92057cdbe5427c590ccd84d7fbce9b
+  pr_132: 2e0c946d30027419dfbd0723598ac34315cf6a86
+  pr_133: e918aef8465435d4af87eaa6c1f001767a9d2170
+  pr_135: ad6316b5e3dec6bca630d351a80c8e786fd61b69
+  pr_136: 321198bb5d970aa5f4842331a229ce63475e0776
+  pr_137: 43d4bd509ea07aadbd9ea18e9813e3ec11c60297
+  pr_138: dd10809f4246713ab99b3ccc9c3b515ece94fd0d
+  pr_140: 093954b5626c034e126fde3b773cedb1add92707
 
 resolved_additional_safety_findings:
-  legacy_migration_oom_nvs_preservation:
-    pr: 122
-    focused_run: 33738503242
-    full_run: 33738503251
-  atomic_safety_alarm_snapshot:
-    pr: 124
-    focused_run: 33739241779
-    full_run: 33739241807
-  runtime_configuration_disable_interlocks:
-    prs: [127, 129, 130, 131]
-    current_inventory_focused_run: 33749197443
-    current_inventory_full_run: 33749196739
+  wifi_scan_result_lifetime:
+    pr: 133
+    full_run: 33755126372
+  schema6_json_depth_guard:
+    pr: 135
+    focused_run: 33756048306
+    full_run: 33756048441
+  inverter_profile_store_stack_headroom:
+    pr: 136
+    focused_run: 33756766924
+    full_run: 33756767088
+  schema6_config_stack_headroom:
+    pr: 137
+    focused_run: 33761025944
+    full_run: 33761025927
+  runtime_component_app_config_stack_regression:
+    pr: 138
+    focused_run: 33762133658
+    full_run: 33762133649
+  project_wide_app_config_stack_guard_completion:
+    pr: 140
+    head: 1bb64b117971709a394674eb73e11d10c5f4f30d
+    focused_run: 33765114501
+    full_run: 33765114492
+    merge: 093954b5626c034e126fde3b773cedb1add92707
 
-stale_replays_closed: [115, 116, 118, 121, 123, 126, 128]
+stale_replays_closed: [115, 116, 118, 121, 123, 126, 128, 134, 139]
 
 release_done_definition:
   - all_release_target_software_merged_with_exact_head_zero_behind_gates
