@@ -1,6 +1,6 @@
 # AISH-OS Blocker Ledger v2
 
-Master program: #79. Live evidence overrides stale snapshots. Current software integration baseline: `d07dca2d2b20a2cf4e712df45fae9dfe7e3024c2` after PR #142.
+Master program: #79. Live evidence overrides stale snapshots. Current software integration baseline: `1a3b0f4ee73ae08588caee7b46f9ab87d1e5b491` after PR #148.
 
 ## B-001 — Waveshare final continuous acceptance
 
@@ -40,7 +40,7 @@ Remaining work is physical endurance: PCB/TIME_WAIT/socket/resource trends, heal
 **Lane:** L6 / #82  
 **State:** BLOCKED EXTERNAL OFFICIAL MANUALS + BENCH
 
-Generic engine safety is merged through #119. PR #112 also prevents a production release from passing with zero actual production-approved real profiles, and PR #113 keeps pending manufacturer connection transport explicitly unqualified. Every production model still requires exact official manual/model/firmware identity, physical identity/telemetry/status proof, write/readback/rollback evidence and signed approval.
+Generic engine safety is merged through #119. PR #112 prevents a production release from passing with zero actual production-approved real profiles, and PR #113 keeps pending manufacturer connection transport explicitly unqualified. Every production model still requires exact official manual/model/firmware identity, physical identity/telemetry/status proof, write/readback/rollback evidence and signed approval.
 
 Official-source research currently confirms GoodWe GW100K-HT uses Modbus-RTU/SunSpec-compatible communications but does not provide the required exact HT production control map; the publicly available Huawei SUN2000MB Modbus definition is a different family and is not accepted as SUN2000-115KTL-M2 register evidence. No profile is promoted from incomplete documentation.
 
@@ -54,10 +54,11 @@ Actual breaker/run/ATS/synchronism provenance, addresses/contacts, masks, active
 ## B-007 — Secure OTA physical release qualification
 
 **Lane:** L4 / #86/#50  
-**Draft PR:** #52 software GREEN  
-**State:** BLOCKED BY ACCEPTED WAVESHARE BASELINE + PHYSICAL OTA TESTS
+**Software baseline:** COMPLETE/MERGED via PR #145, merge `73bcb3e3a57dd482ac87b174906254ad60c8575b`  
+**Regression coverage:** PR #148 merge `1a3b0f4ee73ae08588caee7b46f9ab87d1e5b491`  
+**State:** SOFTWARE CLOSED / PHYSICAL BLOCKED BY WAVESHARE SOURCE GRAPH + REAL OTA MATRIX
 
-After L3 closes, reconcile OTA onto the intended release baseline, run fresh exact-head CI, then physically prove invalid-image rejection, interrupted upload, power loss, previous-slot boot, pending verification, mark-valid and deliberate rollback without NVS/full-flash erase.
+Current `dev` includes rollback-safe OTA software and always-on OTA regression contracts. Historical PR #52 is closed/superseded and must not be merged. This does not transfer physical qualification from the frozen Waveshare candidate. After L3/source-graph resolution, identify one exact intended OTA-capable release artifact and physically prove authenticated upload, invalid-image rejection before write, interrupted upload, power loss, partial-image non-selection, previous-slot boot, pending verification, mark-valid and deliberate rollback while fail-closed and without NVS/full-flash erase.
 
 ## B-008 — Integrated FAT/SAT
 
@@ -90,9 +91,10 @@ Software CI cannot close Grid/DG/mixed-source FAT, communication-loss endurance,
 - Whole schema-6 init/import/export config snapshots on main/HTTP task stacks — PR #137.
 - Runtime-component automatic `app_config_t` stack-frame regression gap — PR #138.
 - Project-wide app-config guard missing `main/` ownership and declaration escape forms — PR #140; focused `33765114501`, full `33765114492`, merge `093954b5626c034e126fde3b773cedb1add92707`.
-- Stale governance PR #139 — closed unmerged after #140 advanced `dev`.
-- Governance reconciliation through PR #140 — PR #141; full `33766240186`, merge `2272caefa87581f27e815ce4420a5880d2d16e38`.
 - Generic Waveshare final-evidence/package validation tooling absent from live `dev` — PR #142; focused `33768630723`, full `33768630667`, merge `d07dca2d2b20a2cf4e712df45fae9dfe7e3024c2`. Tooling cannot substitute for physical evidence.
+- Operator continuity/truthful Plant verdict still held on historical Phase-1 line — PR #144 merged current-dev replay as `8b5fce29aaf0de7ec9a5531ad3ea66c78e4539ed`; historical PR #54 closed/superseded.
+- Secure OTA software held only on historical Phase-1 line — PR #145 merged current-dev replay as `73bcb3e3a57dd482ac87b174906254ad60c8575b`; historical PR #52 closed/superseded.
+- OTA-specific checks could be skipped on unrelated PRs — PR #148 added always-on PR/dev-push gate; focused `33778878536`, full `33778878091`, merge `1a3b0f4ee73ae08588caee7b46f9ab87d1e5b491`.
 
 ## Non-blocking separate track
 

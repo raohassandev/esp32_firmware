@@ -1,5 +1,5 @@
 version: 2
-updated_at: 2026-09-03T19:50:00+05:00
+updated_at: 2026-09-03T21:34:00+05:00
 master_issue: 79
 truth_rule: live_repository_over_stale_docs
 
@@ -42,7 +42,7 @@ agents:
     role: CODER_RUNTIME_SAFETY
     owner: ChatGPT
     status: COMPLETE_CURRENT_KNOWN_SURFACES
-    evidence_prs: [107, 117, 119, 122, 124, 127, 129, 130, 131, 133, 135, 136, 137, 138, 140]
+    evidence_prs: [107, 117, 119, 122, 124, 127, 129, 130, 131, 133, 135, 136, 137, 138, 140, 145, 148]
     qa_owner: GitHub_Actions
     current_guards:
       - commissioning_mutations_revoke_command_authority_before_persistence
@@ -50,6 +50,30 @@ agents:
       - wifi_scan_result_ownership_released_on_failure
       - whole_app_config_runtime_task_stack_frames_forbidden_across_components_and_main
       - app_config_stack_guard_handles_arrays_multi_declarators_and_common_qualifiers
+      - ota_binary_receive_loop_is_bounded_reviewed_and_exactly_owned
+      - secure_ota_contracts_run_on_every_pr_and_dev_push
+
+  coder_operator_experience:
+    role: CODER_OPERATOR_UI
+    owner: ChatGPT
+    status: COMPLETE_MERGED_CURRENT_DEV
+    evidence_pr: 144
+    merge: 8b5fce29aaf0de7ec9a5531ad3ea66c78e4539ed
+    superseded_historical_pr: 54
+    qa_owner: GitHub_Actions
+
+  coder_secure_ota:
+    role: CODER_L4_SOFTWARE
+    owner: ChatGPT
+    issue: 50
+    status: COMPLETE_MERGED_CURRENT_DEV
+    evidence_pr: 145
+    merge: 73bcb3e3a57dd482ac87b174906254ad60c8575b
+    regression_pr: 148
+    regression_merge: 1a3b0f4ee73ae08588caee7b46f9ab87d1e5b491
+    superseded_historical_pr: 52
+    qa_owner: GitHub_Actions
+    rule: software_ci_never_certifies_physical_rollback_or_interruption
 
   coder_site_commissioning:
     role: CODER_L5
@@ -92,8 +116,10 @@ agents:
     owner: Claude_Code_or_site_operator
     issue: 86
     implementation_issue: 50
-    implementation_pr: 52
+    software_pr: 145
+    software_merge: 73bcb3e3a57dd482ac87b174906254ad60c8575b
     status: BLOCKED_BY_WAVESHARE_SOURCE_GRAPH_AND_PHYSICAL_QUALIFICATION
+    rule: qualify_exact_intended_ota_artifact_no_cross_identity_pass_transfer
 
   physical_fat_sat:
     role: PHYSICAL_EXECUTOR_QA_L7
@@ -107,13 +133,14 @@ agents:
     responsibilities:
       - focused_changed_behavior_tests
       - full_firmware_web_esp32s3_build
+      - always_on_secure_ota_regression_gate
       - exact_head_evidence_only
       - never_substitute_for_physical_acceptance
 
   qa_release:
     role: RELEASE_QA
     owner: ChatGPT
-    issues: [80, 83, 91, 93]
+    issues: [80, 83, 86, 91, 93]
     evidence_tooling_pr: 142
     responsibilities:
       - verify_tree_and_artifact_identity
@@ -121,6 +148,7 @@ agents:
       - verify_physical_and_software_evidence_are_not_conflated
       - validate_final_evidence_with_current_tooling_without_lowering_thresholds
       - reject_partial_soak_aggregation_and_cross_identity_pass_transfer
+      - reject_ota_physical_claims_from_source_or_ci_only
 
   product_owner:
     role: OWNER
@@ -140,3 +168,4 @@ separation_rules:
   - blocked_external_lanes_do_not_stop_independent_software_lanes
   - stale_todo_items_do_not_reopen_merged_work_without_regression_evidence
   - final_acceptance_thresholds_are_not_lowered_to_manufacture_pass
+  - physical_pass_does_not_transfer_from_frozen_waveshare_candidate_to_newer_dev_or_ota_images
