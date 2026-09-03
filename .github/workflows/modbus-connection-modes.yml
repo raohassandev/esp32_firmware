@@ -10,6 +10,7 @@ on:
       - 'components/web_server/web_server.c'
       - 'components/web_server/CMakeLists.txt'
       - 'tests/modbus_connection_modes_source_contract.py'
+      - 'tests/modbus_connection_policy_test.c'
       - 'tests/modbus_runtime_safety_source_contract.py'
       - 'tests/config_import_safety_source_contract.py'
       - 'tests/meter_role_source_contract.py'
@@ -27,6 +28,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: Check connection-mode contract
         run: python3 tests/modbus_connection_modes_source_contract.py
+      - name: Run connection policy unit tests
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -Wall -Wextra -Werror \
+            -Icomponents/modbus_tcp/include \
+            tests/modbus_connection_policy_test.c \
+            components/modbus_tcp/modbus_connection_policy.c \
+            -o /tmp/modbus_connection_policy_test
+          /tmp/modbus_connection_policy_test
       - name: Check existing Modbus runtime safety contract
         run: python3 tests/modbus_runtime_safety_source_contract.py
       - name: Check configuration import and migration safety contract
