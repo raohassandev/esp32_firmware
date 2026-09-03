@@ -8,10 +8,13 @@ defaults:
       - zero_behind_target_at_merge_time
       - fresh_required_CI_green
       - tests_for_changed_behavior
+      - expected_head_SHA_guard_on_merge
     forbid:
       - direct_feature_write_to_integration_branch
       - force_push_over_unmerged_work
       - inferred_test_pass
+      - historical_CI_reused_for_replayed_head
+      - merge_of_stale_or_behind_PR
   firmware_safety:
     require:
       - preserve_NVS_and_commissioned_configuration
@@ -22,6 +25,7 @@ defaults:
       - nvs_flash_erase
       - committed_real_credentials
       - guessed_register_addresses
+      - guessed_masks_or_polarity
       - guessed_timing_values
       - guessed_protocol_semantics
   hardware_acceptance:
@@ -31,11 +35,15 @@ defaults:
       - observed_visual_touch_result
       - serial_resource_and_reset_evidence
       - required_soak_on_same_candidate
+    forbid:
+      - CI_substituted_for_physical_evidence
+      - partial_soaks_combined_to_fake_continuous_gate
+      - physical_pass_silently_transferred_across_changed_identity
     rule: older_candidate_physical_pass_does_not_transfer_across_source_tree_change
   release:
     require:
       - software_merge_gates
       - hardware_acceptance_gates
       - signed_FAT_SAT_where_required
-      - evidence_tied_to_exact_firmware_SHA
+      - evidence_tied_to_exact_firmware_SHA_config_profile_and_artifact
       - no_open_critical_blockers
