@@ -1,5 +1,5 @@
 version: 2
-updated_at: 2026-09-03T16:35:00+05:00
+updated_at: 2026-09-03T18:54:00+05:00
 master_issue: 79
 truth_rule: live_repository_over_stale_docs
 
@@ -41,9 +41,14 @@ agents:
   coder_runtime_safety:
     role: CODER_RUNTIME_SAFETY
     owner: ChatGPT
-    status: COMPLETE_CURRENT_KNOWN_MUTATION_SURFACES
-    evidence_prs: [107, 117, 119, 122, 124, 127, 129, 130, 131]
+    status: COMPLETE_CURRENT_KNOWN_SURFACES
+    evidence_prs: [107, 117, 119, 122, 124, 127, 129, 130, 131, 133, 135, 136, 137, 138]
     qa_owner: GitHub_Actions
+    current_guards:
+      - commissioning_mutations_revoke_command_authority_before_persistence
+      - schema6_json_depth_bounded_before_cjson
+      - wifi_scan_result_ownership_released_on_failure
+      - whole_app_config_runtime_task_stack_frames_forbidden
 
   coder_site_commissioning:
     role: CODER_L5
@@ -57,7 +62,7 @@ agents:
     owner: ChatGPT
     issue: 82
     status: BLOCKED_EXTERNAL_OFFICIAL_MANUALS_AND_BENCH
-    generic_safety_prs: [102, 108, 112, 113, 119]
+    generic_safety_prs: [102, 108, 112, 113, 119, 136]
     qa_owner: ChatGPT_and_GitHub_Actions
 
   physical_waveshare:
@@ -74,7 +79,6 @@ agents:
     owner: Claude_Code_or_site_operator
     issue: 80
     implementation_pr: 106
-    implementation_head: a1620789235d21b515f9f245f2329fab88b50558
     status: BLOCKED_EXTERNAL_BENCH
     rule: no_merge_from_ci_alone_replay_current_dev_only_after_physical_pass
 
