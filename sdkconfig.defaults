@@ -24,5 +24,6 @@ CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
 CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
 CONFIG_HTTPD_MAX_URI_LEN=256
-CONFIG_PVDG_DEFAULT_WIFI_SSID="Rao1"
+# Production/dev defaults intentionally contain no STA SSID/password. A fresh
+# controller enters its setup AP and commissioned credentials stay in NVS.
 CONFIG_PVDG_DEFAULT_ZLAN_HOST="192.168.100.200"
