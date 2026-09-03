@@ -1,6 +1,7 @@
 #include "inverter_profile_store.h"
 
 #include <stdbool.h>
+#include <stdlib.h>
 #include <string.h>
 #include "config_manager.h"
 #include "esp_check.h"
@@ -110,18 +111,34 @@ esp_err_t inverter_profile_store_set(uint8_t inverter_index, const char *profile
     strlcpy(next.profile_ids[inverter_index], profile_id,
             sizeof(next.profile_ids[inverter_index]));
 
+    /* app_config_t is roughly 2.5 kB. Profile assignment is normally reached
+     * from the shared httpd task, so placing the whole snapshot on that stack
+     * consumes the same large frame class that previously caused this product's
+     * boot stack overflow. Keep it on the heap and release it on every path. */
+    app_config_t *config = malloc(sizeof(*config));
+    if (!config) return ESP_ERR_NO_MEM;
+
+    esp_err_t err = config_manager_get_snapshot(config);
+    if (err != ESP_OK) {
+        free(config);
+        ESP_LOGE(TAG, "configuration unavailable: %s", esp_err_to_name(err));
+        return err;
+    }
+
     /* Disable persisted automatic control BEFORE changing the profile map.
      * If the control-config save fails, the profile assignment is untouched.
      * If the later profile write fails, staying disabled is the safe outcome.
      * This ordering prevents a reset/power loss between commits from booting
      * an enabled controller against a newly-selected register map or scale. */
-    app_config_t config;
-    ESP_RETURN_ON_ERROR(config_manager_get_snapshot(&config), TAG,
-                        "configuration unavailable");
-    if (config.control.enabled) {
-        config.control.enabled = false;
-        ESP_RETURN_ON_ERROR(config_manager_save(&config), TAG,
-                            "failed to disable automatic control before profile change");
+    if (config->control.enabled) {
+        config->control.enabled = false;
+        err = config_manager_save(config);
+    }
+    free(config);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "failed to disable automatic control before profile change: %s",
+                 esp_err_to_name(err));
+        return err;
     }
 
     ESP_RETURN_ON_ERROR(persist(&next), TAG, "profile assignment save failed");

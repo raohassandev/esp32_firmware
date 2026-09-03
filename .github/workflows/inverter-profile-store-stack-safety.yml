@@ -1,0 +1,25 @@
+name: Inverter profile store stack safety checks
+
+on:
+  pull_request:
+    paths:
+      - 'components/inverter_manager/inverter_profile_store.c'
+      - 'components/web_server/inverter_profile_store_guard.c'
+      - 'components/web_server/CMakeLists.txt'
+      - 'tests/inverter_profile_store_stack_safety_source_contract.py'
+      - '.github/workflows/inverter-profile-store-stack-safety.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  profile-store-stack-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check heap-safe profile assignment ordering
+        run: python3 tests/inverter_profile_store_stack_safety_source_contract.py
+      - name: Re-run runtime configuration interlock contract
+        run: python3 tests/runtime_config_disable_interlock_source_contract.py

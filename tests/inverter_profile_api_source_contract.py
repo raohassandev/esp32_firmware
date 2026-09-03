@@ -26,7 +26,7 @@ require("inverter_profile_store_set" in API,
         "assignment endpoint must persist through the profile store")
 require('"automatic_control_disabled"' in API and '"restart_required"' in API,
         "assignment response must disclose safety effects")
-require("config.control.enabled = false" in STORE,
+require("config->control.enabled = false" in STORE,
         "profile changes must disable automatic control")
 require("inverter_profiles_find(profile_id)" in STORE,
         "profile store must reject unknown profile ids")
