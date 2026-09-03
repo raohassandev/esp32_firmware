@@ -1,0 +1,24 @@
+name: Production inverter profile release gate
+
+on:
+  pull_request:
+    paths:
+      - 'components/inverter_manager/inverter_profiles.c'
+      - 'tests/production_release_gate.py'
+      - 'tests/production_profile_release_gate_source_contract.py'
+      - '.github/workflows/production-profile-release-gate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  production-profile-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check production profile release contract
+        run: python3 tests/production_profile_release_gate_source_contract.py
+      - name: Report development release blockers
+        run: python3 tests/production_release_gate.py
