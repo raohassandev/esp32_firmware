@@ -81,7 +81,9 @@ static esp_err_t css_handler(httpd_req_t *request)
         web_assets_prelab_readiness_css,
         web_assets_mobile_prelab_fixes_css,
         web_assets_product_shell_v2_css,
+        web_assets_shell_current_fixes_css,
         web_assets_product_experience_v2_css,
+        web_assets_operator_continuity_verdict_css,
         web_assets_commissioning_wizard_v2_css,
         web_assets_commissioning_release_v3_css
     };
@@ -120,7 +122,9 @@ static esp_err_t js_handler(httpd_req_t *request)
         web_assets_engineering_errors_js,
         web_assets_ui_enhancements_js,
         web_assets_product_shell_v2_js,
+        web_assets_shell_current_fixes_js,
         web_assets_product_experience_v2_js,
+        web_assets_operator_continuity_verdict_js,
         web_assets_commissioning_release_v3_js
     };
     return send_asset_parts(request, "application/javascript; charset=utf-8", assets, sizeof(assets) / sizeof(assets[0]));
