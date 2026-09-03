@@ -1,9 +1,9 @@
 version: 2
-updated_at: 2026-09-03T09:40:00+05:00
+updated_at: 2026-09-03T09:51:00+05:00
 repo: raohassandev/esp32_firmware
 master_issue: 79
 integration_branch: dev
-integration_head_at_snapshot: a7d547f2f1909527538ec529d1f44b4ad2733861
+integration_head_at_snapshot: 430e9157eb82196501f896d9323da16c86f9255e
 truth_rule: live_repository_over_stale_docs
 wip_limit_ci_active_software_prs: 3
 
@@ -12,15 +12,18 @@ lanes:
     issue: 89
     owner: ChatGPT
     qa: GitHub_Actions_and_diff_review
-    status: EXECUTING
-    depends_on: []
+    status: COMPLETE
+    merge_pr: 97
+    merge_sha: 430e9157eb82196501f896d9323da16c86f9255e
 
   L1_modbus_connection_modes:
     issues: [88, 78]
     owner: ChatGPT
     qa: GitHub_Actions
     branch: work/modbus/connection-modes
-    status: EXECUTING
+    branch_head_at_snapshot: 3cac10e34682274fc6362e025e1b1456d0421cd7
+    status: EXECUTING_NEEDS_CURRENT_DEV_RECONCILIATION_BEFORE_PR
+    note: branch was 0-behind pre-governance merge; live dev advanced only through governance PR 97
     done_when:
       - config_schema_migrates_existing_devices_to_per_transaction
       - meter_and_inverter_config_and_diagnostics_expose_mode
@@ -154,7 +157,8 @@ lanes:
   L16_stale_todo_cleanup:
     issue: 96
     owner: ChatGPT
-    status: EXECUTING_WITH_L0
+    status: COMPLETE
+    merge_pr: 97
 
 completed_major_work:
   - pr_58_generator_strong_evidence
@@ -163,6 +167,7 @@ completed_major_work:
   - pr_59_62_65_69_71_73_76_browser_and_auth_lifecycle
   - pr_75_dead_engineering_asset_cleanup
   - pr_60_initial_aish_control_room
+  - pr_97_aish_os_v2_program_governance
 
 release_done_definition:
   - all_release_target_software_merged_with_exact_head_zero_behind_gates
