@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import copy
 import sys
 import unittest
 from pathlib import Path
@@ -56,6 +55,13 @@ def scenario(scenario_id: str) -> dict:
         result["authority_returned_early"] = False
         result["recovery_dwell_ms"] = 5000
         result["recovery_dwell_evidence"] = "timestamps prove full uninterrupted dwell before authority"
+    if scenario_id == "generator_meter_sign":
+        result["meter_sign_proof"] = {
+            "known_physical_direction": "generator supplying the known bench load",
+            "independent_reference": "clamp-meter-capture-001",
+            "observed_generator_kw": 12.3,
+            "sign_matches": True
+        }
     return result
 
 
@@ -128,6 +134,16 @@ class GeneratorPhysicalEvidenceTests(unittest.TestCase):
         self.assertFalse(result.passed)
         self.assertIn("scenario:stale:invalid_state_must_remain_blocked", result.failures)
 
+    def test_arbitrary_authority_text_is_rejected(self) -> None:
+        record = passing_record()
+        island = next(item for item in record["scenarios"] if item["id"] == "island")
+        island["expected_authority_sequence"] = ["maybe"]
+        island["observed_authority_sequence"] = ["maybe"]
+        result = evaluate(record, SHA, DIGEST)
+        self.assertFalse(result.passed)
+        self.assertIn("scenario:island:expected_authority_sequence_invalid", result.failures)
+        self.assertIn("scenario:island:observed_authority_sequence_invalid", result.failures)
+
     def test_transition_requires_block_then_allow_and_full_dwell(self) -> None:
         record = passing_record()
         transition = next(item for item in record["scenarios"] if item["id"] == "grid_to_generator")
@@ -147,13 +163,43 @@ class GeneratorPhysicalEvidenceTests(unittest.TestCase):
         self.assertFalse(result.passed)
         self.assertIn("scenario:island:fatal_count_nonzero_or_missing:wdt", result.failures)
 
-    def test_safe_pv_mismatch_fails(self) -> None:
+    def test_safe_pv_mismatch_or_non_numeric_value_fails(self) -> None:
         record = passing_record()
         conflict = next(item for item in record["scenarios"] if item["id"] == "conflict")
         conflict["observed_safe_pv_request"] = 10
         result = evaluate(record, SHA, DIGEST)
         self.assertFalse(result.passed)
         self.assertIn("scenario:conflict:safe_pv_request_mismatch", result.failures)
+
+        record = passing_record()
+        conflict = next(item for item in record["scenarios"] if item["id"] == "conflict")
+        conflict["expected_safe_pv_request"] = "safe"
+        conflict["observed_safe_pv_request"] = "safe"
+        result = evaluate(record, SHA, DIGEST)
+        self.assertFalse(result.passed)
+        self.assertIn("scenario:conflict:expected_safe_pv_request_invalid", result.failures)
+        self.assertIn("scenario:conflict:observed_safe_pv_request_invalid", result.failures)
+
+    def test_generator_meter_sign_requires_independent_proof(self) -> None:
+        record = passing_record()
+        sign_case = next(item for item in record["scenarios"] if item["id"] == "generator_meter_sign")
+        sign_case["meter_sign_proof"]["sign_matches"] = False
+        result = evaluate(record, SHA, DIGEST)
+        self.assertFalse(result.passed)
+        self.assertIn("scenario:generator_meter_sign:generator_meter_sign_not_proven", result.failures)
+
+    def test_qualified_command_and_readback_must_be_numeric(self) -> None:
+        record = passing_record()
+        island = next(item for item in record["scenarios"] if item["id"] == "island")
+        island["command_path"] = {
+            "qualified_inverter_path": True,
+            "command": None,
+            "readback": None,
+            "evidence_ref": "capture-1"
+        }
+        result = evaluate(record, SHA, DIGEST)
+        self.assertFalse(result.passed)
+        self.assertIn("scenario:island:qualified_command_readback_invalid", result.failures)
 
 
 if __name__ == "__main__":
