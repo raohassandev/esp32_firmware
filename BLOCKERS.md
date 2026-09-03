@@ -1,6 +1,6 @@
 # AISH-OS Blocker Ledger v2
 
-Master program: #79. Live evidence overrides stale snapshots. Current software integration baseline: `093954b5626c034e126fde3b773cedb1add92707` after PR #140.
+Master program: #79. Live evidence overrides stale snapshots. Current software integration baseline: `d07dca2d2b20a2cf4e712df45fae9dfe7e3024c2` after PR #142.
 
 ## B-001 — Waveshare final continuous acceptance
 
@@ -10,7 +10,7 @@ Master program: #79. Live evidence overrides stale snapshots. Current software i
 
 Short display/touch/Alarms acceptance passed with healthy DMA/resources and zero recorded WDT/panic/NO_MEM/unexpected reset. The first continuous same-image soak produced about 2 h / 121 one-minute samples and 25 clean backend rounds, then the entire USB dock/power path disappeared. The required single uninterrupted >=4 h / >=240-sample run has not been achieved. Partial runs may not be combined; one new uninterrupted run is required.
 
-PR #57 and parent PR #20 remain unpromoted; obsolete #46 stays closed.
+PR #142 merged generic final-evidence parsing and immutable package validation to current `dev`; it does not change the physical verdict or candidate. PR #57 and parent PR #20 remain unpromoted; obsolete #46 stays closed. Historical PR #67 remains source-coupled to the frozen Waveshare graph.
 
 ## B-002 — Waveshare backend parity and persistence/ARM
 
@@ -41,6 +41,8 @@ Remaining work is physical endurance: PCB/TIME_WAIT/socket/resource trends, heal
 **State:** BLOCKED EXTERNAL OFFICIAL MANUALS + BENCH
 
 Generic engine safety is merged through #119. PR #112 also prevents a production release from passing with zero actual production-approved real profiles, and PR #113 keeps pending manufacturer connection transport explicitly unqualified. Every production model still requires exact official manual/model/firmware identity, physical identity/telemetry/status proof, write/readback/rollback evidence and signed approval.
+
+Official-source research currently confirms GoodWe GW100K-HT uses Modbus-RTU/SunSpec-compatible communications but does not provide the required exact HT production control map; the publicly available Huawei SUN2000MB Modbus definition is a different family and is not accepted as SUN2000-115KTL-M2 register evidence. No profile is promoted from incomplete documentation.
 
 ## B-006 — Real site source evidence
 
@@ -88,7 +90,9 @@ Software CI cannot close Grid/DG/mixed-source FAT, communication-loss endurance,
 - Whole schema-6 init/import/export config snapshots on main/HTTP task stacks — PR #137.
 - Runtime-component automatic `app_config_t` stack-frame regression gap — PR #138.
 - Project-wide app-config guard missing `main/` ownership and declaration escape forms — PR #140; focused `33765114501`, full `33765114492`, merge `093954b5626c034e126fde3b773cedb1add92707`.
-- Stale governance PR #139 — closed unmerged after #140 advanced `dev`; governance replay moved to a fresh current-base branch.
+- Stale governance PR #139 — closed unmerged after #140 advanced `dev`.
+- Governance reconciliation through PR #140 — PR #141; full `33766240186`, merge `2272caefa87581f27e815ce4420a5880d2d16e38`.
+- Generic Waveshare final-evidence/package validation tooling absent from live `dev` — PR #142; focused `33768630723`, full `33768630667`, merge `d07dca2d2b20a2cf4e712df45fae9dfe7e3024c2`. Tooling cannot substitute for physical evidence.
 
 ## Non-blocking separate track
 

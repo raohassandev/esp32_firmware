@@ -1,9 +1,9 @@
 version: 2
-updated_at: 2026-09-03T19:13:00+05:00
+updated_at: 2026-09-03T19:50:00+05:00
 repo: raohassandev/esp32_firmware
 master_issue: 79
 integration_branch: dev
-integration_head_at_snapshot: 093954b5626c034e126fde3b773cedb1add92707
+integration_head_at_snapshot: d07dca2d2b20a2cf4e712df45fae9dfe7e3024c2
 truth_rule: live_repository_over_stale_docs
 wip_limit_ci_active_software_prs: 3
 
@@ -32,7 +32,9 @@ lanes:
     detailed_issues: [24, 25, 26, 27]
     implementation_pr: 57
     parent_pr: 20
-    tooling_pr: 67
+    historical_source_coupled_tooling_pr: 67
+    current_dev_acceptance_tooling_pr: 142
+    current_dev_acceptance_tooling_merge: d07dca2d2b20a2cf4e712df45fae9dfe7e3024c2
     candidate_sha: 87841ecee727fe1d814d4186be8c8c26e4afafb4
     candidate_tree: 6ddd7900f9b4ece0fba9349b905e1c078fc3401e
     artifact_id: 9843536218
@@ -45,6 +47,8 @@ lanes:
       - first_continuous_soak_about_2h_and_121_samples_clean_plus_25_backend_rounds
       - first_soak_ended_when_usb_dock_power_path_disappeared_without_firmware_crash_evidence
       - partial_soaks_are_not_additive
+      - current_dev_tooling_validates_serial_human_observation_and_immutable_package_evidence
+      - tooling_ci_is_not_physical_acceptance
     remaining:
       - new_uninterrupted_4h_same_image_soak_at_least_240_samples
       - backend_parity_recovery_issue_25
@@ -87,7 +91,7 @@ lanes:
     owner: ChatGPT
     qa: GitHub_Actions_and_diff_review
     status: CONTINUOUS
-    active_reconciliation_pr: 141
+    active_reconciliation_pr: pending_current_branch_docs_governance_reconcile_pr142
 
   L9_reva_product_hardware:
     issue: 85
@@ -149,6 +153,8 @@ recent_governed_merges:
   pr_137: 43d4bd509ea07aadbd9ea18e9813e3ec11c60297
   pr_138: dd10809f4246713ab99b3ccc9c3b515ece94fd0d
   pr_140: 093954b5626c034e126fde3b773cedb1add92707
+  pr_141: 2272caefa87581f27e815ce4420a5880d2d16e38
+  pr_142: d07dca2d2b20a2cf4e712df45fae9dfe7e3024c2
 
 resolved_additional_safety_findings:
   legacy_migration_oom_nvs_preservation:
@@ -188,6 +194,13 @@ resolved_additional_safety_findings:
     focused_run: 33765114501
     full_run: 33765114492
     merge: 093954b5626c034e126fde3b773cedb1add92707
+  waveshare_final_acceptance_tooling_on_live_dev:
+    pr: 142
+    head: a4a0a64210b5a05acd02cdb1016948d593c8d213
+    focused_run: 33768630723
+    full_run: 33768630667
+    merge: d07dca2d2b20a2cf4e712df45fae9dfe7e3024c2
+    physical_pass_created: false
 
 stale_replays_closed: [115, 116, 118, 121, 123, 126, 128, 134, 139]
 
@@ -198,4 +211,5 @@ release_done_definition:
   - secure_ota_physical_rollback_interruption_matrix_complete
   - integrated_grid_dg_mixed_source_fat_modbus_network_endurance_and_signed_sat_complete
   - evidence_index_traceable_to_final_release_sha_config_profile_and_artifact
+  - final_acceptance_thresholds_not_weakened_to_manufacture_pass
   - no_open_critical_blockers

@@ -1,10 +1,10 @@
 # AISH-OS Live TODO v2
 
-Master program: #79. Live repository truth overrides stale historical checklists. Current software integration baseline: `093954b5626c034e126fde3b773cedb1add92707` after PR #140.
+Master program: #79. Live repository truth overrides stale historical checklists. Current software integration baseline: `d07dca2d2b20a2cf4e712df45fae9dfe7e3024c2` after PR #142.
 
 ## RELEASE-BLOCKING PHYSICAL / EXTERNAL WORK
 
-- [ ] **L3 / #87 — Waveshare final acceptance.** Exact candidate `87841ecee727fe1d814d4186be8c8c26e4afafb4`; short physical gate PASS. Obtain one uninterrupted >=4 h same-image soak with >=240 one-minute samples. First attempt reached ~2 h / 121 clean samples before USB dock/power loss; partial runs cannot be combined. After PASS, complete #25 backend parity/recovery and #26 persistence/ARM before promotion.
+- [ ] **L3 / #87 — Waveshare final acceptance.** Exact candidate `87841ecee727fe1d814d4186be8c8c26e4afafb4`; short physical gate PASS. Obtain one uninterrupted >=4 h same-image soak with >=240 one-minute samples. First attempt reached ~2 h / 121 clean samples before USB dock/power loss; partial runs cannot be combined. Current `dev` includes PR #142 final-evidence/package validators. After physical PASS, complete #25 backend parity/recovery and #26 persistence/ARM before promotion.
 - [ ] **L2 / #80 — Generator source-transition bench qualification.** Draft PR #106 is software GREEN but physically gated. After physical PASS, replay the identical validated slice onto current `dev`, rerun exact-head CI, and merge only 0-behind.
 - [ ] **L5 / #81 — real site source evidence.** Record actual breaker/run/ATS/sync provenance, address/contact, mask, polarity, meter identity/sign/scaling and topology. No guessed values.
 - [ ] **L6 / #82 — production inverter profiles.** Each manufacturer/model requires exact official manual/model/firmware identity, physical identity/telemetry/status proof, write/readback/rollback bench evidence and signed production approval. Production release remains deliberately blocked with zero approved real profiles.
@@ -22,7 +22,8 @@ Master program: #79. Live repository truth overrides stale historical checklists
 - [ ] Draft PR #106 — source-transition runtime candidate; #80 physical gate.
 - [ ] Draft PR #52 — rollback-safe secure OTA; #86 + accepted Waveshare baseline.
 - [ ] PR #54 — operator continuity/truthful verdict presentation; post-Waveshare reconciliation.
-- [ ] PR #57/#20/#67 — frozen Waveshare source/promotion/tooling graph; #87/#27.
+- [ ] PR #57/#20 — frozen Waveshare source/promotion graph; #87/#27.
+- [ ] PR #67 — historical frozen-candidate/source-coupled tooling guard; generic reusable final-acceptance/package tooling is now independently merged on current `dev` via PR #142.
 
 ## COMPLETED SOFTWARE — DO NOT REOPEN WITHOUT CURRENT REGRESSION EVIDENCE
 
@@ -52,8 +53,10 @@ Master program: #79. Live repository truth overrides stale historical checklists
 - [x] Inverter profile assignment no longer puts a whole `app_config_t` snapshot on the HTTP task stack — PR #136, merge `321198bb5d970aa5f4842331a229ce63475e0776`, focused `33756766924`, full `33756767088`.
 - [x] Schema-6 init/import/export no longer put whole config snapshots on main/HTTP task stacks — PR #137, merge `43d4bd509ea07aadbd9ea18e9813e3ec11c60297`, focused `33761025944`, full `33761025927`.
 - [x] Runtime-component source contract forbids whole automatic `app_config_t` stack frames — PR #138, merge `dd10809f4246713ab99b3ccc9c3b515ece94fd0d`, focused `33762133658`, full `33762133649`.
-- [x] Project-wide app-config stack guard now covers `components/` + `main/`, triggers on `main/**/*.c`, and detects object arrays/multi-declarators/common qualifiers while allowing pointers/static storage — PR #140, head `1bb64b117971709a394674eb73e11d10c5f4f30d`, focused `33765114501`, full `33765114492`, merge `093954b5626c034e126fde3b773cedb1add92707`.
-- [x] PR #139 closed unmerged as stale after #140 advanced `dev`; governance replay moved to a fresh current-base branch.
+- [x] Project-wide app-config stack guard covers `components/` + `main/`, triggers on `main/**/*.c`, and detects object arrays/multi-declarators/common qualifiers while allowing pointers/static storage — PR #140, head `1bb64b117971709a394674eb73e11d10c5f4f30d`, focused `33765114501`, full `33765114492`, merge `093954b5626c034e126fde3b773cedb1add92707`.
+- [x] PR #139 closed unmerged as stale after #140 advanced `dev`.
+- [x] Governance reconciliation through PR #140 — PR #141, head `9623ce519c40ef760e77f7b9ec0cf69cf42f62c5`, full `33766240186`, merge `2272caefa87581f27e815ce4420a5880d2d16e38`.
+- [x] Generic Waveshare final acceptance + immutable package validation tooling available on current `dev` — PR #142, head `a4a0a64210b5a05acd02cdb1016948d593c8d213`, focused `33768630723`, full `33768630667`, merge `d07dca2d2b20a2cf4e712df45fae9dfe7e3024c2`. Tooling PASS is not physical PASS.
 - [x] Waveshare short display/touch/Alarms gate on exact `87841ece...` — PASS; final continuous soak remains open.
 
 ## SEPARATE PRODUCT-HARDWARE TRACK
@@ -62,4 +65,4 @@ Master program: #79. Live repository truth overrides stale historical checklists
 
 ## GLOBAL RELEASE GATE
 
-Do not claim 100% until all release-target software is governed and merged, every required physical/FAT/SAT/OTA gate passes against exact identities, real site source mappings and production inverter profiles are documentation-backed and physically qualified, and no critical blocker remains.
+Do not claim 100% until all release-target software is governed and merged, every required physical/FAT/SAT/OTA gate passes against exact identities, real site source mappings and production inverter profiles are documentation-backed and physically qualified, and no critical blocker remains. Do not weaken acceptance thresholds to create a PASS.

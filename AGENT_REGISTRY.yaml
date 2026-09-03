@@ -1,5 +1,5 @@
 version: 2
-updated_at: 2026-09-03T19:13:00+05:00
+updated_at: 2026-09-03T19:50:00+05:00
 master_issue: 79
 truth_rule: live_repository_over_stale_docs
 
@@ -73,6 +73,9 @@ agents:
     detailed_issues: [24, 25, 26, 27]
     candidate: 87841ecee727fe1d814d4186be8c8c26e4afafb4
     status: SHORT_PASS_FINAL_CONTINUOUS_SOAK_INCOMPLETE
+    current_dev_evidence_tooling_pr: 142
+    evidence_tooling_focused_run: 33768630723
+    evidence_tooling_full_run: 33768630667
     rule: observed_hardware_evidence_only
 
   physical_source_transition:
@@ -111,10 +114,13 @@ agents:
     role: RELEASE_QA
     owner: ChatGPT
     issues: [80, 83, 91, 93]
+    evidence_tooling_pr: 142
     responsibilities:
       - verify_tree_and_artifact_identity
       - verify_no_stale_pr_is_promoted
       - verify_physical_and_software_evidence_are_not_conflated
+      - validate_final_evidence_with_current_tooling_without_lowering_thresholds
+      - reject_partial_soak_aggregation_and_cross_identity_pass_transfer
 
   product_owner:
     role: OWNER
@@ -129,6 +135,8 @@ separation_rules:
   - coder_does_not_self_certify_physical_pass
   - qa_does_not_silently_repair_implementation
   - software_ci_does_not_equal_physical_acceptance
+  - evidence_tooling_pass_does_not_equal_physical_acceptance
   - physical_executor_does_not_invent_registers_polarity_timing_or_protocol_semantics
   - blocked_external_lanes_do_not_stop_independent_software_lanes
   - stale_todo_items_do_not_reopen_merged_work_without_regression_evidence
+  - final_acceptance_thresholds_are_not_lowered_to_manufacture_pass
