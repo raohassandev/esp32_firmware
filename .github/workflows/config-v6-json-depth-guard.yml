@@ -1,0 +1,27 @@
+name: Config v6 JSON depth guard checks
+
+on:
+  pull_request:
+    paths:
+      - 'components/config_manager/config_manager.c'
+      - 'components/config_manager/config_manager_v6.c'
+      - 'components/config_manager/config_manager_json_guard.c'
+      - 'components/config_manager/include/config_manager_json_guard.h'
+      - 'components/config_manager/CMakeLists.txt'
+      - 'tests/config_v6_json_depth_guard_source_contract.py'
+      - '.github/workflows/config-v6-json-depth-guard.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  config-v6-json-depth:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check schema-6 bounded JSON parsing
+        run: python3 tests/config_v6_json_depth_guard_source_contract.py
+      - name: Re-run generic config import safety contract
+        run: python3 tests/config_import_safety_source_contract.py
