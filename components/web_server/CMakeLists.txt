@@ -12,6 +12,7 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/product-experience-v2.css" "
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-continuity-verdict.css" "${CMAKE_CURRENT_BINARY_DIR}/operator-continuity-verdict.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/commissioning-wizard-v2.css" "${CMAKE_CURRENT_BINARY_DIR}/commissioning-wizard-v2.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/commissioning-release-v3.css" "${CMAKE_CURRENT_BINARY_DIR}/commissioning-release-v3.css" COPYONLY)
+configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/ota.css" "${CMAKE_CURRENT_BINARY_DIR}/ota.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/wifi.css" "${CMAKE_CURRENT_BINARY_DIR}/wifi.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/devices.css" "${CMAKE_CURRENT_BINARY_DIR}/devices.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/em500.css" "${CMAKE_CURRENT_BINARY_DIR}/em500.css" COPYONLY)
@@ -29,6 +30,7 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-continuity-verdict.
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/commissioning-route.js" "${CMAKE_CURRENT_BINARY_DIR}/commissioning-route.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/commissioning-wizard-v2.js" "${CMAKE_CURRENT_BINARY_DIR}/commissioning-wizard-v2.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/commissioning-release-v3.js" "${CMAKE_CURRENT_BINARY_DIR}/commissioning-release-v3.js" COPYONLY)
+configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/ota.js" "${CMAKE_CURRENT_BINARY_DIR}/ota.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/engineering-errors.js" "${CMAKE_CURRENT_BINARY_DIR}/engineering-errors.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/ui-enhancements.js" "${CMAKE_CURRENT_BINARY_DIR}/ui-enhancements.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/wifi-utils.js" "${CMAKE_CURRENT_BINARY_DIR}/wifi-utils.js" COPYONLY)
@@ -60,6 +62,7 @@ set(WEB_SERVER_C_SOURCES
     "engineering_guard.c"
     "http_json.c"
     "operational_api.c"
+    "ota_api.c"
     "inverter_profile_api.c"
     "inverter_profile_store_guard.c"
     "inverter_config_api.c"
@@ -83,7 +86,7 @@ set(WEB_SERVER_C_SOURCES
 idf_component_register(
     SRCS ${WEB_SERVER_C_SOURCES}
     INCLUDE_DIRS "include"
-    REQUIRES esp_http_server esp_system esp_timer esp_hw_support spi_flash cjson nvs_flash mbedtls config_manager solar_grid_config source_detection network_manager meter_manager modbus_tcp inverter_manager control_engine safety_manager
+    REQUIRES esp_http_server esp_system esp_timer esp_hw_support spi_flash cjson nvs_flash mbedtls config_manager solar_grid_config source_detection ota_manager network_manager meter_manager modbus_tcp inverter_manager control_engine safety_manager
     EMBED_TXTFILES
         "${CMAKE_CURRENT_BINARY_DIR}/index.html"
         "${CMAKE_CURRENT_BINARY_DIR}/app.css"
@@ -99,6 +102,7 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/operator-continuity-verdict.css"
         "${CMAKE_CURRENT_BINARY_DIR}/commissioning-wizard-v2.css"
         "${CMAKE_CURRENT_BINARY_DIR}/commissioning-release-v3.css"
+        "${CMAKE_CURRENT_BINARY_DIR}/ota.css"
         "${CMAKE_CURRENT_BINARY_DIR}/wifi.css"
         "${CMAKE_CURRENT_BINARY_DIR}/devices.css"
         "${CMAKE_CURRENT_BINARY_DIR}/em500.css"
@@ -116,6 +120,7 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/commissioning-route.js"
         "${CMAKE_CURRENT_BINARY_DIR}/commissioning-wizard-v2.js"
         "${CMAKE_CURRENT_BINARY_DIR}/commissioning-release-v3.js"
+        "${CMAKE_CURRENT_BINARY_DIR}/ota.js"
         "${CMAKE_CURRENT_BINARY_DIR}/engineering-errors.js"
         "${CMAKE_CURRENT_BINARY_DIR}/ui-enhancements.js"
         "${CMAKE_CURRENT_BINARY_DIR}/wifi-utils.js"
