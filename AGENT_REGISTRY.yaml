@@ -1,5 +1,5 @@
 version: 2
-updated_at: 2026-09-03T09:40:00+05:00
+updated_at: 2026-09-03T16:35:00+05:00
 master_issue: 79
 truth_rule: live_repository_over_stale_docs
 
@@ -14,11 +14,11 @@ agents:
   orchestrator:
     role: PM_ORCHESTRATOR_CONTROLLER
     owner: ChatGPT
-    issues: [79, 84, 89, 91, 92, 93, 94, 96]
+    issues: [79, 84, 91, 93, 94]
+    status: CONTINUOUS
     responsibilities:
       - fetch_live_dev_open_prs_open_issues_and_physical_evidence_every_cycle
       - decompose_requirements_into_non_overlapping_lanes
-      - keep_2_to_3_ci_active_software_prs_maximum
       - enforce_branch_pr_exact_head_zero_behind_and_expected_head_merge_gates
       - continue_other_lanes_when_one_lane_is_blocked
       - reconcile_governance_after_merges_and_physical_verdicts
@@ -26,17 +26,23 @@ agents:
   coder_modbus:
     role: CODER_L1
     owner: ChatGPT
-    issue: 88
-    parent_issue: 78
-    branch: work/modbus/connection-modes
-    status: EXECUTING
+    status: COMPLETE_MERGED
+    evidence_prs: [99, 114]
+    physical_followup_issue: 83
     qa_owner: GitHub_Actions
 
   coder_browser_audit:
     role: CODER_L10
     owner: ChatGPT
     issue: 90
-    status: READY_PARALLEL
+    status: COMPLETE_CLOSED
+    qa_owner: GitHub_Actions
+
+  coder_runtime_safety:
+    role: CODER_RUNTIME_SAFETY
+    owner: ChatGPT
+    status: COMPLETE_CURRENT_KNOWN_MUTATION_SURFACES
+    evidence_prs: [107, 117, 119, 122, 124, 127, 129, 130, 131]
     qa_owner: GitHub_Actions
 
   coder_site_commissioning:
@@ -50,7 +56,8 @@ agents:
     role: CODER_L6
     owner: ChatGPT
     issue: 82
-    status: BLOCKED_EXTERNAL_MANUALS_AND_BENCH
+    status: BLOCKED_EXTERNAL_OFFICIAL_MANUALS_AND_BENCH
+    generic_safety_prs: [102, 108, 112, 113, 119]
     qa_owner: ChatGPT_and_GitHub_Actions
 
   physical_waveshare:
@@ -59,16 +66,17 @@ agents:
     issue: 87
     detailed_issues: [24, 25, 26, 27]
     candidate: 87841ecee727fe1d814d4186be8c8c26e4afafb4
-    status: SHORT_PASS_FINAL_SOAK_INCOMPLETE
+    status: SHORT_PASS_FINAL_CONTINUOUS_SOAK_INCOMPLETE
     rule: observed_hardware_evidence_only
 
   physical_source_transition:
     role: PHYSICAL_EXECUTOR_QA_L2
     owner: Claude_Code_or_site_operator
     issue: 80
-    implementation_pr: 77
+    implementation_pr: 106
+    implementation_head: a1620789235d21b515f9f245f2329fab88b50558
     status: BLOCKED_EXTERNAL_BENCH
-    rule: no_merge_of_pr_77_from_ci_alone
+    rule: no_merge_from_ci_alone_replay_current_dev_only_after_physical_pass
 
   physical_ota:
     role: PHYSICAL_EXECUTOR_QA_L4
@@ -76,7 +84,13 @@ agents:
     issue: 86
     implementation_issue: 50
     implementation_pr: 52
-    status: BLOCKED_BY_WAVESHARE_SOURCE_GRAPH
+    status: BLOCKED_BY_WAVESHARE_SOURCE_GRAPH_AND_PHYSICAL_QUALIFICATION
+
+  physical_fat_sat:
+    role: PHYSICAL_EXECUTOR_QA_L7
+    owner: Claude_Code_or_site_operator
+    issue: 83
+    status: WAITING_ON_PHYSICAL_SITE_PROFILE_AND_WAVESHARE_GATES
 
   qa_ci:
     role: SOFTWARE_QA
