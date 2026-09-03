@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Commissioning mapping writes must disable the already-running controller before persistence."""
+"""Commissioning/config writes must disable the already-running controller before persistence."""
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -7,6 +7,8 @@ METER = (ROOT / "components/web_server/meter_config_api.c").read_text(encoding="
 INVERTER = (ROOT / "components/web_server/inverter_config_api.c").read_text(encoding="utf-8")
 PROFILE_API = (ROOT / "components/web_server/inverter_profile_api.c").read_text(encoding="utf-8")
 PROFILE_GUARD = (ROOT / "components/web_server/inverter_profile_store_guard.c").read_text(encoding="utf-8")
+IMPORT_GUARD = (ROOT / "components/web_server/config_import_runtime_guard.c").read_text(encoding="utf-8")
+WEB_API = (ROOT / "components/web_server/web_api.c").read_text(encoding="utf-8")
 CMAKE = (ROOT / "components/web_server/CMakeLists.txt").read_text(encoding="utf-8")
 CONTROL = (ROOT / "components/control_engine/control_engine.c").read_text(encoding="utf-8")
 
@@ -30,6 +32,20 @@ for name, source in (("meter", METER), ("inverter", INVERTER)):
                    f"{name} mapping may persist before runtime command authority is removed")
     require_before(source, "control.enabled = false", "control_engine_force_disable();",
                    f"{name} mapping must first build a persistently disabled configuration")
+
+# Generic /api/config import already refuses to persist control.enabled=true.
+# Its HTTP path must also latch the running cached controller off before import.
+require('"config_import_runtime_guard.c"' in CMAKE,
+        "generic config runtime-disable guard is not compiled")
+require("config_manager_import_json=web_config_manager_import_json_guarded" in CMAKE,
+        "web config import is not routed through the runtime-disable guard")
+require("config_manager_import_json(body);" in WEB_API,
+        "web config import call shape changed; review runtime interlock routing")
+require("control_engine_force_disable();" in IMPORT_GUARD,
+        "generic config import guard does not latch the live controller disabled")
+require_before(IMPORT_GUARD, "control_engine_force_disable();",
+               "config_manager_import_json(json_text);",
+               "generic config may persist before runtime command authority is removed")
 
 # Profile assignment uses a source-local guarded bridge to avoid a component cycle.
 require('"inverter_profile_store_guard.c"' in CMAKE,
