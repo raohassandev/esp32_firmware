@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "config_manager.c" "config_manager_v6.c" "config_manager_core_guard.c"
+    SRCS "config_manager.c" "config_manager_v6.c" "config_manager_core_guard.c" "meter_scale_migration.c"
     INCLUDE_DIRS "include"
     REQUIRES nvs_flash cjson modbus_tcp
 )
@@ -17,4 +17,14 @@ set_property(SOURCE "config_manager.c" APPEND PROPERTY COMPILE_DEFINITIONS
     nvs_flash_erase=config_manager_forbidden_nvs_erase
     malloc=config_manager_core_malloc
     nvs_set_blob=config_manager_guarded_nvs_set_blob
+)
+
+# The schema-6 initializer is kept byte-for-byte responsible for historical
+# schema/NVS handling. A thin public wrapper then performs one explicit,
+# persisted migration of the old EM500 scale compatibility fingerprint before
+# any meter task can consume configuration. This retires the silent runtime
+# scale substitution without changing the effective behavior of an existing
+# commissioned controller.
+set_property(SOURCE "config_manager_v6.c" APPEND PROPERTY COMPILE_DEFINITIONS
+    config_manager_init=config_manager_init_schema6
 )
