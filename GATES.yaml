@@ -35,9 +35,13 @@ defaults:
       - observed_visual_touch_result
       - serial_resource_and_reset_evidence
       - required_soak_on_same_candidate
+      - final_acceptance_thresholds_preserved
+      - deterministic_evidence_validation_when_tooling_is_available
     forbid:
       - CI_substituted_for_physical_evidence
+      - evidence_tooling_substituted_for_physical_evidence
       - partial_soaks_combined_to_fake_continuous_gate
+      - acceptance_thresholds_lowered_to_manufacture_pass
       - physical_pass_silently_transferred_across_changed_identity
     rule: older_candidate_physical_pass_does_not_transfer_across_source_tree_change
   release:
