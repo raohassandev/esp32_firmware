@@ -192,10 +192,35 @@ static void close_socket(modbus_connection_t *c)
     c->socket_fd = -1;
 }
 
+const char *modbus_tcp_connection_mode_name(uint8_t mode)
+{
+    switch ((modbus_connection_mode_t)mode) {
+    case MODBUS_CONNECTION_PER_TRANSACTION: return "per_transaction";
+    case MODBUS_CONNECTION_PERSISTENT: return "persistent";
+    case MODBUS_CONNECTION_RECONNECT_ON_ERROR: return "reconnect_on_error";
+    default: return "invalid";
+    }
+}
+
 static void finish_transaction(modbus_connection_t *c, esp_err_t result)
 {
     if (result != ESP_OK) c->error_count++;
-    close_socket(c);
+
+    const bool device_exception = c->last_exchange_device_exception;
+    const bool close_after_transaction =
+        c->endpoint.connection_mode == MODBUS_CONNECTION_PER_TRANSACTION;
+    const bool close_on_error = result != ESP_OK &&
+        (c->endpoint.connection_mode == MODBUS_CONNECTION_RECONNECT_ON_ERROR ||
+         !device_exception);
+
+    /* Never transparently replay a transaction here. A write may have reached
+     * the device even when its response was lost; same-call retry could apply a
+     * command twice. reconnect_on_error therefore means close now and reconnect
+     * on the NEXT caller transaction. Persistent mode may keep a healthy TCP
+     * stream after a valid Modbus exception response, but never after malformed
+     * framing or transport failure. */
+    if (close_after_transaction || close_on_error) close_socket(c);
+    c->last_exchange_device_exception = false;
 }
 
 esp_err_t modbus_tcp_connection_init(modbus_connection_t *c, const modbus_endpoint_t *endpoint)
@@ -204,6 +229,7 @@ esp_err_t modbus_tcp_connection_init(modbus_connection_t *c, const modbus_endpoi
     memset(c, 0, sizeof(*c));
     c->socket_fd = -1;
     if (!endpoint || !endpoint->host[0] || !endpoint->port || !endpoint->unit_id ||
+        endpoint->connection_mode > MODBUS_CONNECTION_RECONNECT_ON_ERROR ||
         endpoint->timeout_ms < MODBUS_MIN_TIMEOUT_MS ||
         endpoint->timeout_ms > MODBUS_MAX_TIMEOUT_MS) {
         return ESP_ERR_INVALID_ARG;
@@ -223,6 +249,7 @@ static esp_err_t exchange(modbus_connection_t *c, const uint8_t *request, size_t
                           uint8_t expected_function, uint8_t *pdu, size_t pdu_capacity,
                           size_t *pdu_length)
 {
+    c->last_exchange_device_exception = false;
     int64_t deadline_us = now_us() + (int64_t)c->endpoint.timeout_ms * 1000LL;
     esp_err_t err = ensure_connected(c, deadline_us);
     if (err != ESP_OK) return err;
@@ -251,6 +278,7 @@ static esp_err_t exchange(modbus_connection_t *c, const uint8_t *request, size_t
         c->last_exception_ms = (uint32_t)(now_us() / 1000LL);
         c->exception_count++;
         c->last_response_ms = c->last_exception_ms;
+        c->last_exchange_device_exception = true;
         return ESP_ERR_INVALID_RESPONSE;
     }
     if (pdu[0] != expected_function) return ESP_ERR_INVALID_RESPONSE;
