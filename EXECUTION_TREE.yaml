@@ -1,9 +1,9 @@
 version: 2
-updated_at: 2026-09-03T21:34:00+05:00
+updated_at: 2026-09-04T00:06:00+05:00
 repo: raohassandev/esp32_firmware
 master_issue: 79
 integration_branch: dev
-integration_head_at_snapshot: 1a3b0f4ee73ae08588caee7b46f9ab87d1e5b491
+integration_head_at_snapshot: ad651806edb95a749b7d65b61fe1f6b2cf2148db
 truth_rule: live_repository_over_stale_docs
 wip_limit_ci_active_software_prs: 3
 
@@ -13,15 +13,17 @@ lanes:
     qa: GitHub_Actions
     status: COMPLETE_MERGED_PHYSICAL_ENDURANCE_SEPARATE
     connection_modes_pr: 99
-    connection_modes_merge: 3aa69162a6847a852e9b648ef8ec6988f5e3f296
     endpoint_deadline_pr: 114
-    endpoint_deadline_merge: fa8ca9b17e08f2478e104942b9d6dbfad4f0ca7f
     physical_followup_issue: 83
 
   L2_generator_source_transition:
     issue: 80
     implementation_pr: 106
     implementation_head: a1620789235d21b515f9f245f2329fab88b50558
+    physical_evidence_tooling_pr: 151
+    physical_evidence_tooling_merge: 892a5811160098a765df7895af943eadf0457d48
+    physical_evidence_focused_run: 33793093720
+    strong_evidence_run: 33793093627
     software_status: GREEN_DRAFT
     status: BLOCKED_EXTERNAL_BENCH
     merge_forbidden_until_physical_pass: true
@@ -34,7 +36,9 @@ lanes:
     parent_pr: 20
     historical_source_coupled_tooling_pr: 67
     current_dev_acceptance_tooling_pr: 142
-    current_dev_acceptance_tooling_merge: d07dca2d2b20a2cf4e712df45fae9dfe7e3024c2
+    post_soak_evidence_tooling_pr: 150
+    post_soak_evidence_tooling_merge: 184d7e658ac44496a4f9efe0fd5db5844ad7fa43
+    post_soak_evidence_focused_run: 33792231764
     candidate_sha: 87841ecee727fe1d814d4186be8c8c26e4afafb4
     candidate_tree: 6ddd7900f9b4ece0fba9349b905e1c078fc3401e
     artifact_id: 9843536218
@@ -47,8 +51,7 @@ lanes:
       - first_continuous_soak_about_2h_and_121_samples_clean_plus_25_backend_rounds
       - first_soak_ended_when_usb_dock_power_path_disappeared_without_firmware_crash_evidence
       - partial_soaks_are_not_additive
-      - current_dev_tooling_validates_serial_human_observation_and_immutable_package_evidence
-      - tooling_ci_is_not_physical_acceptance
+      - evidence_tooling_does_not_equal_physical_acceptance
       - later_dev_merges_do_not_inherit_this_physical_pass
     remaining:
       - new_uninterrupted_4h_same_image_soak_at_least_240_samples
@@ -60,16 +63,16 @@ lanes:
   L4_secure_ota:
     issues: [86, 50]
     implementation_pr: 145
-    implementation_head: 7ab58704c72cf61eca858e8004c12094a0d6bbe3
     implementation_merge: 73bcb3e3a57dd482ac87b174906254ad60c8575b
-    focused_run: 33773071036
-    http_ownership_run: 33773071278
-    full_run: 33773071302
     always_on_regression_pr: 148
     always_on_regression_merge: 1a3b0f4ee73ae08588caee7b46f9ab87d1e5b491
-    always_on_run: 33778878536
-    always_on_full_run: 33778878091
-    historical_superseded_pr: 52
+    physical_evidence_tooling_pr: 152
+    physical_evidence_tooling_head: 294ed08a8f703d33151fb2ec38ca76da20f6aa54
+    physical_evidence_tooling_merge: ad651806edb95a749b7d65b61fe1f6b2cf2148db
+    physical_evidence_run: 33793934963
+    secure_ota_current_dev_run: 33793934980
+    always_on_run_on_pr152: 33793934865
+    full_run_on_pr152: 33793934989
     software_status: COMPLETE_MERGED
     status: PHYSICAL_QUALIFICATION_BLOCKED_BY_WAVESHARE_SOURCE_GRAPH
     depends_on: [L3_waveshare_release]
@@ -78,19 +81,12 @@ lanes:
   L5_site_source_commissioning:
     issue: 81
     status: BLOCKED_PARTIAL_EXTERNAL_EVIDENCE
-    rule: no_guessed_register_mask_polarity_timing_or_topology
+    rule: no_guessed_register_mask_polarity_timing_topology_or_power_sign_source_authority
 
   L6_inverter_profile_qualification:
     issue: 82
     status: GENERIC_CORE_HARDENED_MANUFACTURER_QUALIFICATION_BLOCKED
-    generic_merges:
-      identity_revalidation_pr_102: b60bcb9474f4ed7dd0b0ed631410b54628a47d01
-      command_schema_pr_108: b8996d5f834cc8edeb084f56c802ff5fc6ecd04d
-      production_profile_release_gate_pr_112: 7a683092696c6334870b5c1007e086f8556dbc88
-      unqualified_transport_truthfulness_pr_113: 4aa935dfcf944f83cbb96333be67f99878e32c30
-      profile_assignment_order_pr_117: 1360c4a8356ff8acdc19878f65da311c0b0eccc6
-      production_write_authority_pr_119: d9cd81bcf500a034d6cc88ea92e3bb74e42ed258
-      profile_store_stack_headroom_pr_136: 321198bb5d970aa5f4842331a229ce63475e0776
+    generic_prs: [102, 108, 112, 113, 117, 119, 136]
     rule: no_production_write_without_exact_official_manual_identity_status_readback_rollback_and_signed_qualification
 
   L7_integrated_fat_sat_endurance:
@@ -103,8 +99,8 @@ lanes:
     owner: ChatGPT
     qa: GitHub_Actions_and_diff_review
     status: CONTINUOUS
-    last_merged_reconciliation_pr: 143
-    active_reconciliation_branch: docs/governance-reconcile-pr148
+    last_merged_reconciliation_pr: 149
+    active_reconciliation_branch: docs/governance-reconcile-pr152
 
   L9_reva_product_hardware:
     issue: 85
@@ -141,52 +137,15 @@ lanes:
     release_status: PHYSICAL_GATES_REMAIN
 
 recent_governed_merges:
-  pr_133: e918aef8465435d4af87eaa6c1f001767a9d2170
-  pr_135: ad6316b5e3dec6bca630d351a80c8e786fd61b69
-  pr_136: 321198bb5d970aa5f4842331a229ce63475e0776
-  pr_137: 43d4bd509ea07aadbd9ea18e9813e3ec11c60297
-  pr_138: dd10809f4246713ab99b3ccc9c3b515ece94fd0d
-  pr_140: 093954b5626c034e126fde3b773cedb1add92707
-  pr_141: 2272caefa87581f27e815ce4420a5880d2d16e38
   pr_142: d07dca2d2b20a2cf4e712df45fae9dfe7e3024c2
   pr_143: 353c0a50cb0243edd5a73d58313f13623048b273
   pr_144: 8b5fce29aaf0de7ec9a5531ad3ea66c78e4539ed
   pr_145: 73bcb3e3a57dd482ac87b174906254ad60c8575b
   pr_148: 1a3b0f4ee73ae08588caee7b46f9ab87d1e5b491
-
-resolved_additional_safety_findings:
-  waveshare_final_acceptance_tooling_on_live_dev:
-    pr: 142
-    head: a4a0a64210b5a05acd02cdb1016948d593c8d213
-    focused_run: 33768630723
-    full_run: 33768630667
-    merge: d07dca2d2b20a2cf4e712df45fae9dfe7e3024c2
-    physical_pass_created: false
-  operator_continuity_current_dev:
-    pr: 144
-    head: 890f3cd66aa693a214d4edc012770b951307f259
-    focused_run: 33771513776
-    full_run: 33771513697
-    merge: 8b5fce29aaf0de7ec9a5531ad3ea66c78e4539ed
-    superseded_historical_pr: 54
-  secure_ota_current_dev:
-    pr: 145
-    head: 7ab58704c72cf61eca858e8004c12094a0d6bbe3
-    focused_run: 33773071036
-    http_body_ownership_run: 33773071278
-    full_run: 33773071302
-    merge: 73bcb3e3a57dd482ac87b174906254ad60c8575b
-    superseded_historical_pr: 52
-    physical_pass_created: false
-  secure_ota_always_on_regression:
-    pr: 148
-    head: 9ed4ec82066ca1687a5a8ce4b4f2cf130281f44a
-    focused_run: 33778878536
-    full_run: 33778878091
-    merge: 1a3b0f4ee73ae08588caee7b46f9ab87d1e5b491
-
-stale_replays_closed: [115, 116, 118, 121, 123, 126, 128, 134, 139]
-superseded_historical_prs_closed: [52, 54]
+  pr_149: eee505bc3fcb07640836fa79c6becfc629c6050b
+  pr_150: 184d7e658ac44496a4f9efe0fd5db5844ad7fa43
+  pr_151: 892a5811160098a765df7895af943eadf0457d48
+  pr_152: ad651806edb95a749b7d65b61fe1f6b2cf2148db
 
 release_done_definition:
   - all_release_target_software_merged_with_exact_head_zero_behind_gates
@@ -195,5 +154,6 @@ release_done_definition:
   - secure_ota_physical_rollback_interruption_matrix_complete
   - integrated_grid_dg_mixed_source_fat_modbus_network_endurance_and_signed_sat_complete
   - evidence_index_traceable_to_final_release_sha_config_profile_and_artifact
+  - evidence_validators_not_substituted_for_physical_observation
   - final_acceptance_thresholds_not_weakened_to_manufacture_pass
   - no_open_critical_blockers

@@ -15,6 +15,7 @@ defaults:
       - inferred_test_pass
       - historical_CI_reused_for_replayed_head
       - merge_of_stale_or_behind_PR
+
   regression_coverage:
     require:
       - full_firmware_web_esp32s3_gate_for_mergeable_runtime_changes
@@ -23,6 +24,7 @@ defaults:
     forbid:
       - path_filter_as_only_protection_for_release_critical_ota_contracts
       - software_regression_gate_used_as_physical_acceptance
+
   firmware_safety:
     require:
       - preserve_NVS_and_commissioned_configuration
@@ -38,12 +40,27 @@ defaults:
       - guessed_register_addresses
       - guessed_masks_or_polarity
       - guessed_timing_values
+      - guessed_topology_or_source_authority
       - guessed_protocol_semantics
+
+  evidence_validation:
+    require:
+      - exact_source_artifact_config_profile_identity_when_applicable
+      - explicit_physical_observation_references
+      - expected_vs_observed_result
+      - fail_closed_on_missing_or_inconsistent_record
+      - immutable_thresholds_for_release_gates
+    forbid:
+      - validator_pass_claimed_as_physical_pass
+      - empty_or_example_record_claimed_as_evidence
+      - cross_identity_evidence_reuse_without_explicit_gate_permission
+      - kW_sign_used_as_breaker_ATS_or_synchronism_authority
+
   hardware_acceptance:
     require:
       - exact_artifact_identity
       - exact_source_head_recorded
-      - observed_visual_touch_result
+      - observed_visual_touch_result_where_applicable
       - serial_resource_and_reset_evidence
       - required_soak_on_same_candidate
       - final_acceptance_thresholds_preserved
@@ -55,6 +72,34 @@ defaults:
       - acceptance_thresholds_lowered_to_manufacture_pass
       - physical_pass_silently_transferred_across_changed_identity
     rule: older_candidate_physical_pass_does_not_transfer_across_source_tree_change
+
+  waveshare_post_soak_acceptance:
+    require:
+      - genuine_final_soak_pass_first
+      - backend_parity_recovery_on_exact_accepted_identity
+      - persistence_save_readback_reboot_restore_on_exact_identity
+      - interrupted_save_and_ARM_gate_observation
+      - no_NVS_or_full_flash_erase
+      - PR150_validator_for_record_consistency
+    forbid:
+      - post_soak_pass_before_final_soak_pass
+      - threshold_lowering
+      - validator_pass_without_physical_execution
+
+  generator_transition_physical_acceptance:
+    require:
+      - authoritative_breaker_run_ATS_sync_topology_evidence
+      - generator_meter_sign_and_scaling_proof
+      - grid_to_transfer_to_generator_observation
+      - generator_to_transfer_to_grid_observation
+      - island_and_supported_sync_observation
+      - stale_conflict_transfer_and_source_loss_fail_closed_observation
+      - fresh_positive_recovery_dwell
+      - PR151_validator_for_record_consistency
+    forbid:
+      - power_sign_as_source_authority
+      - generator_physical_pass_inferred_from_CI
+
   ota_physical_acceptance:
     require:
       - one_exact_intended_ota_capable_release_identity
@@ -69,14 +114,19 @@ defaults:
       - deliberate_rollback_observed
       - fail_closed_control_observed_throughout
       - no_NVS_or_full_flash_erase
+      - PR152_validator_for_record_consistency
     forbid:
       - ota_physical_pass_inferred_from_source_contract
       - ota_physical_pass_inferred_from_esp32s3_build
       - waveshare_physical_pass_transferred_to_newer_ota_enabled_image
+      - validator_pass_without_real_controller_execution
+
   release:
     require:
       - software_merge_gates
       - hardware_acceptance_gates
+      - real_site_source_evidence
+      - production_approved_inverter_profiles
       - signed_FAT_SAT_where_required
       - evidence_tied_to_exact_firmware_SHA_config_profile_and_artifact
       - no_open_critical_blockers
