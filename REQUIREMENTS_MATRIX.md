@@ -49,7 +49,7 @@ Master program: #79. Requirements originate from `docs/MASTER_EXECUTION_TODO.md`
 | R-FAT-03 | source-transfer FAT | ChatGPT plan + Claude | physical/Owner | PENDING | #80/#83 |
 | R-FAT-04 | communication-loss/fail-safe/endurance FAT | ChatGPT plan + Claude | physical/Owner | PENDING | #83 |
 | R-SAT-01 | signed SAT tied to exact firmware/config/profile identity | Owner/site + ChatGPT evidence | release QA | PENDING | #83/#91 |
-| R-GOV-01 | live AISH lane/owner/QA/dependency tracking | ChatGPT | diff review | V2 EXECUTING | #79/#84/#89 |
+| R-GOV-01 | live AISH lane/owner/QA/dependency tracking | ChatGPT | diff review | V2 MERGED / CONTINUOUS | #79/#84; PR #97 merge `430e9157...` |
 | R-GOV-02 | exact-head/zero-behind/expected-head merge gates | ChatGPT | GitHub Actions | ACTIVE GOVERNANCE | GATES.yaml / #93 |
 | R-GOV-03 | evidence traceability / no cross-tree physical PASS | ChatGPT | release QA | ACTIVE GOVERNANCE | #91 |
 | R-HW-01 | Rev-A PCB/enclosure/KiCad implementation | ChatGPT + hardware engineer | ERC/DRC/physical | SEPARATE TRACK | #85 / PR #18/#19 |

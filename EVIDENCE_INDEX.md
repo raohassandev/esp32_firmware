@@ -4,8 +4,10 @@ Master program: #79. Evidence is valid only for the exact source/head/artifact n
 
 ## Live integration baseline
 
-- `dev` snapshot at governance-v2 start: `a7d547f2f1909527538ec529d1f44b4ad2733861`
-- merge message: PR #76 main app status polling lifecycle
+- current `dev` snapshot: `430e9157eb82196501f896d9323da16c86f9255e`
+- PR #97 AISH-OS v2 governance head: `3e8eef412ad4356b2be309e356c19658732572b8`
+- PR #97 full Firmware/Web/ESP32-S3 run `33716216708`: GREEN
+- PR #97 merge: `430e9157eb82196501f896d9323da16c86f9255e`
 
 ## Merged software evidence
 
@@ -21,13 +23,14 @@ Master program: #79. Evidence is valid only for the exact source/head/artifact n
 | EM500 lifecycle | PR #71 | MERGED |
 | Operator product-view lifecycle | PR #73 | MERGED |
 | Dead Engineering asset cleanup | PR #75 | MERGED |
-| Main app status lifecycle | PR #76 -> dev `a7d547f2...` | MERGED |
+| Main app status lifecycle | PR #76 | MERGED |
+| AISH-OS v2 program governance | PR #97 head `3e8eef412ad4356b2be309e356c19658732572b8`; full run `33716216708` | MERGED as `430e9157...` |
 
 ## Software ready but physical/baseline gated
 
 | Lane | Exact head | Software evidence/state | Physical/baseline state |
 |---|---|---|---|
-| Generator source-transition admission | PR #77 `b36cfa40b9cc3bf389199663ceaf0855aeecb18e` | Generator checks `33647531871` GREEN; full `33647531955` GREEN | #80 bench FAT required before merge |
+| Generator source-transition admission | PR #77 `b36cfa40b9cc3bf389199663ceaf0855aeecb18e` | Generator checks `33647531871` GREEN; full `33647531955` GREEN | #80 bench FAT required before merge; rebase/replay to current dev after physical PASS if behind |
 | Secure OTA | PR #52 `f36a302953f453ca968d2f0714e3ebd97432176a` | Secure OTA `33615987142` GREEN; full `33615987013` GREEN | #86/#50 physical rollback qualification; baseline held by Waveshare |
 | Operator continuity/verdict | PR #54 `61f95a2ca87f659884f372cff6568b7e88e136d8` | focused `33617779040` GREEN; full `33617778825` GREEN | replay/reconcile after Waveshare source graph closes |
 
@@ -49,9 +52,9 @@ Therefore PR #57 and PR #20 remain unpromoted. Issue #87 coordinates final soak/
 
 ## Active WIP
 
-- L1 #88/#78 `work/modbus/connection-modes`: implementation in progress; do not treat branch as completed evidence until safe config migration, API exposure, tests, exact-head full CI and governed merge finish.
-- L10 #90: final served-browser poller audit pending closure.
-- L12 #92: requirements closure matrix pending.
+- **L1 #88/#78** `work/modbus/connection-modes`: pre-PR97 snapshot head `3cac10e34682274fc6362e025e1b1456d0421cd7`; it was 4 commits ahead / 0 behind old dev and touched only four Modbus/config files. Live dev has since advanced by governance PR #97, so reconcile WIP to current dev before final PR/merge. Do not treat branch as completed evidence until safe config migration, API exposure, tests, exact-head full CI and governed merge finish.
+- **L10 #90:** final served-browser poller audit pending closure.
+- **L12 #92:** requirements closure matrix live-verification pending.
 
 ## Superseded/failed Waveshare candidates — never reuse for release evidence
 

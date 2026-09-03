@@ -2,10 +2,12 @@
 
 Authoritative master: Issue #79. Live repository truth overrides this snapshot when they diverge; update this board through L8/#84 after state changes.
 
+Current `dev` snapshot: `430e9157eb82196501f896d9323da16c86f9255e` (AISH-OS v2 PR #97 merged).
+
 | Lane | Scope | Coder / Owner | QA | State | Primary issue / PR | Dependencies |
 |---|---|---|---|---|---|---|
-| L0 | governance v2 reconciliation | ChatGPT | diff review / GitHub Actions | EXECUTING | #89 | none |
-| L1 | Modbus TCP connection modes | ChatGPT | GitHub Actions | EXECUTING | #88, #78 | none |
+| L0 | governance v2 reconciliation | ChatGPT | diff review / GitHub Actions | COMPLETE | #89 / PR #97 | none |
+| L1 | Modbus TCP connection modes | ChatGPT | GitHub Actions | EXECUTING; reconcile WIP to current dev before PR | #88, #78 | none |
 | L2 | Generator source-transition release gate | ChatGPT integration + Claude physical | GitHub Actions + physical evidence | SOFTWARE GREEN / BENCH BLOCKED | #80 / PR #77 | real bench/source evidence |
 | L3 | Waveshare soak/parity/persistence/promotion | Claude physical + ChatGPT integration | GitHub Actions | SHORT PASS / FINAL SOAK INCOMPLETE | #87, #24-#27 / PR #57, #20 | uninterrupted >=4 h same-image evidence |
 | L4 | Secure OTA release qualification | ChatGPT + Claude physical | GitHub Actions | SOFTWARE GREEN / BLOCKED | #86, #50 / PR #52 | L3 source graph |
@@ -20,7 +22,7 @@ Authoritative master: Issue #79. Live repository truth overrides this snapshot w
 | L13 | promotion graph / stale PR hygiene | ChatGPT | exact-tree + CI | CONTINUOUS | #93 | merges/physical acceptance |
 | L14 | live-state monitoring cadence | ChatGPT | live GitHub/physical sources | CONTINUOUS PER CYCLE | #94 | none |
 | L15 | held phase1 work reconciliation | ChatGPT | GitHub Actions | BLOCKED | #95 / PR #52, #54 | L3 |
-| L16 | stale TODO/evidence cleanup | ChatGPT | diff review | EXECUTING WITH L0 | #96 | live state |
+| L16 | stale TODO/evidence cleanup | ChatGPT | diff review | COMPLETE | #96 / PR #97 | live state |
 
 ## Execution policy
 
@@ -34,14 +36,14 @@ Authoritative master: Issue #79. Live repository truth overrides this snapshot w
 
 ## Next software concurrency set
 
-- CI-active slot A: L1 Modbus modes once implementation reaches PR.
-- CI-active slot B: L10 browser final audit if it produces a genuine active-runtime change.
-- CI-active slot C: governance/reconciliation PR only when it does not crowd out higher-value runtime CI.
+- **Slot A — L1:** finish Modbus modes; current WIP branch was based on pre-PR97 dev and must be reconciled onto current dev before final PR/merge.
+- **Slot B — L10:** final served-browser audit; create CI-active PR only if a genuine active-runtime gap exists.
+- **Slot C:** keep free unless a non-overlapping high-value runtime lane is ready; governance/docs should not crowd out runtime CI.
 
-Read-only audits L11/L12/L13/L14 may run in parallel without consuming CI slots.
+Read-only audits L11/L12/L13/L14 run in parallel without consuming CI slots.
 
 ## Next physical concurrency set
 
-- L3: rerun uninterrupted Waveshare >=4 h same-image soak, then #25/#26 matrices.
-- L2: prepare/run source-transition bench matrix independently when required bench wiring/evidence is available.
-- L5/L6: collect manuals/site mappings in parallel so coding/bench qualification can start without waiting for final Waveshare promotion.
+- **L3:** rerun uninterrupted Waveshare >=4 h same-image soak, then #25/#26 matrices.
+- **L2:** prepare/run source-transition bench matrix independently when required bench wiring/evidence is available.
+- **L5/L6:** collect manuals/site mappings in parallel so coding/bench qualification can start without waiting for final Waveshare promotion.

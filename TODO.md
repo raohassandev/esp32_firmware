@@ -4,14 +4,14 @@ Master program: #79. Live repository truth overrides stale historical checklists
 
 ## EXECUTING NOW
 
-- [ ] **L1 / #88 + #78 — Modbus TCP connection modes (Coder: ChatGPT, QA: GitHub Actions).** Finish schema/NVS-safe migration, meter/inverter config + diagnostics exposure, tests for `per_transaction`, `persistent`, `reconnect_on_error`, full exact-head CI, PR and governed merge. Branch: `work/modbus/connection-modes`.
+- [ ] **L1 / #88 + #78 — Modbus TCP connection modes (Coder: ChatGPT, QA: GitHub Actions).** Finish schema/NVS-safe migration, meter/inverter config + diagnostics exposure, tests for `per_transaction`, `persistent`, `reconnect_on_error`, full exact-head CI, PR and governed merge. Existing WIP branch `work/modbus/connection-modes` was current before governance PR #97; reconcile it onto live `dev` before opening/merging the final PR.
 - [ ] **L3 / #87 — Waveshare final acceptance (Physical: Claude/site operator, Integration: ChatGPT).** Exact candidate `87841ece...`; short physical PASS. Obtain one uninterrupted >=4 h same-image soak (>=240 one-minute samples), then finish #25 backend parity and #26 persistence/ARM matrix before source promotion.
-- [ ] **L8/L0 / #84 #89 — Governance reconciliation (ChatGPT).** Keep AGENT_REGISTRY, EXECUTION_TREE, TODO, BLOCKERS and EVIDENCE_INDEX synchronized with live repo/physical truth.
+- [ ] **L8 / #84 — continuous governance service (ChatGPT).** Reconcile live state after merges, physical verdicts and blocker changes.
 
 ## READY PARALLEL SOFTWARE / AUDIT
 
 - [ ] **L10 / #90 — final served-browser poller audit.** Audit only actually embedded/served assets. PRs #59/#62/#65/#69/#71/#73/#76 are already merged and must not be reopened without regression evidence.
-- [ ] **L12 / #92 — requirements closure matrix.** Map every requirement to coder, QA, software/physical status, blocker, PR/issue and exact evidence.
+- [ ] **L12 / #92 — requirements closure matrix.** Verify `VERIFY_LIVE` rows against current `dev`; mark already-implemented requirements with exact evidence and open work only for genuine gaps.
 - [ ] **L11 / #91 — evidence traceability.** Keep exact SHA/run/artifact evidence and superseded candidate records current.
 - [ ] **L13 / #93 — promotion graph hygiene.** Prevent stale/behind PR merges, use expected-head guards and fresh promotion PRs.
 
@@ -33,6 +33,7 @@ Master program: #79. Live repository truth overrides stale historical checklists
 
 ## COMPLETED — DO NOT REOPEN WITHOUT REGRESSION EVIDENCE
 
+- [x] AISH-OS v2 governance reconciliation — PR #97, merge `430e9157eb82196501f896d9323da16c86f9255e`; #89/#96 complete.
 - [x] Generator strong source evidence — PR #58.
 - [x] Generator 1–3 persisted configuration/schema migration — PR #63.
 - [x] Generator 1–3 runtime/fleet aggregation — PR #64.
