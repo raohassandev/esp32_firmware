@@ -1,0 +1,36 @@
+{
+  "candidate_sha": "87841ecee727fe1d814d4186be8c8c26e4afafb4",
+  "artifact_digest": "sha256:89e621034d4c91096fc5d38dd57ac40eeeab34275e4af1fc0461b48575039096",
+  "final_soak_passed": false,
+  "started_at": "",
+  "ended_at": "",
+  "observation_minutes": 0,
+  "checks": {
+    "status_values_consistent": false,
+    "meter_values_consistent": false,
+    "inverter_values_consistent": false,
+    "alarm_event_consistent": false,
+    "state_recovery_truthful": false,
+    "network_recovery_clean": false,
+    "hmi_responsive": false,
+    "control_not_starved": false,
+    "fail_closed_on_invalid": false,
+    "no_fatal_or_resource_collapse": false
+  },
+  "evidence": {
+    "status_values_consistent": "",
+    "meter_values_consistent": "",
+    "inverter_values_consistent": "",
+    "alarm_event_consistent": "",
+    "state_recovery_truthful": "",
+    "network_recovery_clean": "",
+    "hmi_responsive": "",
+    "control_not_starved": "",
+    "fail_closed_on_invalid": "",
+    "no_fatal_or_resource_collapse": ""
+  },
+  "references": {
+    "serial_log_ref": "",
+    "hmi_http_capture_ref": ""
+  }
+}

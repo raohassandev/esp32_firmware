@@ -1,0 +1,41 @@
+{
+  "candidate_sha": "87841ecee727fe1d814d4186be8c8c26e4afafb4",
+  "artifact_digest": "sha256:89e621034d4c91096fc5d38dd57ac40eeeab34275e4af1fc0461b48575039096",
+  "final_soak_passed": false,
+  "checks": {
+    "save_readback_match": false,
+    "reboot_restore_match": false,
+    "repeated_persistence_stable": false,
+    "interrupted_save_fail_closed": false,
+    "reentry_authoritative": false,
+    "arm_refuses_incomplete": false,
+    "arm_only_after_qualified": false,
+    "interfaces_responsive": false,
+    "no_fatal_or_resource_collapse": false,
+    "nvs_erase_absent": false,
+    "full_flash_erase_absent": false
+  },
+  "evidence": {
+    "save_readback_match": "",
+    "reboot_restore_match": "",
+    "repeated_persistence_stable": "",
+    "interrupted_save_fail_closed": "",
+    "reentry_authoritative": "",
+    "arm_refuses_incomplete": "",
+    "arm_only_after_qualified": "",
+    "interfaces_responsive": "",
+    "no_fatal_or_resource_collapse": "",
+    "nvs_erase_absent": "",
+    "full_flash_erase_absent": ""
+  },
+  "steps": [
+    {"operation": "save_readback", "observed_at": "", "before": null, "after": null},
+    {"operation": "reboot_restore", "observed_at": "", "before": null, "after": null},
+    {"operation": "interrupted_save", "observed_at": "", "before": null, "after": null},
+    {"operation": "arm_gate", "observed_at": "", "before": null, "after": null}
+  ],
+  "references": {
+    "serial_log_ref": "",
+    "persistence_capture_ref": ""
+  }
+}
