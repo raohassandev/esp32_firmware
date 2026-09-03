@@ -55,6 +55,7 @@ set(WEB_SERVER_C_SOURCES
     "http_json.c"
     "operational_api.c"
     "inverter_profile_api.c"
+    "inverter_profile_store_guard.c"
     "inverter_config_api.c"
     "meter_config_api.c"
     "source_detection_api.c"
@@ -132,6 +133,8 @@ foreach(source IN LISTS WEB_SERVER_C_SOURCES)
 endforeach()
 set_source_files_properties("engineering_guard.c" "operational_api.c" PROPERTIES
     COMPILE_DEFINITIONS ENGINEERING_GUARD_IMPLEMENTATION=1)
+set_property(SOURCE "inverter_profile_api.c" APPEND PROPERTY
+    COMPILE_DEFINITIONS inverter_profile_store_set=inverter_profile_store_set_guarded)
 set_property(SOURCE "em500_api.c" APPEND PROPERTY
     COMPILE_DEFINITIONS meter_manager_read_registers=em500_cache_read_pdu_registers)
 set_property(SOURCE "em500_history_api.c" "em500_settings_api.c" "em500_settings_plan_api.c"
