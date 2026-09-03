@@ -3,6 +3,8 @@ name: Runtime config disable interlock checks
 on:
   pull_request:
     paths:
+      - 'components/web_server/web_api.c'
+      - 'components/web_server/config_import_runtime_guard.c'
       - 'components/web_server/meter_config_api.c'
       - 'components/web_server/inverter_config_api.c'
       - 'components/web_server/inverter_profile_api.c'
@@ -22,7 +24,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Check mapping/profile runtime-disable ordering
+      - name: Check config/mapping/profile runtime-disable ordering
         run: python3 tests/runtime_config_disable_interlock_source_contract.py
       - name: Re-run core safety contracts
         run: |
