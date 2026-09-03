@@ -113,6 +113,16 @@ AUDIT_RC=${PIPESTATUS[0]}
 set -e
 echo "POST_ROUTE_DRC_EXIT=$DRC_RC AUDIT_EXIT=$AUDIT_RC" | tee -a hardware/kicad/freerouting.log
 
+# When routing is one ratsnest away from convergence, the previous log only
+# exposed a count. Emit KiCad's authoritative DRC report on the failure path so
+# the exact open net/pads/coordinates are visible in CI and can be fixed
+# deterministically rather than by increasing router passes or guessing.
+if [ "$DRC_RC" != 0 ] || [ "$AUDIT_RC" != 0 ]; then
+  echo '--- POST_ROUTE_DRC_DETAILS_BEGIN ---' | tee -a hardware/kicad/freerouting.log
+  cat "hardware/kicad/route-attempt-${attempt}-drc.rpt" | tee -a hardware/kicad/freerouting.log
+  echo '--- POST_ROUTE_DRC_DETAILS_END ---' | tee -a hardware/kicad/freerouting.log
+fi
+
 if [ "$DRC_RC" = 0 ] && [ "$AUDIT_RC" = 0 ]; then
   cp "$OUT" "$SES"; success=1
   echo "ROUTING_COMPLETE_ATTEMPT=$attempt" | tee -a hardware/kicad/freerouting.log
