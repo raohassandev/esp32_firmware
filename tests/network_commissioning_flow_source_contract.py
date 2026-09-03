@@ -110,6 +110,25 @@ assert 'config_manager_get_snapshot(config)' in scan_source, 'saved primary/fall
 assert 'configured_primary = config->wifi.primary.enabled' in scan_source
 assert 'configured_fallback = config->wifi.fallback.enabled' in scan_source
 
+# ESP-IDF owns dynamically allocated AP records after a successful blocked scan.
+# If result retrieval cannot complete (including local allocation failure), the
+# application must explicitly release that driver list or repeated scans leak heap.
+collect_scan = scan_source.split('static esp_err_t collect_scan', 1)[1].split('esp_err_t network_scan_service_init', 1)[0]
+assert 'static void clear_driver_scan_results(void)' in scan_source
+assert 'esp_wifi_clear_ap_list()' in scan_source
+assert collect_scan.count('clear_driver_scan_results();') >= 4, \
+    'every pre-fetch/fetch-failure scan exit must release driver AP records'
+assert 'if (record_count == 0)' in collect_scan and \
+       collect_scan.index('if (record_count == 0)') < collect_scan.index('clear_driver_scan_results();', collect_scan.index('if (record_count == 0)')), \
+    'zero-result scans must release the driver AP list'
+assert 'if (!records || !candidates || !config)' in collect_scan
+allocation_failure = collect_scan.split('if (!records || !candidates || !config)', 1)[1].split('err = esp_wifi_scan_get_ap_records', 1)[0]
+assert 'clear_driver_scan_results();' in allocation_failure, \
+    'allocation failure after scan completion must clear driver results'
+fetch_failure = collect_scan.split('if (err != ESP_OK) {', 2)[2].split('err = config_manager_get_snapshot', 1)[0]
+assert 'clear_driver_scan_results();' in fetch_failure, \
+    'failed esp_wifi_scan_get_ap_records must clear remaining driver results'
+
 # Browser radio-scan polling must have one cancellable request, stop away from
 # the Wi-Fi route, pause in hidden tabs and terminate after a bounded deadline.
 for token in [
@@ -137,4 +156,4 @@ assert "Recovery AP SSID must contain no more than 32 characters." in wifi_js
 for forbidden in ['/api/control', '/api/inverter-command', '/api/config/import']:
     assert forbidden not in js, f'network flow must not call {forbidden}'
 
-print('network commissioning, fixed-width credentials, single-task radio ownership and bounded browser scan tests: PASS')
+print('network commissioning, fixed-width credentials, single-task radio ownership, scan-result lifetime and bounded browser scan tests: PASS')
