@@ -61,6 +61,7 @@ set(WEB_SERVER_C_SOURCES
     "inverter_config_api.c"
     "meter_config_api.c"
     "source_detection_api.c"
+    "source_detection_runtime_guard.c"
     "em500_cache.c"
     "em500_cache_adapter.c"
     "em500_cache_api.c"
@@ -139,6 +140,8 @@ set_property(SOURCE "web_api.c" APPEND PROPERTY
     COMPILE_DEFINITIONS
         config_manager_import_json=web_config_manager_import_json_guarded
         config_manager_save=web_wifi_config_manager_save_guarded)
+set_property(SOURCE "source_detection_api.c" APPEND PROPERTY
+    COMPILE_DEFINITIONS source_detection_config_save=web_source_detection_config_save_guarded)
 set_property(SOURCE "inverter_profile_api.c" APPEND PROPERTY
     COMPILE_DEFINITIONS inverter_profile_store_set=inverter_profile_store_set_guarded)
 set_property(SOURCE "em500_api.c" APPEND PROPERTY

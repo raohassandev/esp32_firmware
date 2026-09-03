@@ -1,0 +1,27 @@
+name: Source detection runtime disable checks
+
+on:
+  pull_request:
+    paths:
+      - 'components/web_server/source_detection_api.c'
+      - 'components/web_server/source_detection_runtime_guard.c'
+      - 'components/web_server/CMakeLists.txt'
+      - 'components/control_engine/control_engine.c'
+      - 'tests/source_detection_runtime_disable_source_contract.py'
+      - 'tests/em500_source_detection_source_contract.py'
+      - '.github/workflows/source-detection-runtime-disable.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-detection-runtime-disable:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check source-detection persistence runtime-disable ordering
+        run: python3 tests/source_detection_runtime_disable_source_contract.py
+      - name: Re-run Phase-1 source-detection contract
+        run: python3 tests/em500_source_detection_source_contract.py
