@@ -44,10 +44,13 @@ for token in (
 ):
     require(token in HTTP_JSON or token in HTTP_JSON_H,
             f"shared bounded JSON helper lost {token}")
-require("content_length > body_limit" in HTTP_JSON,
+require("(size_t)request->content_len > maximum_body_bytes" in HTTP_JSON,
         "shared request reader no longer rejects oversized bodies")
-require("if (!http_json_depth_valid(body, max_depth))" in HTTP_JSON,
+require("if (!http_json_depth_valid(body, maximum_depth))" in HTTP_JSON,
         "shared JSON parser must depth-check before cJSON parsing")
+require(HTTP_JSON.index("http_json_depth_valid(body, maximum_depth)") <
+        HTTP_JSON.index("cJSON_ParseWithLength(body"),
+        "shared JSON helper must depth-check before parsing")
 
 for token in (
     "AUTH_BODY_LIMIT 1024u",
