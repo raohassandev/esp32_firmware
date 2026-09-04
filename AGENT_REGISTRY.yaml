@@ -1,13 +1,13 @@
 version: 2
-updated_at: 2026-09-04T00:06:00+05:00
+updated_at: 2026-09-04T07:32:00+05:00
 master_issue: 79
 truth_rule: live_repository_over_stale_docs
 
 wip_policy:
   max_ci_active_software_prs: 3
   preferred_ci_active_software_prs: 2
-  allow_parallel_read_only_audits: true
-  physical_wait_never_blocks_independent_software: true
+  parallel_independent_lanes: true
+  physical_wait_never_blocks_independent_software_or_hardware_work: true
   no_fabricated_background_activity: true
 
 agents:
@@ -17,122 +17,132 @@ agents:
     issues: [79, 84, 91, 93, 94]
     status: CONTINUOUS
     responsibilities:
-      - fetch_live_dev_open_prs_open_issues_and_physical_evidence_every_cycle
-      - decompose_requirements_into_non_overlapping_lanes
-      - enforce_branch_pr_exact_head_zero_behind_and_expected_head_merge_gates
-      - continue_other_lanes_when_one_lane_is_blocked
-      - reconcile_governance_after_merges_and_physical_verdicts
+      - fetch_live_targets_prs_issues_ci_and_physical_evidence_every_cycle
+      - maintain_dependency_graph_and_2_to_3_active_lanes
+      - enforce_branch_pr_exact_head_zero_behind_expected_head_merge_gates
+      - close_or_replay_stale_lanes_instead_of_reusing_historical_ci
+      - reconcile_governance_after_every_state_change
 
-  coder_runtime_safety:
+  runtime_software_team:
     role: CODER_RUNTIME_SAFETY
     owner: ChatGPT
-    status: COMPLETE_CURRENT_KNOWN_SURFACES
+    qa: GitHub_Actions
+    status: COMPLETE_FOR_CURRENT_KNOWN_RELEASE_SURFACES
     evidence_prs: [99, 100, 102, 105, 107, 108, 112, 113, 114, 117, 119, 122, 124, 127, 129, 130, 131, 133, 135, 136, 137, 138, 140, 144, 145, 148]
-    qa_owner: GitHub_Actions
 
-  coder_physical_evidence_tooling:
-    role: CODER_RELEASE_EVIDENCE
+  release_evidence_team:
+    role: CODER_RELEASE_EVIDENCE_AND_AUTOMATION
     owner: ChatGPT
-    status: COMPLETE_FOR_CURRENT_WAVESHARE_POST_SOAK_GENERATOR_AND_OTA_GATES
-    evidence_prs: [142, 150, 151, 152]
-    qa_owner: GitHub_Actions
+    qa: GitHub_Actions
+    status: COMPLETE_FOR_ALL_CURRENT_RELEASE_PHYSICAL_GATES
+    evidence_prs: [142, 150, 151, 152, 156, 158, 159, 160]
+    coverage:
+      - waveshare_final_acceptance_package_and_soak_capture
+      - waveshare_backend_parity_and_persistence_arm
+      - generator_source_transition
+      - secure_ota_real_controller
+      - site_source_commissioning
+      - inverter_model_physical_qualification
+      - integrated_fat_modbus_endurance_and_signed_sat
     rules:
       - validator_pass_does_not_equal_physical_pass
       - exact_identity_required
-      - incomplete_records_fail_closed
+      - incomplete_or_inconsistent_records_fail_closed
       - thresholds_cannot_be_lowered_to_manufacture_pass
 
-  coder_site_commissioning:
-    role: CODER_L5
-    owner: ChatGPT
+  site_commissioning_team:
+    role: L5_COMMISSIONING
+    owner: ChatGPT_orchestrator_plus_authorized_site_operator
     issue: 81
-    status: BLOCKED_PARTIAL_EXTERNAL_EVIDENCE
-    qa_owner: ChatGPT_and_GitHub_Actions
+    tooling_pr: 156
+    status: SOFTWARE_TOOLING_COMPLETE_PHYSICAL_SITE_INPUT_PENDING
+    qa: GitHub_Actions_and_ChatGPT_safety_review
 
-  coder_inverter_profiles:
-    role: CODER_L6
-    owner: ChatGPT
+  inverter_qualification_team:
+    role: L6_MANUFACTURER_PROFILE_QUALIFICATION
+    owner: ChatGPT_orchestrator_plus_authorized_bench_operator
     issue: 82
-    status: BLOCKED_EXTERNAL_OFFICIAL_MANUALS_AND_BENCH
-    generic_safety_prs: [102, 108, 112, 113, 117, 119, 136]
-    qa_owner: ChatGPT_and_GitHub_Actions
+    tooling_pr: 158
+    status: SOFTWARE_TOOLING_COMPLETE_EXTERNAL_EXACT_MANUAL_AND_BENCH_PENDING
+    qa: GitHub_Actions_and_ChatGPT_safety_review
 
-  physical_waveshare:
+  waveshare_physical_team:
     role: PHYSICAL_EXECUTOR_QA_L3
-    owner: Claude_Code_or_site_operator
+    owner: authorized_hardware_executor
     issue: 87
     detailed_issues: [24, 25, 26, 27]
     candidate: 87841ecee727fe1d814d4186be8c8c26e4afafb4
-    status: SHORT_PASS_FINAL_CONTINUOUS_SOAK_INCOMPLETE
-    final_evidence_tooling_pr: 142
-    post_soak_evidence_tooling_pr: 150
-    rule: observed_hardware_evidence_only
+    capture_tooling_pr: 159
+    status: SHORT_PASS_FINAL_CONTINUOUS_SOAK_PENDING
 
-  physical_source_transition:
+  source_transition_physical_team:
     role: PHYSICAL_EXECUTOR_QA_L2
-    owner: Claude_Code_or_site_operator
+    owner: authorized_hardware_executor
     issue: 80
     implementation_pr: 106
-    implementation_head: a1620789235d21b515f9f245f2329fab88b50558
-    physical_evidence_tooling_pr: 151
-    status: BLOCKED_EXTERNAL_BENCH
-    rule: no_merge_from_ci_alone_replay_current_dev_only_after_physical_pass
+    evidence_tooling_pr: 151
+    status: EXTERNAL_BENCH_PENDING
 
-  physical_ota:
+  ota_physical_team:
     role: PHYSICAL_EXECUTOR_QA_L4
-    owner: Claude_Code_or_site_operator
+    owner: authorized_hardware_executor
     issue: 86
-    software_pr: 145
-    regression_pr: 148
-    physical_evidence_tooling_pr: 152
-    status: BLOCKED_BY_WAVESHARE_SOURCE_GRAPH_AND_PHYSICAL_QUALIFICATION
-    rule: qualify_exact_intended_ota_artifact_no_cross_identity_pass_transfer
+    evidence_tooling_pr: 152
+    status: WAITING_FOR_INTENDED_RELEASE_IDENTITY_AND_REAL_CONTROLLER_MATRIX
 
-  physical_fat_sat:
-    role: PHYSICAL_EXECUTOR_QA_L7
-    owner: Claude_Code_or_site_operator
+  fat_sat_team:
+    role: RELEASE_PHYSICAL_QA_L7
+    owner: authorized_site_operator_and_authorized_site_representative
     issue: 83
-    status: WAITING_ON_PHYSICAL_SITE_PROFILE_AND_WAVESHARE_GATES
+    evidence_tooling_pr: 160
+    status: TOOLING_COMPLETE_WAITING_ON_PREREQUISITE_PHYSICAL_GATES
+
+  reva_hardware_team:
+    role: PRODUCT_HARDWARE_L9
+    owner: ChatGPT_orchestrator_plus_hardware_engineer
+    issue: 85
+    planning_pr: 18
+    implementation_pr: 19
+    status: H2_H3_AUTOMATED_PASS_H4_PROTOTYPE_PENDING
+    qa: KiCad_CI_plus_independent_hardware_review
 
   qa_ci:
-    role: SOFTWARE_QA
+    role: SOFTWARE_AND_DESIGN_QA
     owner: GitHub_Actions
     responsibilities:
       - focused_changed_behavior_tests
       - full_firmware_web_esp32s3_build
-      - always_on_secure_ota_regression_gate
+      - secure_ota_always_on_regression
+      - kicad_erc_drc_routing_si_step_and_provider_package_gates
       - exact_head_evidence_only
-      - never_substitute_for_physical_acceptance
+      - never_substitute_ci_for_physical_acceptance
 
-  qa_release:
+  release_qa:
     role: RELEASE_QA
     owner: ChatGPT
-    issues: [80, 83, 86, 91, 93]
-    evidence_tooling_prs: [142, 150, 151, 152]
+    issues: [80, 81, 82, 83, 86, 87, 91, 93]
     responsibilities:
-      - verify_tree_and_artifact_identity
-      - verify_no_stale_pr_is_promoted
-      - verify_physical_and_software_evidence_are_not_conflated
-      - validate_final_evidence_with_current_tooling_without_lowering_thresholds
-      - reject_partial_soak_aggregation_and_cross_identity_pass_transfer
-      - reject_ota_physical_claims_from_source_or_ci_only
+      - verify_source_tree_artifact_config_profile_identity
+      - reject_stale_or_behind_pr_promotion
+      - reject_cross_identity_physical_pass_transfer
+      - reject_guessed_register_polarity_topology_timing_or_protocol
+      - reject_partial_soak_aggregation
+      - require_signed_authorized_sat_for_final_release
 
   product_owner:
     role: OWNER
     owner: user
     responsibilities:
       - product_scope_and_release_decisions
-      - manufacturer_manuals_and_site_wiring_evidence
-      - credentials_never_committed_to_repo
-      - physical_site_authorization_and_final_signoff_where_required
+      - authorize_physical_site_and_bench_execution
+      - provide_or_approve_authoritative_site_wiring_and_manufacturer_documents
+      - final_site_signoff_where_required
 
 separation_rules:
   - coder_does_not_self_certify_physical_pass
-  - qa_does_not_silently_repair_implementation
   - software_ci_does_not_equal_physical_acceptance
-  - evidence_tooling_pass_does_not_equal_physical_acceptance
+  - evidence_tooling_does_not_create_physical_acceptance
   - physical_executor_does_not_invent_registers_polarity_timing_topology_or_protocol_semantics
-  - blocked_external_lanes_do_not_stop_independent_software_lanes
-  - stale_todo_items_do_not_reopen_merged_work_without_regression_evidence
+  - blocked_physical_lanes_do_not_stop_independent_software_or_hardware_lanes
+  - physical_pass_does_not_transfer_to_changed_identity_without_explicit_equivalence_gate
   - final_acceptance_thresholds_are_not_lowered_to_manufacture_pass
-  - physical_pass_does_not_transfer_from_frozen_waveshare_candidate_to_newer_dev_or_ota_images

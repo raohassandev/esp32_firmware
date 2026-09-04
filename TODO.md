@@ -1,42 +1,42 @@
-# AISH-OS Live TODO v2
+# AISH-OS Live TODO v3
 
-Master program: #79. Live repository truth overrides stale historical checklists. Current software integration baseline: `ad651806edb95a749b7d65b61fe1f6b2cf2148db` after PR #152.
+Master program: #79. Live repository truth overrides stale checklists. Current `dev`: `1b4d7631862afdb38da99fbbae9aa170729b0bdb` after PR #160.
 
-## RELEASE-BLOCKING PHYSICAL / EXTERNAL WORK
+## RELEASE-CRITICAL EXECUTION QUEUE
 
-- [ ] **L3 / #87 — Waveshare final acceptance.** Exact candidate `87841ecee727fe1d814d4186be8c8c26e4afafb4`; short physical gate PASS. Obtain one uninterrupted >=4 h same-image soak with >=240 one-minute samples. First attempt reached ~2 h / 121 clean samples before USB dock/power loss; partial runs cannot be combined. PR #142 supplies final-evidence/package validation. After genuine final-soak PASS, execute #25 backend parity/recovery and #26 persistence/ARM using PR #150 validators before promotion.
-- [ ] **L2 / #80 — Generator source-transition bench qualification.** Draft PR #106 is software GREEN but physically gated. Execute Grid->Transfer->Generator, Generator->Transfer->Grid, Island, supported Sync, conflict/stale/source-loss, breaker/ATS/run evidence, meter sign/scaling and recovery dwell. PR #151 provides the fail-closed physical record validator. After PASS, replay the identical validated runtime slice onto current `dev`, rerun exact-head CI, and merge only 0-behind.
-- [ ] **L5 / #81 — real site source evidence.** Record actual breaker/run/ATS/sync provenance, address/contact, mask, polarity, meter identity/sign/scaling and topology. No guessed values or kW-sign source authority.
-- [ ] **L6 / #82 — production inverter profiles.** Each manufacturer/model requires exact official manual/model/firmware identity, physical identity/telemetry/status proof, write/readback/rollback bench evidence and signed production approval. Production release remains deliberately blocked with zero approved real profiles.
-- [ ] **L4 / #86 — Secure OTA physical qualification.** Software is merged via PR #145 and regression-covered via PR #148. PR #152 adds a fail-closed real-controller evidence validator, but physical authenticated upload, invalid-image rejection, interruption/power-loss, previous-slot recovery, pending verification, mark-valid and deliberate rollback remain open on one exact intended OTA-capable release identity. Do not transfer physical PASS from `87841ece...`.
-- [ ] **L7 / #83 — integrated PV-DG FAT/SAT/endurance.** Execute Grid, DG, mixed-source, all three Modbus modes, slow/dead peer, exception, reset/reconnect, Wi-Fi recovery, multi-device load, lwIP/socket resource trends and signed SAT tied to exact identities.
+- [ ] **P0 / L3 / #87/#27 — Waveshare final soak.** Preserve exact `87841ecee727fe1d814d4186be8c8c26e4afafb4`; use the PR #159 fail-closed capture executor; obtain one new uninterrupted >=4 h / >=240-sample run with LCD/touch/Wi-Fi/backend active. Do not combine the prior ~2 h run.
+- [ ] **P0 / #25 — backend parity/recovery.** Execute only after genuine Waveshare soak PASS on the same accepted identity; validate with PR #150 tooling.
+- [ ] **P0 / #26 — persistence/ARM.** Execute save/readback/reboot/restore/interrupted-save/ARM fail-closed matrix on the same accepted identity after soak PASS; no NVS/full-flash erase.
+- [ ] **P0 / L2 / #80 — Generator source-transition physical bench.** Execute full Grid<->Transfer<->Generator/Island/stale/conflict/source-loss/recovery matrix using authoritative breaker/run/ATS/sync and meter sign/scaling evidence. Validate with PR #151. After PASS replay exact #106 runtime slice to latest `dev`, earn fresh CI, merge 0-behind.
+- [ ] **P0 / L5 / #81 — Real site source commissioning.** Fill and execute PR #156 evidence package for every required Grid/Gen/ATS/sync channel, exact address/contact/mask/polarity/manual/wiring provenance, meter mapping/sign/scaling, physical toggle, stale and recovery.
+- [ ] **P0 / L6 / #82 — Production inverter qualification.** For every deployed model: exact official manual/model/firmware, identity/read-only telemetry/status proof, controlled write/readback/failure/rollback, safe-zero and signed production approval. Validate with PR #158. No guessed map.
+- [ ] **P0 / L4 / #86 — Secure OTA physical qualification.** On one immutable intended OTA-capable release identity execute authenticated upload, invalid rejection, interrupted upload, power-loss, partial-image non-selection, previous-slot boot, pending verification, mark-valid, rollback and NVS persistence. Validate with PR #152.
+- [ ] **P0 / L7 / #83 — Integrated FAT/endurance/SAT.** After prerequisites pass, execute complete Grid/DG/mixed-source FAT, all three Modbus modes, degraded peers/network resets/recovery/resource trends and signed SAT. Validate final record with PR #160 tooling.
+- [ ] **P0 / #91 — Final release evidence index.** Bind final SHA/artifact/config/site source maps/approved profiles/FAT/SAT records; zero critical blockers; close master #79 only then.
 
-## CONTINUOUS GOVERNANCE / TRACEABILITY
+## ACTIVE MANAGEMENT / GOVERNANCE
 
-- [ ] **L8 / #84 — live governance reconciliation.** Synchronize execution tree, TODO, blocker ledger, program board, evidence index, requirements snapshot, agent registry and gates after each state change.
-- [ ] **L11 / #91 — evidence traceability.** Preserve exact SHA/run/artifact/config/profile evidence and keep stale identities non-authoritative.
-- [ ] **L13 / #93 — promotion graph hygiene.** Never merge a behind PR; use current-base replay, fresh exact-head CI and expected-head guards.
+- [ ] **L8 / #84 — governance reconciliation.** Current atomic reconciliation branch `docs/governance-reconcile-pr160`; keep all eight governance artifacts synchronized after merges or physical verdicts.
+- [ ] **L13 / #93 — promotion graph hygiene.** Exact-head CI + 0-behind + expected-head merge; stale replay instead of historical CI reuse.
+- [ ] **L14 / #94 — orchestration cycle.** Maintain 2–3 independent active lanes where meaningful; physical waits never stop independent work.
 
-## HELD / PHYSICAL-GATED WORK — DO NOT CHURN FROZEN IDENTITIES
+## REV-A PRODUCT HARDWARE TRACK
 
-- [ ] Draft PR #106 — source-transition runtime candidate; #80 physical gate.
-- [ ] PR #57/#20 — frozen Waveshare source/promotion graph; #87/#27.
-- [ ] PR #67 — historical frozen-candidate/source-coupled tooling guard; generic reusable final-acceptance/package tooling is independently merged via PR #142.
-- [ ] #86 — OTA physical matrix on one exact intended OTA-capable release identity; physical record tooling is merged via PR #152.
+- [ ] **L9 / #85 / PR #19 — integrate H2/H3 design checkpoint.** H2 routing/DRC/SI/STEP and H3 provider package already PASS in run `33797012638`; PR #19 exact-head CI is active at `ad7417153d85ba60a440d161385793c21eac4076`.
+- [ ] **L9 H4 — fabricate/assemble prototype and execute electrical/communications/relay/enclosure/thermal validation.** Provider package artifact id `9909976209`, digest `sha256:869bc723cd05f106aab850aa3de65bb4b46d600b77bc08e91dbedcaef41bd496`.
 
-## COMPLETED SOFTWARE / TOOLING — DO NOT REOPEN WITHOUT CURRENT REGRESSION EVIDENCE
+## COMPLETED SOFTWARE / EVIDENCE AUTOMATION — DO NOT REOPEN WITHOUT CURRENT REGRESSION
 
-- [x] Core AISH-OS v2 software safety, Modbus modes, UI/browser, config persistence, source evidence framework, inverter write authority and OTA software/regression work through PR #148.
-- [x] Governance reconciliation through PR #149 -> `eee505bc3fcb07640836fa79c6becfc629c6050b`.
-- [x] Waveshare post-soak backend parity/persistence evidence tooling — PR #150 -> `184d7e658ac44496a4f9efe0fd5db5844ad7fa43`; focused `33792231764`, OTA always-on `33792231776`, full `33792231708`, all GREEN. Tooling creates no physical PASS.
-- [x] Generator/source-transition physical evidence tooling — PR #151 -> `892a5811160098a765df7895af943eadf0457d48`; focused `33793093720`, strong-evidence `33793093627`, OTA always-on `33793093852`, full `33793093622`, all GREEN. #80 remains physical.
-- [x] Secure OTA real-controller evidence tooling — PR #152 -> `ad651806edb95a749b7d65b61fe1f6b2cf2148db`; focused `33793934963`, secure OTA current-dev `33793934980`, OTA always-on `33793934865`, full `33793934989`, all GREEN. #86 remains physical.
-- [x] Waveshare short display/touch/Alarms gate on exact `87841ece...` — PASS; final continuous soak remains open.
+- [x] Core runtime/config/UI/Modbus/safety/OTA software through PR #148.
+- [x] Waveshare final/package validator PR #142.
+- [x] Waveshare post-soak validator PR #150.
+- [x] Generator physical evidence validator PR #151.
+- [x] Secure OTA physical evidence validator PR #152.
+- [x] Site source commissioning validator PR #156 -> `1c6e1de9ba01c759bc7dc6331f418160614cbbd7`.
+- [x] Inverter per-model physical production qualification validator PR #158 -> `56e2abfb9291b8b5f0786dc8051820a53865984b`.
+- [x] Waveshare one-command physical soak capture executor PR #159 -> `3fd831b677ff590c54cb5cef412a55c9cdea5ca8`.
+- [x] Integrated FAT/endurance/signed-SAT validator and runbook PR #160 -> `1b4d7631862afdb38da99fbbae9aa170729b0bdb`.
 
-## SEPARATE PRODUCT-HARDWARE TRACK
+## GLOBAL DONE GATE
 
-- [ ] **L9 / #85 — Rev-A PCB/KiCad.** PR #18/#19; separate unless the Owner explicitly couples milestones.
-
-## GLOBAL RELEASE GATE
-
-Do not claim 100% until all release-target software is governed and merged, every required physical/FAT/SAT/OTA gate passes against exact identities, real site source mappings and production inverter profiles are documentation-backed and physically qualified, and no critical blocker remains. Evidence validators cannot substitute for observation and acceptance thresholds must not be weakened to create a PASS.
+Do not claim 100% until every P0 physical/site/manufacturer/FAT/SAT item above genuinely passes against exact identities, all required promotions are merged with fresh exact-head CI, final evidence is traceable, and no critical blocker remains. CI or validators may enforce evidence quality but cannot create hardware/site PASS.
