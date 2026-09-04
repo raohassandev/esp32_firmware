@@ -1,0 +1,30 @@
+name: Integrated FAT SAT evidence tools
+
+on:
+  pull_request:
+    paths:
+      - 'tools/integrated_fat_sat_evidence_verify.py'
+      - 'tools/integrated_fat_sat_evidence.example.json'
+      - 'tests/integrated_fat_sat_evidence_test.py'
+      - 'docs/INTEGRATED_FAT_SAT_EXECUTION.md'
+      - '.github/workflows/integrated-fat-sat-evidence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  evidence-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run integrated FAT SAT evidence tests
+        run: python3 tests/integrated_fat_sat_evidence_test.py
+      - name: Prove template fails closed
+        run: |
+          set -euo pipefail
+          if python3 tools/integrated_fat_sat_evidence_verify.py tools/integrated_fat_sat_evidence.example.json; then
+            echo 'ERROR: unqualified FAT/SAT template unexpectedly passed'
+            exit 1
+          fi
+          echo 'Unqualified FAT/SAT template correctly fails closed'
