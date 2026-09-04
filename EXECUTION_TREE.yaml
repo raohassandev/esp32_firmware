@@ -95,16 +95,26 @@ lanes:
     issue: 85
     planning_pr: 18
     implementation_pr: 19
-    h2_validation_fix_pr: 163
-    h2_validation_fix_head: a458172a23a7ec64170693886aac2ba861a66a30
-    h2_release_run: 33797012638
-    routed_native_checkpoint: 324e0db1600c2fd883d83f923a0c442669b237f0
-    provider_artifact_id: 9909976209
-    provider_artifact_digest: sha256:869bc723cd05f106aab850aa3de65bb4b46d600b77bc08e91dbedcaef41bd496
+    historical_h2_validation_pr: 163
+    historical_h2_validation_head: f020be6bcabc8dec6c05d80aaf00ec47fe6476b4
+    historical_h2_release_run: 33797012638
+    historical_routed_checkpoint: 324e0db1600c2fd883d83f923a0c442669b237f0
+    historical_provider_artifact_id: 9909976209
+    historical_provider_artifact_digest: sha256:869bc723cd05f106aab850aa3de65bb4b46d600b77bc08e91dbedcaef41bd496
+    reproducibility_run: 33884657384
+    reproducibility_evidence_artifact_id: 9941333133
+    reproducibility_evidence_digest: sha256:668ab99694a0408b673b6b2875d396286bf965dce1a01f1de7de09c8540760b3
+    reproducibility_drc_violations: 20
     h4_issue: 162
-    status: H2_H3_AUTOMATED_PASS_PR163_REVALIDATING_FROZEN_RULES_H4_PHYSICAL_PENDING
+    status: HISTORICAL_H2_DRC_PASS_NON_REPRODUCIBLE_NEW_CONTROLLED_H2_REQUIRED_H4_PENDING
     blocks_current_waveshare_release: false
-    rule: no_post_H2_DRC_rule_relaxation_without_new_controlled_H2_checkpoint
+    rules:
+      - do_not_merge_pr163_as_pass
+      - no_post_H2_DRC_rule_relaxation_silently_inheriting_historical_pass
+      - authoritative_component_and_fabricator_evidence_required_for_new_exceptions
+      - approved_rules_must_exist_before_new_H2_checkpoint
+      - new_H2_must_rerun_ERC_DRC_SI_STEP_and_provider_package
+      - historical_provider_package_is_evidence_only_not_final_fabrication_authority
 
   L10_browser_final_audit:
     issue: 90
@@ -177,4 +187,5 @@ release_done_definition:
   - final_evidence_traceable_to_release_sha_config_profiles_ui_and_artifacts
   - no_evidence_validator_substituted_for_physical_observation
   - no_acceptance_threshold_weakened_to_manufacture_pass
+  - new_reva_H2_checkpoint_reproducible_before_H4_fabrication
   - no_open_critical_blockers
