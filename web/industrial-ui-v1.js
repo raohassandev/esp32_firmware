@@ -21,9 +21,6 @@
     function installNavigationSections() {
         const nav = document.querySelector('.nav-list');
         if (!nav) return;
-        /* product-experience-v2 owns an older two-group IA. Retire its labels
-         * before inserting the authoritative industrial task hierarchy so the
-         * sidebar can never display two competing navigation systems. */
         nav.querySelectorAll('.experience-nav-label, .industrial-nav-section').forEach((item) => item.remove());
 
         NAV_GROUPS.forEach((group) => {
@@ -149,9 +146,28 @@
         item.title = 'Age of the latest controller status update';
     }
 
-    function cell(label, value, tone = 'neutral') {
+    function activateRoute(item, targetRoute) {
+        if (!targetRoute) return;
+        item.dataset.industrialTargetRoute = targetRoute;
+        item.tabIndex = 0;
+        item.setAttribute('role', 'link');
+        item.style.cursor = 'pointer';
+        item.title = `Open ${targetRoute}`;
+        const open = () => { location.hash = `#/${targetRoute}`; };
+        item.addEventListener('click', open);
+        item.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                open();
+            }
+        });
+    }
+
+    function cell(label, value, tone = 'neutral', targetRoute = '') {
         const item = node('div', `industrial-command-cell ${tone}`);
         item.append(node('span', '', label), node('strong', '', value));
+        activateRoute(item, targetRoute);
+        if (targetRoute) item.setAttribute('aria-label', `${label}: ${value}. Open ${targetRoute}.`);
         return item;
     }
 
@@ -183,13 +199,29 @@
         const plantTone = [controllerTone, meterTone, alarmTone].includes('bad') ? 'bad' :
             [controllerTone, meterTone, controlTone, alarmTone].includes('warning') ? 'warning' : 'good';
         const plantState = plantTone === 'bad' ? 'Attention required' : plantTone === 'warning' ? 'Review condition' : 'Plant normal';
+        const engineering = isEngineering();
 
         bar.replaceChildren(
-            cell('Plant state', plantState, plantTone),
-            cell('Grid measurement', meter, meterTone),
-            cell('Control safety', control, controlTone),
-            cell('Network', network, toneFromText(network)),
+            cell('Plant state', plantState, plantTone, plantTone === 'good' ? 'readiness' : 'alarms'),
+            cell('Grid measurement', meter, meterTone, 'meters'),
+            cell('Control safety', control, controlTone, engineering ? 'control' : 'readiness'),
+            cell('Network', network, toneFromText(network), engineering ? 'wifi' : 'readiness'),
         );
+    }
+
+    function enhanceEquipmentAccess() {
+        document.querySelectorAll('.op-equipment-bar, .op-inverter-row').forEach((item) => {
+            if (item.dataset.industrialKeyboard === 'true') return;
+            item.dataset.industrialKeyboard = 'true';
+            item.tabIndex = 0;
+            item.setAttribute('role', 'button');
+            item.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    item.click();
+                }
+            });
+        });
     }
 
     function applyGlobalState() {
@@ -212,6 +244,7 @@
         updateAlarmControl();
         updateFreshness();
         updateDashboardCommandBar();
+        enhanceEquipmentAccess();
         applyGlobalState();
     }
 
@@ -269,6 +302,7 @@
         installFreshness();
         installDashboardCommandBar();
         normalizeMobileNavigation();
+        enhanceEquipmentAccess();
         observeStatus();
         installRouteRefresh();
         updateAllStatus();
