@@ -34,8 +34,7 @@ Current `dev`: `14d13a0d6e5c4b4b95cea35b8cc32f1880ae8134` after governed PR #176
 - tree `6ddd7900f9b4ece0fba9349b905e1c078fc3401e`
 - package run `33622358267`
 - artifact `9843536218` / `waveshare-800x480-87841ece`
-- ZIP digest `sha256:89e621034d4c91096fc0461b48575039096`
-- authoritative full ZIP digest: `sha256:89e621034d4c91096fc5d38dd57ac40eeeab34275e4af1fc0461b48575039096`
+- ZIP digest `sha256:89e621034d4c91096fc5d38dd57ac40eeeab34275e4af1fc0461b48575039096`
 - app SHA256 `8be2a2aad5f223d8b9bca498db2e12c04f7f205feaa9908b7922c37421c46593`
 - short display/touch/Alarms physical gate: PASS
 - first continuous attempt: ~2 h / 121 one-minute samples + 25 clean backend rounds, interrupted by USB dock/power disappearance
@@ -85,7 +84,7 @@ Successful KiCad release run `33797012638` proved routed design/provider-package
 - provider package artifact `9909976209`, digest `sha256:869bc723cd05f106aab850aa3de65bb4b46d600b77bc08e91dbedcaef41bd496`;
 - engineering evidence artifact `9909977211`, digest `sha256:246830e56b8a17be3a0057186e7e30102c5e5dd371fb3bf4e64c2279502e8ea7`.
 
-PR #163 head `85a46953b65f76acba5277b493c35a08215ca2c4` currently fails the deterministic H2 provenance gate because `hardware/kicad/Automatrix_PVDG_RevA.kicad_dru` appears after the frozen H2 checkpoint. That failure is a real integration-policy defect to disposition; H2/H3 evidence is not H4 fabricated-prototype acceptance.
+PR #163's previous head correctly failed because a post-checkpoint `.kicad_dru` rules file altered accepted DRC constraints. That file is removed at current head `a458172a23a7ec64170693886aac2ba861a66a30`; frozen H2 validation must now re-earn fresh CI without relaxing accepted design rules. H2/H3 evidence is not H4 fabricated-prototype acceptance.
 
 ## Remaining release evidence outputs
 
