@@ -1,0 +1,719 @@
+/*
+ * Automatrix Industrial UI v1
+ *
+ * This is the authoritative presentation layer for the embedded operator HMI.
+ * It is deliberately served LAST so legacy compatibility modules can keep their
+ * behavior while visual ownership converges here. New product styling belongs
+ * here rather than in another patch/override stylesheet.
+ */
+
+:root {
+    --industrial-sidebar-width: 264px;
+    --industrial-header-height: 72px;
+    --industrial-touch: 44px;
+    --industrial-radius: 9px;
+    --industrial-radius-sm: 6px;
+    --industrial-gap: 12px;
+
+    --bg: #081019;
+    --bg-soft: #0b141f;
+    --sidebar: #0a131d;
+    --panel: #101c28;
+    --panel-strong: #152536;
+    --field: #0b1722;
+    --line: #304255;
+    --line-soft: #203142;
+    --line-strong: #536b82;
+    --text: #f2f6fa;
+    --muted: #a9b8c6;
+    --muted-2: #8395a7;
+    --orange: #f59a36;
+    --orange-soft: rgba(245, 154, 54, 0.12);
+    --blue: #56a8e9;
+    --green: #4bc487;
+    --yellow: #e9bd54;
+    --red: #ee6670;
+    --shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+    --surface-sunken: #09131d;
+    --surface-raised: #17283a;
+    --surface-raised-hover: #1c3044;
+    --surface-overlay: #101d2a;
+    --control-track: #09131d;
+    --action-solid: #17507e;
+    --action-solid-hover: #1c6098;
+    --action-solid-text: #ffffff;
+    --disabled-text: #8494a3;
+    --disabled-surface: #17222d;
+    --disabled-line: #2b3947;
+    --panel-bg: var(--panel);
+    --surface: var(--panel);
+    --border: var(--line);
+    --border-color: var(--line);
+    --input-bg: var(--field);
+    --accent: var(--orange);
+    --success: var(--green);
+    --danger: var(--red);
+    --good: var(--green);
+    --warning: var(--yellow);
+    --bad: var(--red);
+    --info: var(--blue);
+}
+
+html[data-theme="light"] {
+    --bg: #e9eef3;
+    --bg-soft: #f2f5f8;
+    --sidebar: #f8fafc;
+    --panel: #ffffff;
+    --panel-strong: #f3f6f9;
+    --field: #f7f9fb;
+    --line: #aebdca;
+    --line-soft: #d3dce4;
+    --line-strong: #71879b;
+    --text: #172432;
+    --muted: #4e6275;
+    --muted-2: #667b8e;
+    --orange: #b95f08;
+    --orange-soft: rgba(185, 95, 8, 0.09);
+    --blue: #17679f;
+    --green: #17714a;
+    --yellow: #795a00;
+    --red: #a92d38;
+    --shadow: 0 6px 18px rgba(32, 50, 66, 0.08);
+    --surface-sunken: #eef2f6;
+    --surface-raised: #e5ebf1;
+    --surface-raised-hover: #d8e2eb;
+    --surface-overlay: #ffffff;
+    --control-track: #e4eaf0;
+    --action-solid: #164f7a;
+    --action-solid-hover: #123f63;
+    --disabled-text: #5f7181;
+    --disabled-surface: #e3e8ed;
+    --disabled-line: #c3cdd6;
+}
+
+html,
+body {
+    background: var(--bg);
+}
+
+body {
+    background-image: none !important;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Product shell ---------- */
+.sidebar {
+    width: var(--industrial-sidebar-width);
+    padding: 18px 14px 16px;
+    border-right: 1px solid var(--line);
+    background: var(--sidebar) !important;
+    box-shadow: none;
+}
+
+.workspace {
+    margin-left: var(--industrial-sidebar-width);
+}
+
+.brand-block {
+    min-height: 58px;
+    padding: 0 8px 16px;
+    border-bottom-color: var(--line);
+}
+
+.brand-mark {
+    width: 40px;
+    height: 40px;
+    border-radius: var(--industrial-radius-sm);
+    color: #101820;
+    background: var(--orange);
+    box-shadow: none;
+}
+
+.brand-name {
+    font-size: 13px;
+    letter-spacing: .11em;
+}
+
+.brand-product {
+    margin-top: 2px;
+    color: var(--muted);
+    font-size: 11px;
+}
+
+.nav-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: 16px;
+}
+
+.industrial-nav-section {
+    margin: 16px 11px 5px;
+    color: var(--muted-2);
+    font-size: 9px;
+    font-weight: 850;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+}
+
+.industrial-nav-section:first-child {
+    margin-top: 2px;
+}
+
+.nav-link,
+.product-engineering-entry {
+    min-height: var(--industrial-touch);
+    border-radius: var(--industrial-radius-sm) !important;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.nav-link {
+    padding: 0 12px;
+    color: var(--muted);
+}
+
+.nav-link:hover {
+    background: var(--panel-strong) !important;
+}
+
+.nav-link.active {
+    color: var(--text);
+    border-color: transparent;
+    border-left: 3px solid var(--orange);
+    background: var(--orange-soft) !important;
+}
+
+.nav-link > span:first-child {
+    color: var(--muted-2);
+}
+
+.nav-link.active > span:first-child {
+    color: var(--orange);
+}
+
+.sidebar-footer {
+    padding: 13px 9px 2px;
+    border-top-color: var(--line);
+}
+
+.topbar {
+    min-height: var(--industrial-header-height);
+    padding: 10px 22px;
+    border-bottom: 1px solid var(--line);
+    background: color-mix(in srgb, var(--bg) 95%, transparent) !important;
+    backdrop-filter: blur(10px);
+    box-shadow: none;
+}
+
+.page-heading h1 {
+    margin-top: 1px;
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: -.01em;
+}
+
+.breadcrumb {
+    color: var(--muted-2);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: .12em;
+}
+
+.shell-page-context {
+    margin-top: 3px;
+    color: var(--muted);
+    font-size: 11px;
+}
+
+.topbar-actions {
+    gap: 8px;
+}
+
+.icon-button,
+.shell-health-button,
+.shell-overflow-button,
+.theme-toggle-button {
+    min-width: var(--industrial-touch) !important;
+    width: auto;
+    height: var(--industrial-touch) !important;
+    min-height: var(--industrial-touch) !important;
+    border-radius: var(--industrial-radius-sm) !important;
+    box-shadow: none !important;
+}
+
+.industrial-role-badge,
+.industrial-freshness,
+.industrial-alarm-button {
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--industrial-radius-sm);
+    color: var(--muted);
+    background: var(--panel);
+    font-size: 11px;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.industrial-role-badge::before,
+.industrial-freshness::before,
+.industrial-alarm-button::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--muted-2);
+}
+
+.industrial-role-badge.engineering::before { background: var(--orange); }
+.industrial-role-badge.operator::before { background: var(--blue); }
+.industrial-freshness.good::before { background: var(--green); }
+.industrial-freshness.warning::before { background: var(--yellow); }
+.industrial-freshness.bad::before { background: var(--red); }
+
+.industrial-alarm-button {
+    cursor: pointer;
+}
+
+.industrial-alarm-button.good::before { background: var(--green); }
+.industrial-alarm-button.warning::before { background: var(--yellow); }
+.industrial-alarm-button.bad {
+    color: var(--text);
+    border-color: color-mix(in srgb, var(--red) 60%, var(--line));
+    background: color-mix(in srgb, var(--red) 12%, var(--panel));
+}
+.industrial-alarm-button.bad::before { background: var(--red); }
+
+/* Legacy six-cell status strip is duplicate information. Industrial status is
+ * promoted to the persistent header and dashboard command bar instead. */
+.status-strip {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    overflow: hidden !important;
+    clip: rect(0 0 0 0) !important;
+    clip-path: inset(50%) !important;
+    white-space: nowrap !important;
+}
+
+.content {
+    max-width: 1500px;
+    padding: 20px 22px 32px;
+}
+
+.page {
+    animation: none !important;
+}
+
+.page-intro {
+    margin-bottom: 14px;
+}
+
+.page-intro h2 {
+    margin: 2px 0 5px;
+    font-size: clamp(20px, 2vw, 27px);
+    letter-spacing: -.015em;
+}
+
+.page-intro p:not(.eyebrow) {
+    max-width: 800px;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.eyebrow {
+    color: var(--muted-2);
+    font-size: 9px;
+    letter-spacing: .12em;
+}
+
+.mode-panel {
+    min-width: 180px;
+    padding: 10px 13px;
+    border-radius: var(--industrial-radius);
+    box-shadow: none;
+}
+
+/* ---------- Industrial dashboard hierarchy ---------- */
+.industrial-command-bar {
+    display: grid;
+    grid-template-columns: minmax(170px, 1.1fr) repeat(3, minmax(135px, .8fr));
+    gap: 1px;
+    margin-bottom: 12px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: var(--industrial-radius);
+    background: var(--line);
+}
+
+.industrial-command-cell {
+    min-width: 0;
+    padding: 10px 12px;
+    background: var(--panel);
+}
+
+.industrial-command-cell span {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--muted-2);
+    font-size: 9px;
+    font-weight: 850;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+}
+
+.industrial-command-cell strong {
+    display: block;
+    overflow: hidden;
+    color: var(--text);
+    font-size: 13px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.industrial-command-cell.good { box-shadow: inset 3px 0 0 var(--green); }
+.industrial-command-cell.warning { box-shadow: inset 3px 0 0 var(--yellow); }
+.industrial-command-cell.bad { box-shadow: inset 3px 0 0 var(--red); }
+.industrial-command-cell.neutral { box-shadow: inset 3px 0 0 var(--muted-2); }
+
+.metric-grid {
+    gap: var(--industrial-gap);
+}
+
+.metric-card,
+.panel,
+.device-runtime-card,
+.op-panel,
+.product-modal {
+    border-color: var(--line) !important;
+    border-radius: var(--industrial-radius) !important;
+    background: var(--panel) !important;
+    box-shadow: var(--shadow) !important;
+}
+
+.metric-card {
+    min-height: 126px;
+    padding: 14px 15px;
+}
+
+.metric-card.emphasis {
+    border-left: 3px solid var(--orange) !important;
+    background: var(--panel) !important;
+}
+
+.metric-head {
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+}
+
+.metric-value {
+    margin-top: 13px;
+    font-size: clamp(25px, 2.3vw, 32px);
+    line-height: 1;
+    letter-spacing: -.025em;
+}
+
+.metric-value.compact { font-size: 21px; }
+.metric-foot,
+.metric-provenance {
+    margin-top: 6px;
+    color: var(--muted-2);
+    font-size: 10px;
+}
+
+.dashboard-grid,
+.form-layout {
+    gap: var(--industrial-gap);
+    margin-top: var(--industrial-gap);
+}
+
+.panel {
+    padding: 16px;
+}
+
+.panel-header {
+    margin-bottom: 13px;
+}
+
+.panel-header h3 {
+    margin-top: 2px;
+    font-size: 15px;
+}
+
+/* Power flow reads as an HMI mimic/single-line overview instead of a set of
+ * decorative tiles. Existing flow semantics remain untouched. */
+.power-flow-panel {
+    overflow: hidden;
+}
+
+.power-flow {
+    position: relative;
+    gap: 18px;
+    padding: 13px;
+    border: 1px solid var(--line-soft);
+    border-radius: var(--industrial-radius-sm);
+    background:
+        linear-gradient(var(--line-soft), var(--line-soft)) 50% 50% / calc(100% - 150px) 2px no-repeat,
+        var(--surface-sunken);
+}
+
+.flow-column {
+    position: relative;
+    z-index: 1;
+    gap: 9px;
+}
+
+.flow-node {
+    min-height: 82px;
+    padding: 10px;
+    border-radius: var(--industrial-radius-sm);
+    border-color: var(--line-strong);
+    background: var(--panel) !important;
+    box-shadow: 0 0 0 3px var(--surface-sunken);
+}
+
+.flow-node.central,
+.flow-node.flow-controller {
+    border-width: 2px;
+    border-color: var(--orange);
+    background: var(--panel-strong) !important;
+}
+
+.flow-node.flow-unmeasured {
+    border-style: dashed;
+    opacity: .88;
+}
+
+.flow-node strong {
+    margin: 5px 0 3px;
+    font-size: 18px;
+}
+
+.flow-kind {
+    border-radius: 3px;
+}
+
+.flow-line {
+    background: var(--line-strong);
+}
+
+.flow-secondary > div,
+.health-row,
+.connection-overview > div {
+    background: var(--surface-sunken);
+}
+
+.health-row {
+    min-height: 42px;
+    padding: 9px 10px;
+    border-radius: var(--industrial-radius-sm);
+}
+
+.health-row span {
+    color: var(--muted);
+}
+
+.health-row strong {
+    color: var(--text);
+}
+
+/* ---------- Forms / commissioning ---------- */
+.field > span,
+.field label,
+.form-label {
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .025em;
+}
+
+input,
+select,
+textarea {
+    min-height: var(--industrial-touch);
+    border-radius: var(--industrial-radius-sm) !important;
+    border-color: var(--line) !important;
+    color: var(--text);
+    background: var(--field) !important;
+}
+
+textarea { min-height: 120px; }
+
+.button,
+button.button,
+.product-mobile-link,
+.op-range-button,
+.commissioning-step button {
+    min-height: var(--industrial-touch) !important;
+    border-radius: var(--industrial-radius-sm) !important;
+}
+
+.button.primary {
+    box-shadow: none !important;
+}
+
+.button.danger-button {
+    border-color: color-mix(in srgb, var(--red) 65%, var(--line));
+}
+
+.action-bar,
+.panel-actions {
+    gap: 8px;
+}
+
+.notice {
+    border-radius: var(--industrial-radius-sm) !important;
+    box-shadow: none !important;
+}
+
+/* ---------- Lists, alarms, equipment ---------- */
+.op-equipment-bar,
+.op-inverter-row,
+.op-alarm-row,
+.op-event-row,
+.product-detail-row,
+.device-runtime-card {
+    border-radius: var(--industrial-radius-sm) !important;
+}
+
+.op-equipment-bar,
+.op-inverter-row {
+    min-height: 52px;
+}
+
+.op-range-button {
+    min-width: 92px;
+}
+
+/* ---------- State semantics ---------- */
+html.industrial-state-stale .industrial-freshness,
+html.industrial-state-offline .industrial-freshness {
+    color: var(--text);
+}
+
+html.industrial-state-offline .topbar {
+    box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--red) 70%, transparent);
+}
+
+html.industrial-state-attention .topbar {
+    box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--yellow) 55%, transparent);
+}
+
+/* ---------- Waveshare 800x480 / touch HMI ---------- */
+@media (max-width: 900px), (max-height: 560px) {
+    :root {
+        --industrial-sidebar-width: 214px;
+        --industrial-header-height: 58px;
+    }
+
+    .sidebar {
+        width: var(--industrial-sidebar-width);
+        transform: translateX(-100%);
+        padding: 12px 10px;
+        transition: none;
+    }
+
+    body.menu-open .sidebar { transform: translateX(0); }
+    .workspace { margin-left: 0; }
+    .menu-button { display: inline-grid; place-items: center; }
+
+    .topbar {
+        min-height: var(--industrial-header-height);
+        padding: 7px 10px;
+    }
+
+    .page-heading h1 { font-size: 16px; }
+    .breadcrumb,
+    .shell-page-context { display: none; }
+    .content { padding: 10px 12px 66px; }
+    .page-intro { margin-bottom: 9px; }
+    .page-intro h2 { font-size: 19px; }
+    .page-intro p:not(.eyebrow) { font-size: 11px; }
+
+    .industrial-command-bar {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        margin-bottom: 9px;
+    }
+    .industrial-command-cell { padding: 7px 8px; }
+    .industrial-command-cell span { font-size: 8px; }
+    .industrial-command-cell strong { font-size: 11px; }
+
+    .metric-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 8px;
+    }
+    .metric-card {
+        min-height: 94px;
+        padding: 10px;
+    }
+    .metric-value,
+    .metric-value.compact {
+        margin-top: 8px;
+        font-size: 20px;
+    }
+    .metric-foot,
+    .metric-provenance { font-size: 9px; }
+
+    .dashboard-grid,
+    .form-layout {
+        grid-template-columns: minmax(0, 1.55fr) minmax(235px, .85fr);
+        gap: 8px;
+        margin-top: 8px;
+    }
+
+    .panel { padding: 11px; }
+    .panel-header { margin-bottom: 9px; }
+    .power-flow { gap: 9px; padding: 8px; }
+    .flow-node { min-height: 66px; padding: 7px; }
+    .flow-node strong { font-size: 15px; }
+    .flow-node small { font-size: 8px; }
+    .flow-secondary { margin-top: 7px; }
+
+    .industrial-role-badge { display: none; }
+    .industrial-freshness,
+    .industrial-alarm-button { min-height: var(--industrial-touch); padding: 0 8px; }
+
+    .product-mobile-nav {
+        min-height: 56px;
+    }
+    .product-mobile-link {
+        min-height: 52px !important;
+    }
+}
+
+@media (max-width: 700px) {
+    .industrial-command-bar {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .dashboard-grid,
+    .form-layout { grid-template-columns: 1fr; }
+    .power-flow { grid-template-columns: 1fr; background: var(--surface-sunken); }
+    .industrial-freshness { display: none; }
+}
+
+@media (max-width: 480px) {
+    .content { padding-inline: 9px; }
+    .page-intro { flex-direction: column; }
+    .mode-panel { width: 100%; min-width: 0; }
+    .topbar-actions { gap: 4px; }
+    .shell-health-label { display: none; }
+    .industrial-alarm-button span { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        scroll-behavior: auto !important;
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+    }
+}

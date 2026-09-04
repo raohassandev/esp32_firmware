@@ -87,7 +87,9 @@ static esp_err_t css_handler(httpd_req_t *request)
         web_assets_operator_continuity_verdict_css,
         web_assets_commissioning_wizard_v2_css,
         web_assets_commissioning_release_v3_css,
-        web_assets_ota_css
+        web_assets_ota_css,
+        /* Authoritative product presentation layer. Keep this last. */
+        web_assets_industrial_ui_v1_css
     };
     return send_asset_parts(request, "text/css; charset=utf-8", assets, sizeof(assets) / sizeof(assets[0]));
 }
@@ -128,7 +130,9 @@ static esp_err_t js_handler(httpd_req_t *request)
         web_assets_product_experience_v2_js,
         web_assets_operator_continuity_verdict_js,
         web_assets_commissioning_release_v3_js,
-        web_assets_ota_js
+        web_assets_ota_js,
+        /* DOM-only industrial hierarchy/status ownership. Keep this last. */
+        web_assets_industrial_ui_v1_js
     };
     return send_asset_parts(request, "application/javascript; charset=utf-8", assets, sizeof(assets) / sizeof(assets[0]));
 }

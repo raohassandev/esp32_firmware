@@ -1,0 +1,31 @@
+name: Industrial UI v1 gate
+
+on:
+  pull_request:
+    paths:
+      - 'web/**'
+      - 'components/web_server/**'
+      - 'tests/industrial_ui_v1_source_contract.py'
+      - '.github/workflows/industrial-ui-v1.yml'
+  push:
+    branches:
+      - dev
+    paths:
+      - 'web/**'
+      - 'components/web_server/**'
+      - 'tests/industrial_ui_v1_source_contract.py'
+      - '.github/workflows/industrial-ui-v1.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  industrial-ui-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check industrial shell JavaScript
+        run: node --check web/industrial-ui-v1.js
+      - name: Check industrial UI ownership and safety contract
+        run: python3 tests/industrial_ui_v1_source_contract.py
