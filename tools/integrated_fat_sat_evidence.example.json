@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "site_id": "SITE-TO-BE-ACCEPTED",
+  "firmware_sha": "REPLACE_WITH_EXACT_40_HEX_RELEASE_SHA",
+  "artifact_digest": "sha256:REPLACE_WITH_EXACT_64_HEX_RELEASE_DIGEST",
+  "config_identity": "UNQUALIFIED",
+  "all_evidence_same_release_identity": false,
+  "simulator_or_ci_used_as_physical_substitute": false,
+  "prerequisites": {},
+  "matrices": {
+    "grid": [],
+    "generator": [],
+    "mixed": [],
+    "modbus": [],
+    "ota": []
+  },
+  "endurance_summary": {
+    "passed": false,
+    "duration_seconds": 0,
+    "sample_count": 0
+  },
+  "sat": {
+    "accepted": false
+  },
+  "release_ready": false,
+  "release_verdict_reason": "UNQUALIFIED - physical FAT, endurance and signed SAT are still required"
+}
