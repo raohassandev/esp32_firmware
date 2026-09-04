@@ -66,6 +66,8 @@ jobs:
           cfg="$PRODUCT_DIR/sdkconfig.defaults"
           ! grep -q '^CONFIG_PVDG_PRIMARY_WIFI_SSID=' "$cfg"
           ! grep -q '^CONFIG_PVDG_PRIMARY_WIFI_PASSWORD=' "$cfg"
+          ! grep -q '^CONFIG_PVDG_DEFAULT_WIFI_SSID=' "$cfg"
+          ! grep -q '^CONFIG_PVDG_DEFAULT_WIFI_PASSWORD=' "$cfg"
           grep -Fx '# CONFIG_PVDG_APPLY_BUILD_WIFI_PROVISIONING is not set' "$cfg"
           grep -Fx 'CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y' "$cfg"
           grep -Fx 'CONFIG_LV_USE_BUILTIN_MALLOC=n' "$cfg"
@@ -94,13 +96,17 @@ jobs:
           test -s dependencies.lock
 
           grep -qx 'CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y' sdkconfig
-          grep -qx 'CONFIG_LV_USE_BUILTIN_MALLOC=n' sdkconfig
+          grep -qx '# CONFIG_LV_USE_BUILTIN_MALLOC is not set' sdkconfig
           grep -qx 'CONFIG_LV_USE_CLIB_MALLOC=y' sdkconfig
           grep -qx 'CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=512' sdkconfig
           grep -qx 'CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=98304' sdkconfig
           grep -qx 'CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y' sdkconfig
-          ! grep -q '^CONFIG_PVDG_PRIMARY_WIFI_SSID=' sdkconfig
-          ! grep -q '^CONFIG_PVDG_PRIMARY_WIFI_PASSWORD=' sdkconfig
+          grep -qx '# CONFIG_PVDG_APPLY_BUILD_WIFI_PROVISIONING is not set' sdkconfig
+          grep -qx 'CONFIG_PVDG_PRIMARY_WIFI_SSID=""' sdkconfig
+          grep -qx 'CONFIG_PVDG_PRIMARY_WIFI_PASSWORD=""' sdkconfig
+          grep -qx 'CONFIG_PVDG_DEFAULT_WIFI_SSID=""' sdkconfig
+          grep -qx 'CONFIG_PVDG_DEFAULT_WIFI_PASSWORD=""' sdkconfig
+          grep -qx 'CONFIG_WAVESHARE_BENCH_ENGINEERING_CREDENTIAL=""' sdkconfig
 
       - name: Assemble immutable physical-candidate package
         shell: bash
