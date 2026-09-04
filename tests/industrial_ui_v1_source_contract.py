@@ -52,6 +52,10 @@ for token in (
     "installRoleBadge",
     "installAlarmControl",
     "installFreshness",
+    "normalizeMobileNavigation",
+    "experience-nav-label",
+    "data-industrial-control-slot",
+    "readiness",
     "industrial-state-offline",
     "industrial-state-stale",
 ):
