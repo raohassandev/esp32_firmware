@@ -15,7 +15,7 @@ SDK = (ROOT / "sdkconfig.defaults").read_text(encoding="utf-8")
 
 
 def integer(pattern: str, text: str, label: str) -> int:
-    match = re.search(pattern, text)
+    match = re.search(pattern, text, re.MULTILINE)
     if not match:
         raise AssertionError(f"missing {label}")
     return int(match.group(1))
