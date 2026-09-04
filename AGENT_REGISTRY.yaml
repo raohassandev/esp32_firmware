@@ -1,5 +1,5 @@
-version: 2
-updated_at: 2026-09-04T07:32:00+05:00
+version: 3
+updated_at: 2026-09-04T19:28:00+05:00
 master_issue: 79
 truth_rule: live_repository_over_stale_docs
 
@@ -30,15 +30,38 @@ agents:
     status: COMPLETE_FOR_CURRENT_KNOWN_RELEASE_SURFACES
     evidence_prs: [99, 100, 102, 105, 107, 108, 112, 113, 114, 117, 119, 122, 124, 127, 129, 130, 131, 133, 135, 136, 137, 138, 140, 144, 145, 148]
 
+  industrial_ui_team:
+    role: PRODUCT_UI_RELEASE_L16
+    owner: ChatGPT
+    qa: GitHub_Actions
+    parent_issue: 164
+    physical_issue: 174
+    software_prs: [165, 167, 169, 172, 173, 176]
+    physical_tooling_pr: 175
+    status: SOFTWARE_COMPLETE_EXACT_IMAGE_PHYSICAL_HMI_PENDING
+    responsibilities:
+      - maintain_one_authoritative_industrial_presentation_and_navigation_owner
+      - preserve_task_based_overview_grid_solar_alarms_readiness_operator_workflow
+      - preserve_commission_configure_service_engineering_workspace
+      - preserve_operator_read_only_and_engineering_auth_boundaries
+      - preserve_44px_touch_and_800x480_layout_contracts
+      - preserve_browser_socket_lru_psram_resilience
+      - select_and_qualify_one_new_exact_industrial_ui_waveshare_image_under_174
+    rules:
+      - historical_87841ece_physical_pass_does_not_transfer
+      - source_contract_or_validator_pass_does_not_equal_physical_hmi_pass
+      - industrial_shell_adds_no_background_poller_or_mutation_api
+
   release_evidence_team:
     role: CODER_RELEASE_EVIDENCE_AND_AUTOMATION
     owner: ChatGPT
     qa: GitHub_Actions
-    status: COMPLETE_FOR_ALL_CURRENT_RELEASE_PHYSICAL_GATES
-    evidence_prs: [142, 150, 151, 152, 156, 158, 159, 160]
+    status: COMPLETE_FOR_CURRENT_RELEASE_PHYSICAL_GATES
+    evidence_prs: [142, 150, 151, 152, 156, 158, 159, 160, 175]
     coverage:
-      - waveshare_final_acceptance_package_and_soak_capture
-      - waveshare_backend_parity_and_persistence_arm
+      - historical_waveshare_final_acceptance_package_and_soak_capture
+      - historical_waveshare_backend_parity_and_persistence_arm
+      - industrial_ui_exact_image_physical_acceptance
       - generator_source_transition
       - secure_ota_real_controller
       - site_source_commissioning
@@ -66,7 +89,7 @@ agents:
     status: SOFTWARE_TOOLING_COMPLETE_EXTERNAL_EXACT_MANUAL_AND_BENCH_PENDING
     qa: GitHub_Actions_and_ChatGPT_safety_review
 
-  waveshare_physical_team:
+  historical_waveshare_physical_team:
     role: PHYSICAL_EXECUTOR_QA_L3
     owner: authorized_hardware_executor
     issue: 87
@@ -74,6 +97,14 @@ agents:
     candidate: 87841ecee727fe1d814d4186be8c8c26e4afafb4
     capture_tooling_pr: 159
     status: SHORT_PASS_FINAL_CONTINUOUS_SOAK_PENDING
+
+  industrial_ui_physical_team:
+    role: PHYSICAL_EXECUTOR_QA_L16
+    owner: authorized_hardware_executor
+    issues: [164, 174]
+    evidence_tooling_pr: 175
+    candidate: NOT_YET_FROZEN
+    status: WAITING_FOR_NEW_EXACT_UI_IMAGE_AND_REAL_800X480_MATRIX
 
   source_transition_physical_team:
     role: PHYSICAL_EXECUTOR_QA_L2
@@ -103,8 +134,13 @@ agents:
     issue: 85
     planning_pr: 18
     implementation_pr: 19
-    status: H2_H3_AUTOMATED_PASS_H4_PROTOTYPE_PENDING
+    validation_fix_pr: 163
+    validation_fix_head: a458172a23a7ec64170693886aac2ba861a66a30
+    status: H2_H3_AUTOMATED_PASS_FROZEN_VALIDATION_REQUAL_ACTIVE_H4_PROTOTYPE_PENDING
     qa: KiCad_CI_plus_independent_hardware_review
+    rules:
+      - accepted_H2_PCB_and_rules_are_not_relaxed_without_new_controlled_checkpoint
+      - H2_H3_CI_does_not_equal_H4_physical_pass
 
   qa_ci:
     role: SOFTWARE_AND_DESIGN_QA
@@ -112,6 +148,8 @@ agents:
     responsibilities:
       - focused_changed_behavior_tests
       - full_firmware_web_esp32s3_build
+      - industrial_ui_source_and_physical_tool_gates
+      - browser_poller_and_browser_resilience_gates
       - secure_ota_always_on_regression
       - kicad_erc_drc_routing_si_step_and_provider_package_gates
       - exact_head_evidence_only
@@ -120,13 +158,14 @@ agents:
   release_qa:
     role: RELEASE_QA
     owner: ChatGPT
-    issues: [80, 81, 82, 83, 86, 87, 91, 93]
+    issues: [80, 81, 82, 83, 86, 87, 91, 93, 164, 174]
     responsibilities:
       - verify_source_tree_artifact_config_profile_identity
       - reject_stale_or_behind_pr_promotion
       - reject_cross_identity_physical_pass_transfer
       - reject_guessed_register_polarity_topology_timing_or_protocol
       - reject_partial_soak_aggregation
+      - reject_post_checkpoint_design_rule_relaxation_without_new_hardware_checkpoint
       - require_signed_authorized_sat_for_final_release
 
   product_owner:
@@ -145,4 +184,5 @@ separation_rules:
   - physical_executor_does_not_invent_registers_polarity_timing_topology_or_protocol_semantics
   - blocked_physical_lanes_do_not_stop_independent_software_or_hardware_lanes
   - physical_pass_does_not_transfer_to_changed_identity_without_explicit_equivalence_gate
+  - historical_waveshare_pass_does_not_transfer_to_new_industrial_ui_image
   - final_acceptance_thresholds_are_not_lowered_to_manufacture_pass
