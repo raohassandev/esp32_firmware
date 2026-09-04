@@ -139,9 +139,9 @@ jobs:
           {
             echo 'container_image=espressif/idf:v6.0.1'
             printf 'idf_version='; idf.py --version | tr '\n' ' '; echo
-            printf 'compiler_version='; xtensa-esp32s3-elf-gcc --version | head -n 1
+            printf 'compiler_version='; xtensa-esp32s3-elf-gcc --version | sed -n '1p'
             printf 'python_version='; python --version 2>&1
-            printf 'cmake_version='; cmake --version | head -n 1
+            printf 'cmake_version='; cmake --version | sed -n '1p'
             printf 'ninja_version='; ninja --version
           } > "$package/TOOLCHAIN.txt"
 
