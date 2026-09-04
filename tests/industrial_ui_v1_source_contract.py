@@ -57,7 +57,7 @@ for token in (
     "data-industrial-control-slot",
     "readiness",
     "activateRoute",
-    "data-industrial-target-route",
+    "industrialTargetRoute",
     "enhanceEquipmentAccess",
     ".op-equipment-bar, .op-inverter-row",
     "industrial-state-offline",
