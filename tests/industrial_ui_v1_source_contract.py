@@ -56,13 +56,19 @@ for token in (
     "experience-nav-label",
     "data-industrial-control-slot",
     "readiness",
+    "activateRoute",
+    "industrialTargetRoute",
+    "enhanceEquipmentAccess",
+    ".op-equipment-bar, .op-inverter-row",
     "industrial-state-offline",
     "industrial-state-stale",
 ):
     assert token in JS, f"missing industrial shell behavior: {token}"
 
-# This layer is presentation/navigation only. It must not add another polling
-# owner, call an engineering endpoint, or perform any write operation.
+assert "engineering ? 'control' : 'readiness'" in JS
+assert "engineering ? 'wifi' : 'readiness'" in JS
+assert "plantTone === 'good' ? 'readiness' : 'alarms'" in JS
+
 for forbidden in (
     "fetch(",
     "XMLHttpRequest",
@@ -74,8 +80,6 @@ for forbidden in (
 ):
     assert forbidden not in JS, f"industrial shell must stay DOM/route-only: {forbidden}"
 
-# Status observation is bounded to the existing compact status strip; it must
-# not observe the full live dashboard telemetry subtree.
 assert "new MutationObserver(updateAllStatus).observe(strip" in JS
 assert "attributeFilter: ['data-access']" in JS
 
