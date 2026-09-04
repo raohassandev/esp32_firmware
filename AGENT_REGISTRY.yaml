@@ -134,12 +134,22 @@ agents:
     issue: 85
     planning_pr: 18
     implementation_pr: 19
-    validation_fix_pr: 163
-    validation_fix_head: a458172a23a7ec64170693886aac2ba861a66a30
-    status: H2_H3_AUTOMATED_PASS_FROZEN_VALIDATION_REQUAL_ACTIVE_H4_PROTOTYPE_PENDING
+    historical_validation_pr: 163
+    historical_validation_head: f020be6bcabc8dec6c05d80aaf00ec47fe6476b4
+    reproducibility_run: 33884657384
+    status: HISTORICAL_H2_DRC_PASS_NON_REPRODUCIBLE_NEW_CONTROLLED_H2_REQUIRED
     qa: KiCad_CI_plus_independent_hardware_review
+    responsibilities:
+      - retain_historical_checkpoint_and_provider_package_as_evidence_only
+      - obtain_authoritative_component_and_fabricator_evidence_for_any_design_rule_exceptions
+      - commit_approved_rule_context_before_new_H2_checkpoint
+      - rerun_ERC_DRC_SI_STEP_mechanical_and_provider_package_gates
+      - mint_new_exact_H2_checkpoint_and_provider_package_identity
+      - execute_H4_only_after_new_reproducible_H2_H3_acceptance
     rules:
-      - accepted_H2_PCB_and_rules_are_not_relaxed_without_new_controlled_checkpoint
+      - do_not_merge_PR163_as_a_pass
+      - no_post_H2_DRC_rule_relaxation_silently_inheriting_historical_pass
+      - historical_provider_package_is_not_final_fabrication_authority
       - H2_H3_CI_does_not_equal_H4_physical_pass
 
   qa_ci:
@@ -166,6 +176,7 @@ agents:
       - reject_guessed_register_polarity_topology_timing_or_protocol
       - reject_partial_soak_aggregation
       - reject_post_checkpoint_design_rule_relaxation_without_new_hardware_checkpoint
+      - reject_non_reproducible_hardware_checkpoint_as_fabrication_authority
       - require_signed_authorized_sat_for_final_release
 
   product_owner:
@@ -185,4 +196,5 @@ separation_rules:
   - blocked_physical_lanes_do_not_stop_independent_software_or_hardware_lanes
   - physical_pass_does_not_transfer_to_changed_identity_without_explicit_equivalence_gate
   - historical_waveshare_pass_does_not_transfer_to_new_industrial_ui_image
+  - non_reproducible_hardware_checkpoint_cannot_authorize_fabrication
   - final_acceptance_thresholds_are_not_lowered_to_manufacture_pass
