@@ -21,7 +21,10 @@
     function installNavigationSections() {
         const nav = document.querySelector('.nav-list');
         if (!nav) return;
-        nav.querySelectorAll('.industrial-nav-section').forEach((item) => item.remove());
+        /* product-experience-v2 owns an older two-group IA. Retire its labels
+         * before inserting the authoritative industrial task hierarchy so the
+         * sidebar can never display two competing navigation systems. */
+        nav.querySelectorAll('.experience-nav-label, .industrial-nav-section').forEach((item) => item.remove());
 
         NAV_GROUPS.forEach((group) => {
             const links = group.routes
@@ -46,6 +49,26 @@
         label.hidden = !engineering && !hasVisibleLink;
     }
 
+    function normalizeMobileNavigation() {
+        const nav = byId('productMobileNav');
+        if (!nav) return;
+        let slot = nav.querySelector('[data-industrial-control-slot="true"]');
+        if (!slot) {
+            slot = nav.querySelector('[data-route="control"]');
+            if (!slot) return;
+            slot.dataset.industrialControlSlot = 'true';
+        }
+        const engineering = isEngineering();
+        const target = engineering ? 'control' : 'readiness';
+        slot.dataset.route = target;
+        slot.href = `#/${target}`;
+        const icon = slot.querySelector('span');
+        const label = slot.querySelector('small');
+        if (icon) icon.textContent = engineering ? '⇄' : '✓';
+        if (label) label.textContent = engineering ? 'Control' : 'Ready';
+        slot.setAttribute('aria-label', engineering ? 'PV-DG control' : 'Pre-lab readiness');
+    }
+
     function installRoleBadge() {
         const actions = document.querySelector('.topbar-actions');
         if (!actions || byId('industrialRoleBadge')) return;
@@ -64,6 +87,7 @@
         badge.textContent = engineering ? 'Engineering' : 'Operator';
         badge.setAttribute('aria-label', `Current access role: ${engineering ? 'Engineering' : 'Operator'}`);
         updateRoleVisibility();
+        normalizeMobileNavigation();
     }
 
     function statusText(id, fallback = 'Checking') {
@@ -215,6 +239,7 @@
             if (link) nav.append(link);
         });
         installNavigationSections();
+        normalizeMobileNavigation();
     }
 
     function installRouteRefresh() {
@@ -243,6 +268,7 @@
         installAlarmControl();
         installFreshness();
         installDashboardCommandBar();
+        normalizeMobileNavigation();
         observeStatus();
         installRouteRefresh();
         updateAllStatus();
