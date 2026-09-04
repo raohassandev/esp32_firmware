@@ -1,5 +1,5 @@
-version: 2
-updated_at: 2026-09-04T07:32:00+05:00
+version: 3
+updated_at: 2026-09-04T19:28:00+05:00
 
 defaults:
   software_merge:
@@ -7,7 +7,7 @@ defaults:
     forbid: [direct_feature_write_to_integration_branch, force_push_over_unmerged_work, inferred_test_pass, historical_CI_reused_for_replay, stale_or_behind_PR_merge]
 
   regression_coverage:
-    require: [full_firmware_web_esp32s3_gate_for_release_software, secure_ota_always_on_on_every_PR_and_dev_push, exact_head_evidence_only]
+    require: [full_firmware_web_esp32s3_gate_for_release_software, secure_ota_always_on_on_every_PR_and_dev_push, browser_resilience_gate_for_ui_or_network_sensitive_changes, exact_head_evidence_only]
     forbid: [software_regression_used_as_physical_acceptance]
 
   firmware_safety:
@@ -20,10 +20,18 @@ defaults:
 
   waveshare_acceptance:
     require: [exact_87841ece_candidate, one_uninterrupted_4h_run, at_least_240_samples, lcd_touch_wifi_backend_active, dma_floor_at_least_20kb, no_wdt_panic_no_mem_unexpected_reset_or_material_resource_collapse, human_visual_touch_observation, PR159_capture_and_existing_final_validator]
-    forbid: [partial_soaks_combined, rebuild_or_config_substitution_silently_inheriting_pass, validator_only_pass]
+    forbid: [partial_soaks_combined, rebuild_or_config_substitution_silently_inheriting_pass, validator_only_pass, pass_transferred_to_industrial_ui_candidate]
 
   waveshare_post_soak:
     require: [genuine_final_soak_pass_first, backend_parity_recovery_exact_identity, persistence_save_readback_reboot_restore, interrupted_save_fail_closed, ARM_gate_observation, no_NVS_or_full_flash_erase, PR150_validator]
+
+  industrial_ui_software:
+    require: [authoritative_industrial_layer_loaded_last, task_based_operator_navigation, operator_engineering_role_separation, commission_configure_service_engineering_workspace, minimum_44px_touch_contract, desktop_mobile_and_800x480_layout_contract, browser_socket_lru_psram_resilience, no_new_industrial_shell_api_or_write_path, exact_head_industrial_ui_and_full_firmware_ci]
+    forbid: [second_navigation_owner, industrial_shell_background_poller, operator_engineering_api_bypass, route_id_breakage_without_migration]
+
+  industrial_ui_physical_acceptance:
+    require: [new_exact_industrial_ui_source_tree_artifact_app_config_identity, fresh_exact_image_firmware_ui_browser_ci, native_800x480_overview_grid_solar_alarms_readiness_layout, engineering_commission_configure_service_layout, guided_commissioning_and_service_touch_use, light_and_dark_readability, operator_and_engineering_role_observation, protected_route_behavior, browser_api_history_responsiveness, no_browser_socket_lockout, one_uninterrupted_4h_run, at_least_240_samples, lcd_touch_wifi_backend_live, resource_trends_and_dma_floor, no_wdt_panic_no_mem_unexpected_reset_lvgl_or_browser_wedge, PR175_validator, explicit_human_visual_touch_observation]
+    forbid: [historical_87841ece_pass_reused, cross_identity_ui_pass_reuse, partial_soaks_combined, rebuild_or_config_substitution_mid_run, validator_only_pass, threshold_lowering]
 
   generator_transition:
     require: [authoritative_breaker_run_ATS_sync_topology_evidence, meter_sign_scaling_proof, grid_transfer_generator, generator_transfer_grid, island, supported_sync_or_authoritative_not_supported, stale_conflict_source_loss_fail_closed, fresh_recovery_dwell, PR151_validator]
@@ -39,16 +47,17 @@ defaults:
 
   ota_physical_acceptance:
     require: [one_exact_intended_ota_release_identity, authenticated_upload, invalid_image_rejection_before_write, interrupted_upload, power_loss, partial_image_not_selected, previous_slot_boot, explicit_staged_reboot, pending_verification_first_boot, mark_valid_stabilization, deliberate_rollback, fail_closed_control, NVS_persistence, PR152_validator]
-    forbid: [source_or_build_CI_claimed_as_physical_pass, waveshare_pass_transferred_to_ota_image, validator_only_pass]
+    forbid: [source_or_build_CI_claimed_as_physical_pass, waveshare_or_ui_pass_transferred_to_ota_image, validator_only_pass]
 
   integrated_fat_sat:
-    require: [all_prerequisite_physical_gates_passed, exact_release_identity_frozen, complete_grid_FAT, complete_generator_FAT, complete_mixed_source_FAT, all_three_modbus_modes_endurance, degraded_peer_and_network_recovery_tests, zero_fatal_reset_resource_collapse_counters, exact_OTA_physical_reference, authorized_signed_SAT, PR160_validator]
+    require: [all_prerequisite_physical_gates_passed, exact_release_identity_frozen, complete_grid_FAT, complete_generator_FAT, complete_mixed_source_FAT, all_three_modbus_modes_endurance, degraded_peer_and_network_recovery_tests, accepted_industrial_ui_physical_reference, zero_fatal_reset_resource_collapse_counters, exact_OTA_physical_reference, authorized_signed_SAT, PR160_validator]
     forbid: [simulator_or_CI_substituted_for_FAT_or_SAT, unsigned_or_cross_identity_SAT]
 
   reva_hardware:
     require_before_provider_package: [ERC_zero, DRC_zero, UNCONNECTED_zero, L2_ground_gate, critical_route_SI_geometry_gate, STEP_export, mechanical_handoff, manufacturing_exports, controlled_provider_manifest]
+    require_checkpoint_integrity: [frozen_H2_marker, frozen_PCB_blob, no_post_checkpoint_routing_or_design_rule_relaxation_without_new_controlled_H2_release]
     require_after_fabrication: [12V_24V_startup, reverse_polarity, USB_backfeed_and_programming, rail_measurements, ethernet_endurance, RS485_A_B_and_simultaneous, HMI_serial, relay_default_off_and_contact_tests, enclosure_fit, thermal_and_required_environmental_EMC_validation]
-    forbid: [H2_H3_CI_claimed_as_H4_physical_prototype_pass]
+    forbid: [H2_H3_CI_claimed_as_H4_physical_prototype_pass, post_checkpoint_DRC_rule_relaxation_silently_inheriting_H2_pass]
 
   release:
-    require: [all_release_software_merge_gates, all_physical_acceptance_gates, authoritative_site_source_evidence, production_approved_inverter_profiles, integrated_FAT_and_endurance, signed_SAT, exact_release_traceability, no_open_critical_blockers]
+    require: [all_release_software_merge_gates, all_physical_acceptance_gates, authoritative_site_source_evidence, production_approved_inverter_profiles, accepted_industrial_ui_exact_image, integrated_FAT_and_endurance, signed_SAT, exact_release_traceability, no_open_critical_blockers]
