@@ -11,6 +11,34 @@
         { title: 'Service', routes: ['system'] },
     ];
 
+    const ENGINEERING_GROUPS = [
+        {
+            id: 'commission',
+            title: 'Commission',
+            detail: 'Primary guided workflow for a new site or controlled re-commissioning.',
+            routes: ['commissioning'],
+        },
+        {
+            id: 'configure',
+            title: 'Configure',
+            detail: 'Expert setup tools for communications, metering, inverter profiles and control parameters.',
+            routes: ['wifi', 'meters', 'inverters', 'control'],
+        },
+        {
+            id: 'service',
+            title: 'Service',
+            detail: 'Backup, security and controller maintenance. Keep service actions separate from commissioning.',
+            routes: ['system'],
+        },
+    ];
+
+    const ROUTE_LABELS = {
+        dashboard: 'Plant overview', meters: 'Grid and meters', inverters: 'Solar and inverters',
+        alarms: 'Alarms', readiness: 'Readiness', control: 'PV-DG control',
+        commissioning: 'Guided commissioning', wifi: 'Network setup', engineering: 'Engineering home',
+        system: 'Controller service',
+    };
+
     function node(tag, className = '', text = '') {
         const item = document.createElement(tag);
         if (className) item.className = className;
@@ -224,6 +252,107 @@
         });
     }
 
+    function installEngineeringStyles() {
+        if (byId('industrialEngineeringStyle')) return;
+        const style = node('style');
+        style.id = 'industrialEngineeringStyle';
+        style.textContent = `
+            .industrial-engineering-shell{display:grid;gap:12px}.industrial-engineering-status{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;overflow:hidden;border:1px solid var(--line);border-radius:var(--industrial-radius);background:var(--line)}
+            .industrial-engineering-status>div{min-width:0;padding:10px 12px;background:var(--surface-sunken)}.industrial-engineering-status span{display:block;color:var(--muted-2);font-size:9px;font-weight:850;letter-spacing:.08em;text-transform:uppercase}.industrial-engineering-status strong{display:block;margin-top:4px;overflow:hidden;color:var(--text);font-size:12px;text-overflow:ellipsis;white-space:nowrap}
+            .industrial-engineering-safety{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 13px;border:1px solid color-mix(in srgb,var(--yellow) 52%,var(--line));border-radius:var(--industrial-radius);background:color-mix(in srgb,var(--yellow) 8%,var(--panel));color:var(--muted);font-size:11px}.industrial-engineering-safety strong{color:var(--text)}
+            .industrial-engineering-groups{display:grid;gap:12px}.industrial-engineering-group{display:grid;gap:9px;padding:13px;border:1px solid var(--line);border-radius:var(--industrial-radius);background:var(--panel)}.industrial-engineering-group-head{display:flex;align-items:start;justify-content:space-between;gap:14px;padding-bottom:9px;border-bottom:1px solid var(--line-soft)}.industrial-engineering-group-head h3{margin:0;color:var(--text);font-size:15px}.industrial-engineering-group-head p{max-width:650px;margin:3px 0 0;color:var(--muted);font-size:10px;line-height:1.45}.industrial-engineering-group-badge{padding:4px 7px;border:1px solid var(--line);border-radius:4px;color:var(--muted-2);font-size:9px;font-weight:850;letter-spacing:.08em;text-transform:uppercase}
+            .industrial-engineering-group-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.industrial-engineering-group[data-group="commission"] .industrial-engineering-group-grid,.industrial-engineering-group[data-group="service"] .industrial-engineering-group-grid{grid-template-columns:1fr}.industrial-engineering-group .engineering-tile{min-height:92px!important;padding:12px!important;border-radius:var(--industrial-radius-sm)!important;box-shadow:none!important}.industrial-engineering-group[data-group="commission"] .engineering-tile{border-left:3px solid var(--orange)!important}.industrial-engineering-group[data-group="service"] .engineering-tile{border-left:3px solid var(--yellow)!important}.industrial-engineering-group .engineering-tile strong{font-size:14px}.industrial-engineering-group .engineering-tile small{font-size:10px;line-height:1.4}
+            .industrial-engineering-group .engineering-tile:focus-visible{outline:2px solid var(--orange);outline-offset:2px}.industrial-engineering-group .engineering-tile{min-height:var(--industrial-touch)}
+            .industrial-engineering-secondary{display:flex;align-items:center;justify-content:space-between;gap:12px;color:var(--muted);font-size:10px}.industrial-engineering-secondary a{min-height:var(--industrial-touch);display:inline-flex;align-items:center}
+            @media (max-width:900px),(max-height:560px){.industrial-engineering-status{grid-template-columns:repeat(4,minmax(0,1fr))}.industrial-engineering-status>div{padding:7px 8px}.industrial-engineering-safety{padding:8px 9px}.industrial-engineering-group{padding:9px}.industrial-engineering-group-head{padding-bottom:7px}.industrial-engineering-group-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.industrial-engineering-group .engineering-tile{min-height:72px!important;padding:9px!important}.industrial-engineering-group .engineering-tile small{display:none}.industrial-engineering-group .engineering-tile strong{font-size:12px}}
+            @media (max-width:700px){.industrial-engineering-status{grid-template-columns:repeat(2,minmax(0,1fr))}.industrial-engineering-group-grid{grid-template-columns:1fr}.industrial-engineering-safety,.industrial-engineering-secondary{align-items:flex-start;flex-direction:column}}
+        `;
+        document.head.append(style);
+    }
+
+    function engineeringStatusCell(label, value) {
+        const item = node('div');
+        item.append(node('span', '', label), node('strong', '', value));
+        return item;
+    }
+
+    function updateEngineeringStatus() {
+        const status = byId('industrialEngineeringStatus');
+        if (!status) return;
+        status.replaceChildren(
+            engineeringStatusCell('Access', isEngineering() ? 'Engineering unlocked' : 'Engineering locked'),
+            engineeringStatusCell('Controller', statusText('statusController')),
+            engineeringStatusCell('Data', statusText('statusUpdated', 'Never')),
+            engineeringStatusCell('Current task', ROUTE_LABELS[route()] || route()),
+        );
+    }
+
+    function composeEngineeringWorkspace() {
+        installEngineeringStyles();
+        const page = document.querySelector('.page[data-page="engineering"]');
+        const console = byId('engineeringConsole');
+        const sourceGrid = console?.querySelector('.engineering-grid');
+        if (!page || !console || !sourceGrid) return;
+
+        let shell = byId('industrialEngineeringShell');
+        if (!shell) {
+            shell = node('section', 'industrial-engineering-shell');
+            shell.id = 'industrialEngineeringShell';
+
+            const status = node('div', 'industrial-engineering-status');
+            status.id = 'industrialEngineeringStatus';
+            status.setAttribute('aria-label', 'Engineering workspace status');
+
+            const safety = node('div', 'industrial-engineering-safety');
+            const safetyCopy = node('div');
+            safetyCopy.append(
+                node('strong', '', 'Automatic control remains locked during commissioning.'),
+                node('div', '', 'Use Guided Commissioning for a controlled workflow. Direct configuration is intended for expert service work.'),
+            );
+            const readiness = node('a', 'button secondary', 'Review readiness');
+            readiness.href = '#/readiness';
+            safety.append(safetyCopy, readiness);
+
+            const groups = node('div', 'industrial-engineering-groups');
+            groups.id = 'industrialEngineeringGroups';
+
+            ENGINEERING_GROUPS.forEach((group) => {
+                const section = node('section', 'industrial-engineering-group');
+                section.dataset.group = group.id;
+                const head = node('div', 'industrial-engineering-group-head');
+                const copy = node('div');
+                copy.append(node('h3', '', group.title), node('p', '', group.detail));
+                head.append(copy, node('span', 'industrial-engineering-group-badge', group.id === 'commission' ? 'Primary workflow' : group.id === 'service' ? 'Maintenance' : 'Expert tools'));
+                const grid = node('div', 'industrial-engineering-group-grid');
+                grid.dataset.groupGrid = group.id;
+                section.append(head, grid);
+                groups.append(section);
+            });
+
+            const secondary = node('div', 'industrial-engineering-secondary');
+            secondary.append(
+                node('span', '', 'Configuration and service changes remain subject to the controller’s existing authentication, persistence and safety interlocks.'),
+                Object.assign(node('a', 'button secondary', 'Return to plant'), { href: '#/dashboard' }),
+            );
+
+            shell.append(status, safety, groups, secondary);
+            sourceGrid.before(shell);
+        }
+
+        const routeForTile = (tile) => String(tile.getAttribute('href') || '').replace(/^#\/?/, '');
+        const originalTiles = [...sourceGrid.querySelectorAll(':scope > .engineering-tile')];
+        const existingTiles = [...console.querySelectorAll('.engineering-tile')];
+        [...new Set([...originalTiles, ...existingTiles])].forEach((tile) => {
+            const tileRoute = routeForTile(tile);
+            const group = ENGINEERING_GROUPS.find((entry) => entry.routes.includes(tileRoute));
+            const target = group ? shell.querySelector(`[data-group-grid="${group.id}"]`) : null;
+            if (target && tile.parentElement !== target) target.append(tile);
+        });
+        sourceGrid.hidden = true;
+        sourceGrid.setAttribute('aria-hidden', 'true');
+        updateEngineeringStatus();
+    }
+
     function applyGlobalState() {
         const root = document.documentElement;
         const controller = statusText('statusController');
@@ -245,6 +374,8 @@
         updateFreshness();
         updateDashboardCommandBar();
         enhanceEquipmentAccess();
+        composeEngineeringWorkspace();
+        updateEngineeringStatus();
         applyGlobalState();
     }
 
@@ -279,6 +410,7 @@
         window.addEventListener('hashchange', () => {
             makePrimaryNavDeterministic();
             installDashboardCommandBar();
+            composeEngineeringWorkspace();
             updateAllStatus();
         });
         const main = byId('mainContent');
@@ -287,6 +419,7 @@
                 if (records.some((record) => record.addedNodes.length)) {
                     makePrimaryNavDeterministic();
                     installDashboardCommandBar();
+                    composeEngineeringWorkspace();
                     updateAllStatus();
                 }
             }).observe(main, { childList: true });
@@ -303,6 +436,7 @@
         installDashboardCommandBar();
         normalizeMobileNavigation();
         enhanceEquipmentAccess();
+        composeEngineeringWorkspace();
         observeStatus();
         installRouteRefresh();
         updateAllStatus();
