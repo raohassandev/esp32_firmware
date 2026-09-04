@@ -48,18 +48,6 @@
     });
   }
 
-  function groupNavigation() {
-    const nav = document.querySelector('.nav-list');
-    if (!nav) return;
-    const existing = [...nav.querySelectorAll(':scope > .experience-nav-label')];
-    if (existing.length === 2) return;
-    existing.forEach((node) => node.remove());
-    const firstOperator = nav.querySelector('[data-route="dashboard"]');
-    if (firstOperator) firstOperator.before(el('div', 'experience-nav-label', 'Operate'));
-    const firstEngineering = ['readiness','engineering','commissioning','wifi','system'].map(r => nav.querySelector(`[data-route="${r}"]`)).find(Boolean);
-    if (firstEngineering) firstEngineering.before(el('div', 'experience-nav-label', 'Commission & service'));
-  }
-
   function removeCompetingControls() {
     ['productEngineeringEntry'].forEach(id => document.getElementById(id)?.classList.add('experience-secondary-control'));
     document.querySelectorAll('.product-tool-button, #themeToggle, #engineeringAccessButton').forEach(n => n.classList.add('experience-secondary-control'));
@@ -77,7 +65,10 @@
     if (document.body.dataset.experienceRoute !== name) document.body.dataset.experienceRoute = name;
     const access = isEngineering() ? 'engineering' : 'operator';
     if (document.body.dataset.experienceAccess !== access) document.body.dataset.experienceAccess = access;
-    groupNavigation();
+    /* Navigation hierarchy is owned by the final Industrial UI layer. Keeping
+       a second navigation composer here caused duplicate labels and visible
+       recomposition during startup. Product Experience V2 now owns page context
+       only; it no longer injects sidebar information architecture. */
     removeCompetingControls();
   }
 
