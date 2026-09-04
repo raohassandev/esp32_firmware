@@ -14,7 +14,7 @@ Authoritative master: #79. Snapshot baseline: `dev` `14d13a0d6e5c4b4b95cea35b8cc
 | L5 | Real site source commissioning | TOOLING COMPLETE / SITE EXECUTION PENDING | #81; PR #156 validator |
 | L6 | Production inverter profiles | TOOLING + GENERIC CORE COMPLETE / MODEL QUALIFICATION PENDING | #82; PR #158 validator |
 | L7 | Integrated FAT/endurance/SAT | TOOLING COMPLETE / PHYSICAL RELEASE GATE PENDING | #83; PR #160 validator |
-| L9 | Rev-A custom hardware | H2/H3 AUTOMATED PASS / PR #163 FIX ACTIVE / H4 PENDING | #163 -> #19; then #162 physical prototype |
+| L9 | Rev-A custom hardware | HISTORICAL H2 DRC PASS NON-REPRODUCIBLE / NEW CONTROLLED H2 REQUIRED / H4 PENDING | #163 disposition -> new H2 -> #19; then #162 |
 | L10 | Browser final audit | COMPLETE/CLOSED | #90 |
 | L11 | Evidence traceability | CONTINUOUS | #91 |
 | L12 | Requirements closure audit | COMPLETE/CLOSED | #92 |
@@ -56,9 +56,11 @@ Authoritative master: #79. Snapshot baseline: `dev` `14d13a0d6e5c4b4b95cea35b8cc
 
 ## Rev-A product-hardware track
 
-KiCad H2 release run `33797012638` completed GREEN: ERC=0, DRC=0, UNCONNECTED=0, L2 ground and critical-route SI geometry PASS, STEP/mechanical/manufacturing export PASS, routed native checkpoint `324e0db1600c2fd883d83f923a0c442669b237f0`, provider package artifact `9909976209` digest `sha256:869bc723cd05f106aab850aa3de65bb4b46d600b77bc08e91dbedcaef41bd496`.
+Historical H2 release run `33797012638` produced checkpoint `324e0db1600c2fd883d83f923a0c442669b237f0` and provider package `9909976209` digest `sha256:869bc723cd05f106aab850aa3de65bb4b46d600b77bc08e91dbedcaef41bd496`, with a marker claiming ERC/DRC/unconnected/SI/STEP PASS.
 
-PR #163 is the deterministic frozen-H2 PR-validation fix. Its prior head failed correctly because a new `.kicad_dru` rules file modified acceptance after the checkpoint; that file has been removed at head `a458172a23a7ec64170693886aac2ba861a66a30`. Re-earn fresh KiCad CI without relaxing the accepted design, then integrate into parent #19. H4 fabricated-prototype validation remains #162.
+PR #163 proved that the historical `DRC=0` result cannot currently be reproduced from that frozen checkpoint. After removing the unsafe post-checkpoint `.kicad_dru` relaxation, head `f020be6bcabc8dec6c05d80aaf00ec47fe6476b4` replayed the original KiCad 10.0.5 upgrade/refill/save semantics. Run `33884657384` passed provenance, ERC, netlist/design-control/HW-interface/power budget, SI, stats and STEP, but failed DRC with 20 violations / 0 unconnected: J2 USB-C internal hole clearance (4), J3 RJ45 edge clearance (2), U1 ESP32 edge clearance (2), and U1 thermal-via drill size (12). Evidence artifact `9941333133`, digest `sha256:668ab99694a0408b673b6b2875d396286bf965dce1a01f1de7de09c8540760b3`.
+
+Do **not** merge #163 as a PASS and do not fabricate with post-checkpoint rules. Next hardware gate is a new controlled H2 acceptance: authoritative component/fabricator evidence for any exceptions, approved rules committed before checkpoint, fresh ERC/DRC/SI/STEP/provider packaging, then a new exact checkpoint/package identity. Historical provider package is retained as evidence only, not final fabrication authority. H4 remains #162.
 
 ## Operating policy
 
