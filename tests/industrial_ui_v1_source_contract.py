@@ -54,7 +54,6 @@ for token in (
     "installFreshness",
     "normalizeMobileNavigation",
     "experience-nav-label",
-    "data-industrial-control-slot",
     "readiness",
     "activateRoute",
     "industrialTargetRoute",
@@ -69,6 +68,36 @@ assert "engineering ? 'control' : 'readiness'" in JS
 assert "engineering ? 'wifi' : 'readiness'" in JS
 assert "plantTone === 'good' ? 'readiness' : 'alarms'" in JS
 
+# Engineering is a task workspace, not a flat collection of configuration tiles.
+for token in (
+    "ENGINEERING_GROUPS",
+    "Commission",
+    "Configure",
+    "Primary guided workflow",
+    "Expert setup tools",
+    "Backup, security and controller maintenance",
+    "industrialEngineeringShell",
+    "industrialEngineeringStatus",
+    "industrial-engineering-group",
+    "data-group-grid",
+    "Automatic control remains locked during commissioning",
+    "Review readiness",
+    "Configuration and service changes remain subject",
+    "composeEngineeringWorkspace",
+):
+    assert token in JS, f"missing industrial engineering UX contract: {token}"
+
+# Existing tiles are reused by route; the industrial layer must not clone a
+# second set of functional controls or invent new mutation paths.
+for route_name in ("commissioning", "wifi", "meters", "inverters", "control", "system"):
+    assert route_name in JS, f"engineering task route missing: {route_name}"
+assert "target.append(tile)" in JS, "existing engineering tiles must be moved, not duplicated"
+assert "sourceGrid.hidden = true" in JS, "legacy flat grid must leave the visual workflow"
+assert "min-height:var(--industrial-touch)" in JS, "engineering task controls must preserve touch sizing"
+assert "@media (max-width:900px),(max-height:560px)" in JS, "engineering workspace must include 800x480 layout"
+
+# This layer remains presentation/navigation only. Authentication, configuration
+# writes, polling and safety state continue to be owned by existing modules.
 for forbidden in (
     "fetch(",
     "XMLHttpRequest",
