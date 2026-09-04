@@ -20,7 +20,7 @@ concurrency:
 jobs:
   kicad-10-pr-validation:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,22 +33,51 @@ jobs:
           docker pull kicad/kicad:10.0.5
           docker run --rm kicad/kicad:10.0.5 kicad-cli version --format about
 
-      - name: Generate schematic and run ERC
+      - name: Verify frozen H2 checkpoint provenance
         run: |
           set -euo pipefail
-          python3 hardware/kicad/tools/run_reva_generator.py
+          MARKER='hardware/kicad/H2_ROUTING_COMPLETE'
+          PCB='hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb'
           SCH='hardware/kicad/Automatrix_PVDG_RevA.kicad_sch'
-          cp "$SCH" hardware/kicad/Automatrix_PVDG_RevA-preupgrade.kicad_sch
-          cp hardware/kicad/Automatrix.kicad_sym hardware/kicad/Automatrix-preupgrade.kicad_sym
+          test -s "$MARKER"
+          test -s "$PCB"
+          test -s "$SCH"
+          grep -Fx 'H2 routing complete' "$MARKER"
+          grep -Fx 'ERC=0' "$MARKER"
+          grep -Fx 'DRC=0' "$MARKER"
+          grep -Fx 'UNCONNECTED=0' "$MARKER"
+          grep -Fx 'L2_GND=PASS' "$MARKER"
+          grep -Fx 'SIGNAL_INTEGRITY_GEOMETRY=PASS' "$MARKER"
+          grep -Fx 'STEP=0' "$MARKER"
+
+          H2_COMMIT="$(git log -1 --format=%H -- "$MARKER")"
+          test -n "$H2_COMMIT"
+          echo "H2_CHECKPOINT_SHA=$H2_COMMIT" >> "$GITHUB_ENV"
+          echo "Frozen H2 checkpoint: $H2_COMMIT"
+
+          # The release workflow is the only lane allowed to regenerate/reroute and
+          # persist a new H2 checkpoint. A PR may validate the frozen checkpoint only
+          # while no routing-sensitive hardware source changed after that checkpoint.
+          if ! git diff --quiet "$H2_COMMIT"..HEAD -- hardware/kicad hardware/mechanical; then
+            echo 'ERROR: routing-sensitive hardware changed after the frozen H2 checkpoint.'
+            echo 'Run the controlled H2 release workflow to create a new routed checkpoint; PR validation will not reroute nondeterministically.'
+            git diff --name-status "$H2_COMMIT"..HEAD -- hardware/kicad hardware/mechanical
+            exit 1
+          fi
+
+          test "$(git rev-parse "$H2_COMMIT:$MARKER")" = "$(git hash-object "$MARKER")"
+          test "$(git rev-parse "$H2_COMMIT:$PCB")" = "$(git hash-object "$PCB")"
+          echo 'FROZEN_H2_PROVENANCE=PASS'
+
+      - name: Validate committed schematic and electrical contracts
+        run: |
+          set -euo pipefail
+          SCH='hardware/kicad/Automatrix_PVDG_RevA.kicad_sch'
           K="docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $PWD:/work -w /work kicad/kicad:10.0.5 kicad-cli"
-          $K sch upgrade --force "$SCH"
           $K sch erc --severity-all --exit-code-violations --output hardware/kicad/Automatrix_PVDG_RevA-erc.rpt "$SCH"
           $K sch export netlist --format kicadsexpr --output hardware/kicad/Automatrix_PVDG_RevA.net "$SCH"
           $K sch export bom --output hardware/kicad/Automatrix_PVDG_RevA-bom.csv "$SCH"
-
-      - name: Electrical contract gates
-        run: |
-          set -euo pipefail
+          $K sch export pdf --output hardware/kicad/Automatrix_PVDG_RevA-schematic.pdf "$SCH"
           python3 hardware/kicad/tools/validate_exported_netlist.py
           python3 hardware/kicad/tools/validate_design_control.py
           python3 hardware/kicad/tools/validate_hw_interface_contract.py
@@ -66,36 +95,33 @@ jobs:
           print(f'canonical annotation PASS: {len(refs)} unique references')
           PY
 
-      - name: Generate deterministic PCB placement
-        run: |
-          set -euo pipefail
-          docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp \
-            -e KICAD10_FOOTPRINT_DIR=/usr/share/kicad/footprints \
-            -v $PWD:/work -w /work kicad/kicad:10.0.5 \
-            python3 hardware/kicad/tools/build_reva_pcb_release.py 2>&1 | tee hardware/kicad/placement.log
-          test -s hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb
-
-      - name: Set up Java 25 for Freerouting
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '25'
-
-      - name: Route PCB with Freerouting 2.3.0
-        run: bash hardware/kicad/tools/run_freerouting_v23.sh
-
-      - name: Final DRC and SI geometry gates
+      - name: Validate frozen routed PCB DRC SI and STEP
         run: |
           set -euo pipefail
           PCB='hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb'
           K="docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $PWD:/work -w /work kicad/kicad:10.0.5 kicad-cli"
           KPY="docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $PWD:/work -w /work kicad/kicad:10.0.5 python3"
-          $K pcb upgrade --force "$PCB"
-          $K pcb drc --severity-all --exit-code-violations --refill-zones --save-board \
+          $K pcb drc --severity-all --exit-code-violations --refill-zones \
             --output hardware/kicad/Automatrix_PVDG_RevA-drc.rpt "$PCB"
           $KPY hardware/kicad/tools/validate_signal_integrity.py "$PCB" hardware/kicad/Automatrix_PVDG_RevA-si.rpt
+          $K pcb export stats --format json --output hardware/kicad/Automatrix_PVDG_RevA-stats.json "$PCB"
+          $K pcb export step --force --no-dnp --output hardware/kicad/Automatrix_PVDG_RevA.step "$PCB"
           cat hardware/kicad/Automatrix_PVDG_RevA-drc.rpt
           cat hardware/kicad/Automatrix_PVDG_RevA-si.rpt
+          grep -F 'L2_GND=PASS' hardware/kicad/Automatrix_PVDG_RevA-si.rpt
+          grep -F 'SIGNAL_INTEGRITY_GEOMETRY=PASS' hardware/kicad/Automatrix_PVDG_RevA-si.rpt
+
+      - name: Validate mechanical and provider handoff from frozen PCB
+        run: |
+          set -euo pipefail
+          docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $PWD:/work -w /work \
+            kicad/kicad:10.0.5 python3 hardware/mechanical/tools/extract_pcb_mechanics.py
+          python3 hardware/mechanical/tools/validate_enclosure_contract.py
+          docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $PWD:/work -w /work \
+            kicad/kicad:10.0.5 bash hardware/kicad/tools/export_manufacturing_outputs.sh
+          python3 hardware/kicad/tools/build_provider_package.py
+          test -n "$(find provider_release -maxdepth 1 -type f -name '*.zip' -print -quit)"
+          echo 'FROZEN_H2_PROVIDER_HANDOFF=PASS'
 
       - name: Upload engineering evidence
         if: always()
@@ -105,15 +131,8 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
           path: |
-            hardware/kicad/placement.log
-            hardware/kicad/freerouting.log
+            hardware/kicad/H2_ROUTING_COMPLETE
             hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb
-            hardware/kicad/Automatrix_PVDG_RevA.dsn
-            hardware/kicad/Automatrix_PVDG_RevA.ses
-            hardware/kicad/route-attempt-*.ses
-            hardware/kicad/route-attempt-*-drc.rpt
-            hardware/kicad/Automatrix_PVDG_RevA-preupgrade.kicad_sch
-            hardware/kicad/Automatrix-preupgrade.kicad_sym
             hardware/kicad/Automatrix_PVDG_RevA.kicad_sch
             hardware/kicad/Automatrix.kicad_sym
             hardware/kicad/REFERENCE_MAP.json
@@ -122,3 +141,9 @@ jobs:
             hardware/kicad/Automatrix_PVDG_RevA-si.rpt
             hardware/kicad/Automatrix_PVDG_RevA.net
             hardware/kicad/Automatrix_PVDG_RevA-bom.csv
+            hardware/kicad/Automatrix_PVDG_RevA-schematic.pdf
+            hardware/kicad/Automatrix_PVDG_RevA-stats.json
+            hardware/kicad/Automatrix_PVDG_RevA.step
+            hardware/mechanical/PCB_MECHANICAL_HANDOFF.json
+            hardware/kicad/manufacturing/**
+            provider_release/*.zip
