@@ -35,20 +35,29 @@ jobs:
         shell: bash
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Verify exact identity and frozen-board replay boundary
+      - name: Verify exact identity and reviewed board delta
         shell: bash
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
           test -d "$BOARD_DIR/screen"
           test -d "$PRODUCT_DIR"
+          test "$(git merge-base "$CANDIDATE_SHA" "$INTEGRATION_BASE_DEV")" = "$INTEGRATION_BASE_DEV"
+
           mapfile -t board_changes < <(git diff --name-only "$BOARD_SOURCE_SHA" -- "$BOARD_DIR")
+          expected_board_changes=(
+            "$PRODUCT_DIR/main/main.c"
+            "$PRODUCT_DIR/sdkconfig.defaults"
+          )
           printf 'Board changes from frozen source:\n%s\n' "${board_changes[*]}"
-          test "${#board_changes[@]}" -eq 1
-          test "${board_changes[0]}" = "$PRODUCT_DIR/sdkconfig.defaults"
+          test "${#board_changes[@]}" -eq "${#expected_board_changes[@]}"
+          for i in "${!expected_board_changes[@]}"; do
+            test "${board_changes[$i]}" = "${expected_board_changes[$i]}"
+          done
+
           candidate_tree="$(git rev-parse HEAD^{tree})"
-          printf 'candidate_sha=%s\ncandidate_tree=%s\nboard_source_sha=%s\n' \
-            "$CANDIDATE_SHA" "$candidate_tree" "$BOARD_SOURCE_SHA"
+          printf 'candidate_sha=%s\ncandidate_tree=%s\nboard_source_sha=%s\nintegration_base_dev=%s\n' \
+            "$CANDIDATE_SHA" "$candidate_tree" "$BOARD_SOURCE_SHA" "$INTEGRATION_BASE_DEV"
 
       - name: Enforce current provisioning and rollback safety
         shell: bash
@@ -74,7 +83,16 @@ jobs:
           idf.py --version
           idf.py set-target esp32s3
           idf.py build
+          idf.py uf2
+
           test -s build/automatrix_pvdg_waveshare_800x480.bin
+          test -s build/automatrix_pvdg_waveshare_800x480.elf
+          test -s build/uf2.bin
+          test -s build/compile_commands.json
+          test -s build/project_description.json
+          test -s build/CMakeCache.txt
+          test -s dependencies.lock
+
           grep -qx 'CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y' sdkconfig
           grep -qx 'CONFIG_LV_USE_BUILTIN_MALLOC=n' sdkconfig
           grep -qx 'CONFIG_LV_USE_CLIB_MALLOC=y' sdkconfig
@@ -92,28 +110,56 @@ jobs:
           build="$PRODUCT_DIR/build"
           package="$GITHUB_WORKSPACE/industrial-ui-waveshare-candidate"
           mkdir -p "$package"
+
           while IFS= read -r -d '' file; do
             rel="${file#$GITHUB_WORKSPACE/}"
             mkdir -p "$package/$(dirname "$rel")"
             cp "$file" "$package/$rel"
           done < <(find "$GITHUB_WORKSPACE/$build" -maxdepth 4 -type f \
-            \( -name '*.bin' -o -name 'flasher_args.json' -o -name 'flash_args' -o -name 'flash_project_args' -o -name 'project_description.json' \) -print0)
+            \( -name '*.bin' -o -name '*.elf' -o -name 'uf2.bin' \
+               -o -name 'flasher_args.json' -o -name 'flash_args' \
+               -o -name 'flash_project_args' -o -name 'project_description.json' \
+               -o -name 'compile_commands.json' -o -name 'CMakeCache.txt' \) -print0)
+
           cp "$PRODUCT_DIR/sdkconfig" "$package/effective-sdkconfig"
+          cp "$PRODUCT_DIR/dependencies.lock" "$package/dependencies.lock"
 
           candidate_tree="$(git rev-parse HEAD^{tree})"
           app="$build/automatrix_pvdg_waveshare_800x480.bin"
+          elf="$build/automatrix_pvdg_waveshare_800x480.elf"
+          uf2="$build/uf2.bin"
           app_sha="$(sha256sum "$app" | awk '{print $1}')"
+          elf_sha="$(sha256sum "$elf" | awk '{print $1}')"
+          uf2_sha="$(sha256sum "$uf2" | awk '{print $1}')"
+          lock_sha="$(sha256sum "$PRODUCT_DIR/dependencies.lock" | awk '{print $1}')"
+          compile_commands_sha="$(sha256sum "$build/compile_commands.json" | awk '{print $1}')"
           ui_js_sha="$(sha256sum web/industrial-ui-v1.js | awk '{print $1}')"
           ui_css_sha="$(sha256sum web/industrial-ui-v1.css | awk '{print $1}')"
+
+          {
+            echo 'container_image=espressif/idf:v6.0.1'
+            printf 'idf_version='; idf.py --version | tr '\n' ' '; echo
+            printf 'compiler_version='; xtensa-esp32s3-elf-gcc --version | head -n 1
+            printf 'python_version='; python --version 2>&1
+            printf 'cmake_version='; cmake --version | head -n 1
+            printf 'ninja_version='; ninja --version
+          } > "$package/TOOLCHAIN.txt"
+
           cat > "$package/CANDIDATE.txt" <<EOF
           candidate_sha=$CANDIDATE_SHA
           candidate_tree=$candidate_tree
           board_source_sha=$BOARD_SOURCE_SHA
+          reviewed_board_delta=$PRODUCT_DIR/main/main.c,$PRODUCT_DIR/sdkconfig.defaults
           industrial_ui_software_baseline=$INDUSTRIAL_UI_BASELINE
           integration_base_dev=$INTEGRATION_BASE_DEV
-          esp_idf=6.0.1
+          container_image=espressif/idf:v6.0.1
+          build_command=idf.py set-target esp32s3 && idf.py build && idf.py uf2
           product_dir=$PRODUCT_DIR
           application_sha256=$app_sha
+          elf_sha256=$elf_sha
+          uf2_sha256=$uf2_sha
+          dependencies_lock_sha256=$lock_sha
+          compile_commands_sha256=$compile_commands_sha
           industrial_ui_js_sha256=$ui_js_sha
           industrial_ui_css_sha256=$ui_css_sha
           rollback_enabled=1
@@ -126,9 +172,19 @@ jobs:
           cd "$package"
           find . -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
           sha256sum -c SHA256SUMS.txt
+
+          cd "$GITHUB_WORKSPACE"
+          tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
+            -cf - industrial-ui-waveshare-candidate | gzip -n > industrial-ui-waveshare-candidate.tar.gz
+          sha256sum industrial-ui-waveshare-candidate.tar.gz > industrial-ui-waveshare-candidate.tar.gz.sha256
+          cat industrial-ui-waveshare-candidate.tar.gz.sha256
           echo "CANDIDATE_SHA=$CANDIDATE_SHA"
           echo "CANDIDATE_TREE=$candidate_tree"
           echo "APPLICATION_SHA256=$app_sha"
+          echo "ELF_SHA256=$elf_sha"
+          echo "UF2_SHA256=$uf2_sha"
+          echo "DEPENDENCIES_LOCK_SHA256=$lock_sha"
+          echo "COMPILE_COMMANDS_SHA256=$compile_commands_sha"
           echo "INDUSTRIAL_UI_JS_SHA256=$ui_js_sha"
           echo "INDUSTRIAL_UI_CSS_SHA256=$ui_css_sha"
 
@@ -136,6 +192,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: industrial-ui-waveshare-800x480-candidate
-          path: industrial-ui-waveshare-candidate
+          path: |
+            industrial-ui-waveshare-candidate
+            industrial-ui-waveshare-candidate.tar.gz
+            industrial-ui-waveshare-candidate.tar.gz.sha256
           if-no-files-found: error
           retention-days: 30
