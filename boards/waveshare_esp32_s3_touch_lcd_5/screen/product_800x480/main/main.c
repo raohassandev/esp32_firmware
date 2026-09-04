@@ -91,15 +91,16 @@ static void log_runtime_headroom(const char *stage)
  * race before Wi-Fi/httpd/control tasks start. Full LVGL/UI creation is delayed
  * until after the unchanged shared Core has created its safety-critical tasks.
  *
- * The failed ten-line product candidate consumed 32 kB total for the two
- * RGB565 DRAM bounce buffers at 800 px width. This candidate uses six lines
- * (19.2 kB total), releasing 12.8 kB of scarce internal/DMA RAM. ESP-IDF's RGB
- * guidance recommends PSRAM XIP and a 64-byte D-cache line for bounce-buffer
- * mode; sdkconfig locks both while keeping the smaller cache sizes that return
- * SRAM to heap. The driver also restores the pinned vendor transfer alignment.
+ * The previous six-line product candidate consumed 19.2 kB total for the two
+ * RGB565 DRAM bounce buffers at 800 px width. This candidate uses twelve lines
+ * (38.4 kB total), consuming an additional 19.2 kB of internal/DMA RAM to
+ * double refill slack from roughly 410 us to 820 us. ESP-IDF's RGB guidance
+ * recommends PSRAM XIP and a 64-byte D-cache line for bounce-buffer mode;
+ * sdkconfig locks both while keeping the smaller cache sizes that return SRAM
+ * to heap. The driver also restores the pinned vendor transfer alignment.
  *
  * The product HMI uses DOUBLE_DIRECT and two PSRAM framebuffers. To offset the
- * smaller bounce pool under simultaneous Wi-Fi/Core traffic, only the product
+ * larger bounce pool under simultaneous Wi-Fi/Core traffic, only the product
  * profile lowers PCLK from the vendor/HIL 16 MHz baseline to 12 MHz. Timings,
  * GPIO mapping and the separately-qualified standalone HIL profile remain
  * unchanged. This is an industrial HMI, so the reduced refresh rate is an
@@ -129,7 +130,7 @@ static esp_err_t native_screen_reserve(void)
 
     ESP_LOGI(TAG, "Reserving native 800x480 Waveshare LCD/touch DMA before Core");
     ESP_LOGI(TAG,
-             "RGB live-update mode: DOUBLE_DIRECT anti-tear, 2 PSRAM framebuffers, 6-line bounce, pclk=%u Hz",
+             "RGB live-update mode: DOUBLE_DIRECT anti-tear, 2 PSRAM framebuffers, 12-line bounce, pclk=%u Hz",
              (unsigned)s_profile->pixel_clock_hz);
     log_dma_headroom("Before LCD DMA reservation");
     esp_err_t err = waveshare_display_port_init(&display_config, &s_display);
