@@ -146,16 +146,6 @@
         actions.append(button);
     }
 
-    function groupNavigation() {
-        const nav = document.querySelector('.nav-list');
-        if (!nav || nav.dataset.shellGrouped === 'true') return;
-        nav.dataset.shellGrouped = 'true';
-        ['dashboard', 'meters', 'inverters', 'control', 'alarms', 'readiness', 'engineering', 'commissioning', 'wifi', 'system'].forEach((name) => {
-            const item = nav.querySelector(`[data-route="${name}"]`);
-            if (item) nav.append(item);
-        });
-    }
-
     function removeDuplicateIntros() {
         document.querySelectorAll('.page').forEach((page) => {
             const intros = page.querySelectorAll(':scope > .page-intro');
@@ -168,11 +158,12 @@
         installPageContext();
         installHealthControl();
         installOverflowMenu();
-        groupNavigation();
+        /* Navigation ordering/grouping is owned by Industrial UI v1. Product
+           Shell V2 retains health, overflow, route context and duplicate-intro
+           cleanup only; a second nav owner caused startup reorder/flicker. */
         removeDuplicateIntros();
         window.addEventListener('hashchange', () => {
             updatePageContext();
-            groupNavigation();
             removeDuplicateIntros();
         });
         const main = byId('mainContent');
