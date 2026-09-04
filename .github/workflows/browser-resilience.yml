@@ -1,0 +1,23 @@
+name: Browser resilience release gate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - dev
+      - 'feature/**'
+      - 'fix/**'
+      - 'ui/**'
+      - 'test/**'
+
+permissions:
+  contents: read
+
+jobs:
+  browser-resilience-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check HTTP socket and PSRAM resilience
+        run: python3 tests/browser_resilience_source_contract.py
