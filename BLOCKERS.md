@@ -60,13 +60,15 @@ Execute authenticated upload, invalid rejection before write, interruption, powe
 
 Final execution requires complete Grid, Generator and mixed-source FAT; all three Modbus modes; slow/dead/exception/reset/reconnect/gateway/Wi-Fi/multi-device endurance; resource trends; zero fatal/reset/resource-collapse counters; and authorized signed SAT tied to exact release SHA/config/profile/source-map/UI identity.
 
-## B-008 — Rev-A H4 prototype
+## B-008 — Rev-A H2 reproducibility + H4 prototype
 
 **Lane:** L9 / #85/#162  
-**State:** H2/H3 AUTOMATED PASS / H2 PR-INTEGRATION FIX ACTIVE / H4 PHYSICAL PROTOTYPE PENDING  
-**H2/H3 evidence:** run `33797012638`; provider artifact id `9909976209`, digest `sha256:869bc723cd05f106aab850aa3de65bb4b46d600b77bc08e91dbedcaef41bd496`
+**State:** HISTORICAL H2 DRC PASS NON-REPRODUCIBLE / NEW CONTROLLED H2 REQUIRED / H4 PENDING  
+**Historical evidence:** run `33797012638`; provider artifact `9909976209`, digest `sha256:869bc723cd05f106aab850aa3de65bb4b46d600b77bc08e91dbedcaef41bd496`
 
-PR #163's fail-closed H2 provenance check currently rejects post-checkpoint `hardware/kicad/Automatrix_PVDG_RevA.kicad_dru`; that integration-policy defect must be dispositioned without changing accepted routed H2 identity. H4 still requires fabricated-board electrical/communications/relay/enclosure/thermal/environmental acceptance.
+PR #163 head `f020be6bcabc8dec6c05d80aaf00ec47fe6476b4` removed the post-checkpoint `.kicad_dru` relaxation and replayed the original KiCad 10.0.5 upgrade/refill/save DRC semantics on a copy of frozen checkpoint `324e0db1600c2fd883d83f923a0c442669b237f0`. Run `33884657384` still failed DRC with 20 violations / 0 unconnected while provenance, ERC, design-control, HW-interface, power budget, SI, stats and STEP passed. The violations are J2 USB-C internal hole clearance (4), J3 RJ45 edge clearance (2), U1 ESP32 edge clearance (2), and U1 thermal-via minimum drill (12). Evidence artifact `9941333133`, digest `sha256:668ab99694a0408b673b6b2875d396286bf965dce1a01f1de7de09c8540760b3`.
+
+Do not merge #163 as a PASS and do not fabricate from the historical provider ZIP. A new controlled H2 acceptance is required with authoritative component/fabricator evidence for any exceptions, approved rules committed before checkpoint, fresh ERC/DRC/SI/STEP/provider package, and a new exact H2 identity. Only after that may #162 H4 fabricated-board electrical/communications/relay/enclosure/thermal/environmental acceptance begin.
 
 ## B-009 — Industrial UI v1 exact-image Waveshare acceptance
 
