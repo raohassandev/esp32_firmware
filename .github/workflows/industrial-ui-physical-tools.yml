@@ -1,0 +1,24 @@
+name: Industrial UI physical evidence tools
+
+on:
+  pull_request:
+  push:
+    branches:
+      - dev
+      - 'tools/**'
+
+permissions:
+  contents: read
+
+jobs:
+  industrial-ui-physical-tools:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile physical evidence validator
+        run: python3 -m py_compile tools/industrial_ui_physical_acceptance.py
+      - name: Run fail-closed evidence tests
+        run: python3 tests/industrial_ui_physical_acceptance_test.py
+      - name: Validate evidence template JSON
+        run: python3 -m json.tool evidence/templates/industrial_ui_physical_observations.json >/dev/null
