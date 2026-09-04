@@ -1,0 +1,137 @@
+name: Waveshare Industrial UI exact candidate
+
+on:
+  pull_request:
+    paths:
+      - 'boards/waveshare_esp32_s3_touch_lcd_5/**'
+      - 'components/**'
+      - 'web/**'
+      - '.github/workflows/waveshare-industrial-ui-candidate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-package-exact-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container: espressif/idf:v6.0.1
+    env:
+      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      BOARD_SOURCE_SHA: 87841ecee727fe1d814d4186be8c8c26e4afafb4
+      INDUSTRIAL_UI_BASELINE: 14d13a0d6e5c4b4b95cea35b8cc32f1880ae8134
+      INTEGRATION_BASE_DEV: 150118a8425462e1756b115ddf3d463a022b395f
+      BOARD_DIR: boards/waveshare_esp32_s3_touch_lcd_5
+      PRODUCT_DIR: boards/waveshare_esp32_s3_touch_lcd_5/screen/product_800x480
+    steps:
+      - name: Check out exact candidate head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 0
+
+      - name: Verify exact identity and frozen-board replay boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test -d "$BOARD_DIR/screen"
+          test -d "$PRODUCT_DIR"
+          mapfile -t board_changes < <(git diff --name-only "$BOARD_SOURCE_SHA" -- "$BOARD_DIR")
+          printf 'Board changes from frozen source:\n%s\n' "${board_changes[*]}"
+          test "${#board_changes[@]}" -eq 1
+          test "${board_changes[0]}" = "$PRODUCT_DIR/sdkconfig.defaults"
+          candidate_tree="$(git rev-parse HEAD^{tree})"
+          printf 'candidate_sha=%s\ncandidate_tree=%s\nboard_source_sha=%s\n' \
+            "$CANDIDATE_SHA" "$candidate_tree" "$BOARD_SOURCE_SHA"
+
+      - name: Enforce current provisioning and rollback safety
+        shell: bash
+        run: |
+          set -euo pipefail
+          cfg="$PRODUCT_DIR/sdkconfig.defaults"
+          ! grep -q '^CONFIG_PVDG_PRIMARY_WIFI_SSID=' "$cfg"
+          ! grep -q '^CONFIG_PVDG_PRIMARY_WIFI_PASSWORD=' "$cfg"
+          grep -Fx '# CONFIG_PVDG_APPLY_BUILD_WIFI_PROVISIONING is not set' "$cfg"
+          grep -Fx 'CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y' "$cfg"
+          grep -Fx 'CONFIG_LV_USE_BUILTIN_MALLOC=n' "$cfg"
+          grep -Fx 'CONFIG_LV_USE_CLIB_MALLOC=y' "$cfg"
+          grep -Fx 'CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=512' "$cfg"
+          grep -Fx 'CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=98304' "$cfg"
+          grep -Fx 'CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y' "$cfg"
+
+      - name: Build exact current Product Core plus Waveshare 800x480 target
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$IDF_PATH/export.sh"
+          cd "$PRODUCT_DIR"
+          idf.py --version
+          idf.py set-target esp32s3
+          idf.py build
+          test -s build/automatrix_pvdg_waveshare_800x480.bin
+          grep -qx 'CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y' sdkconfig
+          grep -qx 'CONFIG_LV_USE_BUILTIN_MALLOC=n' sdkconfig
+          grep -qx 'CONFIG_LV_USE_CLIB_MALLOC=y' sdkconfig
+          grep -qx 'CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=512' sdkconfig
+          grep -qx 'CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=98304' sdkconfig
+          grep -qx 'CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y' sdkconfig
+          ! grep -q '^CONFIG_PVDG_PRIMARY_WIFI_SSID=' sdkconfig
+          ! grep -q '^CONFIG_PVDG_PRIMARY_WIFI_PASSWORD=' sdkconfig
+
+      - name: Assemble immutable physical-candidate package
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$IDF_PATH/export.sh"
+          build="$PRODUCT_DIR/build"
+          package="$GITHUB_WORKSPACE/industrial-ui-waveshare-candidate"
+          mkdir -p "$package"
+          while IFS= read -r -d '' file; do
+            rel="${file#$GITHUB_WORKSPACE/}"
+            mkdir -p "$package/$(dirname "$rel")"
+            cp "$file" "$package/$rel"
+          done < <(find "$GITHUB_WORKSPACE/$build" -maxdepth 4 -type f \
+            \( -name '*.bin' -o -name 'flasher_args.json' -o -name 'flash_args' -o -name 'flash_project_args' -o -name 'project_description.json' \) -print0)
+          cp "$PRODUCT_DIR/sdkconfig" "$package/effective-sdkconfig"
+
+          candidate_tree="$(git rev-parse HEAD^{tree})"
+          app="$build/automatrix_pvdg_waveshare_800x480.bin"
+          app_sha="$(sha256sum "$app" | awk '{print $1}')"
+          ui_js_sha="$(sha256sum web/industrial-ui-v1.js | awk '{print $1}')"
+          ui_css_sha="$(sha256sum web/industrial-ui-v1.css | awk '{print $1}')"
+          cat > "$package/CANDIDATE.txt" <<EOF
+          candidate_sha=$CANDIDATE_SHA
+          candidate_tree=$candidate_tree
+          board_source_sha=$BOARD_SOURCE_SHA
+          industrial_ui_software_baseline=$INDUSTRIAL_UI_BASELINE
+          integration_base_dev=$INTEGRATION_BASE_DEV
+          esp_idf=6.0.1
+          product_dir=$PRODUCT_DIR
+          application_sha256=$app_sha
+          industrial_ui_js_sha256=$ui_js_sha
+          industrial_ui_css_sha256=$ui_css_sha
+          rollback_enabled=1
+          compiled_sta_credentials=0
+          lvgl_clib_malloc=1
+          spiram_always_internal=512
+          spiram_reserve_internal=98304
+          EOF
+
+          cd "$package"
+          find . -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+          sha256sum -c SHA256SUMS.txt
+          echo "CANDIDATE_SHA=$CANDIDATE_SHA"
+          echo "CANDIDATE_TREE=$candidate_tree"
+          echo "APPLICATION_SHA256=$app_sha"
+          echo "INDUSTRIAL_UI_JS_SHA256=$ui_js_sha"
+          echo "INDUSTRIAL_UI_CSS_SHA256=$ui_css_sha"
+
+      - name: Upload exact Industrial UI Waveshare package
+        uses: actions/upload-artifact@v4
+        with:
+          name: industrial-ui-waveshare-800x480-candidate
+          path: industrial-ui-waveshare-candidate
+          if-no-files-found: error
+          retention-days: 30
