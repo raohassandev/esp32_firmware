@@ -78,13 +78,11 @@ PR #160 is the final release evidence contract. It requires genuine prerequisite
 
 ## Rev-A H2/H3 evidence
 
-Successful KiCad release run `33797012638` proved routed design/provider-package automation:
-- persisted routed native checkpoint `324e0db1600c2fd883d83f923a0c442669b237f0`;
-- enforced `ERC=0`, `DRC=0`, `UNCONNECTED=0`, L2 ground PASS, critical-route SI geometry PASS and STEP PASS;
-- provider package artifact `9909976209`, digest `sha256:869bc723cd05f106aab850aa3de65bb4b46d600b77bc08e91dbedcaef41bd496`;
-- engineering evidence artifact `9909977211`, digest `sha256:246830e56b8a17be3a0057186e7e30102c5e5dd371fb3bf4e64c2279502e8ea7`.
+Historical KiCad release run `33797012638` produced routed checkpoint `324e0db1600c2fd883d83f923a0c442669b237f0`, a marker claiming `ERC=0`, `DRC=0`, `UNCONNECTED=0`, L2 ground/SI PASS and STEP PASS, plus provider artifact `9909976209` digest `sha256:869bc723cd05f106aab850aa3de65bb4b46d600b77bc08e91dbedcaef41bd496` and engineering artifact `9909977211` digest `sha256:246830e56b8a17be3a0057186e7e30102c5e5dd371fb3bf4e64c2279502e8ea7`.
 
-PR #163's previous head correctly failed because a post-checkpoint `.kicad_dru` rules file altered accepted DRC constraints. That file is removed at current head `a458172a23a7ec64170693886aac2ba861a66a30`; frozen H2 validation must now re-earn fresh CI without relaxing accepted design rules. H2/H3 evidence is not H4 fabricated-prototype acceptance.
+That historical `DRC=0` result is **not currently reproducible from the frozen checkpoint**. PR #163 head `f020be6bcabc8dec6c05d80aaf00ec47fe6476b4` deliberately removed a post-checkpoint `.kicad_dru` relaxation and replayed the original KiCad 10.0.5 upgrade/refill/save DRC semantics on a byte-for-byte copy. Run `33884657384` passed frozen checkpoint provenance, schematic ERC, netlist/design-control/HW-interface/power-budget checks, SI geometry, statistics and STEP, but DRC still returned **20 violations / 0 unconnected**: four USB-C J2 internal hole-clearance violations, two J3 RJ45 copper-edge violations, two U1 ESP32 copper-edge violations and twelve U1 thermal-via minimum-drill violations. The run uploaded evidence artifact `9941333133`, digest `sha256:668ab99694a0408b673b6b2875d396286bf965dce1a01f1de7de09c8540760b3`.
+
+Therefore PR #163 must not be merged as a deterministic H2 PASS and the historical provider package must not be treated as the final fabrication package. Rev-A now requires a **new controlled H2 acceptance**: justify any footprint/fabrication exceptions from authoritative component/fabricator evidence, commit the approved rule context before the checkpoint, rerun ERC/DRC/SI/STEP/provider-package gates, and mint a new exact H2 checkpoint/package identity. H2/H3 automation never substitutes for H4 fabricated-prototype acceptance.
 
 ## Remaining release evidence outputs
 
@@ -95,6 +93,7 @@ PR #163's previous head correctly failed because a post-checkpoint `.kicad_dru` 
 5. #82 per-deployed-model official-manual + physical production approval.
 6. #86 complete secure OTA real-controller matrix.
 7. #83 integrated Grid/DG/mixed-source FAT, Modbus/network endurance and signed SAT.
-8. Final release SHA/config/profile/source-map/artifact/UI index with no critical blocker.
+8. Rev-A new controlled H2 checkpoint/package, then #162 H4 fabricated prototype qualification.
+9. Final release SHA/config/profile/source-map/artifact/UI index with no critical blocker.
 
 Partial physical intervals cannot be combined to manufacture continuity, thresholds cannot be lowered to manufacture PASS, and no physical PASS transfers across changed identities unless the governing gate explicitly permits and proves equivalence.
