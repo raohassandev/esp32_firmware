@@ -1,0 +1,22 @@
+dependencies:
+  idf:
+    version: ">=6.0.1,<6.1.0"
+
+  # Match the existing project cJSON pin so the screen parser is qualified
+  # against the same component revision used by the site-tested firmware.
+  espressif/cjson:
+    version: "==1.7.19~2"
+
+  # Board-screen qualification pins. These are isolated from the current
+  # default firmware build until the qualification project and exact hardware
+  # gates pass.
+  lvgl/lvgl:
+    version: "==9.5.0"
+
+  espressif/esp_lvgl_adapter:
+    version: "==0.6.2"
+
+  # 1.2.0 is a stable, established GT911 release compatible with ESP-IDF >=4.4.2.
+  # Do not float to a newer revision without repeating qualification.
+  espressif/esp_lcd_touch_gt911:
+    version: "==1.2.0"
