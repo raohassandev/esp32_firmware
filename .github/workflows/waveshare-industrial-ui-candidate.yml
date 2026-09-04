@@ -59,7 +59,7 @@ jobs:
           printf 'candidate_sha=%s\ncandidate_tree=%s\nboard_source_sha=%s\nintegration_base_dev=%s\n' \
             "$CANDIDATE_SHA" "$candidate_tree" "$BOARD_SOURCE_SHA" "$INTEGRATION_BASE_DEV"
 
-      - name: Enforce current provisioning and rollback safety
+      - name: Enforce current provisioning and rollback safety defaults
         shell: bash
         run: |
           set -euo pipefail
@@ -85,8 +85,20 @@ jobs:
           idf.py --version
           idf.py set-target esp32s3
           idf.py build
+
+      - name: Generate exact candidate UF2
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$IDF_PATH/export.sh"
+          cd "$PRODUCT_DIR"
           idf.py uf2
 
+      - name: Verify exact build outputs and dependency lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PRODUCT_DIR"
           test -s build/automatrix_pvdg_waveshare_800x480.bin
           test -s build/automatrix_pvdg_waveshare_800x480.elf
           test -s build/uf2.bin
@@ -95,6 +107,11 @@ jobs:
           test -s build/CMakeCache.txt
           test -s dependencies.lock
 
+      - name: Verify generated sdkconfig safety state
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PRODUCT_DIR"
           grep -qx 'CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y' sdkconfig
           grep -qx '# CONFIG_LV_USE_BUILTIN_MALLOC is not set' sdkconfig
           grep -qx 'CONFIG_LV_USE_CLIB_MALLOC=y' sdkconfig
