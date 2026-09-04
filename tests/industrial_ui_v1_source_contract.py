@@ -56,10 +56,21 @@ for token in (
     "experience-nav-label",
     "data-industrial-control-slot",
     "readiness",
+    "activateRoute",
+    "data-industrial-target-route",
+    "enhanceEquipmentAccess",
+    ".op-equipment-bar, .op-inverter-row",
     "industrial-state-offline",
     "industrial-state-stale",
 ):
     assert token in JS, f"missing industrial shell behavior: {token}"
+
+# The dashboard becomes an operating triage surface, but navigation must remain
+# role-aware: an operator is directed to readiness rather than a protected write
+# workspace; engineering access may navigate directly to control/network setup.
+assert "engineering ? 'control' : 'readiness'" in JS
+assert "engineering ? 'wifi' : 'readiness'" in JS
+assert "plantTone === 'good' ? 'readiness' : 'alarms'" in JS
 
 # This layer is presentation/navigation only. It must not add another polling
 # owner, call an engineering endpoint, or perform any write operation.
