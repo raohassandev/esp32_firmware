@@ -11,6 +11,7 @@
 #include "esp_lv_adapter.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/idf_additions.h"
 #include "local_backend_provider.h"
 #include "local_commissioning_backend.h"
 #include "local_source_commissioning_backend.h"
