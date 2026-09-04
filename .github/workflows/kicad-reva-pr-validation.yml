@@ -55,9 +55,6 @@ jobs:
           echo "H2_CHECKPOINT_SHA=$H2_COMMIT" >> "$GITHUB_ENV"
           echo "Frozen H2 checkpoint: $H2_COMMIT"
 
-          # The release workflow is the only lane allowed to regenerate/reroute and
-          # persist a new H2 checkpoint. A PR may validate the frozen checkpoint only
-          # while no routing-sensitive hardware source changed after that checkpoint.
           if ! git diff --quiet "$H2_COMMIT"..HEAD -- hardware/kicad hardware/mechanical; then
             echo 'ERROR: routing-sensitive hardware changed after the frozen H2 checkpoint.'
             echo 'Run the controlled H2 release workflow to create a new routed checkpoint; PR validation will not reroute nondeterministically.'
@@ -97,17 +94,33 @@ jobs:
 
       - name: Validate frozen routed PCB DRC SI and STEP
         run: |
-          set -euo pipefail
+          set -uo pipefail
           PCB='hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb'
           K="docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $PWD:/work -w /work kicad/kicad:10.0.5 kicad-cli"
           KPY="docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $PWD:/work -w /work kicad/kicad:10.0.5 python3"
+
+          set +e
           $K pcb drc --severity-all --exit-code-violations --refill-zones \
             --output hardware/kicad/Automatrix_PVDG_RevA-drc.rpt "$PCB"
+          DRC_RC=$?
           $KPY hardware/kicad/tools/validate_signal_integrity.py "$PCB" hardware/kicad/Automatrix_PVDG_RevA-si.rpt
+          SI_RC=$?
           $K pcb export stats --format json --output hardware/kicad/Automatrix_PVDG_RevA-stats.json "$PCB"
+          STATS_RC=$?
           $K pcb export step --force --no-dnp --output hardware/kicad/Automatrix_PVDG_RevA.step "$PCB"
-          cat hardware/kicad/Automatrix_PVDG_RevA-drc.rpt
-          cat hardware/kicad/Automatrix_PVDG_RevA-si.rpt
+          STEP_RC=$?
+          set -e
+
+          echo "DRC_RC=$DRC_RC SI_RC=$SI_RC STATS_RC=$STATS_RC STEP_RC=$STEP_RC"
+          echo '--- DRC REPORT ---'
+          cat hardware/kicad/Automatrix_PVDG_RevA-drc.rpt || true
+          echo '--- SI REPORT ---'
+          cat hardware/kicad/Automatrix_PVDG_RevA-si.rpt || true
+
+          test "$DRC_RC" = '0'
+          test "$SI_RC" = '0'
+          test "$STATS_RC" = '0'
+          test "$STEP_RC" = '0'
           grep -F 'L2_GND=PASS' hardware/kicad/Automatrix_PVDG_RevA-si.rpt
           grep -F 'SIGNAL_INTEGRITY_GEOMETRY=PASS' hardware/kicad/Automatrix_PVDG_RevA-si.rpt
 
