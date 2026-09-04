@@ -19,7 +19,12 @@ assert ".status-strip { display: none; }" in css, "legacy global status strip mu
 assert "#controllerPill { display: none; }" in css, "legacy controller pill must not compete with health control"
 assert ".product-tool-button" in css and "display: none" in css, "secondary display tools must leave the permanent header"
 assert "max-width: 650px" in css and "place-items: end stretch" in css, "mobile overflow sheet is required"
-assert "groupNavigation" in js and "dataset.shellGrouped" in js, "navigation hierarchy must be deterministic and idempotent"
+
+# Industrial UI is now the sole navigation-order/group owner. Product Shell V2
+# must retain health/menu/context behavior without mutating sidebar order.
+assert "function groupNavigation" not in js
+assert "dataset.shellGrouped" not in js
+assert "Navigation ordering/grouping is owned by Industrial UI v1" in js
 assert "removeDuplicateIntros" in js, "duplicate page introductions must be suppressed"
 assert ".observe(main, { childList: true })" in js, "shell may observe only direct page additions"
 assert "subtree: true" not in js[js.find("function start()"):], "shell must not rescan the full live telemetry subtree"
