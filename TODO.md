@@ -23,8 +23,8 @@ Master program: #79. Live repository truth overrides stale checklists. Current `
 
 ## REV-A PRODUCT HARDWARE TRACK
 
-- [ ] **L9 / #85 / PR #163 -> #19 — fix deterministic H2 PR validation.** PR #163 correctly froze the accepted H2 checkpoint but its current CI rejects post-checkpoint `hardware/kicad/Automatrix_PVDG_RevA.kicad_dru`; disposition this rules-file provenance without weakening routed H2 identity, then re-earn exact-head KiCad CI and advance parent #19.
-- [ ] **L9 H4 / #162 — fabricate/assemble prototype and execute electrical/communications/relay/enclosure/thermal validation.** Provider package artifact id `9909976209`, digest `sha256:869bc723cd05f106aab850aa3de65bb4b46d600b77bc08e91dbedcaef41bd496`.
+- [ ] **L9 / #85 — create a new controlled H2 acceptance; do not merge PR #163 as PASS.** PR #163 head `f020be6bcabc8dec6c05d80aaf00ec47fe6476b4` proved the historical checkpoint's `DRC=0` is not reproducible: run `33884657384` still reports 20 DRC violations after removing post-checkpoint rule relaxation and replaying KiCad 10.0.5 upgrade/refill/save semantics. Obtain authoritative component/fabricator evidence for any required exceptions, commit approved rule context before the checkpoint, rerun ERC/DRC/SI/STEP/provider-package gates, and mint a new exact H2 checkpoint/package. Historical provider ZIP `9909976209` is evidence only, not final fabrication authority.
+- [ ] **L9 H4 / #162 — fabricate/assemble only from the new accepted H2/H3 provider package, then execute electrical/communications/relay/enclosure/thermal validation.** Do not fabricate the historical package as final Rev-A merely because its historical workflow was green.
 
 ## COMPLETED SOFTWARE / EVIDENCE AUTOMATION — DO NOT REOPEN WITHOUT CURRENT REGRESSION
 
@@ -45,4 +45,4 @@ Master program: #79. Live repository truth overrides stale checklists. Current `
 
 ## GLOBAL DONE GATE
 
-Do not claim 100% until every P0 physical/site/manufacturer/UI/FAT/SAT item above genuinely passes against exact identities, all required promotions are merged with fresh exact-head CI, final evidence is traceable, and no critical blocker remains. CI or validators may enforce evidence quality but cannot create hardware/site PASS.
+Do not claim 100% until every P0 physical/site/manufacturer/UI/FAT/SAT item above genuinely passes against exact identities, Rev-A has a reproducible controlled H2/H3 package before H4 fabrication, all required promotions are merged with fresh exact-head CI, final evidence is traceable, and no critical blocker remains. CI or validators may enforce evidence quality but cannot create hardware/site PASS.
