@@ -7,6 +7,7 @@
 #include "esp_flash_dispatcher.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "esp_lv_adapter.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
