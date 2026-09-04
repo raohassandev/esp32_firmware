@@ -1,0 +1,47 @@
+{
+  "revision": "Rev-A",
+  "five_volt_field": {
+    "converter": "TPS54360B",
+    "converter_rated_current_a": 3.5,
+    "planning_load_cap_a": 2.5,
+    "loads_a": {
+      "hmi_aux": 1.0,
+      "four_relay_coils": 0.288,
+      "three_volt_three_converter_input_allowance": 0.9,
+      "leds_losses_margin": 0.3
+    },
+    "minimum_converter_headroom_a": 0.75
+  },
+  "three_volt_three": {
+    "converter": "AP63203WU-7",
+    "converter_rated_current_a": 2.0,
+    "planning_load_a": 1.2,
+    "minimum_current_headroom_a": 0.5
+  },
+  "relay_system": {
+    "relay": "HF3FF/005-1ZST",
+    "channels": 4,
+    "coil_voltage_v": 5.0,
+    "nominal_coil_power_w_each": 0.36,
+    "nominal_coil_current_a_each": 0.072,
+    "pcb_system_resistive_contact_target_a": 5.0,
+    "field_terminal_min_current_rating_a": 10.0,
+    "contact_form": "SPDT_Form-C_NC_COM_NO",
+    "hardware_default_off_required": true,
+    "flyback_diode_each_channel_required": true,
+    "individual_low_side_driver_each_channel_required": true
+  },
+  "provider_layout_limits": {
+    "relay_contact_zone_separate_from_selv": true,
+    "relay_contact_copper_must_not_cross_logic_zone": true,
+    "relay_terminal_side_separate_from_power_rs485_hmi_side": true,
+    "mains_usage_requires_final_clearance_creepage_review": true,
+    "component_relay_rating_must_not_be_used_as_product_rating_without_validation": true
+  },
+  "prototype_gates": {
+    "thermal_at_12v_and_24v": true,
+    "usb_must_not_power_relays_or_hmi": true,
+    "simultaneous_4_relays_ethernet_dual_rs485_test": true,
+    "relay_contact_load_test_required_before_product_rating": true
+  }
+}
