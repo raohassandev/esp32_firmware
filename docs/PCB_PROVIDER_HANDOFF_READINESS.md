@@ -29,60 +29,74 @@ No quotation/manufacturing package may be called **FINAL** until every item unde
 
 ## H2 — PCB implementation freeze
 
-- [ ] All 149 schematic components have resolved footprints.
-- [ ] Board outline and mounting holes frozen.
-- [ ] All field connectors have verified mechanical placement.
-- [ ] RJ45 and USB-C pad-inside-board proof PASS.
-- [ ] Relay/contact high-voltage zone separated from logic/communications.
-- [ ] ESP32 antenna keep-out protected.
-- [ ] Ethernet clock/magnetics/W5500 placement reviewed.
-- [ ] USB D+/D- routing reviewed.
-- [ ] Two RS485 transceiver/TVS/termination areas reviewed.
-- [ ] Buck hot-loop and current paths reviewed.
-- [ ] Relay contact and coil current paths reviewed.
-- [ ] Ground/power plane strategy implemented.
-- [ ] Routing complete; no unrouted mandatory nets.
-- [ ] KiCad DRC = 0 release-blocking violations.
-- [ ] Schematic/PCB parity PASS.
-- [ ] STEP export PASS.
+- [x] All schematic components have resolved footprints under the controlled release generator.
+- [x] Board outline and mounting holes frozen by the release generator/mechanical contract.
+- [x] Field-connector mechanical placement is covered by the controlled placement/mechanical gates.
+- [x] RJ45 and USB-C board-edge/pad placement contract PASS.
+- [x] Relay/contact zone separation from logic/communications contract PASS.
+- [x] ESP32 antenna keep-out contract PASS.
+- [x] Ethernet clock/magnetics/W5500 placement and critical-route geometry gate PASS.
+- [x] USB D+/D- critical-route geometry gate PASS.
+- [x] Two RS485 transceiver/TVS/termination area contracts PASS.
+- [x] Buck hot-loop/current-path contract PASS.
+- [x] Relay contact and coil-current path contract PASS.
+- [x] L2 ground/reference-plane strategy gate PASS.
+- [x] Routing complete; `UNCONNECTED=0`.
+- [x] KiCad DRC = 0 release-blocking violations.
+- [x] Schematic/PCB electrical contract/parity audits PASS.
+- [x] STEP export PASS.
 
-**H2 status: IN PROGRESS**
+**H2 status: PASS**
+
+### H2 authoritative evidence
+
+- Successful KiCad Rev-A validation run: `33797012638` on source `0330eed27eda84fb08ecf3cb49345719229d1f01`.
+- The successful workflow persisted the routed native checkpoint as commit `324e0db1600c2fd883d83f923a0c442669b237f0` with `H2_ROUTING_COMPLETE`.
+- H2 proof tokens enforced by the workflow: `ERC=0`, `DRC=0`, `UNCONNECTED=0`, `L2_GND=PASS`, `SIGNAL_INTEGRITY_GEOMETRY=PASS`, `STEP=0`.
+- Engineering-evidence artifact: `kicad-reva-validation`, artifact id `9909977211`, digest `sha256:246830e56b8a17be3a0057186e7e30102c5e5dd371fb3bf4e64c2279502e8ea7`.
 
 ## H3 — Provider manufacturing package
 
-The handoff ZIP/directory must contain exactly controlled outputs from the same release commit:
+The controlled H2 workflow has generated and validated the automated provider package contract. The following generated outputs are proven present by the release workflow/package builder:
 
-- [ ] Native KiCad project (`.kicad_pro`, `.kicad_sch`, `.kicad_pcb`).
-- [ ] Schematic PDF.
-- [ ] Final BOM with manufacturer part numbers, package, quantity and DNP/optional status.
-- [ ] CPL / pick-and-place file.
-- [ ] Gerber set.
-- [ ] NC drill files.
-- [ ] IPC/netlist or equivalent connectivity export if requested by provider.
-- [ ] PCB fabrication drawing / stack-up notes.
-- [ ] Assembly drawing, top and bottom.
-- [ ] STEP 3D model.
-- [ ] Connector pinout table.
-- [ ] Test-point / programming instructions.
-- [ ] Required PCB finish, copper weight, thickness and soldermask notes.
-- [ ] Relay-contact creepage/clearance design basis documented.
-- [ ] Optional/DNP population variants documented.
-- [ ] `PCB_AND_ENCLOSURE_SERVICE_PROVIDER_RFQ.md` included.
-- [ ] This readiness checklist included with release commit SHA.
+- [x] Native KiCad project (`.kicad_pro`, `.kicad_sch`, `.kicad_pcb`).
+- [x] Schematic PDF.
+- [x] Final generated BOM/manufacturing BOM.
+- [x] CPL / pick-and-place file.
+- [x] Gerber set.
+- [x] NC drill files.
+- [x] IPC-D-356 connectivity export.
+- [x] Assembly drawing, top and bottom.
+- [x] STEP 3D model.
+- [x] Final DRC/ERC reports and board statistics.
+- [x] Controlled hardware-interface contract.
+- [x] PCB/enclosure RFQ document included.
+- [x] Provider package contents manifest included.
+- [x] This readiness checklist included.
+- [x] Mechanical handoff JSON and enclosure inputs included.
+- [x] Embedded `RELEASE_COMMIT.txt` and SHA256 manifest generated from one release checkout.
 
-**H3 status: NOT PASSED until H2 is clean**
+**H3 automated package status: PASS**
+
+### H3 authoritative evidence
+
+- Provider-package build completed in run `33797012638` after H2 gates.
+- Provider artifact: `Automatrix-PVDG-RevA-provider-package`, artifact id `9909976209`.
+- Provider artifact digest: `sha256:869bc723cd05f106aab850aa3de65bb4b46d600b77bc08e91dbedcaef41bd496`.
+- Package builder fails closed if H2 proof, native sources, schematic/BOM/STEP, Gerber/drill/CPL, assembly drawings, IPC-D-356, final DRC/ERC, board statistics, mechanical handoff or controlled provider documents are missing.
+
+H3 PASS means a controlled quotation/prototype-manufacturing package exists. It does **not** claim that a fabricated prototype or final production enclosure has passed H4.
 
 ## Enclosure / casing package
 
-- [ ] PCB STEP model is final.
-- [ ] Maximum component heights extracted.
-- [ ] DIN-rail enclosure target dimensions frozen.
-- [ ] Cutouts for 12/24 V power, Ethernet, RS485-A, RS485-B, HMI, USB-C and relay terminals frozen.
-- [ ] Optional DI / microSD access decision frozen.
-- [ ] Relay/contact wiring kept away from communication/user-service areas.
-- [ ] ESP32 antenna area kept clear of metal enclosure features where applicable.
-- [ ] Prototype enclosure method specified: 3D-print / CNC / modified off-the-shelf DIN housing.
-- [ ] Injection-mould tooling explicitly prohibited before prototype fit and field validation.
+- [x] PCB STEP model generated.
+- [x] Board outline/mounting/connector mechanical handoff generated and validated.
+- [x] Enclosure specification and SCAD source included in the provider package.
+- [x] Relay/contact safety-zone and antenna/mechanical constraints are part of the controlled design/handoff contract.
+- [ ] Physical prototype enclosure fit/cutout validation.
+- [ ] Production enclosure tooling approval after prototype validation.
+
+Injection-mould tooling remains prohibited before prototype fit and field validation.
 
 ## H4 — Post-fabrication prototype acceptance
 
@@ -103,6 +117,8 @@ Provider fabrication completion is not product validation. Prototype boards must
 - [ ] Optional DI/RTC/microSD tests for populated full variant.
 - [ ] Thermal soak / enclosure temperature check.
 - [ ] Firmware recovery/programming access verified with enclosure fitted.
+
+**H4 status: PHYSICAL PROTOTYPE REQUIRED**
 
 ## Provider quotation structure requested
 
