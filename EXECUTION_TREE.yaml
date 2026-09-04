@@ -1,9 +1,9 @@
-version: 2
-updated_at: 2026-09-04T07:32:00+05:00
+version: 3
+updated_at: 2026-09-04T19:28:00+05:00
 repo: raohassandev/esp32_firmware
 master_issue: 79
 integration_branch: dev
-integration_head_at_snapshot: 1b4d7631862afdb38da99fbbae9aa170729b0bdb
+integration_head_at_snapshot: 14d13a0d6e5c4b4b95cea35b8cc32f1880ae8134
 truth_rule: live_repository_over_stale_docs
 wip_limit_ci_active_software_prs: 3
 preferred_ci_active_software_prs: 2
@@ -27,7 +27,7 @@ lanes:
     merge_forbidden_until_physical_pass: true
     post_pass_rule: replay_identical_validated_runtime_slice_onto_current_dev_then_fresh_exact_head_ci
 
-  L3_waveshare_release:
+  L3_historical_waveshare_release:
     issue: 87
     detailed_issues: [24, 25, 26, 27]
     implementation_pr: 57
@@ -42,6 +42,7 @@ lanes:
     soak_capture_executor_pr: 159
     soak_capture_executor_merge: 3fd831b677ff590c54cb5cef412a55c9cdea5ca8
     status: SHORT_PASS_FINAL_CONTINUOUS_SOAK_INCOMPLETE
+    evidence_transfer_to_L16_forbidden: true
     remaining:
       - one_new_uninterrupted_4h_same_image_soak_at_least_240_samples
       - backend_parity_recovery_issue_25
@@ -58,17 +59,12 @@ lanes:
     evidence_tooling_pr: 152
     evidence_tooling_merge: ad651806edb95a749b7d65b61fe1f6b2cf2148db
     software_status: COMPLETE_MERGED
-    status: PHYSICAL_QUALIFICATION_PENDING_AFTER_WAVESHARE_RELEASE_IDENTITY_RESOLUTION
-    depends_on: [L3_waveshare_release]
+    status: PHYSICAL_QUALIFICATION_PENDING_AFTER_RELEASE_IDENTITY_FREEZE
 
   L5_site_source_commissioning:
     issue: 81
     evidence_tooling_pr: 156
     evidence_tooling_merge: 1c6e1de9ba01c759bc7dc6331f418160614cbbd7
-    exact_head_ci:
-      focused: 33796735953
-      ota_always_on: 33796735766
-      full_firmware_web_esp32s3: 33796735830
     status: TOOLING_COMPLETE_PHYSICAL_SITE_EVIDENCE_PENDING
     rule: no_guessed_register_mask_polarity_timing_topology_or_kw_sign_source_authority
 
@@ -77,10 +73,6 @@ lanes:
     generic_core_prs: [102, 108, 112, 113, 117, 119, 136]
     evidence_tooling_pr: 158
     evidence_tooling_merge: 56e2abfb9291b8b5f0786dc8051820a53865984b
-    exact_head_ci:
-      focused: 33797589153
-      ota_always_on: 33797588865
-      full_firmware_web_esp32s3: 33797588858
     status: TOOLING_COMPLETE_EXACT_MANUAL_AND_PHYSICAL_MODEL_QUALIFICATION_PENDING
     rule: no_production_write_without_exact_official_manual_identity_status_readback_rollback_and_signed_approval
 
@@ -88,35 +80,31 @@ lanes:
     issue: 83
     evidence_tooling_pr: 160
     evidence_tooling_merge: 1b4d7631862afdb38da99fbbae9aa170729b0bdb
-    exact_head: 86d9bd4595d3745edd3bb717b9fc92f1e3d3fde5
-    exact_head_ci:
-      focused: 33829562747
-      ota_always_on: 33829562751
-      full_firmware_web_esp32s3: 33829562735
     software_status: COMPLETE_MERGED
     status: PHYSICAL_FAT_ENDURANCE_AND_SIGNED_SAT_PENDING
-    depends_on: [L2_generator_source_transition, L3_waveshare_release, L4_secure_ota, L5_site_source_commissioning, L6_inverter_profile_qualification]
+    depends_on: [L2_generator_source_transition, L3_historical_waveshare_release, L4_secure_ota, L5_site_source_commissioning, L6_inverter_profile_qualification, L16_industrial_ui_release]
 
   L8_governance_service:
     issue: 84
     owner: ChatGPT
     qa: GitHub_Actions_and_diff_review
-    status: CONTINUOUS_RECONCILING_AFTER_PR160
-    active_reconciliation_branch: docs/governance-reconcile-pr160
+    status: ACTIVE_RECONCILIATION_AFTER_PR176
+    active_reconciliation_branch: docs/governance-reconcile-industrial-ui-v1
 
   L9_reva_product_hardware:
     issue: 85
     planning_pr: 18
     implementation_pr: 19
-    implementation_head_at_snapshot: ad7417153d85ba60a440d161385793c21eac4076
+    h2_validation_fix_pr: 163
+    h2_validation_fix_head: a458172a23a7ec64170693886aac2ba861a66a30
     h2_release_run: 33797012638
     routed_native_checkpoint: 324e0db1600c2fd883d83f923a0c442669b237f0
     provider_artifact_id: 9909976209
     provider_artifact_digest: sha256:869bc723cd05f106aab850aa3de65bb4b46d600b77bc08e91dbedcaef41bd496
-    engineering_artifact_id: 9909977211
-    engineering_artifact_digest: sha256:246830e56b8a17be3a0057186e7e30102c5e5dd371fb3bf4e64c2279502e8ea7
-    status: H2_H3_AUTOMATED_PASS_PR19_EXACT_HEAD_CI_ACTIVE_H4_PHYSICAL_PROTOTYPE_PENDING
+    h4_issue: 162
+    status: H2_H3_AUTOMATED_PASS_PR163_REVALIDATING_FROZEN_RULES_H4_PHYSICAL_PENDING
     blocks_current_waveshare_release: false
+    rule: no_post_H2_DRC_rule_relaxation_without_new_controlled_H2_checkpoint
 
   L10_browser_final_audit:
     issue: 90
@@ -142,25 +130,51 @@ lanes:
     issue: 95
     status: COMPLETE_CLOSED_SOFTWARE_REPLAYED_PHYSICAL_RELEASE_GATES_REMAIN
 
+  L16_industrial_ui_release:
+    parent_issue: 164
+    physical_issue: 174
+    software_prs: [165, 167, 169, 172, 173, 176]
+    physical_evidence_tooling_pr: 175
+    software_merges:
+      pr_165: ad4a091c267e9fc11e0903604fee5c8369da2488
+      pr_167: 8fd6f1988ea32ba08b86872e62d873388abbed8f
+      pr_169: 77e9c9d7046549970dc9bc58bd683304d4f1ced3
+      pr_172: 4029a86ac15261a424a77401443680b551c7609f
+      pr_173: ada5cc8010183a69e831260b8d8bf36c1bb0dbed
+      pr_175: 9a22d56b9749a7689581e2b8f5e92df3c1e58038
+      pr_176: 14d13a0d6e5c4b4b95cea35b8cc32f1880ae8134
+    pr_176_exact_head_ci:
+      industrial_ui: 33883395788
+      industrial_ui_physical_tools: 33883395629
+      browser_poller: 33883395606
+      secure_ota: 33883395684
+      browser_resilience: 33883395506
+      full_firmware_web_esp32s3: 33883395633
+    software_status: COMPLETE_MERGED
+    status: NEW_EXACT_IMAGE_PHYSICAL_HMI_ACCEPTANCE_PENDING
+    physical_requirements: [native_800x480_layout, overview_grid_solar_alarms_readiness, engineering_commission_configure_service, touch_and_roles, browser_api_history_responsiveness, resource_stability, one_uninterrupted_4h_at_least_240_samples]
+    historical_L3_pass_transfer_forbidden: true
+
 recent_governed_dev_merges:
-  pr_149: eee505bc3fcb07640836fa79c6becfc629c6050b
-  pr_150: 184d7e658ac44496a4f9efe0fd5db5844ad7fa43
-  pr_151: 892a5811160098a765df7895af943eadf0457d48
-  pr_152: ad651806edb95a749b7d65b61fe1f6b2cf2148db
-  pr_153: df815696fb201f36d46846e4efac0740274884a8
-  pr_156: 1c6e1de9ba01c759bc7dc6331f418160614cbbd7
-  pr_158: 56e2abfb9291b8b5f0786dc8051820a53865984b
-  pr_159: 3fd831b677ff590c54cb5cef412a55c9cdea5ca8
   pr_160: 1b4d7631862afdb38da99fbbae9aa170729b0bdb
+  pr_161: 72e817140a27f9833d79662a0d9b994e63477906
+  pr_165: ad4a091c267e9fc11e0903604fee5c8369da2488
+  pr_167: 8fd6f1988ea32ba08b86872e62d873388abbed8f
+  pr_169: 77e9c9d7046549970dc9bc58bd683304d4f1ced3
+  pr_172: 4029a86ac15261a424a77401443680b551c7609f
+  pr_173: ada5cc8010183a69e831260b8d8bf36c1bb0dbed
+  pr_175: 9a22d56b9749a7689581e2b8f5e92df3c1e58038
+  pr_176: 14d13a0d6e5c4b4b95cea35b8cc32f1880ae8134
 
 release_done_definition:
   - all_release_target_software_merged_with_exact_head_zero_behind_gates
   - all_required_physical_acceptance_passed_against_exact_source_artifact_config_profile_identity
+  - historical_waveshare_and_new_industrial_ui_evidence_not_cross_reused
   - site_source_and_inverter_mappings_documentation_backed_and_physically_qualified
   - secure_ota_physical_rollback_interruption_matrix_complete
   - grid_dg_mixed_source_fat_and_modbus_network_endurance_complete
   - signed_sat_complete
-  - final_evidence_traceable_to_release_sha_config_profiles_and_artifacts
+  - final_evidence_traceable_to_release_sha_config_profiles_ui_and_artifacts
   - no_evidence_validator_substituted_for_physical_observation
   - no_acceptance_threshold_weakened_to_manufacture_pass
   - no_open_critical_blockers
