@@ -42,6 +42,7 @@ jobs:
           test -s "$MARKER"
           test -s "$PCB"
           test -s "$SCH"
+          test ! -e hardware/kicad/Automatrix_PVDG_RevA.kicad_dru
           grep -Fx 'H2 routing complete' "$MARKER"
           grep -Fx 'ERC=0' "$MARKER"
           grep -Fx 'DRC=0' "$MARKER"
@@ -96,12 +97,19 @@ jobs:
         run: |
           set -uo pipefail
           PCB='hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb'
+          DRC_PCB='hardware/kicad/Automatrix_PVDG_RevA-pr-drc-replay.kicad_pcb'
           K="docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $PWD:/work -w /work kicad/kicad:10.0.5 kicad-cli"
           KPY="docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $PWD:/work -w /work kicad/kicad:10.0.5 python3"
 
+          # Reproduce the successful H2 release semantics exactly without
+          # mutating the frozen committed PCB: upgrade a byte-for-byte copy,
+          # then run the same refill/save DRC command used by the release job.
+          cp "$PCB" "$DRC_PCB"
           set +e
-          $K pcb drc --severity-all --exit-code-violations --refill-zones \
-            --output hardware/kicad/Automatrix_PVDG_RevA-drc.rpt "$PCB"
+          $K pcb upgrade --force "$DRC_PCB"
+          UPGRADE_RC=$?
+          $K pcb drc --severity-all --exit-code-violations --refill-zones --save-board \
+            --output hardware/kicad/Automatrix_PVDG_RevA-drc.rpt "$DRC_PCB"
           DRC_RC=$?
           $KPY hardware/kicad/tools/validate_signal_integrity.py "$PCB" hardware/kicad/Automatrix_PVDG_RevA-si.rpt
           SI_RC=$?
@@ -111,12 +119,13 @@ jobs:
           STEP_RC=$?
           set -e
 
-          echo "DRC_RC=$DRC_RC SI_RC=$SI_RC STATS_RC=$STATS_RC STEP_RC=$STEP_RC"
+          echo "UPGRADE_RC=$UPGRADE_RC DRC_RC=$DRC_RC SI_RC=$SI_RC STATS_RC=$STATS_RC STEP_RC=$STEP_RC"
           echo '--- DRC REPORT ---'
           cat hardware/kicad/Automatrix_PVDG_RevA-drc.rpt || true
           echo '--- SI REPORT ---'
           cat hardware/kicad/Automatrix_PVDG_RevA-si.rpt || true
 
+          test "$UPGRADE_RC" = '0'
           test "$DRC_RC" = '0'
           test "$SI_RC" = '0'
           test "$STATS_RC" = '0'
@@ -146,6 +155,7 @@ jobs:
           path: |
             hardware/kicad/H2_ROUTING_COMPLETE
             hardware/kicad/Automatrix_PVDG_RevA.kicad_pcb
+            hardware/kicad/Automatrix_PVDG_RevA-pr-drc-replay.kicad_pcb
             hardware/kicad/Automatrix_PVDG_RevA.kicad_sch
             hardware/kicad/Automatrix.kicad_sym
             hardware/kicad/REFERENCE_MAP.json
