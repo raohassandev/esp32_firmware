@@ -11,6 +11,14 @@
         { title: 'Service', routes: ['system'] },
     ];
 
+    const OPERATOR_NAV_LABELS = {
+        dashboard: 'Overview',
+        meters: 'Grid',
+        inverters: 'Solar',
+        alarms: 'Alarms',
+        readiness: 'Readiness',
+    };
+
     const ENGINEERING_GROUPS = [
         {
             id: 'commission',
@@ -33,7 +41,7 @@
     ];
 
     const ROUTE_LABELS = {
-        dashboard: 'Plant overview', meters: 'Grid and meters', inverters: 'Solar and inverters',
+        dashboard: 'Overview', meters: 'Grid', inverters: 'Solar',
         alarms: 'Alarms', readiness: 'Readiness', control: 'PV-DG control',
         commissioning: 'Guided commissioning', wifi: 'Network setup', engineering: 'Engineering home',
         system: 'Controller service',
@@ -46,9 +54,23 @@
         return item;
     }
 
+    function normalizeOperatorNavigationLabels(root = document) {
+        Object.entries(OPERATOR_NAV_LABELS).forEach(([name, label]) => {
+            root.querySelectorAll(`[data-route="${name}"]`).forEach((link) => {
+                const small = link.querySelector('small');
+                if (small) small.textContent = label;
+                const spans = link.querySelectorAll(':scope > span');
+                const textSpan = spans.length > 1 ? spans[spans.length - 1] : null;
+                if (textSpan) textSpan.textContent = label;
+                link.setAttribute('aria-label', label);
+            });
+        });
+    }
+
     function installNavigationSections() {
         const nav = document.querySelector('.nav-list');
         if (!nav) return;
+        normalizeOperatorNavigationLabels(nav);
         nav.querySelectorAll('.experience-nav-label, .industrial-nav-section').forEach((item) => item.remove());
 
         NAV_GROUPS.forEach((group) => {
@@ -90,8 +112,9 @@
         const icon = slot.querySelector('span');
         const label = slot.querySelector('small');
         if (icon) icon.textContent = engineering ? '⇄' : '✓';
-        if (label) label.textContent = engineering ? 'Control' : 'Ready';
-        slot.setAttribute('aria-label', engineering ? 'PV-DG control' : 'Pre-lab readiness');
+        if (label) label.textContent = engineering ? 'Control' : 'Readiness';
+        slot.setAttribute('aria-label', engineering ? 'PV-DG control' : 'Readiness');
+        normalizeOperatorNavigationLabels(nav);
     }
 
     function installRoleBadge() {
@@ -402,6 +425,7 @@
             const link = nav.querySelector(`.nav-link[data-route="${name}"]`);
             if (link) nav.append(link);
         });
+        normalizeOperatorNavigationLabels(nav);
         installNavigationSections();
         normalizeMobileNavigation();
     }

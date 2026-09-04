@@ -64,6 +64,26 @@ for token in (
 ):
     assert token in JS, f"missing industrial shell behavior: {token}"
 
+# Task-based Operator information architecture is owned by this final layer.
+# Keep legacy route IDs for compatibility, but never expose the old technical
+# Dashboard/Meters/Inverters wording as the primary navigation model.
+for token in (
+    "OPERATOR_NAV_LABELS",
+    "dashboard: 'Overview'",
+    "meters: 'Grid'",
+    "inverters: 'Solar'",
+    "alarms: 'Alarms'",
+    "readiness: 'Readiness'",
+    "normalizeOperatorNavigationLabels",
+    "root.querySelectorAll(`[data-route=\"${name}\"]`)",
+    "link.setAttribute('aria-label', label)",
+):
+    assert token in JS, f"missing task-based operator navigation contract: {token}"
+
+assert "dashboard: 'Overview', meters: 'Grid', inverters: 'Solar'" in JS
+assert "if (label) label.textContent = engineering ? 'Control' : 'Readiness';" in JS
+assert "slot.setAttribute('aria-label', engineering ? 'PV-DG control' : 'Readiness');" in JS
+
 assert "engineering ? 'control' : 'readiness'" in JS
 assert "engineering ? 'wifi' : 'readiness'" in JS
 assert "plantTone === 'good' ? 'readiness' : 'alarms'" in JS
