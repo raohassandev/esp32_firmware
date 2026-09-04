@@ -31,6 +31,10 @@ jobs:
           ref: ${{ env.CANDIDATE_SHA }}
           fetch-depth: 0
 
+      - name: Trust checkout path inside IDF container
+        shell: bash
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       - name: Verify exact identity and frozen-board replay boundary
         shell: bash
         run: |
