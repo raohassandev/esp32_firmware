@@ -72,16 +72,17 @@ Master program: #79. Live source/evidence overrides stale text. Snapshot baselin
 | R-GOV-01 | live owner/lane/dependency/governance tracking | CONTINUOUS | #79/#84 |
 | R-GOV-02 | exact-head/zero-behind/expected-head merge gate | ACTIVE | #93 |
 | R-GOV-03 | exact evidence traceability/no cross-identity PASS | ACTIVE | #91 |
-| R-HW-01 | Rev-A H1/H2/H3 controlled design/provider package | H2/H3 AUTOMATED PASS / PR-INTEGRATION FIX ACTIVE | #85 / PR #163 -> #19 |
-| R-HW-02 | Rev-A fabricated prototype bring-up and validation | PHYSICAL PENDING | #162 |
+| R-HW-01 | Rev-A H2/H3 reproducible controlled design/provider package | HISTORICAL PASS INVALIDATED FOR FABRICATION; NEW CONTROLLED H2 REQUIRED | #85; PR #163 run `33884657384` evidence |
+| R-HW-02 | Rev-A approved fabrication-rule context from authoritative component/provider evidence | PENDING | #85 new controlled H2 |
+| R-HW-03 | Rev-A fabricated prototype bring-up and validation | PHYSICAL PENDING AFTER NEW H2/H3 | #162 |
 
 ## Closure discipline
 
 1. Software/tooling complete does not equal physical acceptance.
 2. Frozen physical identities are not churned merely because `dev` advances.
 3. Historical `87841ece...` Waveshare evidence and new Industrial UI #174 evidence are different identities and are never silently combined.
-4. No external mapping/manual gap may be filled by guesswork.
+4. No external mapping/manual or hardware-rule gap may be filled by guesswork.
 5. Every physical PASS binds exact source/artifact/config/profile/site identity.
 6. PR #160 is the final integrated evidence contract, not a substitute for Grid/DG/endurance/SAT execution.
-7. Rev-A H2/H3 CI/provider package is not H4 prototype acceptance.
+7. A historical hardware marker/provider package that cannot reproduce its DRC result cannot authorize final fabrication; Rev-A needs a new controlled H2 checkpoint/package before H4.
 8. 100% release requires every remaining physical gate, signed SAT and zero critical blockers.
