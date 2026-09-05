@@ -119,7 +119,7 @@ jobs:
           grep -Fq 'version: "==1.0.3"' "$manifest"
           test -s "$lock"
           grep -Fx "manifest_hash: $SOURCE_LOCK_MANIFEST" "$lock"
-          grep -A8 '^  espressif/esp_flash_dispatcher:' "$lock" | grep -Fq 'version: 1.0.3'
+          grep -A12 '^  espressif/esp_flash_dispatcher:' "$lock" | grep -Fq 'version: 1.0.3'
           echo "SOURCE_DEPENDENCY_LOCK_SHA256=$(sha256sum "$lock" | awk '{print $1}')"
           grep -Fx 'CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y' "$cfg"
           grep -Fx 'CONFIG_LV_USE_BUILTIN_MALLOC=n' "$cfg"
