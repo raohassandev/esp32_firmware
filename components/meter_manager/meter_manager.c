@@ -241,7 +241,7 @@ static esp_err_t serialized_read(meter_runtime_t *meter,
 
     meter_gateway_lane_t *lane = meter->gateway_lane;
     if (xSemaphoreTake(lane->mutex, pdMS_TO_TICKS(METER_IO_LOCK_TIMEOUT_MS)) != pdTRUE) {
-        xSemaphoreGive(meter->io_mutex);
+        xSemaphoreGive((meter)->io_mutex);
         ESP_LOGW(TAG, "%s: shared gateway %s:%u queue timeout",
                  meter->config.name, lane->host, lane->port);
         return ESP_ERR_TIMEOUT;
