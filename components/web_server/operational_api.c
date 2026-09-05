@@ -940,6 +940,35 @@ static esp_err_t alarms_get(httpd_req_t *request)
     return send_json(request, root);
 }
 
+bool operational_api_acknowledge_alarm(uint32_t code,
+                                       bool *present,
+                                       bool *was_outstanding)
+{
+    if (present) *present = false;
+    if (was_outstanding) *was_outstanding = false;
+    if ((size_t)code >= sizeof(s_alarms) / sizeof(s_alarms[0]) ||
+        !event_is_alarm_condition((uint8_t)code)) {
+        return false;
+    }
+
+    const uint32_t timestamp = now_ms();
+    bool current_present = false;
+    bool outstanding = false;
+    portENTER_CRITICAL(&s_lock);
+    operational_alarm_t *alarm = &s_alarms[code];
+    current_present = alarm->present;
+    outstanding = !alarm->acknowledged && alarm->occurrences > 0U;
+    if (outstanding) {
+        alarm->acknowledged = true;
+        alarm->acknowledged_ms = timestamp;
+    }
+    portEXIT_CRITICAL(&s_lock);
+
+    if (present) *present = current_present;
+    if (was_outstanding) *was_outstanding = outstanding;
+    return true;
+}
+
 /* Acknowledgement is a deliberate act, so it names the condition rather than
  * offering a blanket "clear all": acknowledging something an operator has not
  * looked at is exactly what this is meant to prevent. It never clears the
@@ -978,36 +1007,17 @@ static esp_err_t alarms_ack_post(httpd_req_t *request)
     const int code = have_code ? code_item->valueint : -1;
     cJSON_Delete(root);
 
+    bool present = false;
+    bool was_outstanding = false;
     if (!have_code || code < 0 ||
-        (size_t)code >= sizeof(s_alarms) / sizeof(s_alarms[0]) ||
-        !event_is_alarm_condition((uint8_t)code)) {
+        !operational_api_acknowledge_alarm((uint32_t)code,
+                                           &present,
+                                           &was_outstanding)) {
         cJSON *err = cJSON_CreateObject();
         if (!err) return httpd_resp_send_500(request);
         cJSON_AddStringToObject(err, "error", "A known alarm code is required");
         return send_json_status(request, "400 Bad Request", err);
     }
-
-    const uint32_t timestamp = now_ms();
-    bool present = false;
-    bool was_outstanding = false;
-    portENTER_CRITICAL(&s_lock);
-    operational_alarm_t *alarm = &s_alarms[code];
-    present = alarm->present;
-    /* Acknowledgement applies whether or not the condition is still present.
-     *
-     * Restricting it to present conditions made an RTN-unacknowledged alarm
-     * impossible to clear: a fault that appeared and went away while nobody was
-     * watching would stay outstanding for ever, and the operator had no way to
-     * discharge it. That defeats the point of retaining the state at all.
-     * ISA-18.2 has the operator acknowledging exactly this case to move it from
-     * RTN Unacknowledged to Normal, and it is the state that matters most on an
-     * unattended site. */
-    was_outstanding = !alarm->acknowledged && alarm->occurrences > 0U;
-    if (was_outstanding) {
-        alarm->acknowledged = true;
-        alarm->acknowledged_ms = timestamp;
-    }
-    portEXIT_CRITICAL(&s_lock);
 
     cJSON *reply = cJSON_CreateObject();
     if (!reply) return httpd_resp_send_500(request);

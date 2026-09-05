@@ -37,6 +37,13 @@ static bool unlocked(void)
     return true;
 }
 
+bool local_commissioning_backend_engineering_authorized(void)
+{
+    if (!unlocked()) return false;
+    s_unlocked_until_ms = now_ms() + LOCAL_ENGINEERING_SESSION_MS;
+    return true;
+}
+
 static void result_set(screen_commission_action_result_t *result,
                        bool ok, bool restart_required, const char *message)
 {

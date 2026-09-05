@@ -1,7 +1,9 @@
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 
+#include "alarms_screen.h"
 #include "app_core.h"
 #include "esp_err.h"
 #include "esp_flash_dispatcher.h"
@@ -16,6 +18,7 @@
 #include "local_commissioning_backend.h"
 #include "local_source_commissioning_backend.h"
 #include "lvgl.h"
+#include "operational_api.h"
 #include "screen_api.h"
 #include "screen_app.h"
 #include "screen_runtime.h"
@@ -57,6 +60,40 @@ static screen_commissioning_snapshot_t s_commissioning;
 static screen_commissioning_backend_t s_commissioning_backend;
 static source_commission_backend_t s_source_commissioning_backend;
 static bool s_flash_dispatcher_ready;
+
+static bool touchscreen_acknowledge_alarm(void *context,
+                                          uint32_t code,
+                                          char *message,
+                                          size_t message_capacity)
+{
+    (void)context;
+    if (!message || message_capacity == 0U) return false;
+    message[0] = '\0';
+
+    if (!local_commissioning_backend_engineering_authorized()) {
+        snprintf(message, message_capacity,
+                 "Engineering unlock required. Open Commission, unlock Engineering, then return to Alarms.");
+        return false;
+    }
+
+    bool present = false;
+    bool was_outstanding = false;
+    if (!operational_api_acknowledge_alarm(code, &present, &was_outstanding)) {
+        snprintf(message, message_capacity,
+                 "Alarm code is no longer valid; state was not changed.");
+        return false;
+    }
+
+    if (!was_outstanding) {
+        snprintf(message, message_capacity, "Alarm is already acknowledged.");
+        return true;
+    }
+    snprintf(message, message_capacity,
+             present
+                 ? "Alarm acknowledged. The condition remains active until the plant clears it."
+                 : "Returned-to-normal alarm acknowledged and discharged from outstanding work.");
+    return true;
+}
 
 static void log_dma_headroom(const char *stage)
 {
@@ -392,6 +429,7 @@ void app_main(void)
                 local_commissioning_backend_init(&s_commissioning_backend)) {
                 if (esp_lv_adapter_lock(SCREEN_LVGL_LOCK_MS) == ESP_OK) {
                     screen_app_set_commissioning_backend(&s_commissioning_backend);
+                    alarms_screen_set_acknowledge_backend(touchscreen_acknowledge_alarm, NULL);
                     esp_lv_adapter_unlock();
                 }
                 ESP_LOGI(TAG, "Local Engineering commissioning backend bound to touchscreen");
