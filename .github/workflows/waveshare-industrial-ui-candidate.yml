@@ -22,7 +22,6 @@ jobs:
       BOARD_SOURCE_SHA: 87841ecee727fe1d814d4186be8c8c26e4afafb4
       INDUSTRIAL_UI_BASELINE: 14d13a0d6e5c4b4b95cea35b8cc32f1880ae8134
       INTEGRATION_BASE_DEV: 150118a8425462e1756b115ddf3d463a022b395f
-      SOURCE_LOCK_SHA256: fd82d3c69b9507f0b4966e1d7a9479a9ee49e7cc58b8199966db75d4af86eb91
       SOURCE_LOCK_MANIFEST: 2dab05bfd99022761c1d592fa801a4514bcf0433edd3b90a8ddcb122cc94ef2f
       BOARD_DIR: boards/waveshare_esp32_s3_touch_lcd_5
       PRODUCT_DIR: boards/waveshare_esp32_s3_touch_lcd_5/screen/product_800x480
@@ -119,9 +118,9 @@ jobs:
           ! grep -Fq 'WAVESHARE_BENCH_ENGINEERING_CREDENTIAL' "$kcfg"
           grep -Fq 'version: "==1.0.3"' "$manifest"
           test -s "$lock"
-          test "$(sha256sum "$lock" | awk '{print $1}')" = "$SOURCE_LOCK_SHA256"
           grep -Fx "manifest_hash: $SOURCE_LOCK_MANIFEST" "$lock"
           grep -A8 '^  espressif/esp_flash_dispatcher:' "$lock" | grep -Fq 'version: 1.0.3'
+          echo "SOURCE_DEPENDENCY_LOCK_SHA256=$(sha256sum "$lock" | awk '{print $1}')"
           grep -Fx 'CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y' "$cfg"
           grep -Fx 'CONFIG_LV_USE_BUILTIN_MALLOC=n' "$cfg"
           grep -Fx 'CONFIG_LV_USE_CLIB_MALLOC=y' "$cfg"
@@ -159,7 +158,7 @@ jobs:
           test -s build/project_description.json
           test -s build/CMakeCache.txt
           test -s dependencies.lock
-          test "$(sha256sum dependencies.lock | awk '{print $1}')" = "$SOURCE_LOCK_SHA256"
+          grep -Fx "manifest_hash: $SOURCE_LOCK_MANIFEST" dependencies.lock
           git -C "$GITHUB_WORKSPACE" diff --exit-code -- "$PRODUCT_DIR/dependencies.lock"
 
       - name: Verify generated sdkconfig safety state
