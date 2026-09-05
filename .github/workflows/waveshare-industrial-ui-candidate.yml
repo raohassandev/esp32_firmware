@@ -46,11 +46,16 @@ jobs:
 
           mapfile -t board_changes < <(git diff --name-only "$BOARD_SOURCE_SHA" -- "$BOARD_DIR")
           expected_board_changes=(
+            "$BOARD_DIR/screen/README.md"
+            "$BOARD_DIR/screen/SCREEN_TODO.md"
             "$BOARD_DIR/screen/api/screen_api.h"
             "$BOARD_DIR/screen/pages/alarms_screen.c"
             "$BOARD_DIR/screen/pages/alarms_screen.h"
             "$BOARD_DIR/screen/pages/commissioning_screen.c"
             "$BOARD_DIR/screen/pages/readiness_screen.c"
+            "$PRODUCT_DIR/README.md"
+            "$PRODUCT_DIR/main/Kconfig.projbuild"
+            "$PRODUCT_DIR/main/idf_component.yml"
             "$PRODUCT_DIR/main/local_backend_provider.c"
             "$PRODUCT_DIR/main/local_commissioning_backend.c"
             "$PRODUCT_DIR/main/local_commissioning_backend.h"
@@ -89,16 +94,21 @@ jobs:
           grep -Fq 'Runtime Readiness' "$readiness"
           grep -Fq 'Not asserted by LCD' "$readiness"
 
-      - name: Enforce current provisioning and rollback safety defaults
+      - name: Enforce current provisioning, dependency and rollback safety defaults
         shell: bash
         run: |
           set -euo pipefail
           cfg="$PRODUCT_DIR/sdkconfig.defaults"
+          kcfg="$PRODUCT_DIR/main/Kconfig.projbuild"
+          manifest="$PRODUCT_DIR/main/idf_component.yml"
+
           ! grep -q '^CONFIG_PVDG_PRIMARY_WIFI_SSID=' "$cfg"
           ! grep -q '^CONFIG_PVDG_PRIMARY_WIFI_PASSWORD=' "$cfg"
           ! grep -q '^CONFIG_PVDG_DEFAULT_WIFI_SSID=' "$cfg"
           ! grep -q '^CONFIG_PVDG_DEFAULT_WIFI_PASSWORD=' "$cfg"
           grep -Fx '# CONFIG_PVDG_APPLY_BUILD_WIFI_PROVISIONING is not set' "$cfg"
+          ! grep -Fq 'WAVESHARE_BENCH_ENGINEERING_CREDENTIAL' "$kcfg"
+          grep -Fq 'version: "==1.0.3"' "$manifest"
           grep -Fx 'CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y' "$cfg"
           grep -Fx 'CONFIG_LV_USE_BUILTIN_MALLOC=n' "$cfg"
           grep -Fx 'CONFIG_LV_USE_CLIB_MALLOC=y' "$cfg"
@@ -153,7 +163,7 @@ jobs:
           grep -qx 'CONFIG_PVDG_PRIMARY_WIFI_PASSWORD=""' sdkconfig
           grep -qx 'CONFIG_PVDG_DEFAULT_WIFI_SSID=""' sdkconfig
           grep -qx 'CONFIG_PVDG_DEFAULT_WIFI_PASSWORD=""' sdkconfig
-          grep -qx 'CONFIG_WAVESHARE_BENCH_ENGINEERING_CREDENTIAL=""' sdkconfig
+          ! grep -q '^CONFIG_WAVESHARE_BENCH_ENGINEERING_CREDENTIAL=' sdkconfig
 
       - name: Assemble immutable physical-candidate package
         shell: bash
@@ -202,7 +212,7 @@ jobs:
           candidate_sha=$CANDIDATE_SHA
           candidate_tree=$candidate_tree
           board_source_sha=$BOARD_SOURCE_SHA
-          reviewed_board_delta=$BOARD_DIR/screen/api/screen_api.h,$BOARD_DIR/screen/pages/alarms_screen.c,$BOARD_DIR/screen/pages/alarms_screen.h,$BOARD_DIR/screen/pages/commissioning_screen.c,$BOARD_DIR/screen/pages/readiness_screen.c,$PRODUCT_DIR/main/local_backend_provider.c,$PRODUCT_DIR/main/local_commissioning_backend.c,$PRODUCT_DIR/main/local_commissioning_backend.h,$PRODUCT_DIR/main/main.c,$PRODUCT_DIR/sdkconfig.defaults
+          reviewed_board_delta=$BOARD_DIR/screen/README.md,$BOARD_DIR/screen/SCREEN_TODO.md,$BOARD_DIR/screen/api/screen_api.h,$BOARD_DIR/screen/pages/alarms_screen.c,$BOARD_DIR/screen/pages/alarms_screen.h,$BOARD_DIR/screen/pages/commissioning_screen.c,$BOARD_DIR/screen/pages/readiness_screen.c,$PRODUCT_DIR/README.md,$PRODUCT_DIR/main/Kconfig.projbuild,$PRODUCT_DIR/main/idf_component.yml,$PRODUCT_DIR/main/local_backend_provider.c,$PRODUCT_DIR/main/local_commissioning_backend.c,$PRODUCT_DIR/main/local_commissioning_backend.h,$PRODUCT_DIR/main/main.c,$PRODUCT_DIR/sdkconfig.defaults
           industrial_ui_software_baseline=$INDUSTRIAL_UI_BASELINE
           integration_base_dev=$INTEGRATION_BASE_DEV
           container_image=espressif/idf:v6.0.1
@@ -217,6 +227,7 @@ jobs:
           industrial_ui_css_sha256=$ui_css_sha
           rollback_enabled=1
           compiled_sta_credentials=0
+          compiled_engineering_credential_prefill=0
           lvgl_clib_malloc=1
           spiram_always_internal=512
           spiram_reserve_internal=98304
