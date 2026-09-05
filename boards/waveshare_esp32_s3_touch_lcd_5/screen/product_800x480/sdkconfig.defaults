@@ -1,0 +1,71 @@
+CONFIG_IDF_TARGET="esp32s3"
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+CONFIG_ESP_TASK_WDT_EN=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=5
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_LWIP_MAX_SOCKETS=16
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_USE_MALLOC=y
+# ESP-IDF recommends PSRAM XIP for RGB bounce-buffer mode so flash writes do not
+# disable the external-memory cache underneath display refill. Keep cache *size*
+# memory-efficient: v6.0.1 documents that 16KB I-cache and 32KB D-cache return
+# the remaining SRAM to heap. Bounce mode specifically requires a 64-byte D-cache
+# line for stable PSRAM-to-SRAM refill bandwidth.
+CONFIG_SPIRAM_XIP_FROM_PSRAM=y
+CONFIG_ESP32S3_INSTRUCTION_CACHE_16KB=y
+CONFIG_ESP32S3_DATA_CACHE_32KB=y
+CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
+# Physical exact-board work showed that the old 4096-byte threshold let many
+# ordinary Core/LVGL allocations consume scarce internal/DMA-capable memory.
+# Keep only genuinely tiny mallocs biased to internal RAM; larger ordinary
+# objects should prefer the board's 8 MB PSRAM. Code that truly requires
+# internal/DMA memory must request those capabilities explicitly.
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=512
+# Reserve internal DMA-capable memory for RGB bounce buffers, FreeRTOS task
+# stacks and other explicit internal/DMA consumers. This remains subject to the
+# new exact-image physical qualification; it is not accepted by CI alone.
+CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=98304
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+# The PSRAM Wi-Fi preference uses permanent DMA buffers. Preserve the previously
+# qualified RX/TX sizing while the new integrated image re-earns physical proof.
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=4
+CONFIG_ESP_WIFI_STATIC_TX_BUFFER=y
+CONFIG_ESP_WIFI_STATIC_TX_BUFFER_NUM=4
+CONFIG_ESP_WIFI_RX_BA_WIN=8
+CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM=y
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+# Keep automatic DMA restart disabled. It can mask persistent scanout problems;
+# the image must remain stable without periodic restart as a recovery crutch.
+# CONFIG_LCD_RGB_RESTART_IN_VSYNC is not set
+CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
+CONFIG_HTTPD_MAX_URI_LEN=256
+# No compiled STA SSID/password is permitted in the current-dev integration.
+# Fresh controllers must use the setup AP / NVS commissioning path.
+# CONFIG_PVDG_APPLY_BUILD_WIFI_PROVISIONING is not set
+# Engineering credentials are never compiled into the release candidate.
+CONFIG_WAVESHARE_BENCH_ENGINEERING_CREDENTIAL=""
+# Keep the same generic gateway default used by current dev; site-specific
+# endpoint commissioning remains persisted configuration, not inferred proof.
+CONFIG_PVDG_DEFAULT_ZLAN_HOST="192.168.100.200"
+CONFIG_FREERTOS_HZ=1000
+CONFIG_MDNS_PREDEF_NETIF_STA=y
+CONFIG_MDNS_PREDEF_NETIF_AP=y
+CONFIG_MDNS_PREDEF_NETIF_ETH=n
+CONFIG_MDNS_MAX_INTERFACES=2
+CONFIG_MDNS_MAX_SERVICES=2
+
+# Diagnostic only: lets the product report per-task stack high-water marks so
+# support stacks can be right-sized from measurement instead of guesswork.
+CONFIG_FREERTOS_USE_TRACE_FACILITY=y
+
+# LVGL allocates from the ESP heap, not from a fixed private pool. The historical
+# Alarms-page watchdog was traced to exhaustion of LVGL's fixed private pool;
+# route widget allocations through the ESP heap so PSRAM remains available.
+CONFIG_LV_USE_BUILTIN_MALLOC=n
+CONFIG_LV_USE_CLIB_MALLOC=y

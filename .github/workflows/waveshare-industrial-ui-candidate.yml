@@ -1,0 +1,280 @@
+name: Waveshare Industrial UI exact candidate
+
+on:
+  pull_request:
+    paths:
+      - 'boards/waveshare_esp32_s3_touch_lcd_5/**'
+      - 'components/**'
+      - 'web/**'
+      - '.github/workflows/waveshare-industrial-ui-candidate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-package-exact-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container: espressif/idf:v6.0.1
+    env:
+      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      BOARD_SOURCE_SHA: 87841ecee727fe1d814d4186be8c8c26e4afafb4
+      INDUSTRIAL_UI_BASELINE: 14d13a0d6e5c4b4b95cea35b8cc32f1880ae8134
+      INTEGRATION_BASE_DEV: 150118a8425462e1756b115ddf3d463a022b395f
+      SOURCE_LOCK_MANIFEST: 2dab05bfd99022761c1d592fa801a4514bcf0433edd3b90a8ddcb122cc94ef2f
+      BOARD_DIR: boards/waveshare_esp32_s3_touch_lcd_5
+      PRODUCT_DIR: boards/waveshare_esp32_s3_touch_lcd_5/screen/product_800x480
+    steps:
+      - name: Check out exact candidate head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 0
+
+      - name: Trust checkout path inside IDF container
+        shell: bash
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Verify exact identity and reviewed board delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test -d "$BOARD_DIR/screen"
+          test -d "$PRODUCT_DIR"
+          test "$(git merge-base "$CANDIDATE_SHA" "$INTEGRATION_BASE_DEV")" = "$INTEGRATION_BASE_DEV"
+
+          mapfile -t board_changes < <(git diff --name-only "$BOARD_SOURCE_SHA" -- "$BOARD_DIR")
+          expected_board_changes=(
+            "$BOARD_DIR/screen/README.md"
+            "$BOARD_DIR/screen/SCREEN_TODO.md"
+            "$BOARD_DIR/screen/api/screen_api.h"
+            "$BOARD_DIR/screen/pages/alarms_screen.c"
+            "$BOARD_DIR/screen/pages/alarms_screen.h"
+            "$BOARD_DIR/screen/pages/commissioning_screen.c"
+            "$BOARD_DIR/screen/pages/readiness_screen.c"
+            "$PRODUCT_DIR/README.md"
+            "$PRODUCT_DIR/dependencies.lock"
+            "$PRODUCT_DIR/main/Kconfig.projbuild"
+            "$PRODUCT_DIR/main/idf_component.yml"
+            "$PRODUCT_DIR/main/local_backend_provider.c"
+            "$PRODUCT_DIR/main/local_commissioning_backend.c"
+            "$PRODUCT_DIR/main/local_commissioning_backend.h"
+            "$PRODUCT_DIR/main/main.c"
+            "$PRODUCT_DIR/sdkconfig.defaults"
+            "$BOARD_DIR/screen/screen_app.c"
+          )
+          printf 'Board changes from frozen source:\n%s\n' "${board_changes[*]}"
+          test "${#board_changes[@]}" -eq "${#expected_board_changes[@]}"
+          for i in "${!expected_board_changes[@]}"; do
+            test "${board_changes[$i]}" = "${expected_board_changes[$i]}"
+          done
+
+          candidate_tree="$(git rev-parse HEAD^{tree})"
+          printf 'candidate_sha=%s\ncandidate_tree=%s\nboard_source_sha=%s\nintegration_base_dev=%s\n' \
+            "$CANDIDATE_SHA" "$candidate_tree" "$BOARD_SOURCE_SHA" "$INTEGRATION_BASE_DEV"
+
+      - name: Enforce current native commissioning and touch semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          ui="$BOARD_DIR/screen/pages/commissioning_screen.c"
+          readiness="$BOARD_DIR/screen/pages/readiness_screen.c"
+          api="$BOARD_DIR/screen/api/screen_api.h"
+          touch_shell="$BOARD_DIR/screen/screen_app.c"
+
+          ! grep -Fq 'Core commissioning gate' "$ui"
+          ! grep -Fq '/api/commissioning/gate' "$api"
+          ! grep -Fq 'Core schema 9' "$ui"
+          ! grep -Fq 'Meter model' "$ui"
+          ! grep -Fq 'Grid phase basis' "$ui"
+          ! grep -Fq 'Inverter comms fail-safe' "$ui"
+          ! grep -Fq 'Generator load sharing' "$ui"
+          ! grep -Fq 'Base-load role' "$ui"
+          ! grep -Fq 'Urgent loading fraction' "$ui"
+          grep -Fq 'ARM automatic control for next restart' "$ui"
+          grep -Fq 'current Core runtime evidence and profile checks determine command authority' "$ui"
+          grep -Fq 'Runtime Readiness' "$readiness"
+          grep -Fq 'Not asserted by LCD' "$readiness"
+          grep -Fq '#define SCREEN_MIN_TOUCH_TARGET_PX 44' "$touch_shell"
+          grep -Fq 'lv_obj_set_style_min_height' "$touch_shell"
+          grep -Fq 'enforce_min_touch_targets(created)' "$touch_shell"
+
+      - name: Enforce current provisioning, dependency and rollback safety defaults
+        shell: bash
+        run: |
+          set -euo pipefail
+          cfg="$PRODUCT_DIR/sdkconfig.defaults"
+          kcfg="$PRODUCT_DIR/main/Kconfig.projbuild"
+          manifest="$PRODUCT_DIR/main/idf_component.yml"
+          lock="$PRODUCT_DIR/dependencies.lock"
+
+          ! grep -q '^CONFIG_PVDG_PRIMARY_WIFI_SSID=' "$cfg"
+          ! grep -q '^CONFIG_PVDG_PRIMARY_WIFI_PASSWORD=' "$cfg"
+          ! grep -q '^CONFIG_PVDG_DEFAULT_WIFI_SSID=' "$cfg"
+          ! grep -q '^CONFIG_PVDG_DEFAULT_WIFI_PASSWORD=' "$cfg"
+          grep -Fx '# CONFIG_PVDG_APPLY_BUILD_WIFI_PROVISIONING is not set' "$cfg"
+          ! grep -Fq 'WAVESHARE_BENCH_ENGINEERING_CREDENTIAL' "$kcfg"
+          grep -Fq 'version: "==1.0.3"' "$manifest"
+          test -s "$lock"
+          grep -Fx "manifest_hash: $SOURCE_LOCK_MANIFEST" "$lock"
+          grep -A12 '^  espressif/esp_flash_dispatcher:' "$lock" | grep -Fq 'version: 1.0.3'
+          echo "SOURCE_DEPENDENCY_LOCK_SHA256=$(sha256sum "$lock" | awk '{print $1}')"
+          grep -Fx 'CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y' "$cfg"
+          grep -Fx 'CONFIG_LV_USE_BUILTIN_MALLOC=n' "$cfg"
+          grep -Fx 'CONFIG_LV_USE_CLIB_MALLOC=y' "$cfg"
+          grep -Fx 'CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=512' "$cfg"
+          grep -Fx 'CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=98304' "$cfg"
+          grep -Fx 'CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y' "$cfg"
+
+      - name: Build exact current Product Core plus Waveshare 800x480 target
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$IDF_PATH/export.sh"
+          cd "$PRODUCT_DIR"
+          idf.py --version
+          idf.py set-target esp32s3
+          idf.py build
+
+      - name: Generate exact candidate UF2
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$IDF_PATH/export.sh"
+          cd "$PRODUCT_DIR"
+          idf.py uf2
+
+      - name: Verify exact build outputs and immutable dependency lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PRODUCT_DIR"
+          test -s build/automatrix_pvdg_waveshare_800x480.bin
+          test -s build/automatrix_pvdg_waveshare_800x480.elf
+          test -s build/uf2.bin
+          test -s build/compile_commands.json
+          test -s build/project_description.json
+          test -s build/CMakeCache.txt
+          test -s dependencies.lock
+          grep -Fx "manifest_hash: $SOURCE_LOCK_MANIFEST" dependencies.lock
+          git -C "$GITHUB_WORKSPACE" diff --exit-code -- "$PRODUCT_DIR/dependencies.lock"
+
+      - name: Verify generated sdkconfig safety state
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PRODUCT_DIR"
+          grep -qx 'CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y' sdkconfig
+          grep -qx '# CONFIG_LV_USE_BUILTIN_MALLOC is not set' sdkconfig
+          grep -qx 'CONFIG_LV_USE_CLIB_MALLOC=y' sdkconfig
+          grep -qx 'CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=512' sdkconfig
+          grep -qx 'CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=98304' sdkconfig
+          grep -qx 'CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y' sdkconfig
+          grep -qx '# CONFIG_PVDG_APPLY_BUILD_WIFI_PROVISIONING is not set' sdkconfig
+          grep -qx 'CONFIG_PVDG_PRIMARY_WIFI_SSID=""' sdkconfig
+          grep -qx 'CONFIG_PVDG_PRIMARY_WIFI_PASSWORD=""' sdkconfig
+          grep -qx 'CONFIG_PVDG_DEFAULT_WIFI_SSID=""' sdkconfig
+          grep -qx 'CONFIG_PVDG_DEFAULT_WIFI_PASSWORD=""' sdkconfig
+          ! grep -q '^CONFIG_WAVESHARE_BENCH_ENGINEERING_CREDENTIAL=' sdkconfig
+
+      - name: Assemble immutable physical-candidate package
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$IDF_PATH/export.sh"
+          build="$PRODUCT_DIR/build"
+          package="$GITHUB_WORKSPACE/industrial-ui-waveshare-candidate"
+          mkdir -p "$package"
+
+          while IFS= read -r -d '' file; do
+            rel="${file#$GITHUB_WORKSPACE/}"
+            mkdir -p "$package/$(dirname "$rel")"
+            cp "$file" "$package/$rel"
+          done < <(find "$GITHUB_WORKSPACE/$build" -maxdepth 4 -type f \
+            \( -name '*.bin' -o -name '*.elf' -o -name 'uf2.bin' \
+               -o -name 'flasher_args.json' -o -name 'flash_args' \
+               -o -name 'flash_project_args' -o -name 'project_description.json' \
+               -o -name 'compile_commands.json' -o -name 'CMakeCache.txt' \) -print0)
+
+          cp "$PRODUCT_DIR/sdkconfig" "$package/effective-sdkconfig"
+          cp "$PRODUCT_DIR/dependencies.lock" "$package/dependencies.lock"
+
+          candidate_tree="$(git rev-parse HEAD^{tree})"
+          app="$build/automatrix_pvdg_waveshare_800x480.bin"
+          elf="$build/automatrix_pvdg_waveshare_800x480.elf"
+          uf2="$build/uf2.bin"
+          app_sha="$(sha256sum "$app" | awk '{print $1}')"
+          elf_sha="$(sha256sum "$elf" | awk '{print $1}')"
+          uf2_sha="$(sha256sum "$uf2" | awk '{print $1}')"
+          lock_sha="$(sha256sum "$PRODUCT_DIR/dependencies.lock" | awk '{print $1}')"
+          compile_commands_sha="$(sha256sum "$build/compile_commands.json" | awk '{print $1}')"
+          ui_js_sha="$(sha256sum web/industrial-ui-v1.js | awk '{print $1}')"
+          ui_css_sha="$(sha256sum web/industrial-ui-v1.css | awk '{print $1}')"
+
+          {
+            echo 'container_image=espressif/idf:v6.0.1'
+            printf 'idf_version='; idf.py --version | tr '\n' ' '; echo
+            printf 'compiler_version='; xtensa-esp32s3-elf-gcc --version | sed -n '1p'
+            printf 'python_version='; python --version 2>&1
+            printf 'cmake_version='; cmake --version | sed -n '1p'
+            printf 'ninja_version='; ninja --version
+          } > "$package/TOOLCHAIN.txt"
+
+          cat > "$package/CANDIDATE.txt" <<EOF
+          candidate_sha=$CANDIDATE_SHA
+          candidate_tree=$candidate_tree
+          board_source_sha=$BOARD_SOURCE_SHA
+          reviewed_board_delta=$BOARD_DIR/screen/README.md,$BOARD_DIR/screen/SCREEN_TODO.md,$BOARD_DIR/screen/api/screen_api.h,$BOARD_DIR/screen/pages/alarms_screen.c,$BOARD_DIR/screen/pages/alarms_screen.h,$BOARD_DIR/screen/pages/commissioning_screen.c,$BOARD_DIR/screen/pages/readiness_screen.c,$PRODUCT_DIR/README.md,$PRODUCT_DIR/dependencies.lock,$PRODUCT_DIR/main/Kconfig.projbuild,$PRODUCT_DIR/main/idf_component.yml,$PRODUCT_DIR/main/local_backend_provider.c,$PRODUCT_DIR/main/local_commissioning_backend.c,$PRODUCT_DIR/main/local_commissioning_backend.h,$PRODUCT_DIR/main/main.c,$PRODUCT_DIR/sdkconfig.defaults,$BOARD_DIR/screen/screen_app.c
+          industrial_ui_software_baseline=$INDUSTRIAL_UI_BASELINE
+          integration_base_dev=$INTEGRATION_BASE_DEV
+          container_image=espressif/idf:v6.0.1
+          build_command=idf.py set-target esp32s3 && idf.py build && idf.py uf2
+          product_dir=$PRODUCT_DIR
+          application_sha256=$app_sha
+          elf_sha256=$elf_sha
+          uf2_sha256=$uf2_sha
+          dependencies_lock_sha256=$lock_sha
+          dependencies_lock_manifest=$SOURCE_LOCK_MANIFEST
+          compile_commands_sha256=$compile_commands_sha
+          industrial_ui_js_sha256=$ui_js_sha
+          industrial_ui_css_sha256=$ui_css_sha
+          rollback_enabled=1
+          compiled_sta_credentials=0
+          compiled_engineering_credential_prefill=0
+          min_native_touch_target_px=44
+          lvgl_clib_malloc=1
+          spiram_always_internal=512
+          spiram_reserve_internal=98304
+          EOF
+
+          cd "$package"
+          find . -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+          sha256sum -c SHA256SUMS.txt
+
+          cd "$GITHUB_WORKSPACE"
+          tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
+            -cf - industrial-ui-waveshare-candidate | gzip -n > industrial-ui-waveshare-candidate.tar.gz
+          sha256sum industrial-ui-waveshare-candidate.tar.gz > industrial-ui-waveshare-candidate.tar.gz.sha256
+          cat industrial-ui-waveshare-candidate.tar.gz.sha256
+          echo "CANDIDATE_SHA=$CANDIDATE_SHA"
+          echo "CANDIDATE_TREE=$candidate_tree"
+          echo "APPLICATION_SHA256=$app_sha"
+          echo "ELF_SHA256=$elf_sha"
+          echo "UF2_SHA256=$uf2_sha"
+          echo "DEPENDENCIES_LOCK_SHA256=$lock_sha"
+          echo "COMPILE_COMMANDS_SHA256=$compile_commands_sha"
+          echo "INDUSTRIAL_UI_JS_SHA256=$ui_js_sha"
+          echo "INDUSTRIAL_UI_CSS_SHA256=$ui_css_sha"
+
+      - name: Upload exact Industrial UI Waveshare package
+        uses: actions/upload-artifact@v4
+        with:
+          name: industrial-ui-waveshare-800x480-candidate
+          path: |
+            industrial-ui-waveshare-candidate
+            industrial-ui-waveshare-candidate.tar.gz
+            industrial-ui-waveshare-candidate.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 30

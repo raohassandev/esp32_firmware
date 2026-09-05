@@ -438,6 +438,48 @@ static void clear_login_failures(void)
     portEXIT_CRITICAL(&s_lock);
 }
 
+engineering_local_auth_result_t engineering_auth_verify_local_credential(
+    const char *credential,
+    uint32_t *retry_after_ms,
+    bool *setup_required)
+{
+    if (retry_after_ms) *retry_after_ms = 0U;
+
+    portENTER_CRITICAL(&s_lock);
+    const bool setup = !s_password_configured;
+    char setup_code[sizeof(s_setup_code)];
+    strlcpy(setup_code, s_setup_code, sizeof(setup_code));
+    portEXIT_CRITICAL(&s_lock);
+    if (setup_required) *setup_required = setup;
+
+    uint64_t remaining = 0U;
+    if (login_locked(&remaining)) {
+        memset(setup_code, 0, sizeof(setup_code));
+        if (retry_after_ms) {
+            *retry_after_ms = remaining > UINT32_MAX ? UINT32_MAX : (uint32_t)remaining;
+        }
+        return ENGINEERING_LOCAL_AUTH_LOCKED;
+    }
+
+    if (!credential || strlen(credential) > AUTH_MAX_PASSWORD_LENGTH) {
+        memset(setup_code, 0, sizeof(setup_code));
+        record_login_failure();
+        return ENGINEERING_LOCAL_AUTH_DENIED;
+    }
+
+    const bool valid = setup
+        ? constant_time_string_equal(credential, setup_code)
+        : verify_password(credential);
+    memset(setup_code, 0, sizeof(setup_code));
+    if (!valid) {
+        record_login_failure();
+        return ENGINEERING_LOCAL_AUTH_DENIED;
+    }
+
+    clear_login_failures();
+    return ENGINEERING_LOCAL_AUTH_OK;
+}
+
 bool engineering_auth_is_authorized(httpd_req_t *request)
 {
     portENTER_CRITICAL(&s_lock);

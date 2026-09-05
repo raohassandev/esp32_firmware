@@ -1,0 +1,8 @@
+# Reuse the authoritative Product Core project configuration. This board build
+# must not fork or duplicate CONFIG_PVDG_* definitions/defaults.
+rsource "../../../../../main/Kconfig.projbuild"
+
+# Production rule: the Waveshare target exposes no board-local compile-time
+# Engineering credential or credential-prefill option. Local HMI Engineering
+# authentication must use the shared runtime setup-code/password authority and
+# its existing lockout state.
