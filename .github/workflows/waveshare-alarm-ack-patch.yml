@@ -38,66 +38,58 @@ jobs:
               raise SystemExit('operational acknowledgement function already exists')
 
           marker = '''/* Acknowledgement is a deliberate act, so it names the condition rather than
-           * offering a blanket "clear all": acknowledging something an operator has not
-           * looked at is exactly what this is meant to prevent. It never clears the
-           * condition - only the plant can do that. */
-          '''
+ * offering a blanket "clear all": acknowledging something an operator has not
+ * looked at is exactly what this is meant to prevent. It never clears the
+ * condition - only the plant can do that. */
+'''
           function = '''bool operational_api_acknowledge_alarm(uint32_t code,
-                                                   bool *present,
-                                                   bool *was_outstanding)
-          {
-              if (present) *present = false;
-              if (was_outstanding) *was_outstanding = false;
-              if ((size_t)code >= sizeof(s_alarms) / sizeof(s_alarms[0]) ||
-                  !event_is_alarm_condition((uint8_t)code)) {
-                  return false;
-              }
+                                       bool *present,
+                                       bool *was_outstanding)
+{
+    if (present) *present = false;
+    if (was_outstanding) *was_outstanding = false;
+    if ((size_t)code >= sizeof(s_alarms) / sizeof(s_alarms[0]) ||
+        !event_is_alarm_condition((uint8_t)code)) {
+        return false;
+    }
 
-              const uint32_t timestamp = now_ms();
-              bool current_present = false;
-              bool outstanding = false;
-              portENTER_CRITICAL(&s_lock);
-              operational_alarm_t *alarm = &s_alarms[code];
-              current_present = alarm->present;
-              outstanding = !alarm->acknowledged && alarm->occurrences > 0U;
-              if (outstanding) {
-                  alarm->acknowledged = true;
-                  alarm->acknowledged_ms = timestamp;
-              }
-              portEXIT_CRITICAL(&s_lock);
+    const uint32_t timestamp = now_ms();
+    bool current_present = false;
+    bool outstanding = false;
+    portENTER_CRITICAL(&s_lock);
+    operational_alarm_t *alarm = &s_alarms[code];
+    current_present = alarm->present;
+    outstanding = !alarm->acknowledged && alarm->occurrences > 0U;
+    if (outstanding) {
+        alarm->acknowledged = true;
+        alarm->acknowledged_ms = timestamp;
+    }
+    portEXIT_CRITICAL(&s_lock);
 
-              if (present) *present = current_present;
-              if (was_outstanding) *was_outstanding = outstanding;
-              return true;
-          }
+    if (present) *present = current_present;
+    if (was_outstanding) *was_outstanding = outstanding;
+    return true;
+}
 
-          '''
+'''
           text = replace_once(text, marker, function + marker, 'insert operational acknowledge')
 
-          start_marker = '''    if (!have_code || code < 0 ||
-              (size_t)code >= sizeof(s_alarms) / sizeof(s_alarms[0]) ||
-              !event_is_alarm_condition((uint8_t)code)) {
-          '''
-          start = text.find(start_marker)
-          if start < 0:
-              raise SystemExit('HTTP acknowledgement validation block not found')
-          reply_marker = '    cJSON *reply = cJSON_CreateObject();\n'
-          end = text.find(reply_marker, start)
-          if end < 0:
-              raise SystemExit('HTTP acknowledgement reply marker not found')
+          ack_handler = text.index('static esp_err_t alarms_ack_post(httpd_req_t *request)')
+          start = text.index('    if (!have_code || code < 0 ||\n', ack_handler)
+          end = text.index('    cJSON *reply = cJSON_CreateObject();\n', start)
           replacement = '''    bool present = false;
-              bool was_outstanding = false;
-              if (!have_code || code < 0 ||
-                  !operational_api_acknowledge_alarm((uint32_t)code,
-                                                     &present,
-                                                     &was_outstanding)) {
-                  cJSON *err = cJSON_CreateObject();
-                  if (!err) return httpd_resp_send_500(request);
-                  cJSON_AddStringToObject(err, "error", "A known alarm code is required");
-                  return send_json_status(request, "400 Bad Request", err);
-              }
+    bool was_outstanding = false;
+    if (!have_code || code < 0 ||
+        !operational_api_acknowledge_alarm((uint32_t)code,
+                                           &present,
+                                           &was_outstanding)) {
+        cJSON *err = cJSON_CreateObject();
+        if (!err) return httpd_resp_send_500(request);
+        cJSON_AddStringToObject(err, "error", "A known alarm code is required");
+        return send_json_status(request, "400 Bad Request", err);
+    }
 
-          '''
+'''
           text = text[:start] + replacement + text[end:]
           path.write_text(text)
 
@@ -106,16 +98,16 @@ jobs:
           if 'local_commissioning_backend_engineering_authorized' in text:
               raise SystemExit('local Engineering authorization function already exists')
           marker = '''static void result_set(screen_commission_action_result_t *result,
-                                 bool ok, bool restart_required, const char *message)
-          '''
+                       bool ok, bool restart_required, const char *message)
+'''
           function = '''bool local_commissioning_backend_engineering_authorized(void)
-          {
-              if (!unlocked()) return false;
-              s_unlocked_until_ms = now_ms() + LOCAL_ENGINEERING_SESSION_MS;
-              return true;
-          }
+{
+    if (!unlocked()) return false;
+    s_unlocked_until_ms = now_ms() + LOCAL_ENGINEERING_SESSION_MS;
+    return true;
+}
 
-          '''
+'''
           text = replace_once(text, marker, function + marker, 'insert local Engineering session gate')
           path.write_text(text)
 
@@ -137,50 +129,50 @@ jobs:
 
           callback_marker = 'static void log_dma_headroom(const char *stage)\n'
           callback = '''static bool touchscreen_acknowledge_alarm(void *context,
-                                                  uint32_t code,
-                                                  char *message,
-                                                  size_t message_capacity)
-          {
-              (void)context;
-              if (!message || message_capacity == 0U) return false;
-              message[0] = '\\0';
+                                          uint32_t code,
+                                          char *message,
+                                          size_t message_capacity)
+{
+    (void)context;
+    if (!message || message_capacity == 0U) return false;
+    message[0] = '\\0';
 
-              if (!local_commissioning_backend_engineering_authorized()) {
-                  snprintf(message, message_capacity,
-                           "Engineering unlock required. Open Commission, unlock Engineering, then return to Alarms.");
-                  return false;
-              }
+    if (!local_commissioning_backend_engineering_authorized()) {
+        snprintf(message, message_capacity,
+                 "Engineering unlock required. Open Commission, unlock Engineering, then return to Alarms.");
+        return false;
+    }
 
-              bool present = false;
-              bool was_outstanding = false;
-              if (!operational_api_acknowledge_alarm(code, &present, &was_outstanding)) {
-                  snprintf(message, message_capacity,
-                           "Alarm code is no longer valid; state was not changed.");
-                  return false;
-              }
+    bool present = false;
+    bool was_outstanding = false;
+    if (!operational_api_acknowledge_alarm(code, &present, &was_outstanding)) {
+        snprintf(message, message_capacity,
+                 "Alarm code is no longer valid; state was not changed.");
+        return false;
+    }
 
-              if (!was_outstanding) {
-                  snprintf(message, message_capacity, "Alarm is already acknowledged.");
-                  return true;
-              }
-              snprintf(message, message_capacity,
-                       present
-                           ? "Alarm acknowledged. The condition remains active until the plant clears it."
-                           : "Returned-to-normal alarm acknowledged and discharged from outstanding work.");
-              return true;
-          }
+    if (!was_outstanding) {
+        snprintf(message, message_capacity, "Alarm is already acknowledged.");
+        return true;
+    }
+    snprintf(message, message_capacity,
+             present
+                 ? "Alarm acknowledged. The condition remains active until the plant clears it."
+                 : "Returned-to-normal alarm acknowledged and discharged from outstanding work.");
+    return true;
+}
 
-          '''
+'''
           text = replace_once(text, callback_marker, callback + callback_marker,
                               'insert touchscreen acknowledgement callback')
 
           bind_old = '''                    screen_app_set_commissioning_backend(&s_commissioning_backend);
-                      esp_lv_adapter_unlock();
-          '''
+                    esp_lv_adapter_unlock();
+'''
           bind_new = '''                    screen_app_set_commissioning_backend(&s_commissioning_backend);
-                      alarms_screen_set_acknowledge_backend(touchscreen_acknowledge_alarm, NULL);
-                      esp_lv_adapter_unlock();
-          '''
+                    alarms_screen_set_acknowledge_backend(touchscreen_acknowledge_alarm, NULL);
+                    esp_lv_adapter_unlock();
+'''
           text = replace_once(text, bind_old, bind_new, 'bind alarm acknowledgement backend')
           path.write_text(text)
 
