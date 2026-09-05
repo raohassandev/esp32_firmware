@@ -22,6 +22,8 @@ jobs:
       BOARD_SOURCE_SHA: 87841ecee727fe1d814d4186be8c8c26e4afafb4
       INDUSTRIAL_UI_BASELINE: 14d13a0d6e5c4b4b95cea35b8cc32f1880ae8134
       INTEGRATION_BASE_DEV: 150118a8425462e1756b115ddf3d463a022b395f
+      SOURCE_LOCK_SHA256: fd82d3c69b9507f0b4966e1d7a9479a9ee49e7cc58b8199966db75d4af86eb91
+      SOURCE_LOCK_MANIFEST: 2dab05bfd99022761c1d592fa801a4514bcf0433edd3b90a8ddcb122cc94ef2f
       BOARD_DIR: boards/waveshare_esp32_s3_touch_lcd_5
       PRODUCT_DIR: boards/waveshare_esp32_s3_touch_lcd_5/screen/product_800x480
     steps:
@@ -54,6 +56,7 @@ jobs:
             "$BOARD_DIR/screen/pages/commissioning_screen.c"
             "$BOARD_DIR/screen/pages/readiness_screen.c"
             "$PRODUCT_DIR/README.md"
+            "$PRODUCT_DIR/dependencies.lock"
             "$PRODUCT_DIR/main/Kconfig.projbuild"
             "$PRODUCT_DIR/main/idf_component.yml"
             "$PRODUCT_DIR/main/local_backend_provider.c"
@@ -61,6 +64,7 @@ jobs:
             "$PRODUCT_DIR/main/local_commissioning_backend.h"
             "$PRODUCT_DIR/main/main.c"
             "$PRODUCT_DIR/sdkconfig.defaults"
+            "$BOARD_DIR/screen/screen_app.c"
           )
           printf 'Board changes from frozen source:\n%s\n' "${board_changes[*]}"
           test "${#board_changes[@]}" -eq "${#expected_board_changes[@]}"
@@ -72,13 +76,14 @@ jobs:
           printf 'candidate_sha=%s\ncandidate_tree=%s\nboard_source_sha=%s\nintegration_base_dev=%s\n' \
             "$CANDIDATE_SHA" "$candidate_tree" "$BOARD_SOURCE_SHA" "$INTEGRATION_BASE_DEV"
 
-      - name: Enforce current native commissioning semantics
+      - name: Enforce current native commissioning and touch semantics
         shell: bash
         run: |
           set -euo pipefail
           ui="$BOARD_DIR/screen/pages/commissioning_screen.c"
           readiness="$BOARD_DIR/screen/pages/readiness_screen.c"
           api="$BOARD_DIR/screen/api/screen_api.h"
+          touch_shell="$BOARD_DIR/screen/screen_app.c"
 
           ! grep -Fq 'Core commissioning gate' "$ui"
           ! grep -Fq '/api/commissioning/gate' "$api"
@@ -93,6 +98,9 @@ jobs:
           grep -Fq 'current Core runtime evidence and profile checks determine command authority' "$ui"
           grep -Fq 'Runtime Readiness' "$readiness"
           grep -Fq 'Not asserted by LCD' "$readiness"
+          grep -Fq '#define SCREEN_MIN_TOUCH_TARGET_PX 44' "$touch_shell"
+          grep -Fq 'lv_obj_set_style_min_height' "$touch_shell"
+          grep -Fq 'enforce_min_touch_targets(created)' "$touch_shell"
 
       - name: Enforce current provisioning, dependency and rollback safety defaults
         shell: bash
@@ -101,6 +109,7 @@ jobs:
           cfg="$PRODUCT_DIR/sdkconfig.defaults"
           kcfg="$PRODUCT_DIR/main/Kconfig.projbuild"
           manifest="$PRODUCT_DIR/main/idf_component.yml"
+          lock="$PRODUCT_DIR/dependencies.lock"
 
           ! grep -q '^CONFIG_PVDG_PRIMARY_WIFI_SSID=' "$cfg"
           ! grep -q '^CONFIG_PVDG_PRIMARY_WIFI_PASSWORD=' "$cfg"
@@ -109,6 +118,10 @@ jobs:
           grep -Fx '# CONFIG_PVDG_APPLY_BUILD_WIFI_PROVISIONING is not set' "$cfg"
           ! grep -Fq 'WAVESHARE_BENCH_ENGINEERING_CREDENTIAL' "$kcfg"
           grep -Fq 'version: "==1.0.3"' "$manifest"
+          test -s "$lock"
+          test "$(sha256sum "$lock" | awk '{print $1}')" = "$SOURCE_LOCK_SHA256"
+          grep -Fx "manifest_hash: $SOURCE_LOCK_MANIFEST" "$lock"
+          grep -A8 '^  espressif/esp_flash_dispatcher:' "$lock" | grep -Fq 'version: 1.0.3'
           grep -Fx 'CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y' "$cfg"
           grep -Fx 'CONFIG_LV_USE_BUILTIN_MALLOC=n' "$cfg"
           grep -Fx 'CONFIG_LV_USE_CLIB_MALLOC=y' "$cfg"
@@ -134,7 +147,7 @@ jobs:
           cd "$PRODUCT_DIR"
           idf.py uf2
 
-      - name: Verify exact build outputs and dependency lock
+      - name: Verify exact build outputs and immutable dependency lock
         shell: bash
         run: |
           set -euo pipefail
@@ -146,6 +159,8 @@ jobs:
           test -s build/project_description.json
           test -s build/CMakeCache.txt
           test -s dependencies.lock
+          test "$(sha256sum dependencies.lock | awk '{print $1}')" = "$SOURCE_LOCK_SHA256"
+          git -C "$GITHUB_WORKSPACE" diff --exit-code -- "$PRODUCT_DIR/dependencies.lock"
 
       - name: Verify generated sdkconfig safety state
         shell: bash
@@ -212,7 +227,7 @@ jobs:
           candidate_sha=$CANDIDATE_SHA
           candidate_tree=$candidate_tree
           board_source_sha=$BOARD_SOURCE_SHA
-          reviewed_board_delta=$BOARD_DIR/screen/README.md,$BOARD_DIR/screen/SCREEN_TODO.md,$BOARD_DIR/screen/api/screen_api.h,$BOARD_DIR/screen/pages/alarms_screen.c,$BOARD_DIR/screen/pages/alarms_screen.h,$BOARD_DIR/screen/pages/commissioning_screen.c,$BOARD_DIR/screen/pages/readiness_screen.c,$PRODUCT_DIR/README.md,$PRODUCT_DIR/main/Kconfig.projbuild,$PRODUCT_DIR/main/idf_component.yml,$PRODUCT_DIR/main/local_backend_provider.c,$PRODUCT_DIR/main/local_commissioning_backend.c,$PRODUCT_DIR/main/local_commissioning_backend.h,$PRODUCT_DIR/main/main.c,$PRODUCT_DIR/sdkconfig.defaults
+          reviewed_board_delta=$BOARD_DIR/screen/README.md,$BOARD_DIR/screen/SCREEN_TODO.md,$BOARD_DIR/screen/api/screen_api.h,$BOARD_DIR/screen/pages/alarms_screen.c,$BOARD_DIR/screen/pages/alarms_screen.h,$BOARD_DIR/screen/pages/commissioning_screen.c,$BOARD_DIR/screen/pages/readiness_screen.c,$PRODUCT_DIR/README.md,$PRODUCT_DIR/dependencies.lock,$PRODUCT_DIR/main/Kconfig.projbuild,$PRODUCT_DIR/main/idf_component.yml,$PRODUCT_DIR/main/local_backend_provider.c,$PRODUCT_DIR/main/local_commissioning_backend.c,$PRODUCT_DIR/main/local_commissioning_backend.h,$PRODUCT_DIR/main/main.c,$PRODUCT_DIR/sdkconfig.defaults,$BOARD_DIR/screen/screen_app.c
           industrial_ui_software_baseline=$INDUSTRIAL_UI_BASELINE
           integration_base_dev=$INTEGRATION_BASE_DEV
           container_image=espressif/idf:v6.0.1
@@ -222,12 +237,14 @@ jobs:
           elf_sha256=$elf_sha
           uf2_sha256=$uf2_sha
           dependencies_lock_sha256=$lock_sha
+          dependencies_lock_manifest=$SOURCE_LOCK_MANIFEST
           compile_commands_sha256=$compile_commands_sha
           industrial_ui_js_sha256=$ui_js_sha
           industrial_ui_css_sha256=$ui_css_sha
           rollback_enabled=1
           compiled_sta_credentials=0
           compiled_engineering_credential_prefill=0
+          min_native_touch_target_px=44
           lvgl_clib_malloc=1
           spiram_always_internal=512
           spiram_reserve_internal=98304
