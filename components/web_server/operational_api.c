@@ -1024,6 +1024,174 @@ static esp_err_t alarms_ack_post(httpd_req_t *request)
     return send_json(request, reply);
 }
 
+/* Read-only builders for non-HTTP consumers such as the native Waveshare LCD.
+ * They snapshot the exact same authoritative rings/tables under s_lock and do
+ * not acknowledge, clear, or otherwise mutate operational state. */
+cJSON *operational_api_build_events_json(void)
+{
+    operational_event_t *snapshot = calloc(EVENT_COUNT, sizeof(*snapshot));
+    if (!snapshot) return NULL;
+
+    uint16_t count;
+    portENTER_CRITICAL(&s_lock);
+    count = s_event_count;
+    for (uint16_t i = 0; i < count; ++i) {
+        const uint16_t index = (uint16_t)((s_event_head + EVENT_COUNT - 1U - i) % EVENT_COUNT);
+        snapshot[i] = s_events[index];
+    }
+    portEXIT_CRITICAL(&s_lock);
+
+    const uint32_t current = now_ms();
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        free(snapshot);
+        return NULL;
+    }
+    cJSON_AddBoolToObject(root, "operator_view", true);
+    cJSON_AddBoolToObject(root, "engineering_details_hidden", true);
+    cJSON_AddNumberToObject(root, "generated_ms", current);
+    cJSON *items = cJSON_AddArrayToObject(root, "events");
+
+    uint16_t active_critical = 0U;
+    uint16_t active_warning = 0U;
+    for (uint16_t i = 0; i < count; ++i) {
+        const operational_event_t *event = &snapshot[i];
+        const char *title = NULL;
+        const char *detail = NULL;
+        const char *action = NULL;
+        event_text(event, &title, &detail, &action);
+        cJSON *item = cJSON_CreateObject();
+        if (!item) continue;
+        cJSON_AddNumberToObject(item, "sequence", event->sequence);
+        cJSON_AddNumberToObject(item, "age_ms", current - event->timestamp_ms);
+        const bool is_condition = event_is_alarm_condition(event->code);
+        const bool present = event_condition_present(event->code, event->active);
+        cJSON_AddStringToObject(item, "severity", severity_label(event->severity));
+        cJSON_AddStringToObject(item, "kind", is_condition ? "alarm" : "event");
+        cJSON_AddStringToObject(item, "state", event_state_label(event->code, event->active));
+        cJSON_AddBoolToObject(item, "active", present);
+        cJSON_AddStringToObject(item, "title", title);
+        cJSON_AddStringToObject(item, "detail", detail);
+        cJSON_AddStringToObject(item, "recommended_action", action);
+        cJSON_AddItemToArray(items, item);
+        if (present && event->severity >= 2U) active_critical++;
+        else if (present && event->severity == 1U) active_warning++;
+    }
+    free(snapshot);
+
+    cJSON *summary = cJSON_AddObjectToObject(root, "summary");
+    cJSON_AddNumberToObject(summary, "active_critical", active_critical);
+    cJSON_AddNumberToObject(summary, "active_warning", active_warning);
+    cJSON_AddNumberToObject(summary, "stored_events", count);
+    return root;
+}
+
+cJSON *operational_api_build_alarms_json(void)
+{
+    operational_alarm_t snapshot[sizeof(s_alarms) / sizeof(s_alarms[0])];
+    portENTER_CRITICAL(&s_lock);
+    memcpy(snapshot, s_alarms, sizeof(snapshot));
+    portEXIT_CRITICAL(&s_lock);
+
+    const uint32_t current = now_ms();
+    cJSON *root = cJSON_CreateObject();
+    if (!root) return NULL;
+    cJSON_AddNumberToObject(root, "generated_ms", current);
+    cJSON_AddNumberToObject(root, "on_delay_ms", ALARM_ON_DELAY_MS);
+    cJSON_AddNumberToObject(root, "off_delay_ms", ALARM_OFF_DELAY_MS);
+    cJSON_AddNumberToObject(root, "stale_threshold_ms", ALARM_STALE_THRESHOLD_MS);
+    cJSON *items = cJSON_AddArrayToObject(root, "alarms");
+    uint16_t active = 0U;
+    uint16_t unacknowledged = 0U;
+    uint16_t primary_active = 0U;
+    uint16_t consequential_active = 0U;
+    uint16_t primary_unacknowledged = 0U;
+    uint16_t stale_count = 0U;
+    uint16_t suppressed_total = 0U;
+
+    for (size_t code = 0; code < sizeof(snapshot) / sizeof(snapshot[0]); ++code) {
+        const operational_alarm_t *a = &snapshot[code];
+        if (!event_is_alarm_condition((uint8_t)code)) continue;
+        if (a->occurrences == 0U) continue;
+
+        const operational_event_t probe = {
+            .code = (uint8_t)code,
+            .active = event_condition_present((uint8_t)code, 1U) == a->present ? 1U : 0U,
+        };
+        const char *title = NULL;
+        const char *detail = NULL;
+        const char *action = NULL;
+        event_text(&probe, &title, &detail, &action);
+
+        cJSON *item = cJSON_CreateObject();
+        if (!item) continue;
+        cJSON_AddStringToObject(item, "id", alarm_code_id((uint8_t)code));
+        cJSON_AddNumberToObject(item, "code", (double)code);
+        cJSON_AddStringToObject(item, "title", title);
+        cJSON_AddStringToObject(item, "detail", detail);
+        cJSON_AddStringToObject(item, "recommended_action", action);
+        cJSON_AddStringToObject(item, "severity", severity_label(a->severity));
+        cJSON_AddStringToObject(item, "priority", priority_label(alarm_priority((uint8_t)code)));
+        cJSON_AddStringToObject(item, "priority_rationale", alarm_priority_rationale((uint8_t)code));
+        cJSON_AddStringToObject(item, "state",
+                                a->present ? (a->acknowledged ? "acknowledged" : "unacknowledged")
+                                           : a->acknowledged ? "normal" : "rtn_unacknowledged");
+        cJSON_AddBoolToObject(item, "present", a->present);
+        cJSON_AddBoolToObject(item, "acknowledged", a->acknowledged);
+        cJSON_AddNumberToObject(item, "occurrences", a->occurrences);
+        cJSON_AddNumberToObject(item, "first_raised_age_ms", (double)(current - a->first_raised_ms));
+        cJSON_AddNumberToObject(item, "last_raised_age_ms", (double)(current - a->last_raised_ms));
+        cJSON_AddNumberToObject(item, "duration_ms",
+                                (double)((a->present ? current : a->cleared_ms) - a->last_raised_ms));
+        if (a->acknowledged) {
+            cJSON_AddNumberToObject(item, "acknowledged_age_ms",
+                                    (double)(current - a->acknowledged_ms));
+        } else {
+            cJSON_AddNullToObject(item, "acknowledged_age_ms");
+        }
+
+        const uint8_t cause = a->present ? alarm_cause_of((uint8_t)code, snapshot)
+                                         : ALARM_NO_CAUSE;
+        const bool consequential = cause != ALARM_NO_CAUSE;
+        cJSON_AddStringToObject(item, "role", consequential ? "consequential" : "primary");
+        if (consequential) cJSON_AddStringToObject(item, "caused_by", alarm_code_id(cause));
+        else cJSON_AddNullToObject(item, "caused_by");
+
+        const bool stale = a->present &&
+                           (uint32_t)(current - a->last_raised_ms) >= ALARM_STALE_THRESHOLD_MS;
+        cJSON_AddBoolToObject(item, "stale", stale);
+        cJSON_AddNumberToObject(item, "suppressed_transitions", a->suppressed_transitions);
+        cJSON_AddItemToArray(items, item);
+
+        if (a->present) {
+            active++;
+            if (consequential) consequential_active++;
+            else primary_active++;
+        }
+        if (!a->acknowledged) {
+            unacknowledged++;
+            if (!consequential) primary_unacknowledged++;
+        }
+        if (stale) stale_count++;
+        if (a->suppressed_transitions > 0U &&
+            suppressed_total <= (uint16_t)(UINT16_MAX - a->suppressed_transitions)) {
+            suppressed_total = (uint16_t)(suppressed_total + a->suppressed_transitions);
+        }
+    }
+
+    cJSON *summary = cJSON_AddObjectToObject(root, "summary");
+    cJSON_AddNumberToObject(summary, "active", active);
+    cJSON_AddNumberToObject(summary, "unacknowledged", unacknowledged);
+    cJSON_AddNumberToObject(summary, "primary_active", primary_active);
+    cJSON_AddNumberToObject(summary, "consequential_active", consequential_active);
+    cJSON_AddNumberToObject(summary, "primary_unacknowledged", primary_unacknowledged);
+    cJSON_AddNumberToObject(summary, "stale", stale_count);
+    cJSON_AddNumberToObject(summary, "suppressed_transitions", suppressed_total);
+    cJSON_AddStringToObject(summary, "state_model", "ISA-18.2");
+    cJSON_AddStringToObject(summary, "priority_model", "EEMUA-191");
+    return root;
+}
+
 esp_err_t operational_api_register(httpd_handle_t server)
 {
     if (!s_task) {
