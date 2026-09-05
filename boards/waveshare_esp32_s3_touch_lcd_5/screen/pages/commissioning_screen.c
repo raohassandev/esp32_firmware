@@ -752,7 +752,7 @@ static void render_devices(void)
 {
     lv_obj_t *form = form_container();
     heading(form, "Devices",
-            "Declare installed equipment. Unknown or out-of-scope equipment stays stored but the Core commissioning gate refuses command authority.");
+            "Declare installed equipment. Unknown or unsupported equipment remains non-commandable; current Core runtime evidence and profile checks determine command authority.");
     device_selector(form);
     if (s_ui.device_kind == 0U) {
         screen_commission_meter_t *m = &s_ui.config.meters[s_ui.meter_index];
