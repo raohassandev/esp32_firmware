@@ -16,6 +16,7 @@
 #include "inverter_manager.h"
 #include "meter_manager.h"
 #include "network_manager.h"
+#include "operational_api.h"
 #include "safety_manager.h"
 #include "screen_api.h"
 #include "source_detection.h"
@@ -29,10 +30,9 @@
  * screen_api.c. It performs no Modbus I/O, no control writes and no source or
  * electrical inference.
  *
- * The current operational event/alarm component does not expose an in-process
- * snapshot builder. Those two routes therefore fail closed as unavailable
- * rather than fabricating event history or duplicating the private alarm
- * lifecycle state machine.
+ * Events and alarms come from read-only operational_api builders backed by the
+ * same Core-owned event ring and alarm lifecycle table as the web operator
+ * routes. The LCD does not recreate or mutate alarm lifecycle state.
  */
 
 typedef struct {
@@ -571,11 +571,14 @@ static bool build_telemetry(local_api_slot_t *slot)
 
 static bool build_operational(local_api_slot_t *slot, bool alarms)
 {
-    note_failure(slot,
-                 alarms
-                     ? "Core alarm lifecycle has no public in-process snapshot API"
-                     : "Core event history has no public in-process snapshot API");
-    return false;
+    cJSON *root = alarms ? operational_api_build_alarms_json()
+                         : operational_api_build_events_json();
+    if (!root) {
+        note_failure(slot, alarms ? "Core alarm snapshot unavailable"
+                                  : "Core event snapshot unavailable");
+        return false;
+    }
+    return finish_json(slot, root);
 }
 
 bool local_backend_provider_init(screen_api_provider_t *provider)
