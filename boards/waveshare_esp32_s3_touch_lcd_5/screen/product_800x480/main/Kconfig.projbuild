@@ -1,20 +1,8 @@
-# Reuse the authoritative Product Core project configuration.  This board build
+# Reuse the authoritative Product Core project configuration. This board build
 # must not fork or duplicate CONFIG_PVDG_* definitions/defaults.
 rsource "../../../../../main/Kconfig.projbuild"
 
-menu "Waveshare bench conveniences"
-
-config WAVESHARE_BENCH_ENGINEERING_CREDENTIAL
-    string "Bench-only Engineering credential prefilled on Commission/Source"
-    default ""
-    help
-        Prefills the Engineering credential field on the Commission and Source
-        pages so a bench operator does not have to retype it on every unlock.
-
-        BENCH ONLY.  Leave this EMPTY for any production or customer build.  A
-        non-empty value is compiled into the firmware, so it is identical on
-        every unit built from that source and has to be treated as public
-        knowledge, exactly like the recovery access point's build default
-        passphrase.  The runtime logs a warning on every boot that uses it.
-
-endmenu
+# Production rule: the Waveshare target exposes no board-local compile-time
+# Engineering credential or credential-prefill option. Local HMI Engineering
+# authentication must use the shared runtime setup-code/password authority and
+# its existing lockout state.
