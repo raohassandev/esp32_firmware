@@ -1,0 +1,32 @@
+name: Temporary Waveshare final wording patch
+
+on:
+  push:
+    branches:
+      - work/waveshare/industrial-ui-v1-integration
+    paths:
+      - '.github/workflows/waveshare-final-wording-patch.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/waveshare/industrial-ui-v1-integration
+          fetch-depth: 0
+      - name: Apply asserted wording patch
+        run: python3 .github/scripts/waveshare_final_wording_patch.py
+      - name: Verify and commit patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Waveshare: remove stale commissioning-gate wording'
+          git push origin HEAD:work/waveshare/industrial-ui-v1-integration
