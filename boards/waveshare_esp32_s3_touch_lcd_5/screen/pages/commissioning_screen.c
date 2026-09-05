@@ -486,9 +486,6 @@ static bool read_meter_form(screen_commission_meter_t *meter, bool channel, bool
     if (meter->role == 2U && meter->generator_index >= SCREEN_COMMISSIONING_MAX_GENERATORS) {
         meter->generator_index = 0U;
     }
-    if (s_ui.model) meter->model = lv_dropdown_get_selected(s_ui.model);
-    if (s_ui.phase_basis) meter->phase_basis = lv_dropdown_get_selected(s_ui.phase_basis);
-
     unsigned long value = 0U;
     if (channel) {
         snprintf(meter->host, sizeof(meter->host), "%s", lv_textarea_get_text(s_ui.host));
@@ -518,11 +515,6 @@ static bool read_inverter_form(screen_commission_inverter_t *inverter, bool chan
     if (s_ui.enabled) inverter->enabled = checked(s_ui.enabled);
     if (s_ui.name) snprintf(inverter->name, sizeof(inverter->name), "%s", lv_textarea_get_text(s_ui.name));
     if (s_ui.rated_kw && !parse_float(s_ui.rated_kw, &inverter->rated_kw)) return false;
-    if (s_ui.failsafe_ms) {
-        unsigned long value = 0U;
-        if (!parse_ulong(s_ui.failsafe_ms, 0U, 3600000U, &value)) return false;
-        inverter->comms_failsafe_ms = (uint32_t)value;
-    }
     if (s_ui.profile && s_ui.config.profile_count > 0U) {
         const uint32_t selected = lv_dropdown_get_selected(s_ui.profile);
         if (selected < s_ui.config.profile_count) {
@@ -608,11 +600,8 @@ static bool read_plant_form(screen_commission_plant_t *plant)
     if (!plant) return false;
     if (s_ui.policy) plant->policy = (uint8_t)lv_dropdown_get_selected(s_ui.policy);
     if (s_ui.orientation) plant->meter_orientation = (uint8_t)lv_dropdown_get_selected(s_ui.orientation);
-    if (s_ui.sharing) plant->load_sharing_mode = (uint8_t)lv_dropdown_get_selected(s_ui.sharing);
     if (s_ui.export_limit && !parse_float(s_ui.export_limit, &plant->export_limit_kw)) return false;
     if (s_ui.minimum_import && !parse_float(s_ui.minimum_import, &plant->minimum_import_kw)) return false;
-    if (s_ui.base_tolerance_kw && !parse_float(s_ui.base_tolerance_kw, &plant->base_load_tolerance_kw)) return false;
-    if (s_ui.base_tolerance_percent && !parse_float(s_ui.base_tolerance_percent, &plant->base_load_tolerance_percent)) return false;
     if (s_ui.grid_import_target && !parse_float(s_ui.grid_import_target, &plant->grid_import_target_kw)) return false;
     if (s_ui.deadband && !parse_float(s_ui.deadband, &plant->deadband_kw)) return false;
     if (s_ui.kp && !parse_float(s_ui.kp, &plant->kp)) return false;
@@ -621,8 +610,6 @@ static bool read_plant_form(screen_commission_plant_t *plant)
     if (s_ui.grid_ramp_down && !parse_float(s_ui.grid_ramp_down, &plant->grid_ramp_down_percent_per_second)) return false;
     if (s_ui.generator_ramp_up && !parse_float(s_ui.generator_ramp_up, &plant->generator_ramp_up_percent_per_second)) return false;
     if (s_ui.generator_ramp_down && !parse_float(s_ui.generator_ramp_down, &plant->generator_ramp_down_percent_per_second)) return false;
-    if (s_ui.urgent_fraction && !parse_float(s_ui.urgent_fraction, &plant->urgent_loading_fraction)) return false;
-    if (s_ui.urgent_multiplier && !parse_float(s_ui.urgent_multiplier, &plant->urgent_ramp_multiplier)) return false;
 
     unsigned long value = 0U;
     if (s_ui.control_interval) {
@@ -638,12 +625,10 @@ static bool read_plant_form(screen_commission_plant_t *plant)
 
     screen_commission_generator_t *g = &plant->generators[s_ui.generator_index];
     if (s_ui.generator_enabled) g->enabled = checked(s_ui.generator_enabled);
-    if (s_ui.generator_role) g->role = (uint8_t)lv_dropdown_get_selected(s_ui.generator_role);
     if (s_ui.generator_rated && !parse_float(s_ui.generator_rated, &g->rated_kw)) return false;
     if (s_ui.generator_minimum && !parse_float(s_ui.generator_minimum, &g->minimum_loading_percent)) return false;
     if (s_ui.generator_reserve && !parse_float(s_ui.generator_reserve, &g->reserve_kw)) return false;
     if (s_ui.generator_reverse && !parse_float(s_ui.generator_reverse, &g->reverse_power_margin_kw)) return false;
-    if (s_ui.generator_base_load && !parse_float(s_ui.generator_base_load, &g->base_load_kw)) return false;
     return true;
 }
 
@@ -750,7 +735,7 @@ static void render_site(void)
 {
     lv_obj_t *form = form_container();
     heading(form, "Site / controller identity",
-            "The controller currently persists one device/site name. Location, engineer and project-reference fields are not invented because Core schema 9 does not persist them yet.");
+            "The controller currently persists one device/site name. Location, engineer and project-reference fields are not invented because the current Core schema does not persist them.");
     s_ui.name = field(form, "Controller / site name", s_ui.config.device_name, false);
     button(form, "Save site name", save_site_clicked, NULL);
 }
@@ -774,14 +759,11 @@ static void render_devices(void)
         s_ui.enabled = checkbox_field(form, "Enabled", m->enabled);
         s_ui.name = field(form, "Name", m->name, false);
         s_ui.role = dropdown_field(form, "Role", "Unassigned\nGrid\nGenerator\nLoad\nPV", m->role <= 4U ? m->role : 0U);
-        s_ui.model = dropdown_field(form, "Meter model", "Undeclared\nAutomatrix EM500/Lovato\nGeneric Modbus (out of phase)", m->model <= 2U ? m->model : 0U);
-        s_ui.phase_basis = dropdown_field(form, "Grid phase basis", "Lowest phase\nTotal", m->phase_basis <= 1U ? m->phase_basis : 0U);
     } else {
         screen_commission_inverter_t *v = &s_ui.config.inverters[s_ui.inverter_index];
         s_ui.enabled = checkbox_field(form, "Enabled", v->enabled);
         s_ui.name = field(form, "Name", v->name, false);
         s_ui.rated_kw = number_field(form, "Rated power (kW)", v->rated_kw, 2U);
-        s_ui.failsafe_ms = integer_field(form, "Inverter comms fail-safe (ms, 0=unstated)", v->comms_failsafe_ms);
         char options[1200] = {0};
         size_t used = 0U;
         for (uint8_t i = 0U; i < s_ui.config.profile_count; ++i) {
@@ -866,9 +848,6 @@ static void render_plant(void)
         s_ui.orientation = dropdown_field(form, "Meter orientation", "Import positive\nExport positive", p->meter_orientation <= 1U ? p->meter_orientation : 0U);
         s_ui.export_limit = number_field(form, "Export limit (kW)", p->export_limit_kw, 2U);
         s_ui.minimum_import = number_field(form, "Minimum import (kW)", p->minimum_import_kw, 2U);
-        s_ui.sharing = dropdown_field(form, "Generator load sharing", "Unset\nIsochronous\nBase load\nDroop (refused)", p->load_sharing_mode <= 3U ? p->load_sharing_mode : 0U);
-        s_ui.base_tolerance_kw = number_field(form, "Base-load tolerance (kW)", p->base_load_tolerance_kw, 2U);
-        s_ui.base_tolerance_percent = number_field(form, "Base-load tolerance (% rating)", p->base_load_tolerance_percent, 2U);
     } else if (s_ui.plant_page == 1U) {
         lv_obj_t *selector = lv_obj_create(form);
         lv_obj_remove_style_all(selector);
@@ -891,8 +870,6 @@ static void render_plant(void)
         s_ui.generator_minimum = number_field(form, "Minimum loading (%)", g->minimum_loading_percent, 2U);
         s_ui.generator_reserve = number_field(form, "Reserve (kW)", g->reserve_kw, 2U);
         s_ui.generator_reverse = number_field(form, "Reverse-power margin (kW)", g->reverse_power_margin_kw, 2U);
-        s_ui.generator_role = dropdown_field(form, "Base-load role", "Unset\nSwing\nBase load", g->role <= 2U ? g->role : 0U);
-        s_ui.generator_base_load = number_field(form, "Base-load setpoint (kW)", g->base_load_kw, 2U);
     } else if (s_ui.plant_page == 2U) {
         s_ui.grid_import_target = number_field(form, "Grid import target (kW)", p->grid_import_target_kw, 2U);
         s_ui.deadband = number_field(form, "Control deadband (kW)", p->deadband_kw, 2U);
@@ -907,8 +884,6 @@ static void render_plant(void)
         s_ui.generator_ramp_enabled = checkbox_field(form, "Generator ramp enabled", p->generator_ramp_enabled);
         s_ui.generator_ramp_up = number_field(form, "Generator ramp up (%/s)", p->generator_ramp_up_percent_per_second, 2U);
         s_ui.generator_ramp_down = number_field(form, "Generator ramp down (%/s)", p->generator_ramp_down_percent_per_second, 2U);
-        s_ui.urgent_fraction = number_field(form, "Urgent loading fraction (0..1)", p->urgent_loading_fraction, 3U);
-        s_ui.urgent_multiplier = number_field(form, "Urgent ramp multiplier", p->urgent_ramp_multiplier, 2U);
     }
     button(form, "Save plant section", save_plant_clicked, NULL);
 }
@@ -968,21 +943,24 @@ static void render_health(void)
 static void render_review(void)
 {
     lv_obj_t *form = form_container();
-    heading(form, "Review / finish",
-            "The Core commissioning gate is the final authority. The HMI cannot override an unmet prerequisite.");
+    heading(form, "Review / arm for restart",
+            "This LCD does not infer production qualification. ARM only persists automatic control for the next restart; current Core starts fail-safe at zero PV command and grants command authority only when its runtime evidence gates pass.");
     if (!s_ui.gate.valid) {
-        status_line(form, "Commissioning gate", "Unavailable");
+        status_line(form, "Runtime command authority", "Unavailable");
+        status_line(form, "Production qualification", "Not asserted by LCD");
     } else {
-        status_line(form, "Commissioned", s_ui.gate.commissioned ? "YES" : "NO");
-        status_line(form, "Scope", s_ui.gate.scope[0] ? s_ui.gate.scope : "--");
+        status_line(form, "Runtime command authority",
+                    s_ui.gate.command_authority ? "ACTIVE" : "INHIBITED");
+        status_line(form, "Production qualification",
+                    s_ui.gate.production_qualified ? "Qualified" : "Not asserted by LCD");
+        status_line(form, "Runtime scope", s_ui.gate.scope[0] ? s_ui.gate.scope : "--");
         char count[64];
-        snprintf(count, sizeof(count), "%u/%u met (%u unmet)",
+        snprintf(count, sizeof(count), "%u/%u current authority evidence met",
                  (unsigned)s_ui.gate.satisfied_count,
-                 (unsigned)s_ui.gate.prerequisite_count,
-                 (unsigned)s_ui.gate.unmet_count);
-        status_line(form, "Prerequisites", count);
-        if (!s_ui.gate.commissioned) {
-            status_line(form, "Next blocker",
+                 (unsigned)s_ui.gate.prerequisite_count);
+        status_line(form, "Authority evidence", count);
+        if (!s_ui.gate.command_authority) {
+            status_line(form, "Current runtime blocker",
                         s_ui.gate.first_unmet_title[0] ? s_ui.gate.first_unmet_title : "--");
             lv_obj_t *detail = lv_label_create(form);
             lv_label_set_text(detail, s_ui.gate.first_unmet_detail[0]
@@ -995,9 +973,8 @@ static void render_review(void)
     }
     if (s_ui.config.restart_required) button(form, "Restart controller", restart_clicked, NULL);
     button(form, "DISARM automatic control", control_clicked, (void *)(uintptr_t)0U);
-    lv_obj_t *arm = button(form, "ARM automatic control", control_clicked, (void *)(uintptr_t)1U);
-    if (!s_ui.gate.valid || !s_ui.gate.commissioned) lv_obj_add_state(arm, LV_STATE_DISABLED);
-    button(form, "Refresh gate/config", refresh_clicked, NULL);
+    button(form, "ARM automatic control for next restart", control_clicked, (void *)(uintptr_t)1U);
+    button(form, "Refresh runtime/config", refresh_clicked, NULL);
 }
 
 static void render_step(void)

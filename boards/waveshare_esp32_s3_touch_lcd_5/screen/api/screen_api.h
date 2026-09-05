@@ -166,9 +166,9 @@ typedef struct {
     char grid_state[SCREEN_API_LABEL_MAX];
 } screen_telemetry_snapshot_t;
 
-/* Read-only projection of the existing GET /api/commissioning/gate authority.
- * The product build fills this from the same commissioning_gate/control_engine
- * state used by that endpoint; the screen never re-evaluates prerequisites. */
+/* Compatibility-shaped read-only projection of current Core runtime command
+ * authority. The historical commissioning_gate endpoint no longer exists. The
+ * product build never infers production qualification from this runtime view. */
 typedef struct {
     bool valid;
     bool commissioned;

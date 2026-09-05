@@ -638,7 +638,7 @@ bool local_backend_provider_read_commissioning(screen_commissioning_snapshot_t *
     control_status_t control = {0};
     control_engine_get_status(&control);
 
-    out->commissioned = control.command_authority;
+    out->commissioned = false; /* Current Core has no commissioning_gate; never infer qualification. */
     copy_bounded(out->scope, sizeof(out->scope), "current_core_runtime");
     out->production_qualified = false;
     out->automatic_control_permitted = control.command_authority;

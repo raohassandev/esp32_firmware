@@ -44,20 +44,20 @@ lv_obj_t *readiness_screen_create(lv_obj_t *parent)
     lv_obj_set_flex_flow(s_ui.root, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(s_ui.root, 5, LV_PART_MAIN);
 
-    screen_ui_title(s_ui.root, "Site Commissioning / Readiness");
-    screen_ui_row(s_ui.root, "Commissioning gate", &s_ui.commissioning);
-    screen_ui_row(s_ui.root, "Commissioning scope", &s_ui.commissioning_scope);
-    screen_ui_row(s_ui.root, "Prerequisites", &s_ui.commissioning_progress);
-    screen_ui_row(s_ui.root, "Automatic permitted", &s_ui.automatic_permitted);
+    screen_ui_title(s_ui.root, "Runtime Readiness");
+    screen_ui_row(s_ui.root, "Production qualification", &s_ui.commissioning);
+    screen_ui_row(s_ui.root, "Runtime scope", &s_ui.commissioning_scope);
+    screen_ui_row(s_ui.root, "Authority evidence", &s_ui.commissioning_progress);
+    screen_ui_row(s_ui.root, "Command authority", &s_ui.automatic_permitted);
 
-    screen_ui_muted_label(s_ui.root, "Next commissioning blocker");
+    screen_ui_muted_label(s_ui.root, "Current runtime blocker");
     s_ui.commissioning_blocker = screen_ui_value_label(s_ui.root, "Reading controller gate...");
     lv_obj_set_width(s_ui.commissioning_blocker, LV_PCT(100));
     lv_label_set_long_mode(s_ui.commissioning_blocker, LV_LABEL_LONG_WRAP);
 
     lv_obj_t *hint = screen_ui_muted_label(
         s_ui.root,
-        "Configure site: Engineering web > Commissioning. This HMI mirrors the Core gate; it does not bypass Engineering authentication.");
+        "Configure site through authenticated Engineering. This HMI mirrors current Core runtime authority and does not infer production qualification.");
     lv_obj_set_width(hint, LV_PCT(100));
     lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
 
@@ -78,24 +78,24 @@ void readiness_screen_apply_commissioning(const screen_commissioning_snapshot_t 
     if (!s_ui.root || !snapshot || !snapshot->valid) return;
 
     screen_ui_set_state_text(s_ui.commissioning,
-                             snapshot->commissioned ? "Commissioned" : "Not commissioned",
-                             snapshot->commissioned);
+                             snapshot->production_qualified ? "Qualified" : "Not asserted by LCD",
+                             snapshot->production_qualified);
     screen_ui_set_state_text(s_ui.commissioning_scope,
                              screen_ui_safe_text(snapshot->scope, "none"),
-                             snapshot->production_qualified);
+                             snapshot->command_authority);
 
     char progress[64];
-    snprintf(progress, sizeof(progress), "%lu/%lu met / %lu unmet",
+    snprintf(progress, sizeof(progress), "%lu/%lu current evidence met / %lu unmet",
              (unsigned long)snapshot->satisfied_count,
              (unsigned long)snapshot->prerequisite_count,
              (unsigned long)snapshot->unmet_count);
-    screen_ui_set_state_text(s_ui.commissioning_progress, progress, snapshot->commissioned);
+    screen_ui_set_state_text(s_ui.commissioning_progress, progress, snapshot->command_authority);
     screen_ui_set_state_text(s_ui.automatic_permitted,
-                             snapshot->automatic_control_permitted ? "Permitted" : "Blocked",
-                             snapshot->automatic_control_permitted);
+                             snapshot->command_authority ? "Active" : "Inhibited",
+                             snapshot->command_authority);
 
-    if (snapshot->commissioned) {
-        set_blocker("All commissioning prerequisites satisfied. Runtime evidence is still checked every control cycle.",
+    if (snapshot->command_authority) {
+        set_blocker("Current Core command authority is active. Production qualification remains a separate physical-governance decision.",
                     true);
     } else if (snapshot->first_unmet_title[0] != '\0') {
         char blocker[256];
@@ -192,5 +192,5 @@ void readiness_screen_show_commissioning_unavailable(void)
     screen_ui_set_state_text(s_ui.commissioning_scope, "Unknown", false);
     screen_ui_set_state_text(s_ui.commissioning_progress, "Unknown", false);
     screen_ui_set_state_text(s_ui.automatic_permitted, "Unknown", false);
-    set_blocker("Commissioning gate unavailable", false);
+    set_blocker("Runtime authority unavailable", false);
 }
