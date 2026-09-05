@@ -173,7 +173,7 @@ static void defaults(app_config_t *c)
      * holding the loop. */
     m->endpoint.timeout_ms = 300;
     m->function_code = 3;
-    m->active_power_address = 57;
+    m->active_power_address = 58;
     m->active_power_type = MODBUS_DATA_INT32;
     m->active_power_order = MODBUS_ORDER_ABCD;
     m->active_power_scale = 0.00001f;
