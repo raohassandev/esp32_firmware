@@ -16,11 +16,30 @@ for token in [
     'minimum_internal_heap_bytes','internal_fragmentation_ratio','temperature_available',
     'Running repeated-read qualification','localStorage','Export report','Blob',
     'RTU runtime is not available','automatic_control',
+    'profileTuning','repairStoredProfileDefaults','meterMatchesDevice','inverterMatchesDevice',
+    'qualifyMeter','qualifyInverter','persisted runtime configuration','No configuration was changed',
+    'window.addEventListener(\'hashchange\'',
 ]:
     assert token in js, f'missing release commissioning behavior: {token}'
 
-for forbidden in ['/api/control', '/api/inverter-command']:
-    assert forbidden not in js, f'commissioning wizard must not call {forbidden}'
+# Qualification is deliberately read-only. /api/meters/config replaces the complete
+# meter array and requires a restart, so it must never be called by a connection test.
+for forbidden in ['/api/control', '/api/inverter-command', '/api/meters/config']:
+    assert forbidden not in js, f'commissioning qualification must not call {forbidden}'
+
+# Manual-backed and physically verified meter defaults.
+assert "{id:'wm15', type:'meter', brand:'Carlo Gavazzi', model:'WM15', protocols:['tcp','rtu'], verified:true}" in js
+assert "profile?.id === 'em500'" in js and 'register_address:58' in js and 'scale:0.00001' in js
+assert "profile?.id === 'wm15'" in js and 'register_address:40' in js and "byte_order:'CDAB'" in js and 'scale:0.0001' in js
+
+# The inverter probe API is configured-index based; arbitrary host/profile probing is not its contract.
+assert 'JSON.stringify({inverter_index:match.index})' in js
+assert "const snapshot = await api('/api/inverters')" in js
+
+# A UI device is only releasable when it matches active persisted runtime and then passes reads.
+assert "d.status==='ready' && !d.applied" in js
+assert "d.status!=='ready' || !d.applied" in js
+assert "const match = (snapshot.meters || []).find(item => meterMatchesDevice(item, d))" in js
 
 for token in ['@media(max-width:600px)', 'min-height:48px', '.cr-progress', '.cr-health-grid']:
     assert token in css, f'missing responsive commissioning style: {token}'
