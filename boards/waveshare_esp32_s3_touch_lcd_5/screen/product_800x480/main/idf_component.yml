@@ -1,3 +1,6 @@
 dependencies:
+  # Exact production-candidate pin. Do not float this dependency: the physical
+  # package must be reproducible from source even if the component registry
+  # publishes a newer compatible release after qualification.
   espressif/esp_flash_dispatcher:
-    version: "^1.0.2"
+    version: "==1.0.3"
