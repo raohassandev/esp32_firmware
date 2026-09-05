@@ -7,6 +7,7 @@
 #include "config_manager.h"
 #include "control_engine.h"
 #include "engineering_auth.h"
+#include "esp_err.h"
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "inverter_manager.h"
@@ -36,19 +37,6 @@ static bool unlocked(void)
     return true;
 }
 
-static bool require_unlocked(screen_commission_action_result_t *result)
-{
-    if (unlocked()) {
-        s_unlocked_until_ms = now_ms() + LOCAL_ENGINEERING_SESSION_MS;
-        return true;
-    }
-    if (result) {
-        memset(result, 0, sizeof(*result));
-        snprintf(result->message, sizeof(result->message), "Engineering unlock expired. Unlock again.");
-    }
-    return false;
-}
-
 static void result_set(screen_commission_action_result_t *result,
                        bool ok, bool restart_required, const char *message)
 {
@@ -57,6 +45,16 @@ static void result_set(screen_commission_action_result_t *result,
     result->ok = ok;
     result->restart_required = restart_required;
     snprintf(result->message, sizeof(result->message), "%s", message ? message : "");
+}
+
+static bool require_unlocked(screen_commission_action_result_t *result)
+{
+    if (unlocked()) {
+        s_unlocked_until_ms = now_ms() + LOCAL_ENGINEERING_SESSION_MS;
+        return true;
+    }
+    result_set(result, false, false, "Engineering unlock expired. Unlock again.");
+    return false;
 }
 
 static screen_commission_auth_result_t local_unlock(void *context,
@@ -110,10 +108,13 @@ static void copy_meter_to_screen(uint8_t index,
     out->word_order = (uint8_t)m->active_power_order;
     out->scale = m->active_power_scale;
     out->poll_ms = m->poll_interval_ms;
-    out->role = m->role;
+    out->role = (uint8_t)m->role;
     out->generator_index = m->generator_index;
-    out->model = m->model;
-    out->phase_basis = m->phase_control_basis;
+
+    /* These frozen-HMI fields no longer exist in APP_CONFIG_VERSION 6. Keep
+     * them visibly neutral rather than inventing a mapping into current Core. */
+    out->model = 0U;
+    out->phase_basis = 0U;
 
     meter_data_t data = {0};
     if (meter_manager_get_data(index, &data)) {
@@ -141,8 +142,8 @@ static void copy_inverter_to_screen(uint8_t index,
         out->unit_id = v->endpoint.unit_id;
         out->timeout_ms = v->endpoint.timeout_ms;
         out->rated_kw = v->rated_power_kw;
-        out->comms_failsafe_ms = v->comms_failsafe_ms;
     }
+    out->comms_failsafe_ms = 0U;
     (void)inverter_profile_store_get(index, out->profile_id, sizeof(out->profile_id));
     inverter_data_t data = {0};
     if (inverter_manager_get_data(index, &data)) {
@@ -158,23 +159,25 @@ static void copy_plant_to_screen(const app_config_t *app,
 {
     memset(out, 0, sizeof(*out));
     if (!app || !solar) return;
+
     out->policy = (uint8_t)solar->policy;
     out->meter_orientation = (uint8_t)solar->meter_orientation;
     out->export_limit_kw = solar->export_limit_kw;
     out->minimum_import_kw = solar->minimum_import_kw;
-    out->load_sharing_mode = solar_grid_config_load_sharing_mode(solar);
-    out->base_load_tolerance_kw = solar_grid_config_base_load_tolerance_kw(solar);
-    out->base_load_tolerance_percent = solar_grid_config_base_load_tolerance_percent(solar);
-    for (uint8_t i = 0U; i < SCREEN_COMMISSIONING_MAX_GENERATORS; ++i) {
-        const solar_grid_generator_limits_t g = solar_grid_config_generator(solar, i);
-        out->generators[i].enabled = g.enabled;
-        out->generators[i].rated_kw = g.rated_kw;
-        out->generators[i].minimum_loading_percent = g.minimum_loading_percent;
-        out->generators[i].reserve_kw = g.reserve_kw;
-        out->generators[i].reverse_power_margin_kw = g.reverse_power_margin_kw;
-        out->generators[i].role = solar_grid_config_engine_role(solar, i);
-        out->generators[i].base_load_kw = solar_grid_config_engine_base_load_kw(solar, i);
+
+    for (uint8_t i = 0U;
+         i < SCREEN_COMMISSIONING_MAX_GENERATORS && i < SOLAR_GRID_MAX_GENERATORS;
+         ++i) {
+        const solar_grid_generator_config_t *g = &solar->generators[i];
+        out->generators[i].enabled = g->rated_kw > 0.0f;
+        out->generators[i].rated_kw = g->rated_kw;
+        out->generators[i].minimum_loading_percent = g->minimum_loading_percent;
+        out->generators[i].reserve_kw = g->reserve_kw;
+        out->generators[i].reverse_power_margin_kw = g->reverse_power_margin_kw;
+        out->generators[i].role = 0U;
+        out->generators[i].base_load_kw = 0.0f;
     }
+
     out->grid_import_target_kw = app->control.grid_import_target_kw;
     out->deadband_kw = app->control.deadband_kw;
     out->kp = app->control.kp;
@@ -187,14 +190,20 @@ static void copy_plant_to_screen(const app_config_t *app,
     out->generator_ramp_enabled = app->control.generator_ramp.enabled;
     out->generator_ramp_up_percent_per_second = app->control.generator_ramp.up_percent_per_second;
     out->generator_ramp_down_percent_per_second = app->control.generator_ramp.down_percent_per_second;
-    out->urgent_loading_fraction = app->control.urgent_loading_fraction;
-    out->urgent_ramp_multiplier = app->control.urgent_ramp_multiplier;
+
+    /* Removed Core semantics stay neutral on the frozen UI. */
+    out->load_sharing_mode = 0U;
+    out->base_load_tolerance_kw = 0.0f;
+    out->base_load_tolerance_percent = 0.0f;
+    out->urgent_loading_fraction = 0.0f;
+    out->urgent_ramp_multiplier = 0.0f;
 }
 
 static bool local_read_config(void *context, screen_commissioning_config_t *out)
 {
     (void)context;
     if (!out || !unlocked()) return false;
+
     app_config_t app = {0};
     solar_grid_config_t solar = {0};
     if (config_manager_get_snapshot(&app) != ESP_OK ||
@@ -206,10 +215,12 @@ static bool local_read_config(void *context, screen_commissioning_config_t *out)
     out->setup_required = s_setup_required;
     out->restart_required = s_restart_required;
     snprintf(out->device_name, sizeof(out->device_name), "%s", app.device_name);
+
     out->meter_count = app.meter_count;
     for (uint8_t i = 0U; i < SCREEN_COMMISSIONING_MAX_METERS; ++i) {
         copy_meter_to_screen(i, &app, &out->meters[i]);
     }
+
     out->inverter_count = app.inverter_count;
     for (uint8_t i = 0U; i < SCREEN_COMMISSIONING_MAX_INVERTERS; ++i) {
         copy_inverter_to_screen(i, &app, &out->inverters[i]);
@@ -230,19 +241,22 @@ static bool local_read_config(void *context, screen_commissioning_config_t *out)
                  profile->model_family ? profile->model_family : "");
         p->read_allowed = inverter_profile_allows_read(profile);
         p->write_allowed = inverter_profile_allows_write(profile);
-        p->deferred_this_phase = profile->deferred_this_phase;
+        p->deferred_this_phase = false;
     }
+
     copy_plant_to_screen(&app, &solar, &out->plant);
     s_unlocked_until_ms = now_ms() + LOCAL_ENGINEERING_SESSION_MS;
     return true;
 }
 
-static bool save_app_config(app_config_t *next,
-                            bool restart_required,
-                            const char *success,
-                            screen_commission_action_result_t *result)
+static bool save_app_config_disabled(app_config_t *next,
+                                     bool restart_required,
+                                     const char *success,
+                                     screen_commission_action_result_t *result)
 {
     if (!next || !require_unlocked(result)) return false;
+
+    /* Configuration changes never land under live command authority. */
     control_engine_force_disable();
     next->control.enabled = false;
     const esp_err_t err = config_manager_save(next);
@@ -262,34 +276,36 @@ static bool local_save_site(void *context, const char *device_name,
 {
     (void)context;
     if (!require_unlocked(result)) return false;
-    if (!device_name || !device_name[0] || strlen(device_name) >= sizeof(((app_config_t *)0)->device_name)) {
+    if (!device_name || !device_name[0] ||
+        strlen(device_name) >= sizeof(((app_config_t *)0)->device_name)) {
         result_set(result, false, false, "Site/controller name must be 1-31 characters.");
         return false;
     }
+
     app_config_t next = {0};
     if (config_manager_get_snapshot(&next) != ESP_OK) {
         result_set(result, false, false, "Controller configuration is unavailable.");
         return false;
     }
     snprintf(next.device_name, sizeof(next.device_name), "%s", device_name);
-    return save_app_config(&next, false, "Site/controller name saved. Automatic control is disabled.", result);
+    return save_app_config_disabled(&next, false,
+                                    "Site/controller name saved. Automatic control is disabled.",
+                                    result);
 }
 
-static void init_safe_meter_slot(meter_config_t *m)
+static void init_safe_meter_slot(meter_config_t *meter)
 {
-    memset(m, 0, sizeof(*m));
-    m->endpoint.port = 502U;
-    m->endpoint.unit_id = 1U;
-    m->endpoint.timeout_ms = 1000U;
-    m->function_code = 3U;
-    m->active_power_type = MODBUS_DATA_INT32;
-    m->active_power_order = MODBUS_ORDER_ABCD;
-    m->active_power_scale = 1.0f;
-    m->poll_interval_ms = 1000U;
-    m->role = METER_ROLE_UNASSIGNED;
-    m->generator_index = METER_GENERATOR_INDEX_NONE;
-    m->model = METER_MODEL_UNDECLARED;
-    m->phase_control_basis = METER_PHASE_BASIS_LOWEST_PHASE;
+    memset(meter, 0, sizeof(*meter));
+    meter->endpoint.port = 502U;
+    meter->endpoint.unit_id = 1U;
+    meter->endpoint.timeout_ms = 1000U;
+    meter->function_code = 3U;
+    meter->active_power_type = MODBUS_DATA_INT32;
+    meter->active_power_order = MODBUS_ORDER_ABCD;
+    meter->active_power_scale = 1.0f;
+    meter->poll_interval_ms = 1000U;
+    meter->role = METER_ROLE_UNASSIGNED;
+    meter->generator_index = METER_GENERATOR_INDEX_NONE;
 }
 
 static bool local_save_meter(void *context, uint8_t index,
@@ -298,9 +314,18 @@ static bool local_save_meter(void *context, uint8_t index,
 {
     (void)context;
     if (!meter || index >= APP_MAX_METERS || !require_unlocked(result)) {
-        if (meter && result && index >= APP_MAX_METERS) result_set(result, false, false, "Meter slot is out of range.");
+        if (meter && result && index >= APP_MAX_METERS) {
+            result_set(result, false, false, "Meter slot is out of range.");
+        }
         return false;
     }
+
+    if (meter->model != 0U || meter->phase_basis != 0U) {
+        result_set(result, false, false,
+                   "Meter model/phase-basis fields are legacy UI fields and are not authoritative in current Core. Leave them at default before saving.");
+        return false;
+    }
+
     app_config_t next = {0};
     if (config_manager_get_snapshot(&next) != ESP_OK) {
         result_set(result, false, false, "Controller configuration is unavailable.");
@@ -310,6 +335,7 @@ static bool local_save_meter(void *context, uint8_t index,
         init_safe_meter_slot(&next.meters[next.meter_count]);
         next.meter_count++;
     }
+
     meter_config_t *m = &next.meters[index];
     m->enabled = meter->enabled;
     snprintf(m->name, sizeof(m->name), "%s", meter->name);
@@ -323,15 +349,15 @@ static bool local_save_meter(void *context, uint8_t index,
     m->active_power_order = (modbus_word_order_t)meter->word_order;
     m->active_power_scale = meter->scale;
     m->poll_interval_ms = meter->poll_ms;
-    m->role = meter->role;
-    m->generator_index = meter->role == METER_ROLE_GENERATOR
+    m->role = (meter_role_t)meter->role;
+    m->generator_index = m->role == METER_ROLE_GENERATOR
                              ? meter->generator_index
                              : METER_GENERATOR_INDEX_NONE;
-    m->model = meter->model;
-    m->phase_control_basis = meter->phase_basis;
-    return save_app_config(&next, true,
-                           "Meter saved. Automatic control is disabled; restart before qualification.",
-                           result);
+
+    return save_app_config_disabled(
+        &next, true,
+        "Meter saved. Automatic control is disabled; restart before qualification.",
+        result);
 }
 
 static bool local_save_inverter(void *context, uint8_t index,
@@ -340,17 +366,28 @@ static bool local_save_inverter(void *context, uint8_t index,
 {
     (void)context;
     if (!inverter || index >= APP_MAX_INVERTERS || !require_unlocked(result)) {
-        if (inverter && result && index >= APP_MAX_INVERTERS) result_set(result, false, false, "Inverter slot is out of range.");
+        if (inverter && result && index >= APP_MAX_INVERTERS) {
+            result_set(result, false, false, "Inverter slot is out of range.");
+        }
         return false;
     }
+
+    if (inverter->comms_failsafe_ms != 0U) {
+        result_set(result, false, false,
+                   "Per-inverter comms fail-safe is a legacy UI field. Current Core owns telemetry staleness in the qualified profile/control path; leave this field at 0.");
+        return false;
+    }
+
     const inverter_profile_t *profile = inverter_profiles_find(inverter->profile_id);
     if (inverter->enabled && !profile) {
-        result_set(result, false, false, "Select a known inverter profile before enabling this inverter.");
+        result_set(result, false, false,
+                   "Select a known inverter profile before enabling this inverter.");
         return false;
     }
     if (inverter->enabled && profile &&
         (!isfinite(profile->raw_units_per_percent) || profile->raw_units_per_percent <= 0.0f)) {
-        result_set(result, false, false, "Selected profile has no valid command scaling; Core configuration remains unchanged.");
+        result_set(result, false, false,
+                   "Selected profile has no valid command scaling; Core configuration remains unchanged.");
         return false;
     }
 
@@ -360,6 +397,7 @@ static bool local_save_inverter(void *context, uint8_t index,
         return false;
     }
     if (next.inverter_count <= index) next.inverter_count = index + 1U;
+
     inverter_config_t *v = &next.inverters[index];
     v->enabled = inverter->enabled;
     snprintf(v->name, sizeof(v->name), "%s", inverter->name);
@@ -368,7 +406,6 @@ static bool local_save_inverter(void *context, uint8_t index,
     v->endpoint.unit_id = inverter->unit_id;
     v->endpoint.timeout_ms = inverter->timeout_ms;
     v->rated_power_kw = inverter->rated_kw;
-    v->comms_failsafe_ms = inverter->comms_failsafe_ms;
     if (profile) {
         v->power_limit_address = profile->power_limit_address;
         v->power_limit_function = profile->has_power_limit ? profile->power_limit_function : 0U;
@@ -377,17 +414,49 @@ static bool local_save_inverter(void *context, uint8_t index,
         v->maximum_percent = profile->maximum_percent;
     }
 
-    if (!save_app_config(&next, true,
-                         "Inverter endpoint saved. Applying profile assignment...", result)) return false;
+    if (!save_app_config_disabled(&next, true,
+                                  "Inverter endpoint saved. Applying profile assignment...",
+                                  result)) {
+        return false;
+    }
     if (profile && inverter_profile_store_set(index, profile->id) != ESP_OK) {
         result_set(result, false, true,
                    "Endpoint was saved but profile assignment failed. Control remains disabled; fix profile before commissioning.");
         return false;
     }
+
     s_restart_required = true;
     result_set(result, true, true,
                "Inverter and profile saved. Automatic control is disabled; restart before qualification.");
     return true;
+}
+
+static bool legacy_plant_fields_clear(const screen_commission_plant_t *plant)
+{
+    if (!plant) return false;
+    if (plant->load_sharing_mode != 0U ||
+        plant->base_load_tolerance_kw != 0.0f ||
+        plant->base_load_tolerance_percent != 0.0f ||
+        plant->urgent_loading_fraction != 0.0f ||
+        plant->urgent_ramp_multiplier != 0.0f) {
+        return false;
+    }
+    for (uint8_t i = 0U; i < SCREEN_COMMISSIONING_MAX_GENERATORS; ++i) {
+        if (plant->generators[i].role != 0U ||
+            plant->generators[i].base_load_kw != 0.0f) return false;
+    }
+    return true;
+}
+
+static void sync_generator0_compat(solar_grid_config_t *solar)
+{
+    const solar_grid_generator_config_t *g = &solar->generators[0];
+    solar->generator_rated_kw = g->rated_kw;
+    solar->generator_minimum_loading_percent = g->minimum_loading_percent;
+    solar->generator_reserve_kw = g->reserve_kw;
+    solar->generator_reverse_power_margin_kw = g->reverse_power_margin_kw;
+    solar->generator_running = g->running;
+    solar->generator_breaker_closed = g->breaker_closed;
 }
 
 static bool plant_to_core(const screen_commission_plant_t *plant,
@@ -396,33 +465,30 @@ static bool plant_to_core(const screen_commission_plant_t *plant,
                           screen_commission_action_result_t *result)
 {
     if (!plant || !app || !solar) return false;
+    if (!legacy_plant_fields_clear(plant)) {
+        result_set(result, false, false,
+                   "Load-sharing/base-load/urgent-ramp fields belong to the retired schema. Current Core does not accept guessed translations; leave those legacy fields at default.");
+        return false;
+    }
+
     solar->policy = (solar_grid_policy_t)plant->policy;
     solar->meter_orientation = (solar_grid_meter_orientation_t)plant->meter_orientation;
     solar->export_limit_kw = plant->export_limit_kw;
     solar->minimum_import_kw = plant->minimum_import_kw;
-    solar->load_sharing_mode = plant->load_sharing_mode;
-    solar->base_load_tolerance_kw = plant->base_load_tolerance_kw;
-    solar->base_load_tolerance_percent_of_rating = plant->base_load_tolerance_percent;
 
-    const screen_commission_generator_t *g0 = &plant->generators[0];
-    solar->generator_rated_kw = g0->enabled ? g0->rated_kw : 0.0f;
-    solar->generator_minimum_loading_percent = g0->minimum_loading_percent;
-    solar->generator_reserve_kw = g0->reserve_kw;
-    solar->generator_reverse_power_margin_kw = g0->reverse_power_margin_kw;
-    solar->engine_role[0] = g0->role;
-    solar->engine_base_load_kw[0] = g0->base_load_kw;
-
-    for (uint8_t i = 1U; i < SCREEN_COMMISSIONING_MAX_GENERATORS; ++i) {
-        const screen_commission_generator_t *g = &plant->generators[i];
-        solar_grid_generator_limits_t *dst = &solar->generator_extra[i - 1U];
-        dst->enabled = g->enabled;
-        dst->rated_kw = g->rated_kw;
-        dst->minimum_loading_percent = g->minimum_loading_percent;
-        dst->reserve_kw = g->reserve_kw;
-        dst->reverse_power_margin_kw = g->reverse_power_margin_kw;
-        solar->engine_role[i] = g->role;
-        solar->engine_base_load_kw[i] = g->base_load_kw;
+    for (uint8_t i = 0U;
+         i < SCREEN_COMMISSIONING_MAX_GENERATORS && i < SOLAR_GRID_MAX_GENERATORS;
+         ++i) {
+        const screen_commission_generator_t *source = &plant->generators[i];
+        solar_grid_generator_config_t *target = &solar->generators[i];
+        target->rated_kw = source->enabled ? source->rated_kw : 0.0f;
+        target->minimum_loading_percent = source->minimum_loading_percent;
+        target->reserve_kw = source->reserve_kw;
+        target->reverse_power_margin_kw = source->reverse_power_margin_kw;
+        /* running/breaker evidence is deliberately preserved from the current
+         * authoritative source model; this page never guesses signal mapping. */
     }
+    sync_generator0_compat(solar);
 
     app->control.enabled = false;
     app->control.grid_import_target_kw = plant->grid_import_target_kw;
@@ -435,13 +501,14 @@ static bool plant_to_core(const screen_commission_plant_t *plant,
     app->control.grid_ramp.up_percent_per_second = plant->grid_ramp_up_percent_per_second;
     app->control.grid_ramp.down_percent_per_second = plant->grid_ramp_down_percent_per_second;
     app->control.generator_ramp.enabled = plant->generator_ramp_enabled;
-    app->control.generator_ramp.up_percent_per_second = plant->generator_ramp_up_percent_per_second;
-    app->control.generator_ramp.down_percent_per_second = plant->generator_ramp_down_percent_per_second;
-    app->control.urgent_loading_fraction = plant->urgent_loading_fraction;
-    app->control.urgent_ramp_multiplier = plant->urgent_ramp_multiplier;
+    app->control.generator_ramp.up_percent_per_second =
+        plant->generator_ramp_up_percent_per_second;
+    app->control.generator_ramp.down_percent_per_second =
+        plant->generator_ramp_down_percent_per_second;
 
     if (!solar_grid_config_valid(solar)) {
-        result_set(result, false, false, "Core rejected plant/source configuration values.");
+        result_set(result, false, false,
+                   "Core rejected plant/source configuration values.");
         return false;
     }
     return true;
@@ -452,6 +519,7 @@ static bool local_save_plant(void *context, const screen_commission_plant_t *pla
 {
     (void)context;
     if (!require_unlocked(result)) return false;
+
     app_config_t app = {0};
     solar_grid_config_t solar = {0};
     if (config_manager_get_snapshot(&app) != ESP_OK ||
@@ -461,21 +529,22 @@ static bool local_save_plant(void *context, const screen_commission_plant_t *pla
     }
     if (!plant_to_core(plant, &app, &solar, result)) return false;
 
-    /* Disable the running loop BEFORE either persistent model changes. A partial
-     * save can keep commissioning closed, but it must never change policy under
-     * live automatic control. */
+    /* Disable the running loop before either persistent model changes. A
+     * partial save is allowed only in the fail-closed direction. */
     control_engine_force_disable();
     app.control.enabled = false;
     if (config_manager_save(&app) != ESP_OK) {
-        result_set(result, false, false, "Core rejected control/ramp configuration; nothing was armed.");
+        result_set(result, false, false,
+                   "Core rejected control/ramp configuration; nothing was armed.");
         return false;
     }
     if (solar_grid_config_save(&solar) != ESP_OK) {
+        s_restart_required = true;
         result_set(result, false, true,
                    "Control parameters saved but plant source model failed to persist. Control remains disabled; review before restart.");
-        s_restart_required = true;
         return false;
     }
+
     s_restart_required = true;
     result_set(result, true, true,
                "Plant policy, generator protections and ramps saved. Control is disabled; restart required.");
@@ -487,37 +556,38 @@ static bool local_set_control_enabled(void *context, bool enabled,
 {
     (void)context;
     if (!require_unlocked(result)) return false;
-    const esp_err_t applied = control_engine_set_enabled(enabled);
-    if (applied != ESP_OK) {
-        commissioning_status_t gate = {0};
-        control_engine_get_commissioning(&gate);
-        char text[SCREEN_COMMISSIONING_MESSAGE_MAX];
-        snprintf(text, sizeof(text), "%s",
-                 enabled ? commissioning_gate_summary(&gate)
-                         : "Automatic control could not be changed.");
-        result_set(result, false, false, text);
-        return false;
-    }
 
     app_config_t app = {0};
     if (config_manager_get_snapshot(&app) != ESP_OK) {
-        result_set(result, !enabled, false,
-                   enabled ? "Control armed in RAM but persistent configuration could not be read; disarm and investigate."
-                           : "Running control is disabled; persistent state could not be read.");
-        return !enabled;
-    }
-    app.control.enabled = enabled;
-    const esp_err_t saved = config_manager_save(&app);
-    if (saved != ESP_OK) {
-        if (enabled) control_engine_force_disable();
         result_set(result, false, false,
-                   enabled ? "Persistent arm failed; running control was forced disabled."
-                           : "Running control is disabled but persistent disable failed. Restart must not be trusted until fixed.");
+                   "Controller configuration is unavailable; control state was not changed.");
         return false;
     }
-    result_set(result, true, false,
-               enabled ? "Automatic control armed. Core gate remains re-evaluated every cycle."
+
+    /* Current Core intentionally has no runtime-enable setter. Keep this
+     * process fail-closed and persist the requested boot state. On enable, the
+     * next boot starts in FAILSAFE with requested/applied PV at zero and only
+     * obtains command authority if the Core's evidence gates pass. */
+    control_engine_force_disable();
+    app.control.enabled = enabled;
+    if (config_manager_save(&app) != ESP_OK) {
+        if (enabled) control_engine_force_disable();
+        result_set(result, false, false,
+                   enabled ? "Persistent arm failed; running control remains forced disabled."
+                           : "Running control is disabled but persistent disable failed.");
+        return false;
+    }
+
+    if (enabled) {
+        s_restart_required = true;
+        result_set(result, true, true,
+                   "Automatic control armed for next restart. Runtime remains disabled now; after restart Core starts fail-safe and requires valid source/meter/control evidence before command authority.");
+    } else {
+        result_set(result, true, s_restart_required,
+                   s_restart_required
+                       ? "Automatic control disarmed and persisted. A restart is still required for earlier commissioning changes."
                        : "Automatic control disarmed and persisted.");
+    }
     return true;
 }
 
