@@ -18,22 +18,35 @@
 static const char *TAG = "meters";
 
 typedef struct {
+    char host[MODBUS_HOST_MAX_LEN];
+    uint16_t port;
+    SemaphoreHandle_t mutex;
+    TickType_t last_release_tick;
+    uint8_t member_count;
+    bool used;
+} meter_gateway_lane_t;
+
+typedef struct {
     uint8_t index;
     meter_config_t config;
     modbus_connection_t connection;
     meter_data_t data;
     portMUX_TYPE lock;
     SemaphoreHandle_t io_mutex;
+    meter_gateway_lane_t *gateway_lane;
     uint32_t recent_results;
     uint8_t recent_count;
 } meter_runtime_t;
 
 static meter_runtime_t s_meters[APP_MAX_METERS];
+static meter_gateway_lane_t s_gateway_lanes[APP_MAX_METERS];
 static uint8_t s_meter_count;
 
 #define METER_LOG_EVERY_N 30
 #define METER_FRESH_GRACE_MS 5000U
 #define METER_IO_LOCK_TIMEOUT_MS 5000U
+#define METER_GATEWAY_SETTLE_MS 75U
+#define METER_START_STAGGER_MS 75U
 #define METER_QUALITY_WINDOW 20U
 #define METER_MIN_QUALITY_SAMPLES 5U
 #define METER_MIN_SUCCESS_PERCENT 80U
@@ -42,6 +55,48 @@ static uint8_t s_meter_count;
 static uint32_t now_ms(void)
 {
     return (uint32_t)(esp_timer_get_time() / 1000ULL);
+}
+
+static meter_gateway_lane_t *gateway_lane_for(const modbus_endpoint_t *endpoint)
+{
+    if (!endpoint || !endpoint->host[0] || endpoint->port == 0U) return NULL;
+
+    for (uint8_t i = 0U; i < APP_MAX_METERS; ++i) {
+        meter_gateway_lane_t *lane = &s_gateway_lanes[i];
+        if (lane->used && lane->port == endpoint->port &&
+            strcmp(lane->host, endpoint->host) == 0) {
+            lane->member_count++;
+            return lane;
+        }
+    }
+
+    for (uint8_t i = 0U; i < APP_MAX_METERS; ++i) {
+        meter_gateway_lane_t *lane = &s_gateway_lanes[i];
+        if (lane->used) continue;
+        memset(lane, 0, sizeof(*lane));
+        strlcpy(lane->host, endpoint->host, sizeof(lane->host));
+        lane->port = endpoint->port;
+        lane->mutex = xSemaphoreCreateMutex();
+        if (!lane->mutex) {
+            memset(lane, 0, sizeof(*lane));
+            return NULL;
+        }
+        lane->member_count = 1U;
+        lane->used = true;
+        return lane;
+    }
+    return NULL;
+}
+
+static void wait_gateway_settle(const meter_gateway_lane_t *lane)
+{
+    if (!lane || lane->last_release_tick == 0U) return;
+
+    const TickType_t settle_ticks = pdMS_TO_TICKS(METER_GATEWAY_SETTLE_MS);
+    if (settle_ticks == 0U) return;
+
+    const TickType_t elapsed = xTaskGetTickCount() - lane->last_release_tick;
+    if (elapsed < settle_ticks) vTaskDelay(settle_ticks - elapsed);
 }
 
 static bool legacy_em500_scale_fingerprint(const meter_config_t *config)
@@ -175,18 +230,39 @@ static esp_err_t serialized_read(meter_runtime_t *meter,
                                  uint16_t count,
                                  uint16_t *registers)
 {
-    if (!meter || !meter->io_mutex) return ESP_ERR_INVALID_STATE;
+    if (!meter || !meter->io_mutex || !meter->gateway_lane ||
+        !meter->gateway_lane->mutex) {
+        return ESP_ERR_INVALID_STATE;
+    }
     if (xSemaphoreTake(meter->io_mutex, pdMS_TO_TICKS(METER_IO_LOCK_TIMEOUT_MS)) != pdTRUE) {
         ESP_LOGW(TAG, "%s: Modbus transaction queue timeout", meter->config.name);
         return ESP_ERR_TIMEOUT;
     }
 
+    meter_gateway_lane_t *lane = meter->gateway_lane;
+    if (xSemaphoreTake(lane->mutex, pdMS_TO_TICKS(METER_IO_LOCK_TIMEOUT_MS)) != pdTRUE) {
+        xSemaphoreGive(meter->io_mutex);
+        ESP_LOGW(TAG, "%s: shared gateway %s:%u queue timeout",
+                 meter->config.name, lane->host, lane->port);
+        return ESP_ERR_TIMEOUT;
+    }
+
+    /*
+     * Many TCP-to-RTU gateways expose multiple Unit IDs but only one physical
+     * serial downstream bus. Parallel TCP sessions can therefore race the RTU
+     * response path even though each Modbus/TCP connection is individually
+     * valid. Serialize meters that share host:port and leave a short quiet
+     * interval between sessions. Different gateways use independent lanes.
+     */
+    wait_gateway_settle(lane);
     esp_err_t err = modbus_tcp_read_registers(&meter->connection,
                                               function_code,
                                               address,
                                               count,
                                               registers);
     capture_modbus_exception(meter);
+    lane->last_release_tick = xTaskGetTickCount();
+    xSemaphoreGive(lane->mutex);
     xSemaphoreGive(meter->io_mutex);
     return err;
 }
@@ -215,6 +291,10 @@ static void meter_task(void *argument)
         ESP_LOGW(TAG, "%s legacy EM500 scale %.8f normalized to %.8f kW/raw",
                  meter->config.name, (double)meter->config.active_power_scale,
                  (double)scale);
+    }
+
+    if (meter->index > 0U) {
+        vTaskDelay(pdMS_TO_TICKS((uint32_t)meter->index * METER_START_STAGGER_MS));
     }
 
     while (true) {
@@ -293,6 +373,7 @@ esp_err_t meter_manager_init(void)
         return err;
     }
 
+    memset(s_gateway_lanes, 0, sizeof(s_gateway_lanes));
     s_meter_count = cfg->meter_count <= APP_MAX_METERS ? cfg->meter_count : APP_MAX_METERS;
     for (uint8_t i = 0; i < s_meter_count; ++i) {
         meter_runtime_t *runtime = &s_meters[i];
@@ -301,6 +382,9 @@ esp_err_t meter_manager_init(void)
         runtime->config = cfg->meters[i];
         runtime->lock = (portMUX_TYPE)portMUX_INITIALIZER_UNLOCKED;
         runtime->io_mutex = xSemaphoreCreateMutex();
+        if (runtime->config.enabled) {
+            runtime->gateway_lane = gateway_lane_for(&runtime->config.endpoint);
+        }
         /* No sample has been acquired yet. NaN is intentional: cJSON emits it as
          * null and the control layer rejects it, so unavailable power can never
          * masquerade as a real 0.00 kW measurement. */
@@ -308,16 +392,28 @@ esp_err_t meter_manager_init(void)
         runtime->data.current_poll_delay_ms = runtime->config.poll_interval_ms < 100U
                                                   ? 100U
                                                   : runtime->config.poll_interval_ms;
-        if (!runtime->io_mutex) runtime->data.last_error = ESP_ERR_NO_MEM;
+        if (!runtime->io_mutex || (runtime->config.enabled && !runtime->gateway_lane)) {
+            runtime->data.last_error = ESP_ERR_NO_MEM;
+        }
+    }
+
+    for (uint8_t i = 0U; i < APP_MAX_METERS; ++i) {
+        const meter_gateway_lane_t *lane = &s_gateway_lanes[i];
+        if (lane->used && lane->member_count > 1U) {
+            ESP_LOGI(TAG,
+                     "Serializing %u meters on shared Modbus gateway %s:%u with %u ms inter-session settle",
+                     (unsigned)lane->member_count, lane->host, lane->port,
+                     (unsigned)METER_GATEWAY_SETTLE_MS);
+        }
     }
 
     esp_err_t first_error = ESP_OK;
     for (uint8_t i = 0; i < s_meter_count; ++i) {
         meter_runtime_t *runtime = &s_meters[i];
         if (!runtime->config.enabled) continue;
-        if (!runtime->io_mutex) {
+        if (!runtime->io_mutex || !runtime->gateway_lane || !runtime->gateway_lane->mutex) {
             if (first_error == ESP_OK) first_error = ESP_ERR_NO_MEM;
-            ESP_LOGE(TAG, "meter %u transaction mutex allocation failed", i);
+            ESP_LOGE(TAG, "meter %u transaction/gateway mutex allocation failed", i);
             continue;
         }
         if (!isfinite(runtime->config.active_power_scale)) {
@@ -377,7 +473,8 @@ esp_err_t meter_manager_read_registers(uint8_t meter_index,
 
     meter_runtime_t *meter = &s_meters[meter_index];
     meter_data_t status = data_snapshot(meter);
-    if (!meter->config.enabled || !status.connection_initialized || !meter->io_mutex) {
+    if (!meter->config.enabled || !status.connection_initialized || !meter->io_mutex ||
+        !meter->gateway_lane || !meter->gateway_lane->mutex) {
         return ESP_ERR_INVALID_STATE;
     }
     if (!network_manager_wait_ready(0)) return ESP_ERR_INVALID_STATE;
