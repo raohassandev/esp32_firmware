@@ -11,6 +11,8 @@
 #include "solar_screen.h"
 #include "source_commissioning_screen.h"
 
+#define SCREEN_MIN_TOUCH_TARGET_PX 44
+
 typedef struct {
     lv_obj_t *root;
     lv_obj_t *content;
@@ -38,6 +40,33 @@ static void make_fixed_surface(lv_obj_t *obj)
     if (!obj) return;
     lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scrollbar_mode(obj, LV_SCROLLBAR_MODE_OFF);
+}
+
+/* Industrial UI v1 requires >=44 px touch targets on touch layouts. Individual
+ * pages historically used several compact 34/38/40 px controls. Enforce the
+ * minimum once, immediately after each lazy page tree is created, so every
+ * button, checkbox, dropdown and text input is physically tappable without
+ * duplicating a size rule in every page implementation. min_height preserves a
+ * larger page-specific control while lifting only undersized targets. */
+static bool is_touch_target(const lv_obj_t *obj)
+{
+    return obj &&
+           (lv_obj_has_class(obj, &lv_button_class) ||
+            lv_obj_has_class(obj, &lv_checkbox_class) ||
+            lv_obj_has_class(obj, &lv_dropdown_class) ||
+            lv_obj_has_class(obj, &lv_textarea_class));
+}
+
+static void enforce_min_touch_targets(lv_obj_t *obj)
+{
+    if (!obj) return;
+    if (is_touch_target(obj)) {
+        lv_obj_set_style_min_height(obj, SCREEN_MIN_TOUCH_TARGET_PX, LV_PART_MAIN);
+    }
+    const uint32_t child_count = lv_obj_get_child_count(obj);
+    for (uint32_t i = 0U; i < child_count; ++i) {
+        enforce_min_touch_targets(lv_obj_get_child(obj, (int32_t)i));
+    }
 }
 
 static bool active_is(screen_page_t page)
@@ -91,6 +120,7 @@ static lv_obj_t *ensure_page(screen_page_t page)
 
     if (!created) return NULL;
     make_fixed_surface(created);
+    enforce_min_touch_targets(created);
     s_app.pages[page] = created;
     return created;
 }
@@ -106,7 +136,7 @@ static lv_obj_t *nav_button(lv_obj_t *parent, const char *text, screen_page_t pa
 {
     lv_obj_t *button = lv_button_create(parent);
     make_fixed_surface(button);
-    lv_obj_set_height(button, 40);
+    lv_obj_set_height(button, SCREEN_MIN_TOUCH_TARGET_PX);
     lv_obj_set_flex_grow(button, 1);
     lv_obj_add_event_cb(button, nav_clicked, LV_EVENT_CLICKED, (void *)(uintptr_t)page);
     lv_obj_t *label = lv_label_create(button);
@@ -135,7 +165,7 @@ lv_obj_t *screen_app_create(lv_obj_t *parent)
     lv_obj_remove_style_all(nav);
     make_fixed_surface(nav);
     lv_obj_set_width(nav, LV_PCT(100));
-    lv_obj_set_height(nav, 44);
+    lv_obj_set_height(nav, SCREEN_MIN_TOUCH_TARGET_PX);
     lv_obj_set_layout(nav, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(nav, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_column(nav, 5, LV_PART_MAIN);
