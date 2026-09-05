@@ -1,97 +1,118 @@
-# Waveshare Screen TODO
+# Waveshare Screen Completion Checklist
 
-Scope: local Waveshare 5-inch HMI only. Existing backend/core behavior is authoritative. No new product functionality in this milestone.
+Scope: dedicated Waveshare ESP32-S3-Touch-LCD-5 800x480 product target integrated with the current shared Product Core in PR #179.
 
 Status vocabulary:
-- `[x]` = implementation/evidence artifact exists in the branch.
-- `[ ]` = still requires implementation or applicable evidence.
-- Hardware-dependent items stay open until exact-board evidence exists.
+- `[x]` = implemented and covered by current software/build evidence.
+- `[ ]` = still requires physical evidence or an external dependency.
+- Software/build PASS never substitutes for physical acceptance.
 
-## S0 — API contract foundation
-- [x] Freeze screen use of existing `GET /api/live` and `GET /api/status` contracts.
-- [x] Extend the same contract model to existing `GET /api/meters`, `/api/inverters`, `/api/telemetry`, `/api/operator/events`, and `/api/operator/alarms`.
-- [x] Add bounded screen-owned C models/parsers for those payloads.
-- [x] Preserve backend `null`/unknown values instead of coercing them to zero.
-- [x] Parse control labels/reasons without re-deriving control policy.
-- [x] Use `/api/status.source.attributed_to` as the authoritative source label.
-- [x] Add host parser fixtures for good/stale/offline/unknown/null/device/event/alarm payloads.
-- [x] Add source contract proving every consumed path is already owned by the existing backend.
+## 1. Current-Core integration
 
-## S1 — Read-only operator overview
-- [x] Create LVGL overview page.
-- [x] Grid/active-source power card.
-- [x] Solar power card.
-- [x] Requested PV card.
-- [x] Applied PV card.
-- [x] Control mode and inhibit reason.
-- [x] Meter/network/controller/alarm state rows.
-- [x] Explicit backend-unavailable rendering.
-- [x] Render backend-provided human-readable alarm names rather than hexadecimal flags.
-- [x] Use fail-closed backend source attribution only; never render raw `live.source` as authority.
-- [ ] Exact 800x480/1024x600 visual verification after physical SKU is frozen.
+- [x] Start integration from live `dev` rather than stale local state.
+- [x] Keep the historical Waveshare board source as a reviewed hardware/UI baseline only; do not inherit its physical PASS.
+- [x] Port native provider/commissioning adapters to current APP_CONFIG_VERSION 6 and Solar-Grid v4 contracts.
+- [x] Remove references to retired commissioning-gate/runtime-enable APIs.
+- [x] Do not revive retired meter/inverter/load-sharing/base-load/urgent-ramp schema fields in Core.
+- [x] Retired compatibility DTO fields remain neutral and backend guards reject non-default legacy values rather than guessing translations.
+- [x] Preserve Core source/electrical semantics; the LCD never guesses source attribution or breaker evidence.
 
-## S2 — Waveshare display/touch qualification
-- [ ] Freeze exact physical board SKU and PCB revision.
-- [x] Pin upstream review baseline to `waveshareteam/ESP32-S3-Touch-LCD-5@a7b179dbfccea8121c88770d8a3c53e5a84b1024`.
-- [x] Transcribe both official display timing/pin profiles into a board-local pure-C profile with no default SKU assumption.
-- [x] Add executable host test for 800x480 and 1024x600 profile values/pins.
-- [ ] Qualify official LVGL v9 demo/dependencies against project ESP-IDF 6.0.1.
-- [ ] Pin the qualified exact LVGL / esp_lvgl_adapter / GT911 component versions in the board build.
-- [ ] Implement/qualify the ESP-IDF RGB/GT911/CH422G hardware port from the reviewed profile.
-- [ ] Bring up RGB display on exact board without application/core changes.
-- [ ] Bring up GT911 touch on exact board without application/core changes.
-- [ ] Measure framebuffer/PSRAM/internal-DMA heap impact.
+## 2. Native data/read models
 
-## S3 — Build integration
-- [x] Add isolated screen-local `CMakeLists.txt` containing API, widgets, pages, runtime and display profiles.
-- [x] Keep screen component disconnected from the current site-tested default build.
-- [x] Add a source contract that fails if the screen leaks into root/default `CMakeLists.txt`.
-- [x] Add dedicated board-branch CI workflow for isolation/parser/profile checks.
-- [ ] Add board-specific build selector only after S2 dependency qualification.
-- [ ] Compile exact Waveshare firmware target with zero new warnings.
-- [ ] Run the complete existing firmware regression suite at the integrated Waveshare head.
+- [x] Bounded screen-owned models/parsers for live/status/meters/inverters/telemetry/events/alarms.
+- [x] Preserve null/unknown/unavailable values rather than coercing them to measured zero.
+- [x] Use current Core source attribution and control/inhibit evidence.
+- [x] Native events use the same authoritative Core event ring as the web operator route.
+- [x] Native alarms use the same authoritative Core alarm lifecycle table as the web operator route.
+- [x] Provider is in-process; no second backend or loopback HTTP authority is created.
+- [x] Refresh lanes are page-aware and bounded; large snapshots are kept off the LVGL task stack.
 
-## S4 — Data/runtime integration
-- [x] Implement a provider-injected runtime bridge that consumes the existing API path contracts without a second backend/control implementation.
-- [x] Separate refresh lanes: fast `/api/live`, status/readiness, devices, operations.
-- [x] Keep scheduling outside the screen component; no hidden FreeRTOS screen task/timer is created.
-- [x] Add per-surface unavailable states so one endpoint failure does not erase unrelated healthy data.
-- [x] Keep large bounded meter/inverter/alarm/event snapshots off the LVGL task stack.
-- [x] On missing/stale backend data, render unavailable/unknown rather than a guessed value.
-- [ ] Bind the provider to the qualified board integration while preserving existing backend authority.
-- [ ] Invoke `/api/live` refresh at the existing 500 ms information cadence on hardware.
-- [ ] Invoke slower status/device/operations refresh without overlapping/control starvation on hardware.
-- [ ] Prove UI/render/data work cannot block control/network tasks.
+## 3. Native operator surfaces
 
-## S5 — Read-only operator parity pages
-Only existing product capabilities are represented.
-- [x] Overview parity source implementation.
-- [x] Grid/meter operational view source implementation.
-- [x] Solar/inverter operational view source implementation.
-- [x] Alarms/event view source implementation.
-- [x] Readiness/status view source implementation.
-- [x] Touch navigation shell: Overview / Grid / Solar / Alarms / Ready.
-- [x] No control/write callbacks in current HMI milestone.
-- Engineering/commissioning mutation surfaces: `N/A — not authorized in current milestone`.
+- [x] Overview implemented.
+- [x] Grid/meters implemented.
+- [x] Solar/inverters implemented.
+- [x] Alarms/events implemented.
+- [x] Runtime Readiness implemented.
+- [x] Lazy page creation prevents all seven page trees consuming boot-time memory before first frame.
+- [x] Alarms page has bounded `All / Active / Unack` filtering.
+- [x] Alarms page has bounded `Priority / State / ID` sorting.
+- [x] Per-row alarm acknowledgement is available for outstanding alarms.
+- [x] Alarm acknowledgement mutates only the shared authoritative Core lifecycle.
+- [x] Runtime Readiness explicitly separates runtime command authority from production qualification.
 
-## S6 — QA / HIL
-- [x] API parser host-test source added with warnings-as-errors CI command.
-- [x] Screen isolation/existing-backend source contract added.
-- [x] Display profile host test added; independent local GCC `-Wall -Wextra -Werror` execution passed on 2026-08-18.
-- [ ] GitHub CI run must be green at the final software head.
-- [ ] Exact-resolution UI render checks.
-- [ ] Touch target/readability checks.
-- [ ] Meter offline/stale behavior on integrated runtime.
-- [ ] Source unknown/conflict behavior on integrated runtime.
-- [ ] Network loss/recovery behavior on integrated runtime.
-- [ ] Backend unavailable/recovery behavior on integrated runtime.
-- [ ] Active alarms/events behavior on integrated runtime.
-- [ ] Display/touch fault must not alter control authority.
-- [ ] Resource/stack/heap/watchdog/control-jitter measurements under active UI.
-- [ ] Physical board acceptance before `COMPLETE`.
+## 4. Engineering and commissioning
 
-## Current remaining critical path
+- [x] Commissioning uses the same Engineering setup-code/permanent-password authority and shared lockout state as the protected web workspace.
+- [x] No second local PIN/credential authority exists.
+- [x] Production Kconfig exposes no board-local compile-time Engineering credential-prefill option.
+- [x] Meter/inverter/site/plant configuration writes go through current Core validation/persistence.
+- [x] Configuration writes force running automatic control disabled before persistent changes.
+- [x] ARM persists automatic control for the next restart; current runtime remains disabled.
+- [x] After restart current Core starts fail-safe at zero PV command and requires current evidence gates before command authority.
+- [x] Source-evidence commissioning preserves existing Core source semantics and does not invent signal mapping.
+- [x] Source-evidence writes require Engineering unlock.
+- [x] Alarm acknowledgement requires an unlocked local Engineering session.
 
-`exact physical SKU/revision -> qualify LVGL/display/touch dependencies on ESP-IDF 6.0.1 -> board hardware port -> board build -> provider binding -> exact-board render/touch/resource/HIL evidence`.
+## 5. Board/display/runtime integration
 
-Nothing in the remaining critical path authorizes a new product feature or any new control/write behavior.
+- [x] Reviewed Waveshare upstream baseline retained for hardware reference.
+- [x] 800x480 RGB/touch product target compiles against ESP-IDF 6.0.1.
+- [x] LVGL `9.5.0` exact-pinned.
+- [x] `esp_lvgl_adapter 0.6.2` exact-pinned.
+- [x] GT911 `1.2.0` exact-pinned.
+- [x] Product `esp_flash_dispatcher 1.0.3` exact-pinned.
+- [x] Bootloader application rollback enabled.
+- [x] Build-time Wi-Fi provisioning disabled and compiled STA credentials empty in candidate CI.
+- [x] Board-specific PSRAM/LVGL/internal-DMA policy is checked by exact-candidate CI.
+- [x] Product runtime emits periodic heap/minimum-heap/PSRAM/DMA/stack evidence for soak validation.
+- [x] Dedicated exact-head diagnostic workflow emits build logs on failure.
+
+## 6. Exact candidate software/build gates
+
+Before selecting a physical image, all items below must be green on the same exact head:
+
+- [x] Industrial UI v1 gate.
+- [x] Browser resilience release gate.
+- [x] Web spinlock safety checks.
+- [x] HTTP body parser ownership checks.
+- [x] Project app-config stack safety checks.
+- [x] Secure OTA always-on regression gate.
+- [x] Industrial UI physical-evidence tooling gate.
+- [x] Root Firmware/Web checks.
+- [x] Waveshare diagnostic build.
+- [x] Waveshare exact-candidate build/package.
+- [x] Candidate package records exact source SHA/tree, toolchain, generated dependency lock, compile commands, effective sdkconfig and ELF/BIN/UF2 hashes.
+- [x] Candidate tar is deterministic and package SHA256 manifest is independently verifiable.
+
+These checkmarks describe the last verified software checkpoint. Any source change after that checkpoint requires a fresh exact-head run before physical testing.
+
+## 7. Physical acceptance — issue #174
+
+The following remain intentionally open until performed on one exact immutable final candidate:
+
+- [ ] Flash the exact candidate package/UF2 without rebuilding or substituting source/config.
+- [ ] Cold boot to usable native dashboard with no corruption/sweep/reload/flicker failure.
+- [ ] Verify native 800x480 Overview/Grid/Solar/Alarms/Readiness layout and touch targets.
+- [ ] Verify Engineering unlock, Commission and Source flows on the physical touchscreen.
+- [ ] Verify Operator cannot perform protected mutations.
+- [ ] Verify alarm filter/sort interaction on the physical touchscreen.
+- [ ] Verify alarm acknowledgement is refused while Engineering is locked.
+- [ ] Verify an outstanding alarm can be acknowledged after Engineering unlock and remains active until the plant clears the condition when applicable.
+- [ ] Verify current embedded browser UI/operator/Engineering hierarchy, including light/dark readability.
+- [ ] Verify unrelated API/status/history/events remain responsive during normal HMI/browser use.
+- [ ] Record periodic heap/minimum heap/largest block/internal DMA/PSRAM/stack evidence.
+- [ ] Confirm no WDT, panic, Guru Meditation, `NO_MEM`, unexpected reboot, LVGL wedge or unrecovered backend/browser failure.
+- [ ] Complete one uninterrupted `>=4 h` run with `>=240` one-minute soak samples on the same exact image.
+- [ ] Validate the final serial + human observations with `tools/industrial_ui_physical_acceptance.py` against exact candidate SHA/tree/artifact/application identity.
+
+Partial runs are not additive. Any source/config/binary change creates a new identity and invalidates prior affected physical evidence.
+
+## 8. Promotion boundary
+
+- [ ] Issue #174 complete PASS on one immutable final candidate.
+- [ ] Re-check PR head/base/CI after physical PASS.
+- [ ] Keep PR #179 Draft until physical evidence genuinely passes.
+- [ ] Promote/merge only through the governed PR path; never direct-write to `dev`.
+
+Current lifecycle: **SOFTWARE IMPLEMENTATION COMPLETE PENDING FRESH FINAL-HEAD CI/PACKAGE; PHYSICAL ACCEPTANCE STILL REQUIRED**.
