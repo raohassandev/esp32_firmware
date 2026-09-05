@@ -46,8 +46,11 @@ jobs:
 
           mapfile -t board_changes < <(git diff --name-only "$BOARD_SOURCE_SHA" -- "$BOARD_DIR")
           expected_board_changes=(
+            "$BOARD_DIR/screen/pages/alarms_screen.c"
+            "$BOARD_DIR/screen/pages/alarms_screen.h"
             "$PRODUCT_DIR/main/local_backend_provider.c"
             "$PRODUCT_DIR/main/local_commissioning_backend.c"
+            "$PRODUCT_DIR/main/local_commissioning_backend.h"
             "$PRODUCT_DIR/main/main.c"
             "$PRODUCT_DIR/sdkconfig.defaults"
           )
@@ -174,7 +177,7 @@ jobs:
           candidate_sha=$CANDIDATE_SHA
           candidate_tree=$candidate_tree
           board_source_sha=$BOARD_SOURCE_SHA
-          reviewed_board_delta=$PRODUCT_DIR/main/local_backend_provider.c,$PRODUCT_DIR/main/local_commissioning_backend.c,$PRODUCT_DIR/main/main.c,$PRODUCT_DIR/sdkconfig.defaults
+          reviewed_board_delta=$BOARD_DIR/screen/pages/alarms_screen.c,$BOARD_DIR/screen/pages/alarms_screen.h,$PRODUCT_DIR/main/local_backend_provider.c,$PRODUCT_DIR/main/local_commissioning_backend.c,$PRODUCT_DIR/main/local_commissioning_backend.h,$PRODUCT_DIR/main/main.c,$PRODUCT_DIR/sdkconfig.defaults
           industrial_ui_software_baseline=$INDUSTRIAL_UI_BASELINE
           integration_base_dev=$INTEGRATION_BASE_DEV
           container_image=espressif/idf:v6.0.1
