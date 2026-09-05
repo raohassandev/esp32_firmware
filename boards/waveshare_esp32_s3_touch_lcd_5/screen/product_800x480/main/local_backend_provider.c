@@ -11,28 +11,28 @@
 #include "esp_app_desc.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "esp_timer.h"
 #include "inverter_manager.h"
 #include "meter_manager.h"
 #include "network_manager.h"
-#include "operational_api.h"
 #include "safety_manager.h"
 #include "screen_api.h"
 #include "source_detection.h"
-#include "system_resource_api.h"
 
 /*
- * The native LCD runs on the same MCU as the Product Core.  Self-HTTP looked
- * attractive because it reused the browser routes verbatim, but ESP-IDF HIL
- * proved that neither 127.0.0.1 nor the AP's own address was a reliable
- * controller-to-itself transport in this product: connect/select timed out while
- * the web server itself was healthy.
+ * Native LCD read-model adapter.
  *
- * This adapter therefore reads ONLY existing Core snapshots and projects the
- * subset of the established API contracts that screen_api.c already parses.
- * There is no Modbus I/O, no write path, no control decision and no socket/TCP
- * dependency here.  The authoritative source attribution is also not re-derived
- * here: source_detection_attributed_to() is owned by shared Product Core.
+ * The screen runs on the same MCU as Product Core. Self-HTTP was proven
+ * unreliable on the physical ESP-IDF target, so this adapter reads only
+ * existing Core snapshots and projects the subset already consumed by
+ * screen_api.c. It performs no Modbus I/O, no control writes and no source or
+ * electrical inference.
+ *
+ * The current operational event/alarm component does not expose an in-process
+ * snapshot builder. Those two routes therefore fail closed as unavailable
+ * rather than fabricating event history or duplicating the private alarm
+ * lifecycle state machine.
  */
 
 typedef struct {
@@ -49,9 +49,6 @@ static local_api_slot_t s_slots[] = {
     {SCREEN_API_METERS_PATH,    12288U,  NULL, false, 0U},
     {SCREEN_API_INVERTERS_PATH, 24576U,  NULL, false, 0U},
     {SCREEN_API_TELEMETRY_PATH,  8192U,  NULL, false, 0U},
-    /* Exact operational payloads come from the same Core-owned builders as
-     * the HTTP API. Events can contain the full 96-entry ring, so keep this
-     * slot larger than the LCD's bounded 16-row projection. */
     {SCREEN_API_EVENTS_PATH,    49152U,  NULL, false, 0U},
     {SCREEN_API_ALARMS_PATH,    32768U,  NULL, false, 0U},
 };
@@ -102,7 +99,6 @@ static void provider_release(void *context, const char *path, const char *json)
     (void)context;
     (void)path;
     (void)json;
-    /* Persistent provider-owned PSRAM slot. */
 }
 
 static bool finish_json(local_api_slot_t *slot, cJSON *root)
@@ -154,6 +150,32 @@ static uint32_t meter_stale_after_ms(const app_config_t *config, uint8_t index)
     if (derived < 1000ULL) derived = 1000ULL;
     if (derived > UINT32_MAX) derived = UINT32_MAX;
     return (uint32_t)derived;
+}
+
+static bool reset_was_unexpected(esp_reset_reason_t reason)
+{
+    return reason == ESP_RST_PANIC ||
+           reason == ESP_RST_INT_WDT ||
+           reason == ESP_RST_TASK_WDT ||
+           reason == ESP_RST_WDT ||
+           reason == ESP_RST_BROWNOUT ||
+           reason == ESP_RST_PWR_GLITCH ||
+           reason == ESP_RST_CPU_LOCKUP;
+}
+
+static const char *controller_resource_state(void)
+{
+    const size_t free_internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const size_t largest_internal = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const double fragmentation = free_internal > 0U
+                                     ? 1.0 - ((double)largest_internal / (double)free_internal)
+                                     : 1.0;
+    const bool reset_attention = reset_was_unexpected(esp_reset_reason());
+    const bool heap_warning = free_internal < 65536U || largest_internal < 32768U ||
+                              fragmentation > 0.70;
+    const bool heap_critical = free_internal < 32768U || largest_internal < 16384U ||
+                               fragmentation > 0.85;
+    return heap_critical ? "critical" : (heap_warning || reset_attention) ? "review" : "healthy";
 }
 
 typedef struct {
@@ -248,37 +270,39 @@ static bool build_live(local_api_slot_t *slot)
     float solar_kw = 0.0f;
     bool solar_known = false;
     const uint8_t inverter_count = inverter_manager_get_count();
+    bool have_command = false;
+    bool all_commanded_online = inverter_count > 0U;
+    float highest_command_percent = 0.0f;
     for (uint8_t i = 0U; i < inverter_count; ++i) {
         inverter_data_t data = {0};
-        if (!inverter_manager_get_data(i, &data)) continue;
-        if (!data.telemetry_valid || data.telemetry_stale || !isfinite(data.measured_power_kw)) continue;
-        solar_kw += data.measured_power_kw;
-        solar_known = true;
+        if (!inverter_manager_get_data(i, &data)) {
+            all_commanded_online = false;
+            continue;
+        }
+        if (data.telemetry_valid && !data.telemetry_stale && isfinite(data.measured_power_kw)) {
+            solar_kw += data.measured_power_kw;
+            solar_known = true;
+        }
+        if (data.has_command && isfinite(data.commanded_percent)) {
+            if (!have_command || data.commanded_percent > highest_command_percent) {
+                highest_command_percent = data.commanded_percent;
+            }
+            have_command = true;
+        } else {
+            all_commanded_online = false;
+        }
+        if (!data.online) all_commanded_online = false;
     }
     add_number_or_null(root, "solar_kw", solar_kw, solar_known);
     add_number_or_null(root, "commandable_kw", inverter_manager_get_total_rated_kw(), true);
 
     cJSON *command = cJSON_AddObjectToObject(root, "command");
-    if (command) {
-        inverter_command_preview_t preview = {0};
-        bool have = false;
-        bool in_force = inverter_count > 0U;
-        float percent = 0.0f;
-        const char *blocked_by = NULL;
-        for (uint8_t i = 0U; i < inverter_count; ++i) {
-            if (!inverter_manager_preview_command(i, control.requested_pv_kw, &preview)) continue;
-            if (!preview.available) continue;
-            if (!have || preview.percent > percent) percent = preview.percent;
-            have = true;
-            if (!preview.would_write) {
-                in_force = false;
-                if (!blocked_by) blocked_by = preview.blocked_by;
-            }
-        }
-        if (have) {
-            cJSON_AddNumberToObject(command, "percent", round((double)percent));
-            cJSON_AddBoolToObject(command, "in_force", in_force);
-            if (blocked_by) cJSON_AddStringToObject(command, "blocked_by", blocked_by);
+    if (command && have_command) {
+        cJSON_AddNumberToObject(command, "percent", round((double)highest_command_percent));
+        cJSON_AddBoolToObject(command, "in_force",
+                              control.command_authority && all_commanded_online);
+        if (!control.command_authority && control.inhibit_reason[0] != '\0') {
+            cJSON_AddStringToObject(command, "blocked_by", control.inhibit_reason);
         }
     }
 
@@ -305,25 +329,29 @@ static bool build_status(local_api_slot_t *slot)
     cJSON *source_json = cJSON_AddObjectToObject(root, "source");
     if (source_detection_get_status(&source) == ESP_OK) {
         cJSON_AddStringToObject(source_json, "attributed_to",
-                                source_detection_attributed_to(&source));
+                                source_detection_state_name(source.state));
     } else {
         cJSON_AddStringToObject(source_json, "attributed_to", "unknown");
     }
 
-    const system_resource_health_t health = system_resource_health();
     cJSON *controller = cJSON_AddObjectToObject(root, "controller");
-    cJSON_AddNumberToObject(controller, "uptime_ms", (double)health.uptime_ms);
-    cJSON_AddStringToObject(controller, "state", health.state ? health.state : "unknown");
-    cJSON_AddBoolToObject(controller, "last_reboot_unexpected", health.last_reboot_unexpected);
+    cJSON_AddNumberToObject(controller, "uptime_ms", (double)now_ms());
+    cJSON_AddStringToObject(controller, "state", controller_resource_state());
+    cJSON_AddBoolToObject(controller, "last_reboot_unexpected",
+                          reset_was_unexpected(esp_reset_reason()));
 
+    app_config_t config = {0};
+    const bool have_config = config_manager_get_snapshot(&config) == ESP_OK;
     meter_data_t meter = {0};
     const bool have_meter = meter_manager_get_data(0U, &meter);
     const uint32_t current_ms = now_ms();
     const bool meter_has_data = have_meter && meter.last_update_ms != 0U &&
                                 isfinite(meter.active_power_kw);
     const uint32_t meter_age_ms = meter_has_data ? current_ms - meter.last_update_ms : 0U;
-    const bool meter_stale = !meter_has_data ||
-        meter_age_ms > safety_manager_meter_stale_timeout_ms();
+    const uint32_t stale_after = have_config && config.meter_count > 0U
+                                     ? meter_stale_after_ms(&config, 0U)
+                                     : 1000U;
+    const bool meter_stale = !meter_has_data || meter_age_ms > stale_after;
     cJSON_AddBoolToObject(root, "meter_online", have_meter && meter.online);
     cJSON_AddBoolToObject(root, "meter_has_data", meter_has_data);
     cJSON_AddBoolToObject(root, "meter_stale", meter_stale);
@@ -543,14 +571,11 @@ static bool build_telemetry(local_api_slot_t *slot)
 
 static bool build_operational(local_api_slot_t *slot, bool alarms)
 {
-    cJSON *root = alarms ? operational_api_build_alarms_json()
-                         : operational_api_build_events_json();
-    if (!root) {
-        note_failure(slot, alarms ? "Core alarm snapshot unavailable"
-                                  : "Core event snapshot unavailable");
-        return false;
-    }
-    return finish_json(slot, root);
+    note_failure(slot,
+                 alarms
+                     ? "Core alarm lifecycle has no public in-process snapshot API"
+                     : "Core event history has no public in-process snapshot API");
+    return false;
 }
 
 bool local_backend_provider_init(screen_api_provider_t *provider)
@@ -604,10 +629,9 @@ bool local_backend_provider_read_commissioning(screen_commissioning_snapshot_t *
     if (!out) return false;
     memset(out, 0, sizeof(*out));
 
-    /* The historical commissioning_gate API no longer exists in current Core.
-     * Project only the already-evaluated runtime authority bit and inhibit
-     * reason; do not reconstruct retired prerequisites and do not infer a
-     * production qualification from runtime state. */
+    /* Current Core no longer has the historical commissioning_gate API.
+     * Project only Core's already-evaluated runtime authority and inhibit
+     * reason. Never infer production qualification from runtime state. */
     control_status_t control = {0};
     control_engine_get_status(&control);
 
@@ -629,7 +653,7 @@ bool local_backend_provider_read_commissioning(screen_commissioning_snapshot_t *
         copy_bounded(out->first_unmet_title, sizeof(out->first_unmet_title),
                      "Current Core command authority");
         copy_bounded(out->first_unmet_detail, sizeof(out->first_unmet_detail),
-                     control.inhibit_reason && control.inhibit_reason[0]
+                     control.inhibit_reason[0] != '\0'
                          ? control.inhibit_reason
                          : (control.enabled ? "Current Core has not granted command authority."
                                             : "Automatic control is disabled."));
