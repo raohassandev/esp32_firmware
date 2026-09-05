@@ -35,6 +35,7 @@ Status vocabulary:
 - [x] Alarms/events implemented.
 - [x] Runtime Readiness implemented.
 - [x] Lazy page creation prevents all seven page trees consuming boot-time memory before first frame.
+- [x] Native buttons, checkboxes, dropdowns and text inputs enforce a minimum 44 px touch height at lazy page creation.
 - [x] Alarms page has bounded `All / Active / Unack` filtering.
 - [x] Alarms page has bounded `Priority / State / ID` sorting.
 - [x] Per-row alarm acknowledgement is available for outstanding alarms.
@@ -62,6 +63,7 @@ Status vocabulary:
 - [x] `esp_lvgl_adapter 0.6.2` exact-pinned.
 - [x] GT911 `1.2.0` exact-pinned.
 - [x] Product `esp_flash_dispatcher 1.0.3` exact-pinned.
+- [x] Resolved ESP-IDF component lock is committed so direct and transitive component identities cannot float with registry state.
 - [x] Bootloader application rollback enabled.
 - [x] Build-time Wi-Fi provisioning disabled and compiled STA credentials empty in candidate CI.
 - [x] Board-specific PSRAM/LVGL/internal-DMA policy is checked by exact-candidate CI.
@@ -82,7 +84,7 @@ Before selecting a physical image, all items below must be green on the same exa
 - [x] Root Firmware/Web checks.
 - [x] Waveshare diagnostic build.
 - [x] Waveshare exact-candidate build/package.
-- [x] Candidate package records exact source SHA/tree, toolchain, generated dependency lock, compile commands, effective sdkconfig and ELF/BIN/UF2 hashes.
+- [x] Candidate package records exact source SHA/tree, toolchain, dependency lock, compile commands, effective sdkconfig and ELF/BIN/UF2 hashes.
 - [x] Candidate tar is deterministic and package SHA256 manifest is independently verifiable.
 
 These checkmarks describe the last verified software checkpoint. Any source change after that checkpoint requires a fresh exact-head run before physical testing.
