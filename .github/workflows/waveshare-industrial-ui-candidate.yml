@@ -67,6 +67,28 @@ jobs:
           printf 'candidate_sha=%s\ncandidate_tree=%s\nboard_source_sha=%s\nintegration_base_dev=%s\n' \
             "$CANDIDATE_SHA" "$candidate_tree" "$BOARD_SOURCE_SHA" "$INTEGRATION_BASE_DEV"
 
+      - name: Enforce current native commissioning semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          ui="$BOARD_DIR/screen/pages/commissioning_screen.c"
+          readiness="$BOARD_DIR/screen/pages/readiness_screen.c"
+          api="$BOARD_DIR/screen/api/screen_api.h"
+
+          ! grep -Fq 'Core commissioning gate' "$ui"
+          ! grep -Fq '/api/commissioning/gate' "$api"
+          ! grep -Fq 'Core schema 9' "$ui"
+          ! grep -Fq 'Meter model' "$ui"
+          ! grep -Fq 'Grid phase basis' "$ui"
+          ! grep -Fq 'Inverter comms fail-safe' "$ui"
+          ! grep -Fq 'Generator load sharing' "$ui"
+          ! grep -Fq 'Base-load role' "$ui"
+          ! grep -Fq 'Urgent loading fraction' "$ui"
+          grep -Fq 'ARM automatic control for next restart' "$ui"
+          grep -Fq 'current Core runtime evidence and profile checks determine command authority' "$ui"
+          grep -Fq 'Runtime Readiness' "$readiness"
+          grep -Fq 'Not asserted by LCD' "$readiness"
+
       - name: Enforce current provisioning and rollback safety defaults
         shell: bash
         run: |
