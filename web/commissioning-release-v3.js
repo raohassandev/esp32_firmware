@@ -1,52 +1,545 @@
 (() => {
 'use strict';
-const KEY='amx-commissioning-v3';
-const $=id=>document.getElementById(id);
-const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const api=async(path,options={})=>{const response=await fetch(path,{cache:'no-store',credentials:'same-origin',...options});const payload=await response.json().catch(()=>({}));if(!response.ok)throw new Error(payload.error||`${response.status} ${response.statusText}`);return payload;};
-const defaults=()=>({version:3,step:0,site:{name:'',location:'',engineer:'',reference:''},devices:[],active:null,resources:null,acceptance:null,updated_at:new Date().toISOString()});
-let state=defaults();
-try{state={...defaults(),...JSON.parse(localStorage.getItem(KEY)||'{}')};}catch{}
-const catalog=[
-{id:'em500',type:'meter',brand:'Automatrix',model:'EM500',protocols:['tcp'],verified:true},
-{id:'wm15',type:'meter',brand:'Carlo Gavazzi',model:'WM15',protocols:['tcp','rtu'],verified:false},
-{id:'circutor',type:'meter',brand:'Circutor',model:'Manual-backed model',protocols:['tcp','rtu'],verified:false},
-{id:'custom-meter',type:'meter',brand:'Other',model:'Custom Modbus meter',protocols:['tcp','rtu'],verified:false}
+
+const KEY = 'amx-commissioning-v3';
+const $ = id => document.getElementById(id);
+const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const api = async (path, options = {}) => {
+    const response = await fetch(path, {cache:'no-store', credentials:'same-origin', ...options});
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || `${response.status} ${response.statusText}`);
+    return payload;
+};
+
+const defaults = () => ({
+    version: 3,
+    step: 0,
+    site: {name:'', location:'', engineer:'', reference:''},
+    devices: [],
+    active: null,
+    resources: null,
+    acceptance: null,
+    updated_at: new Date().toISOString()
+});
+
+let state = defaults();
+try { state = {...defaults(), ...JSON.parse(localStorage.getItem(KEY) || '{}')}; } catch {}
+
+const catalog = [
+    {id:'em500', type:'meter', brand:'Automatrix', model:'EM500', protocols:['tcp'], verified:true},
+    {id:'wm15', type:'meter', brand:'Carlo Gavazzi', model:'WM15', protocols:['tcp','rtu'], verified:true},
+    {id:'circutor', type:'meter', brand:'Circutor', model:'Manual-backed model', protocols:['tcp','rtu'], verified:false},
+    {id:'custom-meter', type:'meter', brand:'Other', model:'Custom Modbus meter', protocols:['tcp','rtu'], verified:false}
 ];
-function tuning(){return{priority:0,normal_ms:300,high_ms:100,low_ms:1000,timeout_ms:800,response_delay_ms:0,retries:2,retry_interval_ms:500,detect_attempts:3,failure_ceiling:3,reconnect_ceiling:0,intercall_ms:50,stale_ms:5000,address_base:'zero',function_code:3,register_address:0,block_length:2,data_type:'int32',byte_order:'ABCD',scale:0.001,offset:0,precision:2,batch_write:false,rtu_silent_ms:4,turnaround_ms:10};}
-function addDevice(profile){const id=`${profile.type}-${Date.now()}-${Math.random().toString(16).slice(2)}`;state.devices.push({id,type:profile.type,profile_id:profile.id,brand:profile.brand,model:profile.model,name:`${profile.brand} ${profile.model}`,verified:profile.verified,channel:profile.protocols[0],tcp:{host:'',port:502,unit_id:1},rtu:{uart:1,baud:9600,parity:'none',data_bits:8,stop_bits:1,unit_id:1},tuning:tuning(),status:'not_tested',samples:[],result:'',applied:false});state.active=id;save();render();}
-function save(){state.updated_at=new Date().toISOString();localStorage.setItem(KEY,JSON.stringify(state));}
-function route(){return(location.hash.replace(/^#\/?/,'')||'dashboard')==='commissioning';}
-function page(){const main=$('mainContent');if(!main)return null;let page=main.querySelector('[data-page="commissioning"]');if(!page){page=document.createElement('section');page.className='page';page.dataset.page='commissioning';main.append(page);}page.innerHTML='<div id="commissioningReleaseV3" class="commissioning-release-v3"></div>';return page;}
-const labels=['Site','Devices','Channel','Modbus tuning','Connection test','Controller health','Review'];
-function header(){return`<div class="cr-progress"><div class="cr-progress-title"><span>Commissioning</span><strong>Step ${state.step+1} of ${labels.length}: ${labels[state.step]}</strong></div><ol>${labels.map((x,i)=>`<li class="${i===state.step?'active':i<state.step?'complete':''}"><span>${i+1}</span><b>${x}</b></li>`).join('')}</ol></div>`;}
-function nav(next='Continue',disabled=false){return`<div class="cr-nav"><div id="crMessage" role="status"></div>${state.step?'<button class="button secondary" data-action="back">Back</button>':''}<button class="button primary" data-action="next" ${disabled?'disabled':''}>${next}</button></div>`;}
-function site(){return`<section class="cr-stage"><div class="cr-head"><p class="eyebrow">Project identity</p><h2>Site details</h2><p>Identify the installation so every saved setting and test result belongs to a traceable project.</p></div><div class="cr-grid"><label><span>Site or plant name *</span><input id="crSiteName" value="${esc(state.site.name)}" placeholder="Plant name"></label><label><span>Location</span><input id="crLocation" value="${esc(state.site.location)}" placeholder="City / area"></label><label><span>Commissioning engineer</span><input id="crEngineer" value="${esc(state.site.engineer)}"></label><label><span>Project reference</span><input id="crReference" value="${esc(state.site.reference)}"></label></div></section>${nav()}`;}
-function devices(){return`<section class="cr-stage"><div class="cr-head"><p class="eyebrow">Installed equipment</p><h2>Select devices</h2><p>Add each meter or inverter separately. Exact model qualification remains visible throughout commissioning.</p></div><div class="cr-catalog"><article><h3>Energy meters</h3>${catalog.map(p=>`<button class="cr-add" data-add="${p.id}"><span><strong>${esc(p.brand)}</strong><small>${esc(p.model)}</small></span><b>Add</b></button>`).join('')}</article><article><h3>Solar inverters</h3><div id="crInverterCatalog"><p>Loading controller catalogue…</p></div></article></div><div class="cr-selected"><h3>Selected devices (${state.devices.length})</h3>${state.devices.length?state.devices.map(d=>`<article><div><span>${d.type}</span><strong>${esc(d.name)}</strong><small>${d.verified?'Profile verified':'Manual/model verification required'}</small></div><button class="button secondary" data-remove="${d.id}">Remove</button></article>`).join(''):'<div class="cr-empty">No devices selected.</div>'}</div></section>${nav()}`;}
-function tabs(){return`<div class="cr-tabs">${state.devices.map((d,i)=>`<button data-device="${d.id}" class="${d.id===state.active?'active':''}"><span>${i+1}</span><div><strong>${esc(d.name)}</strong><small>${d.type}</small></div></button>`).join('')}</div>`;}
-function active(){return state.devices.find(d=>d.id===state.active)||state.devices[0];}
-function channel(){const d=active();if(!d)return devices();const body=d.channel==='tcp'?`<div class="cr-grid"><label class="wide"><span>IP address or hostname</span><input id="crHost" value="${esc(d.tcp.host)}" placeholder="192.168.1.120"></label><label><span>TCP port</span><input id="crPort" type="number" value="${d.tcp.port}"></label><label><span>Unit ID</span><input id="crUnit" type="number" value="${d.tcp.unit_id}"></label></div>`:`<div class="cr-notice warn"><strong>RTU runtime not released</strong><span>Parameters may be prepared, but the device cannot pass readiness until the ESP32 RS-485 master is implemented and qualified.</span></div><div class="cr-grid"><label><span>RS-485 port</span><select id="crUart"><option value="1" ${d.rtu.uart===1?'selected':''}>RS-485 1</option><option value="2" ${d.rtu.uart===2?'selected':''}>RS-485 2</option></select></label><label><span>Baud rate</span><select id="crBaud">${[9600,19200,38400,57600,115200].map(v=>`<option ${d.rtu.baud===v?'selected':''}>${v}</option>`).join('')}</select></label><label><span>Parity</span><select id="crParity">${['none','even','odd'].map(v=>`<option ${d.rtu.parity===v?'selected':''}>${v}</option>`).join('')}</select></label><label><span>Data bits</span><select id="crDataBits"><option ${d.rtu.data_bits===8?'selected':''}>8</option><option ${d.rtu.data_bits===7?'selected':''}>7</option></select></label><label><span>Stop bits</span><select id="crStopBits"><option ${d.rtu.stop_bits===1?'selected':''}>1</option><option ${d.rtu.stop_bits===2?'selected':''}>2</option></select></label><label><span>Slave ID</span><input id="crRtuUnit" type="number" value="${d.rtu.unit_id}"></label></div>`;return`<section class="cr-stage"><div class="cr-head"><p class="eyebrow">Physical and network connection</p><h2>Communication channel</h2><p>Select how each device connects. Only fields relevant to the chosen channel are displayed.</p></div><div class="cr-layout">${tabs()}<article class="cr-editor"><div class="cr-editor-head"><div><p>${esc(d.brand)} · ${esc(d.model)}</p><h3>Connection settings</h3></div><span>${d.type}</span></div><div class="cr-grid"><label class="wide"><span>Device name</span><input id="crDeviceName" value="${esc(d.name)}"></label><label><span>Channel</span><select id="crChannel"><option value="tcp" ${d.channel==='tcp'?'selected':''}>Modbus TCP</option><option value="rtu" ${d.channel==='rtu'?'selected':''}>Modbus RTU</option></select></label></div>${body}</article></div></section>${nav()}`;}
-function timingEstimate(d){const t=d.tuning;const transaction=t.response_delay_ms+t.timeout_ms+(t.retries*t.retry_interval_ms)+t.intercall_ms;const scan=Math.max(t.normal_ms,transaction)*state.devices.length;const margin=t.stale_ms-scan;return{transaction,scan,margin,state:margin<0?'block':margin<scan?'review':'healthy'};}
-function tuningStep(){const d=active();const t=d.tuning,e=timingEstimate(d);return`<section class="cr-stage"><div class="cr-head"><p class="eyebrow">Protocol behavior and decoding</p><h2>Modbus tuning</h2><p>Tune communication timing separately from register interpretation. Unsafe combinations block the next step.</p></div><div class="cr-layout">${tabs()}<article class="cr-editor"><div class="cr-editor-head"><div><p>${esc(d.name)}</p><h3>Transaction timing</h3></div><span class="${e.state}">${e.state}</span></div><div class="cr-section"><h4>Collection rates</h4><div class="cr-grid"><label><span>Priority</span><input id="crPriority" type="number" value="${t.priority}"></label><label><span>Normal frequency (ms)</span><input id="crNormal" type="number" value="${t.normal_ms}"></label><label><span>High-speed frequency (ms)</span><input id="crHigh" type="number" value="${t.high_ms}"></label><label><span>Low-speed frequency (ms)</span><input id="crLow" type="number" value="${t.low_ms}"></label><label><span>Inter-call interval (ms)</span><input id="crIntercall" type="number" value="${t.intercall_ms}"></label><label><span>Stale-data threshold (ms)</span><input id="crStale" type="number" value="${t.stale_ms}"></label></div></div><div class="cr-section"><h4>Response and recovery</h4><div class="cr-grid"><label><span>Response timeout (ms)</span><input id="crTimeout" type="number" value="${t.timeout_ms}"></label><label><span>Response delay (ms)</span><input id="crDelay" type="number" value="${t.response_delay_ms}"></label><label><span>Collection attempts</span><input id="crRetries" type="number" value="${t.retries}"></label><label><span>Attempt interval (ms)</span><input id="crRetryInterval" type="number" value="${t.retry_interval_ms}"></label><label><span>Communication detect times</span><input id="crDetect" type="number" value="${t.detect_attempts}"></label><label><span>Failures ceiling</span><input id="crFailure" type="number" value="${t.failure_ceiling}"></label><label><span>Reconnection ceiling (0=continuous)</span><input id="crReconnect" type="number" value="${t.reconnect_ceiling}"></label>${d.channel==='rtu'?`<label><span>RTU silent interval (ms)</span><input id="crSilent" type="number" value="${t.rtu_silent_ms}"></label><label><span>Turnaround delay (ms)</span><input id="crTurnaround" type="number" value="${t.turnaround_ms}"></label>`:''}</div></div><div class="cr-section"><h4>Register interpretation</h4><div class="cr-grid"><label><span>Function code</span><select id="crFunction"><option value="3" ${t.function_code===3?'selected':''}>03 Holding registers</option><option value="4" ${t.function_code===4?'selected':''}>04 Input registers</option></select></label><label><span>Address convention</span><select id="crAddressBase"><option value="zero" ${t.address_base==='zero'?'selected':''}>Base 0 / PDU</option><option value="one" ${t.address_base==='one'?'selected':''}>Base 1</option><option value="40001" ${t.address_base==='40001'?'selected':''}>40001 notation</option></select></label><label><span>Register address</span><input id="crRegister" type="number" value="${t.register_address}"></label><label><span>Block length</span><input id="crBlock" type="number" value="${t.block_length}"></label><label><span>Data type</span><select id="crType">${['uint16','int16','uint32','int32','float32','uint64','int64','float64'].map(v=>`<option ${t.data_type===v?'selected':''}>${v}</option>`).join('')}</select></label><label><span>Byte / word order</span><select id="crOrder">${['ABCD','BADC','CDAB','DCBA'].map(v=>`<option ${t.byte_order===v?'selected':''}>${v}</option>`).join('')}</select></label><label><span>Scale</span><input id="crScale" type="number" step="any" value="${t.scale}"></label><label><span>Offset</span><input id="crOffset" type="number" step="any" value="${t.offset}"></label><label><span>Display precision</span><input id="crPrecision" type="number" value="${t.precision}"></label></div></div><div class="cr-estimate"><div><span>Worst transaction</span><strong>${e.transaction} ms</strong></div><div><span>Estimated full scan</span><strong>${e.scan} ms</strong></div><div><span>Stale margin</span><strong>${e.margin} ms</strong></div><div><span>Timing verdict</span><strong class="${e.state}">${e.state}</strong></div></div></article></div></section>${nav()}`;}
-function updateChannel(){const d=active();if(!d)return;d.name=$('crDeviceName')?.value.trim()||d.name;d.channel=$('crChannel')?.value||d.channel;if(d.channel==='tcp'){d.tcp.host=$('crHost')?.value.trim()||'';d.tcp.port=Number($('crPort')?.value);d.tcp.unit_id=Number($('crUnit')?.value);}else{d.rtu.uart=Number($('crUart')?.value);d.rtu.baud=Number($('crBaud')?.value);d.rtu.parity=$('crParity')?.value;d.rtu.data_bits=Number($('crDataBits')?.value);d.rtu.stop_bits=Number($('crStopBits')?.value);d.rtu.unit_id=Number($('crRtuUnit')?.value);}save();}
-function updateTuning(){const d=active(),t=d.tuning;const number=(id,current)=>{const v=Number($(id)?.value);return Number.isFinite(v)?v:current;};Object.assign(t,{priority:number('crPriority',t.priority),normal_ms:number('crNormal',t.normal_ms),high_ms:number('crHigh',t.high_ms),low_ms:number('crLow',t.low_ms),intercall_ms:number('crIntercall',t.intercall_ms),stale_ms:number('crStale',t.stale_ms),timeout_ms:number('crTimeout',t.timeout_ms),response_delay_ms:number('crDelay',t.response_delay_ms),retries:number('crRetries',t.retries),retry_interval_ms:number('crRetryInterval',t.retry_interval_ms),detect_attempts:number('crDetect',t.detect_attempts),failure_ceiling:number('crFailure',t.failure_ceiling),reconnect_ceiling:number('crReconnect',t.reconnect_ceiling),function_code:Number($('crFunction')?.value),address_base:$('crAddressBase')?.value,register_address:number('crRegister',t.register_address),block_length:number('crBlock',t.block_length),data_type:$('crType')?.value,byte_order:$('crOrder')?.value,scale:number('crScale',t.scale),offset:number('crOffset',t.offset),precision:number('crPrecision',t.precision),rtu_silent_ms:number('crSilent',t.rtu_silent_ms),turnaround_ms:number('crTurnaround',t.turnaround_ms)});save();}
-function validateTuning(d){const t=d.tuning,e=timingEstimate(d);if(t.high_ms<50||t.normal_ms<100||t.low_ms<t.normal_ms)return'Collection frequencies are outside safe limits.';if(t.timeout_ms<100||t.timeout_ms>60000)return'Response timeout must be 100–60000 ms.';if(t.retries<0||t.retries>10)return'Retries must be 0–10.';if(t.block_length<1||t.block_length>125)return'Block length must be 1–125 registers.';if(!Number.isFinite(t.scale)||t.scale===0)return'Scale must be finite and non-zero.';if(e.margin<0)return'Estimated full scan exceeds the stale-data threshold.';return'';}
-async function qualify(d){d.status='testing';d.samples=[];d.result='Running repeated-read qualification…';save();render();try{if(d.channel==='rtu')throw new Error('Modbus RTU runtime is not available in this release candidate.');if(d.type==='meter'){const current=await api('/api/meters');const base=current.meters?.[0]||{};const typeMap={uint16:0,int16:1,uint32:2,int32:3,float32:4};if(typeMap[d.tuning.data_type]===undefined)throw new Error('Selected data type is not supported by the current meter runtime.');const orderMap={ABCD:0,CDAB:1,BADC:2,DCBA:3};const cfg={...base,enabled:true,name:d.name,host:d.tcp.host,port:d.tcp.port,unit_id:d.tcp.unit_id,timeout_ms:d.tuning.timeout_ms,poll_ms:d.tuning.normal_ms,function:d.tuning.function_code,active_power_address:d.tuning.register_address,data_type:typeMap[d.tuning.data_type],word_order:orderMap[d.tuning.byte_order],scale:d.tuning.scale};await api('/api/meters/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({meters:[cfg]})});d.applied=true;for(let i=0;i<Math.max(3,d.tuning.detect_attempts);i++){await new Promise(r=>setTimeout(r,Math.max(350,d.tuning.normal_ms)));const result=await api('/api/meters');const runtime=result.meters?.[0]?.runtime||{};d.samples.push({time:new Date().toISOString(),online:Boolean(runtime.online),value:runtime.active_power_kw??null,errors:runtime.response_errors??null});}const success=d.samples.filter(s=>s.online).length;if(success<3)throw new Error(`Only ${success}/${d.samples.length} repeated reads were valid.`);d.status='ready';d.result=`${success}/${d.samples.length} repeated reads passed. Runtime settings applied.`;}else{for(let i=0;i<Math.max(3,d.tuning.detect_attempts);i++){const r=await api('/api/inverter-probe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile_id:d.profile_id,host:d.tcp.host,port:d.tcp.port,unit_id:d.tcp.unit_id})});d.samples.push({time:new Date().toISOString(),online:r.success!==false&&r.supported!==false});await new Promise(x=>setTimeout(x,Math.max(250,d.tuning.intercall_ms)));}const success=d.samples.filter(s=>s.online).length;if(success<3)throw new Error(`Only ${success}/${d.samples.length} read-only probes passed.`);d.status='ready';d.result=`${success}/${d.samples.length} read-only probes passed. Writes remain locked.`;}}catch(error){d.status='failed';d.result=error.message;}save();render();}
-function tests(){const ready=state.devices.filter(d=>d.status==='ready').length;return`<section class="cr-stage"><div class="cr-head"><p class="eyebrow">Evidence-based qualification</p><h2>Connection test</h2><p>Each device must pass repeated protocol reads. A single successful response is not accepted.</p></div><div class="cr-summary"><div><span>Ready</span><strong>${ready}</strong></div><div><span>Attention</span><strong>${state.devices.filter(d=>d.status==='failed').length}</strong></div><div><span>Not tested</span><strong>${state.devices.filter(d=>d.status==='not_tested').length}</strong></div></div><div class="cr-test-list">${state.devices.map(d=>`<article class="${d.status}"><div><span>${d.type} · Modbus ${d.channel.toUpperCase()}</span><strong>${esc(d.name)}</strong><small>${d.channel==='tcp'?`${esc(d.tcp.host)}:${d.tcp.port} · Unit ${d.tcp.unit_id}`:`RS-485 ${d.rtu.uart} · ${d.rtu.baud} · Unit ${d.rtu.unit_id}`}</small><p>${esc(d.result||'Not tested')}</p></div><button class="button primary" data-test="${d.id}" ${d.status==='testing'?'disabled':''}>${d.status==='testing'?'Testing…':'Run qualification'}</button></article>`).join('')}</div></section>${nav()}`;}
-const bytes=v=>v==null?'Unavailable':v>=1048576?`${(v/1048576).toFixed(1)} MB`:`${Math.round(v/1024)} KB`;
-async function loadResources(){try{state.resources=await api('/api/system/resources');}catch(error){state.resources={resource_state:'critical',error:error.message};}save();render();}
-function health(){const r=state.resources;return`<section class="cr-stage"><div class="cr-head"><p class="eyebrow">Reliability margin</p><h2>Controller health</h2><p>Review processor, memory, reset, storage and temperature evidence before accepting the controller.</p></div>${!r?'<div class="cr-empty">Resource telemetry has not been loaded.</div>':`<div class="cr-health-verdict ${r.resource_state}"><span>Controller resource state</span><strong>${esc(r.resource_state)}</strong><small>${esc(r.error||'Live ESP32 resource telemetry')}</small></div><div class="cr-health-grid"><article><span>Processor</span><strong>${r.cpu_cores??'--'} cores · ${r.cpu_frequency_mhz??'--'} MHz</strong><small>${esc(r.target||'ESP32')} · ${r.task_count??'--'} tasks</small></article><article><span>Free internal heap</span><strong>${bytes(r.free_internal_heap_bytes)}</strong><small>Minimum ${bytes(r.minimum_internal_heap_bytes)}</small></article><article><span>Largest block</span><strong>${bytes(r.largest_internal_block_bytes)}</strong><small>Fragmentation ${r.internal_fragmentation_ratio==null?'--':`${Math.round(r.internal_fragmentation_ratio*100)}%`}</small></article><article><span>PSRAM</span><strong>${r.psram_available?bytes(r.psram_free_bytes):'Not available'}</strong><small>${r.psram_available?`Total ${bytes(r.psram_total_bytes)}`:'Firmware allocator reports no PSRAM'}</small></article><article><span>Flash</span><strong>${bytes(r.flash_size_bytes)}</strong><small>${r.flash_size_available?'Detected from flash chip':'Not available'}</small></article><article><span>Uptime</span><strong>${Math.floor((r.uptime_ms||0)/60000)} min</strong><small>Reset: ${esc(r.reset_reason_name||'unknown')}</small></article><article><span>Internal temperature</span><strong>${r.temperature_available?`${r.temperature_c} °C`:'Not available'}</strong><small>${esc(r.temperature_note||'')}</small></article></div>`}<button class="button secondary" data-action="refresh-health">Refresh health</button></section>${nav()}`;}
-function verdict(){const devicesReady=state.devices.length>0&&state.devices.every(d=>d.status==='ready');const resources=state.resources?.resource_state;const blockers=[];if(!devicesReady)blockers.push('All enabled devices must pass repeated-read qualification.');if(resources==='critical'||!resources)blockers.push('Controller resource telemetry is missing or critical.');if(state.devices.some(d=>d.channel==='rtu'))blockers.push('RTU devices cannot be released until the RTU runtime is qualified.');if(state.devices.some(d=>!d.verified))blockers.push('One or more device profiles require model/manual verification.');return{blockers,state:blockers.length?'blocked':resources==='review'?'review':'ready'};}
-function report(){const v=verdict();return{generated_at:new Date().toISOString(),product:'Automatrix PV-DG Controller',commissioning_version:3,site:state.site,devices:state.devices,controller_resources:state.resources,acceptance:{state:v.state,blockers:v.blockers,automatic_control:'remains disabled until field acceptance approval'}};}
-function download(){const blob=new Blob([JSON.stringify(report(),null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`Automatrix-Commissioning-${(state.site.name||'site').replace(/[^a-z0-9]+/gi,'-')}.json`;a.click();URL.revokeObjectURL(a.href);}
-function review(){const v=verdict();return`<section class="cr-stage"><div class="cr-head"><p class="eyebrow">Acceptance summary</p><h2>Review and finish</h2><p>Commissioning finishes only when required evidence is present. Warnings and blockers remain visible in the exported report.</p></div><div class="cr-final ${v.state}"><span>Commissioning verdict</span><strong>${v.state}</strong><small>${v.blockers.length?`${v.blockers.length} blocker(s) remain`:'Software acceptance checks passed'}</small></div><div class="cr-review-grid"><article><h3>Site</h3><p><strong>${esc(state.site.name)}</strong><br>${esc(state.site.location)}<br>${esc(state.site.engineer)}</p></article><article><h3>Devices</h3><p>${state.devices.length} configured<br>${state.devices.filter(d=>d.status==='ready').length} ready<br>${state.devices.filter(d=>d.applied).length} runtime-applied</p></article><article><h3>Controller</h3><p>Resources: ${esc(state.resources?.resource_state||'not loaded')}<br>Temperature: ${state.resources?.temperature_available?'available':'not available'}<br>Control: remains disabled</p></article></div>${v.blockers.length?`<div class="cr-blockers"><h3>Release blockers</h3><ul>${v.blockers.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`:'<div class="cr-notice good"><strong>Software commissioning checks passed.</strong><span>Physical field acceptance and controlled control-loop testing are still required.</span></div>'}<div class="cr-final-actions"><button class="button secondary" data-action="export">Export report</button><button class="button secondary" data-action="restart-wizard">Start new commissioning</button><button class="button primary" ${v.state==='blocked'?'disabled':''}>Finish commissioning</button></div></section>`;}
-function render(){if(!route())return;page();const root=$('commissioningReleaseV3');if(!root)return;const views=[site,devices,channel,tuningStep,tests,health,review];root.innerHTML=header()+views[state.step]();bind();if(state.step===1)loadInverters();}
-const access=()=>window.AutomatrixEngineeringAccess;
-/* Engineering-only catalogue: never requested outside the commissioning route,
- * because a guaranteed 401 still consumes one of the few client sockets. */
-async function loadInverters(){const target=$('crInverterCatalog');if(!target)return;if(!access()?.mayRequest('/api/inverter-profiles')){target.innerHTML='<div class="cr-empty">Unlock Engineering to load the inverter catalogue.</div>';return;}try{const payload=await api('/api/inverter-profiles');const profiles=payload.profiles||[];target.innerHTML=profiles.length?profiles.map(p=>`<button class="cr-add" data-inverter="${esc(p.id||p.profile_id)}" data-brand="${esc(p.manufacturer||'Other')}" data-model="${esc(p.model_family||p.name||'Custom inverter')}" data-verified="${Boolean(p.read_allowed)}"><span><strong>${esc(p.manufacturer||'Other')}</strong><small>${esc(p.model_family||p.name||'Custom inverter')}</small></span><b>Add</b></button>`).join(''):'<p>No inverter profiles available.</p>';target.querySelectorAll('[data-inverter]').forEach(button=>button.onclick=()=>addDevice({id:button.dataset.inverter,type:'inverter',brand:button.dataset.brand,model:button.dataset.model,protocols:['tcp'],verified:button.dataset.verified==='true'}));}catch(error){target.innerHTML=`<p>${esc(error.message)}</p>`;}}
-function next(){const message=$('crMessage');if(state.step===0){state.site={name:$('crSiteName').value.trim(),location:$('crLocation').value.trim(),engineer:$('crEngineer').value.trim(),reference:$('crReference').value.trim()};if(!state.site.name){message.textContent='Enter the site or plant name.';return;}}if(state.step===1&&!state.devices.length){message.textContent='Add at least one device.';return;}if(state.step===2){updateChannel();const bad=state.devices.find(d=>d.channel==='tcp'&&(!d.tcp.host||d.tcp.port<1||d.tcp.port>65535||d.tcp.unit_id<1||d.tcp.unit_id>247));if(bad){message.textContent=`Complete valid TCP settings for ${bad.name}.`;return;}}if(state.step===3){updateTuning();const bad=state.devices.map(d=>[d,validateTuning(d)]).find(([,error])=>error);if(bad){message.textContent=`${bad[0].name}: ${bad[1]}`;return;}}if(state.step===4&&state.devices.some(d=>d.status!=='ready')){message.textContent='Every release-enabled device must pass qualification or be removed.';return;}if(state.step===5&&(!state.resources||state.resources.resource_state==='critical')){message.textContent='Load controller health and resolve critical resource conditions.';return;}state.step=Math.min(6,state.step+1);save();render();}
-function bind(){document.querySelectorAll('[data-add]').forEach(button=>button.onclick=()=>addDevice(catalog.find(p=>p.id===button.dataset.add)));document.querySelectorAll('[data-remove]').forEach(button=>button.onclick=()=>{state.devices=state.devices.filter(d=>d.id!==button.dataset.remove);state.active=state.devices[0]?.id||null;save();render();});document.querySelectorAll('[data-device]').forEach(button=>button.onclick=()=>{if(state.step===2)updateChannel();if(state.step===3)updateTuning();state.active=button.dataset.device;save();render();});document.querySelectorAll('[data-test]').forEach(button=>button.onclick=()=>qualify(state.devices.find(d=>d.id===button.dataset.test)));document.querySelector('[data-action="back"]')?.addEventListener('click',()=>{state.step=Math.max(0,state.step-1);save();render();});document.querySelector('[data-action="next"]')?.addEventListener('click',next);document.querySelector('[data-action="refresh-health"]')?.addEventListener('click',loadResources);document.querySelector('[data-action="export"]')?.addEventListener('click',download);document.querySelector('[data-action="restart-wizard"]')?.addEventListener('click',()=>{if(confirm('Clear the local commissioning draft and start again?')){state=defaults();save();render();}});$('crChannel')?.addEventListener('change',()=>{updateChannel();render();});}
-function start(){if(route()){page();render();}document.body.classList.toggle('commissioning-release-active',route());}
-access()?.onScopeChange(start);if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();
+
+function tuning() {
+    return {
+        priority:0,
+        normal_ms:300,
+        high_ms:100,
+        low_ms:1000,
+        timeout_ms:800,
+        response_delay_ms:0,
+        retries:2,
+        retry_interval_ms:500,
+        detect_attempts:3,
+        failure_ceiling:3,
+        reconnect_ceiling:0,
+        intercall_ms:50,
+        stale_ms:5000,
+        address_base:'zero',
+        function_code:3,
+        register_address:0,
+        block_length:2,
+        data_type:'int32',
+        byte_order:'ABCD',
+        scale:0.001,
+        offset:0,
+        precision:2,
+        batch_write:false,
+        rtu_silent_ms:4,
+        turnaround_ms:10
+    };
+}
+
+function profileTuning(profile) {
+    const value = tuning();
+    if (profile?.id === 'em500') {
+        Object.assign(value, {
+            normal_ms:1000,
+            low_ms:5000,
+            timeout_ms:1500,
+            retries:0,
+            intercall_ms:75,
+            stale_ms:5000,
+            address_base:'zero',
+            function_code:3,
+            register_address:58,
+            block_length:2,
+            data_type:'int32',
+            byte_order:'ABCD',
+            scale:0.00001,
+            precision:2
+        });
+    } else if (profile?.id === 'wm15') {
+        Object.assign(value, {
+            normal_ms:1000,
+            low_ms:5000,
+            timeout_ms:1500,
+            retries:0,
+            intercall_ms:75,
+            stale_ms:5000,
+            address_base:'zero',
+            function_code:3,
+            register_address:40,
+            block_length:2,
+            data_type:'int32',
+            byte_order:'CDAB',
+            scale:0.0001,
+            precision:2
+        });
+    }
+    return value;
+}
+
+function repairStoredProfileDefaults() {
+    let changed = false;
+    for (const device of state.devices || []) {
+        if (device.profile_id === 'wm15' && device.verified !== true) {
+            device.verified = true;
+            changed = true;
+        }
+        if (device.type !== 'meter' || !device.tuning) continue;
+        const generic = Number(device.tuning.register_address) === 0 &&
+            device.tuning.data_type === 'int32' &&
+            device.tuning.byte_order === 'ABCD' &&
+            Math.abs(Number(device.tuning.scale) - 0.001) < 1e-12;
+        if (!generic) continue;
+        if (device.profile_id === 'em500' || device.profile_id === 'wm15') {
+            device.tuning = profileTuning({id:device.profile_id});
+            device.status = 'not_tested';
+            device.applied = false;
+            device.result = 'Verified profile defaults updated; qualify the persisted runtime before release.';
+            changed = true;
+        }
+    }
+    if (changed) save();
+}
+
+function addDevice(profile) {
+    const id = `${profile.type}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    state.devices.push({
+        id,
+        type:profile.type,
+        profile_id:profile.id,
+        brand:profile.brand,
+        model:profile.model,
+        name:`${profile.brand} ${profile.model}`,
+        verified:profile.verified,
+        channel:profile.protocols[0],
+        tcp:{host:'', port:502, unit_id:1},
+        rtu:{uart:1, baud:9600, parity:'none', data_bits:8, stop_bits:1, unit_id:1},
+        tuning:profile.type === 'meter' ? profileTuning(profile) : tuning(),
+        status:'not_tested',
+        samples:[],
+        result:'',
+        applied:false
+    });
+    state.active = id;
+    save();
+    render();
+}
+
+function save() {
+    state.updated_at = new Date().toISOString();
+    localStorage.setItem(KEY, JSON.stringify(state));
+}
+
+function route() { return (location.hash.replace(/^#\/?/, '') || 'dashboard') === 'commissioning'; }
+
+function page() {
+    const main = $('mainContent');
+    if (!main) return null;
+    let result = main.querySelector('[data-page="commissioning"]');
+    if (!result) {
+        result = document.createElement('section');
+        result.className = 'page';
+        result.dataset.page = 'commissioning';
+        main.append(result);
+    }
+    result.innerHTML = '<div id="commissioningReleaseV3" class="commissioning-release-v3"></div>';
+    return result;
+}
+
+const labels = ['Site','Devices','Channel','Modbus tuning','Connection test','Controller health','Review'];
+function header() {
+    return `<div class="cr-progress"><div class="cr-progress-title"><span>Commissioning</span><strong>Step ${state.step+1} of ${labels.length}: ${labels[state.step]}</strong></div><ol>${labels.map((x,i)=>`<li class="${i===state.step?'active':i<state.step?'complete':''}"><span>${i+1}</span><b>${x}</b></li>`).join('')}</ol></div>`;
+}
+function nav(next='Continue', disabled=false) {
+    return `<div class="cr-nav"><div id="crMessage" role="status"></div>${state.step?'<button class="button secondary" data-action="back">Back</button>':''}<button class="button primary" data-action="next" ${disabled?'disabled':''}>${next}</button></div>`;
+}
+function site() {
+    return `<section class="cr-stage"><div class="cr-head"><p class="eyebrow">Project identity</p><h2>Site details</h2><p>Identify the installation so every saved setting and test result belongs to a traceable project.</p></div><div class="cr-grid"><label><span>Site or plant name *</span><input id="crSiteName" value="${esc(state.site.name)}" placeholder="Plant name"></label><label><span>Location</span><input id="crLocation" value="${esc(state.site.location)}" placeholder="City / area"></label><label><span>Commissioning engineer</span><input id="crEngineer" value="${esc(state.site.engineer)}"></label><label><span>Project reference</span><input id="crReference" value="${esc(state.site.reference)}"></label></div></section>${nav()}`;
+}
+function devices() {
+    return `<section class="cr-stage"><div class="cr-head"><p class="eyebrow">Installed equipment</p><h2>Select devices</h2><p>Add each meter or inverter separately. Exact model qualification remains visible throughout commissioning.</p></div><div class="cr-catalog"><article><h3>Energy meters</h3>${catalog.map(p=>`<button class="cr-add" data-add="${p.id}"><span><strong>${esc(p.brand)}</strong><small>${esc(p.model)}</small></span><b>Add</b></button>`).join('')}</article><article><h3>Solar inverters</h3><div id="crInverterCatalog"><p>Loading controller catalogue…</p></div></article></div><div class="cr-selected"><h3>Selected devices (${state.devices.length})</h3>${state.devices.length?state.devices.map(d=>`<article><div><span>${d.type}</span><strong>${esc(d.name)}</strong><small>${d.verified?'Profile verified':'Manual/model verification required'}</small></div><button class="button secondary" data-remove="${d.id}">Remove</button></article>`).join(''):'<div class="cr-empty">No devices selected.</div>'}</div></section>${nav()}`;
+}
+function tabs() {
+    return `<div class="cr-tabs">${state.devices.map((d,i)=>`<button data-device="${d.id}" class="${d.id===state.active?'active':''}"><span>${i+1}</span><div><strong>${esc(d.name)}</strong><small>${d.type}</small></div></button>`).join('')}</div>`;
+}
+function active() { return state.devices.find(d=>d.id===state.active) || state.devices[0]; }
+function channel() {
+    const d = active();
+    if (!d) return devices();
+    const body = d.channel === 'tcp'
+        ? `<div class="cr-grid"><label class="wide"><span>IP address or hostname</span><input id="crHost" value="${esc(d.tcp.host)}" placeholder="192.168.1.120"></label><label><span>TCP port</span><input id="crPort" type="number" value="${d.tcp.port}"></label><label><span>Unit ID</span><input id="crUnit" type="number" value="${d.tcp.unit_id}"></label></div>`
+        : `<div class="cr-notice warn"><strong>RTU runtime not released</strong><span>Parameters may be prepared, but the device cannot pass readiness until the ESP32 RS-485 master is implemented and qualified.</span></div><div class="cr-grid"><label><span>RS-485 port</span><select id="crUart"><option value="1" ${d.rtu.uart===1?'selected':''}>RS-485 1</option><option value="2" ${d.rtu.uart===2?'selected':''}>RS-485 2</option></select></label><label><span>Baud rate</span><select id="crBaud">${[9600,19200,38400,57600,115200].map(v=>`<option ${d.rtu.baud===v?'selected':''}>${v}</option>`).join('')}</select></label><label><span>Parity</span><select id="crParity">${['none','even','odd'].map(v=>`<option ${d.rtu.parity===v?'selected':''}>${v}</option>`).join('')}</select></label><label><span>Data bits</span><select id="crDataBits"><option ${d.rtu.data_bits===8?'selected':''}>8</option><option ${d.rtu.data_bits===7?'selected':''}>7</option></select></label><label><span>Stop bits</span><select id="crStopBits"><option ${d.rtu.stop_bits===1?'selected':''}>1</option><option ${d.rtu.stop_bits===2?'selected':''}>2</option></select></label><label><span>Slave ID</span><input id="crRtuUnit" type="number" value="${d.rtu.unit_id}"></label></div>`;
+    return `<section class="cr-stage"><div class="cr-head"><p class="eyebrow">Physical and network connection</p><h2>Communication channel</h2><p>Select how each device connects. Only fields relevant to the chosen channel are displayed.</p></div><div class="cr-layout">${tabs()}<article class="cr-editor"><div class="cr-editor-head"><div><p>${esc(d.brand)} · ${esc(d.model)}</p><h3>Connection settings</h3></div><span>${d.type}</span></div><div class="cr-grid"><label class="wide"><span>Device name</span><input id="crDeviceName" value="${esc(d.name)}"></label><label><span>Channel</span><select id="crChannel"><option value="tcp" ${d.channel==='tcp'?'selected':''}>Modbus TCP</option><option value="rtu" ${d.channel==='rtu'?'selected':''}>Modbus RTU</option></select></label></div>${body}</article></div></section>${nav()}`;
+}
+
+function timingEstimate(d) {
+    const t = d.tuning;
+    const transaction = t.response_delay_ms + t.timeout_ms + (t.retries * t.retry_interval_ms) + t.intercall_ms;
+    const scan = Math.max(t.normal_ms, transaction) * state.devices.length;
+    const margin = t.stale_ms - scan;
+    return {transaction, scan, margin, state:margin<0?'block':margin<scan?'review':'healthy'};
+}
+
+function tuningStep() {
+    const d = active();
+    const t = d.tuning;
+    const e = timingEstimate(d);
+    return `<section class="cr-stage"><div class="cr-head"><p class="eyebrow">Protocol behavior and decoding</p><h2>Modbus tuning</h2><p>Tune communication timing separately from register interpretation. Unsafe combinations block the next step.</p></div><div class="cr-layout">${tabs()}<article class="cr-editor"><div class="cr-editor-head"><div><p>${esc(d.name)}</p><h3>Transaction timing</h3></div><span class="${e.state}">${e.state}</span></div><div class="cr-section"><h4>Collection rates</h4><div class="cr-grid"><label><span>Priority</span><input id="crPriority" type="number" value="${t.priority}"></label><label><span>Normal frequency (ms)</span><input id="crNormal" type="number" value="${t.normal_ms}"></label><label><span>High-speed frequency (ms)</span><input id="crHigh" type="number" value="${t.high_ms}"></label><label><span>Low-speed frequency (ms)</span><input id="crLow" type="number" value="${t.low_ms}"></label><label><span>Inter-call interval (ms)</span><input id="crIntercall" type="number" value="${t.intercall_ms}"></label><label><span>Stale-data threshold (ms)</span><input id="crStale" type="number" value="${t.stale_ms}"></label></div></div><div class="cr-section"><h4>Response and recovery</h4><div class="cr-grid"><label><span>Response timeout (ms)</span><input id="crTimeout" type="number" value="${t.timeout_ms}"></label><label><span>Response delay (ms)</span><input id="crDelay" type="number" value="${t.response_delay_ms}"></label><label><span>Collection attempts</span><input id="crRetries" type="number" value="${t.retries}"></label><label><span>Attempt interval (ms)</span><input id="crRetryInterval" type="number" value="${t.retry_interval_ms}"></label><label><span>Communication detect times</span><input id="crDetect" type="number" value="${t.detect_attempts}"></label><label><span>Failures ceiling</span><input id="crFailure" type="number" value="${t.failure_ceiling}"></label><label><span>Reconnection ceiling (0=continuous)</span><input id="crReconnect" type="number" value="${t.reconnect_ceiling}"></label>${d.channel==='rtu'?`<label><span>RTU silent interval (ms)</span><input id="crSilent" type="number" value="${t.rtu_silent_ms}"></label><label><span>Turnaround delay (ms)</span><input id="crTurnaround" type="number" value="${t.turnaround_ms}"></label>`:''}</div></div><div class="cr-section"><h4>Register interpretation</h4><div class="cr-grid"><label><span>Function code</span><select id="crFunction"><option value="3" ${t.function_code===3?'selected':''}>03 Holding registers</option><option value="4" ${t.function_code===4?'selected':''}>04 Input registers</option></select></label><label><span>Address convention</span><select id="crAddressBase"><option value="zero" ${t.address_base==='zero'?'selected':''}>Base 0 / PDU</option><option value="one" ${t.address_base==='one'?'selected':''}>Base 1</option><option value="40001" ${t.address_base==='40001'?'selected':''}>40001 notation</option></select></label><label><span>Register address</span><input id="crRegister" type="number" value="${t.register_address}"></label><label><span>Block length</span><input id="crBlock" type="number" value="${t.block_length}"></label><label><span>Data type</span><select id="crType">${['uint16','int16','uint32','int32','float32','uint64','int64','float64'].map(v=>`<option ${t.data_type===v?'selected':''}>${v}</option>`).join('')}</select></label><label><span>Byte / word order</span><select id="crOrder">${['ABCD','BADC','CDAB','DCBA'].map(v=>`<option ${t.byte_order===v?'selected':''}>${v}</option>`).join('')}</select></label><label><span>Scale</span><input id="crScale" type="number" step="any" value="${t.scale}"></label><label><span>Offset</span><input id="crOffset" type="number" step="any" value="${t.offset}"></label><label><span>Display precision</span><input id="crPrecision" type="number" value="${t.precision}"></label></div></div><div class="cr-estimate"><div><span>Worst transaction</span><strong>${e.transaction} ms</strong></div><div><span>Estimated full scan</span><strong>${e.scan} ms</strong></div><div><span>Stale margin</span><strong>${e.margin} ms</strong></div><div><span>Timing verdict</span><strong class="${e.state}">${e.state}</strong></div></div></article></div></section>${nav()}`;
+}
+
+function updateChannel() {
+    const d = active();
+    if (!d) return;
+    d.name = $('crDeviceName')?.value.trim() || d.name;
+    d.channel = $('crChannel')?.value || d.channel;
+    if (d.channel === 'tcp') {
+        d.tcp.host = $('crHost')?.value.trim() || '';
+        d.tcp.port = Number($('crPort')?.value);
+        d.tcp.unit_id = Number($('crUnit')?.value);
+    } else {
+        d.rtu.uart = Number($('crUart')?.value);
+        d.rtu.baud = Number($('crBaud')?.value);
+        d.rtu.parity = $('crParity')?.value;
+        d.rtu.data_bits = Number($('crDataBits')?.value);
+        d.rtu.stop_bits = Number($('crStopBits')?.value);
+        d.rtu.unit_id = Number($('crRtuUnit')?.value);
+    }
+    d.status = 'not_tested';
+    d.applied = false;
+    save();
+}
+
+function updateTuning() {
+    const d = active();
+    const t = d.tuning;
+    const number = (id, current) => {
+        const v = Number($(id)?.value);
+        return Number.isFinite(v) ? v : current;
+    };
+    Object.assign(t, {
+        priority:number('crPriority',t.priority),
+        normal_ms:number('crNormal',t.normal_ms),
+        high_ms:number('crHigh',t.high_ms),
+        low_ms:number('crLow',t.low_ms),
+        intercall_ms:number('crIntercall',t.intercall_ms),
+        stale_ms:number('crStale',t.stale_ms),
+        timeout_ms:number('crTimeout',t.timeout_ms),
+        response_delay_ms:number('crDelay',t.response_delay_ms),
+        retries:number('crRetries',t.retries),
+        retry_interval_ms:number('crRetryInterval',t.retry_interval_ms),
+        detect_attempts:number('crDetect',t.detect_attempts),
+        failure_ceiling:number('crFailure',t.failure_ceiling),
+        reconnect_ceiling:number('crReconnect',t.reconnect_ceiling),
+        function_code:Number($('crFunction')?.value),
+        address_base:$('crAddressBase')?.value,
+        register_address:number('crRegister',t.register_address),
+        block_length:number('crBlock',t.block_length),
+        data_type:$('crType')?.value,
+        byte_order:$('crOrder')?.value,
+        scale:number('crScale',t.scale),
+        offset:number('crOffset',t.offset),
+        precision:number('crPrecision',t.precision),
+        rtu_silent_ms:number('crSilent',t.rtu_silent_ms),
+        turnaround_ms:number('crTurnaround',t.turnaround_ms)
+    });
+    d.status = 'not_tested';
+    d.applied = false;
+    save();
+}
+
+function validateTuning(d) {
+    const t = d.tuning;
+    const e = timingEstimate(d);
+    if (t.high_ms < 50 || t.normal_ms < 100 || t.low_ms < t.normal_ms) return 'Collection frequencies are outside safe limits.';
+    if (t.timeout_ms < 100 || t.timeout_ms > 60000) return 'Response timeout must be 100–60000 ms.';
+    if (t.retries < 0 || t.retries > 10) return 'Retries must be 0–10.';
+    if (t.block_length < 1 || t.block_length > 125) return 'Block length must be 1–125 registers.';
+    if (!Number.isFinite(t.scale) || t.scale === 0) return 'Scale must be finite and non-zero.';
+    if (e.margin < 0) return 'Estimated full scan exceeds the stale-data threshold.';
+    return '';
+}
+
+const typeMap = Object.freeze({uint16:0, int16:1, uint32:2, int32:3, float32:4});
+const orderMap = Object.freeze({ABCD:0, CDAB:1, BADC:2, DCBA:3});
+
+function closeEnough(left, right) {
+    const a = Number(left);
+    const b = Number(right);
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+    const tolerance = Math.max(1e-9, Math.abs(b) * 1e-6);
+    return Math.abs(a - b) <= tolerance;
+}
+
+function meterMatchesDevice(item, d) {
+    const endpoint = item?.endpoint || {};
+    const acquisition = item?.acquisition || {};
+    return Boolean(item?.enabled) &&
+        endpoint.host === d.tcp.host &&
+        Number(endpoint.port) === Number(d.tcp.port) &&
+        Number(endpoint.unit_id) === Number(d.tcp.unit_id) &&
+        Number(acquisition.function) === Number(d.tuning.function_code) &&
+        Number(acquisition.pdu_address) === Number(d.tuning.register_address) &&
+        Number(acquisition.data_type) === typeMap[d.tuning.data_type] &&
+        Number(acquisition.word_order) === orderMap[d.tuning.byte_order] &&
+        closeEnough(acquisition.scale, d.tuning.scale);
+}
+
+function inverterMatchesDevice(item, d) {
+    const endpoint = item?.endpoint || {};
+    return Boolean(item?.enabled) &&
+        endpoint.host === d.tcp.host &&
+        Number(endpoint.port) === Number(d.tcp.port) &&
+        Number(endpoint.unit_id) === Number(d.tcp.unit_id);
+}
+
+async function qualifyMeter(d) {
+    if (typeMap[d.tuning.data_type] === undefined) {
+        throw new Error('Selected data type is not supported by the current meter runtime.');
+    }
+    if (orderMap[d.tuning.byte_order] === undefined) {
+        throw new Error('Selected byte/word order is not supported by the current meter runtime.');
+    }
+
+    const snapshot = await api('/api/meters');
+    const match = (snapshot.meters || []).find(item => meterMatchesDevice(item, d));
+    if (!match) {
+        d.applied = false;
+        throw new Error('Read-only qualification blocked: this meter profile is not the active persisted runtime configuration. Save the complete meter set in Meter profiles, restart the controller, then qualify again. No live configuration was changed.');
+    }
+
+    d.applied = true;
+    const attempts = Math.max(3, Number(d.tuning.detect_attempts) || 3);
+    for (let i = 0; i < attempts; i++) {
+        if (i) await new Promise(resolve => setTimeout(resolve, Math.max(350, d.tuning.normal_ms)));
+        const result = await api('/api/meters');
+        const meter = (result.meters || []).find(item => Number(item.index) === Number(match.index));
+        const runtime = meter?.runtime || {};
+        d.samples.push({
+            time:new Date().toISOString(),
+            online:Boolean(runtime.online) && !Boolean(runtime.stale) && Boolean(runtime.has_data),
+            value:runtime.active_power_kw ?? null,
+            age_ms:runtime.data_age_ms ?? null,
+            errors:runtime.error_count ?? null,
+            consecutive_failures:runtime.consecutive_failures ?? null
+        });
+    }
+    const success = d.samples.filter(sample => sample.online).length;
+    if (success < 3) throw new Error(`Only ${success}/${d.samples.length} persisted-runtime reads were fresh and online.`);
+    d.status = 'ready';
+    d.result = `${success}/${d.samples.length} read-only checks passed on persisted meter ${Number(match.index)+1}. No configuration was changed.`;
+}
+
+async function qualifyInverter(d) {
+    const snapshot = await api('/api/inverters');
+    const match = (snapshot.inverters || []).find(item => inverterMatchesDevice(item, d));
+    if (!match) {
+        d.applied = false;
+        throw new Error('Read-only qualification blocked: this inverter endpoint is not the active persisted runtime configuration. Save and restart the inverter configuration first. No live configuration was changed.');
+    }
+
+    d.applied = true;
+    const attempts = Math.max(3, Number(d.tuning.detect_attempts) || 3);
+    for (let i = 0; i < attempts; i++) {
+        const result = await api('/api/inverter-probe', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({inverter_index:match.index})
+        });
+        const identityOk = !result.identity?.attempted || Boolean(result.identity?.ok);
+        const online = Number(result.result_error) === 0 && Boolean(result.profile_read_allowed) && Boolean(result.connection_initialized) && identityOk;
+        d.samples.push({time:new Date().toISOString(), online, result_error:result.result_error ?? null});
+        if (i + 1 < attempts) await new Promise(resolve => setTimeout(resolve, Math.max(250, d.tuning.intercall_ms)));
+    }
+    const success = d.samples.filter(sample => sample.online).length;
+    if (success < 3) throw new Error(`Only ${success}/${d.samples.length} configured read-only inverter probes passed.`);
+    d.status = 'ready';
+    d.result = `${success}/${d.samples.length} configured read-only probes passed. Writes remain locked and no configuration was changed.`;
+}
+
+async function qualify(d) {
+    if (!d) return;
+    d.status = 'testing';
+    d.samples = [];
+    d.result = 'Running repeated-read qualification against persisted configuration…';
+    d.applied = false;
+    save();
+    render();
+    try {
+        if (d.channel === 'rtu') throw new Error('Modbus RTU runtime is not available in this release candidate.');
+        if (d.type === 'meter') await qualifyMeter(d);
+        else await qualifyInverter(d);
+    } catch (error) {
+        d.status = 'failed';
+        d.result = error.message;
+    }
+    save();
+    render();
+}
+
+function tests() {
+    const ready = state.devices.filter(d=>d.status==='ready').length;
+    return `<section class="cr-stage"><div class="cr-head"><p class="eyebrow">Evidence-based qualification</p><h2>Connection test</h2><p>Each device must pass repeated protocol reads against the already persisted runtime. Qualification is read-only and never overwrites the live meter list.</p></div><div class="cr-summary"><div><span>Ready</span><strong>${ready}</strong></div><div><span>Attention</span><strong>${state.devices.filter(d=>d.status==='failed').length}</strong></div><div><span>Not tested</span><strong>${state.devices.filter(d=>d.status==='not_tested').length}</strong></div></div><div class="cr-test-list">${state.devices.map(d=>`<article class="${d.status}"><div><span>${d.type} · Modbus ${d.channel.toUpperCase()}</span><strong>${esc(d.name)}</strong><small>${d.channel==='tcp'?`${esc(d.tcp.host)}:${d.tcp.port} · Unit ${d.tcp.unit_id}`:`RS-485 ${d.rtu.uart} · ${d.rtu.baud} · Unit ${d.rtu.unit_id}`}</small><p>${esc(d.result||'Not tested')}</p></div><button class="button primary" data-test="${d.id}" ${d.status==='testing'?'disabled':''}>${d.status==='testing'?'Testing…':'Run qualification'}</button></article>`).join('')}</div></section>${nav()}`;
+}
+
+const bytes = v => v == null ? 'Unavailable' : v >= 1048576 ? `${(v/1048576).toFixed(1)} MB` : `${Math.round(v/1024)} KB`;
+async function loadResources() {
+    try { state.resources = await api('/api/system/resources'); }
+    catch (error) { state.resources = {resource_state:'critical', error:error.message}; }
+    save();
+    render();
+}
+
+function health() {
+    const r = state.resources;
+    return `<section class="cr-stage"><div class="cr-head"><p class="eyebrow">Reliability margin</p><h2>Controller health</h2><p>Review processor, memory, reset, storage and temperature evidence before accepting the controller.</p></div>${!r?'<div class="cr-empty">Resource telemetry has not been loaded.</div>':`<div class="cr-health-verdict ${r.resource_state}"><span>Controller resource state</span><strong>${esc(r.resource_state)}</strong><small>${esc(r.error||'Live ESP32 resource telemetry')}</small></div><div class="cr-health-grid"><article><span>Processor</span><strong>${r.cpu_cores??'--'} cores · ${r.cpu_frequency_mhz??'--'} MHz</strong><small>${esc(r.target||'ESP32')} · ${r.task_count??'--'} tasks</small></article><article><span>Free internal heap</span><strong>${bytes(r.free_internal_heap_bytes)}</strong><small>Minimum ${bytes(r.minimum_internal_heap_bytes)}</small></article><article><span>Largest block</span><strong>${bytes(r.largest_internal_block_bytes)}</strong><small>Fragmentation ${r.internal_fragmentation_ratio==null?'--':`${Math.round(r.internal_fragmentation_ratio*100)}%`}</small></article><article><span>PSRAM</span><strong>${r.psram_available?bytes(r.psram_free_bytes):'Not available'}</strong><small>${r.psram_available?`Total ${bytes(r.psram_total_bytes)}`:'Firmware allocator reports no PSRAM'}</small></article><article><span>Flash</span><strong>${bytes(r.flash_size_bytes)}</strong><small>${r.flash_size_available?'Detected from flash chip':'Not available'}</small></article><article><span>Uptime</span><strong>${Math.floor((r.uptime_ms||0)/60000)} min</strong><small>Reset: ${esc(r.reset_reason_name||'unknown')}</small></article><article><span>Internal temperature</span><strong>${r.temperature_available?`${r.temperature_c} °C`:'Not available'}</strong><small>${esc(r.temperature_note||'')}</small></article></div>`}<button class="button secondary" data-action="refresh-health">Refresh health</button></section>${nav()}`;
+}
+
+function verdict() {
+    const devicesReady = state.devices.length > 0 && state.devices.every(d=>d.status==='ready');
+    const resources = state.resources?.resource_state;
+    const blockers = [];
+    if (!devicesReady) blockers.push('All enabled devices must pass repeated-read qualification.');
+    if (state.devices.some(d=>d.status==='ready' && !d.applied)) blockers.push('Every ready device must match the active persisted runtime configuration.');
+    if (resources === 'critical' || !resources) blockers.push('Controller resource telemetry is missing or critical.');
+    if (state.devices.some(d=>d.channel==='rtu')) blockers.push('RTU devices cannot be released until the RTU runtime is qualified.');
+    if (state.devices.some(d=>!d.verified)) blockers.push('One or more device profiles require model/manual verification.');
+    return {blockers, state:blockers.length?'blocked':resources==='review'?'review':'ready'};
+}
+function report() {
+    const v = verdict();
+    return {generated_at:new Date().toISOString(), product:'Automatrix PV-DG Controller', commissioning_version:3, site:state.site, devices:state.devices, controller_resources:state.resources, acceptance:{state:v.state, blockers:v.blockers, automatic_control:'remains disabled until field acceptance approval'}};
+}
+function download() {
+    const blob = new Blob([JSON.stringify(report(), null, 2)], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `Automatrix-Commissioning-${(state.site.name||'site').replace(/[^a-z0-9]+/gi,'-')}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+}
+function review() {
+    const v = verdict();
+    return `<section class="cr-stage"><div class="cr-head"><p class="eyebrow">Acceptance summary</p><h2>Review and finish</h2><p>Commissioning finishes only when required evidence is present. Warnings and blockers remain visible in the exported report.</p></div><div class="cr-final ${v.state}"><span>Commissioning verdict</span><strong>${v.state}</strong><small>${v.blockers.length?`${v.blockers.length} blocker(s) remain`:'Software acceptance checks passed'}</small></div><div class="cr-review-grid"><article><h3>Site</h3><p><strong>${esc(state.site.name)}</strong><br>${esc(state.site.location)}<br>${esc(state.site.engineer)}</p></article><article><h3>Devices</h3><p>${state.devices.length} configured<br>${state.devices.filter(d=>d.status==='ready').length} ready<br>${state.devices.filter(d=>d.applied).length} runtime-applied</p></article><article><h3>Controller</h3><p>Resources: ${esc(state.resources?.resource_state||'not loaded')}<br>Temperature: ${state.resources?.temperature_available?'available':'not available'}<br>Control: remains disabled</p></article></div>${v.blockers.length?`<div class="cr-blockers"><h3>Release blockers</h3><ul>${v.blockers.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`:'<div class="cr-notice good"><strong>Software commissioning checks passed.</strong><span>Physical field acceptance and controlled control-loop testing are still required.</span></div>'}<div class="cr-final-actions"><button class="button secondary" data-action="export">Export report</button><button class="button secondary" data-action="restart-wizard">Start new commissioning</button><button class="button primary" ${v.state==='blocked'?'disabled':''}>Finish commissioning</button></div></section>`;
+}
+
+function render() {
+    if (!route()) return;
+    page();
+    const root = $('commissioningReleaseV3');
+    if (!root) return;
+    const views = [site,devices,channel,tuningStep,tests,health,review];
+    root.innerHTML = header() + views[state.step]();
+    bind();
+    if (state.step === 1) loadInverters();
+}
+
+const access = () => window.AutomatrixEngineeringAccess;
+async function loadInverters() {
+    const target = $('crInverterCatalog');
+    if (!target) return;
+    if (!access()?.mayRequest('/api/inverter-profiles')) {
+        target.innerHTML = '<div class="cr-empty">Unlock Engineering to load the inverter catalogue.</div>';
+        return;
+    }
+    try {
+        const payload = await api('/api/inverter-profiles');
+        const profiles = payload.profiles || [];
+        target.innerHTML = profiles.length ? profiles.map(p=>`<button class="cr-add" data-inverter="${esc(p.id||p.profile_id)}" data-brand="${esc(p.manufacturer||'Other')}" data-model="${esc(p.model_family||p.name||'Custom inverter')}" data-verified="${Boolean(p.read_allowed)}"><span><strong>${esc(p.manufacturer||'Other')}</strong><small>${esc(p.model_family||p.name||'Custom inverter')}</small></span><b>Add</b></button>`).join('') : '<p>No inverter profiles available.</p>';
+        target.querySelectorAll('[data-inverter]').forEach(button => button.onclick = () => addDevice({id:button.dataset.inverter, type:'inverter', brand:button.dataset.brand, model:button.dataset.model, protocols:['tcp'], verified:button.dataset.verified==='true'}));
+    } catch (error) {
+        target.innerHTML = `<p>${esc(error.message)}</p>`;
+    }
+}
+
+function next() {
+    const message = $('crMessage');
+    if (state.step === 0) {
+        state.site = {name:$('crSiteName').value.trim(), location:$('crLocation').value.trim(), engineer:$('crEngineer').value.trim(), reference:$('crReference').value.trim()};
+        if (!state.site.name) { message.textContent = 'Enter the site or plant name.'; return; }
+    }
+    if (state.step === 1 && !state.devices.length) { message.textContent = 'Add at least one device.'; return; }
+    if (state.step === 2) {
+        updateChannel();
+        const bad = state.devices.find(d=>d.channel==='tcp'&&(!d.tcp.host||d.tcp.port<1||d.tcp.port>65535||d.tcp.unit_id<1||d.tcp.unit_id>247));
+        if (bad) { message.textContent = `Complete valid TCP settings for ${bad.name}.`; return; }
+    }
+    if (state.step === 3) {
+        updateTuning();
+        const bad = state.devices.map(d=>[d,validateTuning(d)]).find(([,error])=>error);
+        if (bad) { message.textContent = `${bad[0].name}: ${bad[1]}`; return; }
+    }
+    if (state.step === 4 && state.devices.some(d=>d.status!=='ready' || !d.applied)) {
+        message.textContent = 'Every release-enabled device must match persisted runtime configuration and pass qualification.';
+        return;
+    }
+    if (state.step === 5 && (!state.resources || state.resources.resource_state==='critical')) {
+        message.textContent = 'Load controller health and resolve critical resource conditions.';
+        return;
+    }
+    state.step = Math.min(6, state.step + 1);
+    save();
+    render();
+}
+
+function bind() {
+    document.querySelectorAll('[data-add]').forEach(button => button.onclick = () => addDevice(catalog.find(p=>p.id===button.dataset.add)));
+    document.querySelectorAll('[data-remove]').forEach(button => button.onclick = () => {
+        state.devices = state.devices.filter(d=>d.id!==button.dataset.remove);
+        state.active = state.devices[0]?.id || null;
+        save();
+        render();
+    });
+    document.querySelectorAll('[data-device]').forEach(button => button.onclick = () => {
+        if (state.step === 2) updateChannel();
+        if (state.step === 3) updateTuning();
+        state.active = button.dataset.device;
+        save();
+        render();
+    });
+    document.querySelectorAll('[data-test]').forEach(button => button.onclick = () => qualify(state.devices.find(d=>d.id===button.dataset.test)));
+    document.querySelector('[data-action="back"]')?.addEventListener('click', () => { state.step=Math.max(0,state.step-1); save(); render(); });
+    document.querySelector('[data-action="next"]')?.addEventListener('click', next);
+    document.querySelector('[data-action="refresh-health"]')?.addEventListener('click', loadResources);
+    document.querySelector('[data-action="export"]')?.addEventListener('click', download);
+    document.querySelector('[data-action="restart-wizard"]')?.addEventListener('click', () => {
+        if (confirm('Clear the local commissioning draft and start again?')) { state=defaults(); save(); render(); }
+    });
+    $('crChannel')?.addEventListener('change', () => { updateChannel(); render(); });
+}
+
+function start() {
+    repairStoredProfileDefaults();
+    if (route()) { page(); render(); }
+    document.body.classList.toggle('commissioning-release-active', route());
+}
+
+window.addEventListener('hashchange', start);
+access()?.onScopeChange(start);
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, {once:true});
+else start();
 })();
