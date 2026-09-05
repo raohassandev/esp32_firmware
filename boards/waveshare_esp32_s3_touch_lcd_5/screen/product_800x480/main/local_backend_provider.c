@@ -6,7 +6,6 @@
 #include <string.h>
 
 #include "cJSON.h"
-#include "commissioning_gate.h"
 #include "config_manager.h"
 #include "control_engine.h"
 #include "esp_app_desc.h"
@@ -605,31 +604,37 @@ bool local_backend_provider_read_commissioning(screen_commissioning_snapshot_t *
     if (!out) return false;
     memset(out, 0, sizeof(*out));
 
-    /* Exact authority behind GET /api/commissioning/gate. This adapter projects
-     * the result; it never evaluates prerequisites itself. */
-    commissioning_status_t status = {0};
-    control_engine_get_commissioning(&status);
+    /* The historical commissioning_gate API no longer exists in current Core.
+     * Project only the already-evaluated runtime authority bit and inhibit
+     * reason; do not reconstruct retired prerequisites and do not infer a
+     * production qualification from runtime state. */
     control_status_t control = {0};
     control_engine_get_status(&control);
 
-    out->commissioned = status.commissioned;
-    copy_bounded(out->scope, sizeof(out->scope), commissioning_scope_label(status.scope));
-    out->production_qualified = status.scope == COMMISSIONING_SCOPE_PRODUCTION;
-    out->automatic_control_permitted = status.commissioned && control.command_authority;
+    out->commissioned = control.command_authority;
+    copy_bounded(out->scope, sizeof(out->scope), "current_core_runtime");
+    out->production_qualified = false;
+    out->automatic_control_permitted = control.command_authority;
     out->command_authority = control.command_authority;
-    out->prerequisite_count = COMMISSIONING_PREREQ_COUNT;
-    out->satisfied_count = status.satisfied_count;
-    out->unmet_count = status.unmet_count;
-    copy_bounded(out->summary, sizeof(out->summary), commissioning_gate_summary(&status));
+    out->prerequisite_count = 1U;
+    out->satisfied_count = control.command_authority ? 1U : 0U;
+    out->unmet_count = control.command_authority ? 0U : 1U;
     copy_bounded(out->inhibit_reason, sizeof(out->inhibit_reason), control.inhibit_reason);
 
-    if (!status.commissioned && status.first_unmet < COMMISSIONING_PREREQ_COUNT) {
-        copy_bounded(out->first_unmet, sizeof(out->first_unmet),
-                     commissioning_prereq_id(status.first_unmet));
+    if (control.command_authority) {
+        copy_bounded(out->summary, sizeof(out->summary),
+                     "Current Core command authority active. LCD does not infer production qualification.");
+    } else {
+        copy_bounded(out->first_unmet, sizeof(out->first_unmet), "current_core_authority");
         copy_bounded(out->first_unmet_title, sizeof(out->first_unmet_title),
-                     commissioning_prereq_title(status.first_unmet));
+                     "Current Core command authority");
         copy_bounded(out->first_unmet_detail, sizeof(out->first_unmet_detail),
-                     commissioning_reason_message(status.results[status.first_unmet].reason));
+                     control.inhibit_reason && control.inhibit_reason[0]
+                         ? control.inhibit_reason
+                         : (control.enabled ? "Current Core has not granted command authority."
+                                            : "Automatic control is disabled."));
+        copy_bounded(out->summary, sizeof(out->summary),
+                     "Current Core authority is inhibited. Production qualification is not inferred by the LCD.");
     }
 
     out->valid = true;
