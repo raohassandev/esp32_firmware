@@ -7,6 +7,7 @@ cmake = (root / 'components/web_server/CMakeLists.txt').read_text(encoding='utf-
 assets_h = (root / 'components/web_server/include/web_assets.h').read_text(encoding='utf-8')
 assets_c = (root / 'components/web_server/web_assets.c').read_text(encoding='utf-8')
 server = (root / 'components/web_server/web_server.c').read_text(encoding='utf-8')
+config = (root / 'components/config_manager/config_manager.c').read_text(encoding='utf-8')
 
 for token in [
     'Site','Devices','Channel','Modbus tuning','Connection test','Controller health','Review',
@@ -31,6 +32,8 @@ for forbidden in ['/api/control', '/api/inverter-command', '/api/meters/config']
 assert "{id:'wm15', type:'meter', brand:'Carlo Gavazzi', model:'WM15', protocols:['tcp','rtu'], verified:true}" in js
 assert "profile?.id === 'em500'" in js and 'register_address:58' in js and 'scale:0.00001' in js
 assert "profile?.id === 'wm15'" in js and 'register_address:40' in js and "byte_order:'CDAB'" in js and 'scale:0.0001' in js
+assert 'm->active_power_address = 58;' in config, 'fresh/factory Grid meter default must use verified EM500 PDU 58'
+assert 'm->active_power_address = 57;' not in config, 'obsolete misaligned EM500 default PDU 57 must not return'
 
 # The inverter probe API is configured-index based; arbitrary host/profile probing is not its contract.
 assert 'JSON.stringify({inverter_index:match.index})' in js
