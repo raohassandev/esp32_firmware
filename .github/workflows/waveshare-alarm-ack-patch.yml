@@ -12,7 +12,6 @@ permissions:
 
 jobs:
   apply:
-    if: github.event.head_commit.message == 'chore: run waveshare alarm ack patch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,7 +32,6 @@ jobs:
                   raise SystemExit(f"{label}: expected exactly one match, found {count}")
               return text.replace(old, new, 1)
 
-          # 1) Shared authoritative alarm lifecycle mutation.
           path = Path('components/web_server/operational_api.c')
           text = path.read_text()
           if 'bool operational_api_acknowledge_alarm(uint32_t code,' in text:
@@ -103,8 +101,6 @@ jobs:
           text = text[:start] + replacement + text[end:]
           path.write_text(text)
 
-          # 2) Existing local Engineering session becomes the authorization gate
-          # for other protected touchscreen mutations. No second credential.
           path = Path('boards/waveshare_esp32_s3_touch_lcd_5/screen/product_800x480/main/local_commissioning_backend.c')
           text = path.read_text()
           if 'local_commissioning_backend_engineering_authorized' in text:
@@ -123,8 +119,6 @@ jobs:
           text = replace_once(text, marker, function + marker, 'insert local Engineering session gate')
           path.write_text(text)
 
-          # 3) Product binding: native alarm Ack checks that same Engineering
-          # session, then calls only the shared Core acknowledgement primitive.
           path = Path('boards/waveshare_esp32_s3_touch_lcd_5/screen/product_800x480/main/main.c')
           text = path.read_text()
           text = replace_once(text,
@@ -135,15 +129,11 @@ jobs:
                               '#include "app_core.h"\n',
                               '#include "alarms_screen.h"\n#include "app_core.h"\n',
                               'add alarms screen include')
-          text = replace_once(text,
-                              '#include "network_manager.h"\n',
-                              '#include "network_manager.h"\n#include "operational_api.h"\n',
-                              'add operational API include') if '#include "network_manager.h"\n' in text else text
           if '#include "operational_api.h"\n' not in text:
               text = replace_once(text,
                                   '#include "lvgl.h"\n',
                                   '#include "lvgl.h"\n#include "operational_api.h"\n',
-                                  'add operational API include fallback')
+                                  'add operational API include')
 
           callback_marker = 'static void log_dma_headroom(const char *stage)\n'
           callback = '''static bool touchscreen_acknowledge_alarm(void *context,
@@ -194,7 +184,6 @@ jobs:
           text = replace_once(text, bind_old, bind_new, 'bind alarm acknowledgement backend')
           path.write_text(text)
 
-          # Temporary workflow deletes itself in the same generated commit.
           Path('.github/workflows/waveshare-alarm-ack-patch.yml').unlink()
           PY
 
