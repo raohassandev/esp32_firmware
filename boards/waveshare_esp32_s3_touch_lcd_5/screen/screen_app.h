@@ -2,6 +2,7 @@
 
 #include "commissioning_screen.h"
 #include "lvgl.h"
+#include "network_screen.h"
 #include "screen_api.h"
 #include "source_commissioning_screen.h"
 
@@ -17,6 +18,7 @@ typedef enum {
     SCREEN_PAGE_READINESS,
     SCREEN_PAGE_COMMISSIONING,
     SCREEN_PAGE_SOURCE,
+    SCREEN_PAGE_NETWORK,
     SCREEN_PAGE_COUNT
 } screen_page_t;
 
@@ -25,6 +27,7 @@ void screen_app_show_page(screen_page_t page);
 screen_page_t screen_app_get_active_page(void);
 void screen_app_set_commissioning_backend(const screen_commissioning_backend_t *backend);
 void screen_app_set_source_commissioning_backend(const source_commission_backend_t *backend);
+void screen_app_set_network_backend(const network_screen_backend_t *backend);
 
 void screen_app_apply_live(const screen_live_snapshot_t *snapshot);
 void screen_app_apply_status(const screen_status_snapshot_t *snapshot);

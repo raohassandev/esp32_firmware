@@ -16,6 +16,7 @@
 #include "freertos/idf_additions.h"
 #include "local_backend_provider.h"
 #include "local_commissioning_backend.h"
+#include "local_network_backend.h"
 #include "local_source_commissioning_backend.h"
 #include "lvgl.h"
 #include "operational_api.h"
@@ -59,6 +60,7 @@ static const esp_lv_adapter_rotation_t s_rotation = ESP_LV_ADAPTER_ROTATE_0;
 static screen_commissioning_snapshot_t s_commissioning;
 static screen_commissioning_backend_t s_commissioning_backend;
 static source_commission_backend_t s_source_commissioning_backend;
+static network_screen_backend_t s_network_backend;
 static bool s_flash_dispatcher_ready;
 
 static bool touchscreen_acknowledge_alarm(void *context,
@@ -344,6 +346,11 @@ static void refresh_active_context(screen_page_t page, uint32_t elapsed_ms, bool
         if (page_changed || (elapsed_ms % SCREEN_DEVICES_MS) == 0U) refresh_devices();
         break;
     case SCREEN_PAGE_SOURCE:
+    case SCREEN_PAGE_NETWORK:
+        /* Network settings polls its own backend on an internal LVGL timer
+         * (scan results and connection status change on their own schedule,
+         * not on the app's telemetry/status/devices cadence), so there is
+         * nothing for the app-level refresh loop to push here. */
     case SCREEN_PAGE_COUNT:
     default:
         break;
@@ -452,6 +459,18 @@ void app_main(void)
                          "Source commissioning writes disabled because flash dispatcher is unavailable");
             } else {
                 ESP_LOGE(TAG, "Source commissioning backend initialization failed; Source page stays locked");
+            }
+
+            if (s_flash_dispatcher_ready && local_network_backend_init(&s_network_backend)) {
+                if (esp_lv_adapter_lock(SCREEN_LVGL_LOCK_MS) == ESP_OK) {
+                    screen_app_set_network_backend(&s_network_backend);
+                    esp_lv_adapter_unlock();
+                }
+                ESP_LOGI(TAG, "Local network (Wi-Fi) backend bound to touchscreen");
+            } else if (!s_flash_dispatcher_ready) {
+                ESP_LOGE(TAG, "Wi-Fi provisioning disabled because flash dispatcher is unavailable");
+            } else {
+                ESP_LOGE(TAG, "Local network backend initialization failed; Network page stays locked");
             }
 
             BaseType_t created = xTaskCreateWithCaps(

@@ -111,3 +111,24 @@ const char *screen_ui_safe_text(const char *text, const char *fallback)
 {
     return text && text[0] ? text : fallback;
 }
+
+/* Thresholds match the common phone/laptop Wi-Fi bar convention (roughly
+ * -55/-67/-75/-85 dBm break points for a 2.4 GHz link). Real RSSI on a
+ * 2.4 GHz industrial panel rarely exceeds -30 dBm even next to the AP, so
+ * the top bracket intentionally starts at -55, not 0.
+ *
+ * Plain ASCII on purpose: the compiled-in LVGL font is not guaranteed to
+ * carry Unicode block-element glyphs (U+2582/2584/2586/2588/2591), and a
+ * missing glyph renders as an invisible/blank tofu box with no error --
+ * exactly the kind of "signal indicator that silently shows nothing" this
+ * feature exists to prevent. "|" filled vs "." empty is always in every
+ * font this project ships. */
+const char *screen_ui_wifi_bars(bool online, int rssi)
+{
+    if (!online) return "Wi-Fi: none";
+    if (rssi >= -55) return "Wi-Fi ||||";
+    if (rssi >= -67) return "Wi-Fi |||.";
+    if (rssi >= -75) return "Wi-Fi ||..";
+    if (rssi >= -85) return "Wi-Fi |...";
+    return "Wi-Fi ....";
+}

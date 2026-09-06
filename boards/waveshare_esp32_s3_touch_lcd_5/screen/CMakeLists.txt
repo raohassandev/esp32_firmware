@@ -18,6 +18,7 @@ idf_component_register(
         "pages/readiness_screen.c"
         "pages/commissioning_screen.c"
         "pages/source_commissioning_screen.c"
+        "pages/network_screen.c"
         "screen_app.c"
         "screen_runtime.c"
     INCLUDE_DIRS

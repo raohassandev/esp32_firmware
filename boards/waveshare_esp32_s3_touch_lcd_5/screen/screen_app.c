@@ -6,8 +6,10 @@
 #include "alarms_screen.h"
 #include "commissioning_screen.h"
 #include "grid_screen.h"
+#include "network_screen.h"
 #include "overview_screen.h"
 #include "readiness_screen.h"
+#include "screen_widgets.h"
 #include "solar_screen.h"
 #include "source_commissioning_screen.h"
 
@@ -17,6 +19,7 @@ typedef struct {
     lv_obj_t *root;
     lv_obj_t *content;
     lv_obj_t *pages[SCREEN_PAGE_COUNT];
+    lv_obj_t *nav_signal;
     screen_page_t active;
     screen_status_snapshot_t status;
     screen_telemetry_snapshot_t telemetry;
@@ -30,6 +33,8 @@ static screen_commissioning_backend_t s_commissioning_backend;
 static bool s_commissioning_backend_set;
 static source_commission_backend_t s_source_backend;
 static bool s_source_backend_set;
+static network_screen_backend_t s_network_backend;
+static bool s_network_backend_set;
 
 /* The local HMI uses fixed, kiosk-style pages. LVGL objects created with
  * lv_obj_create() are scrollable by default; on a touch panel that can turn a
@@ -114,6 +119,12 @@ static lv_obj_t *ensure_page(screen_page_t page)
             source_commissioning_screen_set_backend(&s_source_backend);
         }
         break;
+    case SCREEN_PAGE_NETWORK:
+        created = network_screen_create(s_app.content);
+        if (created && s_network_backend_set) {
+            network_screen_set_backend(&s_network_backend);
+        }
+        break;
     default:
         return NULL;
     }
@@ -177,6 +188,19 @@ lv_obj_t *screen_app_create(lv_obj_t *parent)
     nav_button(nav, "Ready", SCREEN_PAGE_READINESS);
     nav_button(nav, "Commission", SCREEN_PAGE_COMMISSIONING);
     nav_button(nav, "Source", SCREEN_PAGE_SOURCE);
+    nav_button(nav, "Network", SCREEN_PAGE_NETWORK);
+
+    /* Persistent Wi-Fi signal indicator: lives in the nav row so it stays
+     * visible on every page, not only the Network settings screen -- an
+     * operator glancing at Overview or Alarms should not have to navigate
+     * away to see whether the panel still has a link. Fixed width so it
+     * does not reflow the nav row's flex-grow buttons as the text changes
+     * length between "Wi-Fi ||||" and "Wi-Fi: none". */
+    s_app.nav_signal = lv_label_create(nav);
+    lv_label_set_text(s_app.nav_signal, "Wi-Fi: none");
+    lv_obj_set_style_text_color(s_app.nav_signal, lv_color_hex(0x9EADBF), LV_PART_MAIN);
+    lv_obj_set_width(s_app.nav_signal, 90);
+    lv_obj_set_style_text_align(s_app.nav_signal, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
 
     s_app.content = lv_obj_create(s_app.root);
     lv_obj_remove_style_all(s_app.content);
@@ -232,6 +256,18 @@ void screen_app_set_source_commissioning_backend(const source_commission_backend
     if (s_app.pages[SCREEN_PAGE_SOURCE]) source_commissioning_screen_set_backend(backend);
 }
 
+void screen_app_set_network_backend(const network_screen_backend_t *backend)
+{
+    if (backend) {
+        s_network_backend = *backend;
+        s_network_backend_set = true;
+    } else {
+        memset(&s_network_backend, 0, sizeof(s_network_backend));
+        s_network_backend_set = false;
+    }
+    if (s_app.pages[SCREEN_PAGE_NETWORK]) network_screen_set_backend(backend);
+}
+
 /* Keep transport/model refresh independent from LVGL rendering. The Core may
  * continue refreshing every authoritative snapshot, but only the page the
  * operator can actually see is allowed to mutate its LVGL tree. On this RGB
@@ -271,6 +307,14 @@ void screen_app_apply_inverters(const screen_inverters_snapshot_t *snapshot)
 void screen_app_apply_telemetry(const screen_telemetry_snapshot_t *snapshot)
 {
     if (snapshot && snapshot->valid) s_app.telemetry = *snapshot;
+
+    /* Runs regardless of which page is active -- see the nav-bar comment in
+     * screen_app_create() for why this indicator must not be page-scoped. */
+    if (s_app.nav_signal && s_app.telemetry.valid) {
+        (void)screen_ui_set_text_if_changed(
+            s_app.nav_signal,
+            screen_ui_wifi_bars(s_app.telemetry.network_online, s_app.telemetry.rssi));
+    }
 
     if (active_is(SCREEN_PAGE_COMMISSIONING)) {
         commissioning_screen_apply_telemetry(snapshot);

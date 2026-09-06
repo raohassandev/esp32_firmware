@@ -23,6 +23,12 @@ void screen_ui_set_kw(lv_obj_t *label, bool available, double value);
 void screen_ui_set_state_text(lv_obj_t *label, const char *text, bool healthy);
 const char *screen_ui_safe_text(const char *text, const char *fallback);
 
+/* Shared Wi-Fi signal glyph so the persistent nav-bar indicator and the
+ * Network settings page render identical bars for the same RSSI -- one
+ * scale, defined once. "online" false always renders the offline glyph
+ * regardless of a stale/last-known rssi value. */
+const char *screen_ui_wifi_bars(bool online, int rssi);
+
 #ifdef __cplusplus
 }
 #endif
