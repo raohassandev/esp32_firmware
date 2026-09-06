@@ -15,10 +15,14 @@ Default bench topology from docs/CHATGPT_EXECUTION_BRIEF_2026-09-06.md:
 
 Usage:
   export PVDG_ENGINEERING_PASSWORD='...'
-  python3 tools/bench_board_simulator_comm_test.py --apply
+  python3 tools/bench_board_simulator_comm_test.py --apply --label normal
 
-Without --apply, the tool performs read-only preflight/probes and prints the
-exact meter payload it would apply.
+After the meter map has already been applied, a controlled simulator scenario
+can be measured without another configuration write or restart:
+  python3 tools/bench_board_simulator_comm_test.py --measure-only --label em500-dual-conflict
+
+Without --apply or --measure-only, the tool performs read-only preflight/probes
+and prints the exact meter payload it would apply.
 """
 
 from __future__ import annotations
@@ -62,10 +66,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--board", default="192.168.0.107", help="controller IP/host")
     parser.add_argument("--sim-host", default="192.168.0.102", help="simulator IP/host")
     parser.add_argument("--sim-port", type=int, default=1502, help="simulator Modbus TCP port")
-    parser.add_argument("--apply", action="store_true", help="persist meter map, restart, and measure")
-    parser.add_argument("--samples", type=int, default=12, help="post-restart /api/meters samples")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--apply", action="store_true", help="persist meter map, restart, and measure")
+    mode.add_argument(
+        "--measure-only",
+        action="store_true",
+        help="measure the already-commissioned board without auth, writes, or restart",
+    )
+    parser.add_argument(
+        "--samples",
+        type=int,
+        default=181,
+        help="number of /api/meters samples; default is about three minutes at 1 s",
+    )
     parser.add_argument("--sample-interval", type=float, default=1.0, help="seconds between samples")
     parser.add_argument("--reconnect-timeout", type=float, default=60.0, help="seconds to wait after restart")
+    parser.add_argument("--label", default="normal", help="evidence label, normally the simulator scenario")
     parser.add_argument(
         "--password-env",
         default="PVDG_ENGINEERING_PASSWORD",
@@ -226,18 +242,51 @@ def wait_for_controller(http: JsonHttp, timeout_s: float) -> dict[str, Any]:
     raise RuntimeError(f"controller did not return within {timeout_s:.0f}s; last error: {last_error}")
 
 
-def summarize_samples(samples: list[dict[str, Any]]) -> dict[str, Any]:
-    if not samples:
-        raise RuntimeError("no post-restart samples were captured")
+def require_control_disabled(http: JsonHttp) -> dict[str, Any]:
+    telemetry = http.get("/api/telemetry")
+    enabled = telemetry.get("control", {}).get("enabled") if isinstance(telemetry, dict) else None
+    if enabled is not False:
+        raise RuntimeError(f"automatic control must stay disabled during simulator testing: {enabled}")
+    return telemetry
+
+
+def capture_samples(
+    http: JsonHttp,
+    first: dict[str, Any],
+    count: int,
+    interval_s: float,
+) -> tuple[list[dict[str, Any]], list[float]]:
+    samples = [first]
+    timestamps = [time.monotonic()]
+    while len(samples) < count:
+        time.sleep(interval_s)
+        samples.append(http.get("/api/meters"))
+        timestamps.append(time.monotonic())
+    return samples, timestamps
+
+
+def summarize_samples(
+    samples: list[dict[str, Any]],
+    timestamps: list[float],
+    simulator_probes: list[dict[str, Any]],
+    label: str,
+    control_enabled_final: bool,
+) -> dict[str, Any]:
+    if not samples or len(samples) != len(timestamps):
+        raise RuntimeError("post-restart samples/timestamps are missing or inconsistent")
 
     per_meter: list[dict[str, Any]] = []
     final_meters = samples[-1].get("meters", [])
+    observation_duration_s = max(0.0, timestamps[-1] - timestamps[0])
+
     for index, target in enumerate(TARGETS):
-        rows = []
-        for sample in samples:
+        rows: list[dict[str, Any]] = []
+        row_times: list[float] = []
+        for sample, captured_at in zip(samples, timestamps):
             meters = sample.get("meters", [])
             if index < len(meters):
                 rows.append(meters[index])
+                row_times.append(captured_at)
         if not rows:
             raise RuntimeError(f"meter index {index} disappeared from /api/meters")
 
@@ -251,44 +300,92 @@ def summarize_samples(samples: list[dict[str, Any]]) -> dict[str, Any]:
         first = runtimes[0]
         last = runtimes[-1]
         success_delta = int(last.get("success_count", 0)) - int(first.get("success_count", 0))
-        error_delta = int(last.get("error_count", 0)) - int(first.get("error_count", 0))
+        error_first = int(first.get("response_errors", first.get("error_count", 0)))
+        error_final = int(last.get("response_errors", last.get("error_count", 0)))
+        error_delta = error_final - error_first
+        attempt_delta = success_delta + error_delta
+        sustained_success_percent = (
+            (100.0 * success_delta / attempt_delta) if attempt_delta > 0 else None
+        )
+
+        first_success_observed_s = None
+        baseline_successes = int(first.get("success_count", 0))
+        for runtime, captured_at in zip(runtimes, row_times):
+            has_data = runtime.get("has_data") is True
+            current_successes = int(runtime.get("success_count", 0))
+            if has_data and (baseline_successes > 0 or current_successes > baseline_successes):
+                first_success_observed_s = max(0.0, captured_at - row_times[0])
+                break
+
+        expected_kw = None
+        if index < len(simulator_probes):
+            probe_kw = simulator_probes[index].get("decoded_kw")
+            if isinstance(probe_kw, (int, float)) and math.isfinite(float(probe_kw)):
+                expected_kw = float(probe_kw)
+        average_kw = statistics.fmean(powers) if powers else None
+        difference_kw = average_kw - expected_kw if average_kw is not None and expected_kw is not None else None
+        tolerance_kw = max(0.000001, abs(expected_kw or 0.0) * 0.001)
+        value_matches = difference_kw is not None and abs(difference_kw) <= tolerance_kw
+
         per_meter.append(
             {
                 "index": index,
                 "name": target.name,
                 "endpoint": final_meters[index].get("endpoint", {}) if index < len(final_meters) else {},
-                "online_final": bool(last.get("online", False)),
-                "state_final": last.get("state"),
-                "success_count_first": int(first.get("success_count", 0)),
-                "success_count_final": int(last.get("success_count", 0)),
-                "success_delta": success_delta,
-                "error_count_first": int(first.get("error_count", 0)),
-                "error_count_final": int(last.get("error_count", 0)),
-                "error_delta": error_delta,
+                "online": bool(last.get("online", False)),
+                "degraded": bool(last.get("degraded", False)),
+                "state": last.get("state"),
+                "success_count": int(last.get("success_count", 0)),
+                "response_errors": error_final,
+                "consecutive_failures": int(last.get("consecutive_failures", 0)),
+                "recent_success_percent": last.get("recent_success_percent"),
+                "current_poll_delay_ms": last.get("current_poll_delay_ms"),
+                "last_response_time_ms": last.get("last_response_time_ms"),
+                "age_ms": last.get("age_ms", last.get("data_age_ms")),
+                "active_power_kw": last.get("active_power_kw"),
                 "last_error": last.get("last_error"),
                 "last_error_name": last.get("last_error_name"),
-                "power_kw": {
+                "success_delta": success_delta,
+                "error_delta": error_delta,
+                "sustained_success_percent": sustained_success_percent,
+                "first_success_observed_s_from_sampling_start": first_success_observed_s,
+                "simulator_expected_kw": expected_kw,
+                "board_power_kw": {
                     "samples": len(powers),
                     "min": min(powers) if powers else None,
-                    "avg": statistics.fmean(powers) if powers else None,
+                    "avg": average_kw,
                     "max": max(powers) if powers else None,
                 },
+                "board_minus_simulator_kw": difference_kw,
+                "value_tolerance_kw": tolerance_kw,
+                "value_matches_simulator": value_matches,
             }
         )
 
     passed = all(
-        meter["online_final"]
+        meter["online"]
+        and not meter["degraded"]
         and meter["success_delta"] > 0
         and meter["error_delta"] == 0
-        and meter["power_kw"]["samples"] > 0
+        and meter["consecutive_failures"] == 0
+        and meter["board_power_kw"]["samples"] > 0
+        and meter["value_matches_simulator"]
         for meter in per_meter
-    )
+    ) and control_enabled_final is False
+
     return {
         "result": "PASS" if passed else "FAIL",
+        "label": label,
         "sample_count": len(samples),
+        "observation_duration_s": observation_duration_s,
+        "control_enabled_final": control_enabled_final,
         "meters": per_meter,
         "production_physical_acceptance": False,
-        "note": "This is the board<->bench-simulator communication check only, not the full #174 physical PASS.",
+        "note": (
+            "This is the board<->bench-simulator communication check only, not the full #174 "
+            "physical PASS. A first-success value of 0 means the meter already had a successful "
+            "sample when HTTP sampling began; it is not claimed as boot-to-first-read latency."
+        ),
     }
 
 
@@ -312,53 +409,59 @@ def main() -> int:
     before = http.get("/api/meters")
     print(json.dumps(before, indent=2))
 
-    if not args.apply:
-        print("READ-ONLY PREFLIGHT PASS: re-run with --apply to persist/restart/measure.")
+    if not args.apply and not args.measure_only:
+        print("READ-ONLY PREFLIGHT PASS: re-run with --apply or --measure-only to collect a timed report.")
         return 0
 
-    password = os.environ.get(args.password_env)
-    if not password:
-        raise RuntimeError(
-            f"--apply requires Engineering password in environment variable {args.password_env}; "
-            "the password is intentionally not accepted as a CLI argument"
-        )
+    first_after: dict[str, Any]
+    if args.apply:
+        password = os.environ.get(args.password_env)
+        if not password:
+            raise RuntimeError(
+                f"--apply requires Engineering password in environment variable {args.password_env}; "
+                "the password is intentionally not accepted as a CLI argument"
+            )
 
-    print("=== Engineering login (password not printed) ===")
-    login = http.post("/api/engineering/login", {"password": password})
-    if not isinstance(login, dict) or not login.get("authenticated"):
-        raise RuntimeError(f"Engineering login was not accepted: {login}")
-    print(json.dumps({k: v for k, v in login.items() if k != "password"}, indent=2))
+        print("=== Engineering login (password not printed) ===")
+        login = http.post("/api/engineering/login", {"password": password})
+        if not isinstance(login, dict) or not login.get("authenticated"):
+            raise RuntimeError(f"Engineering login was not accepted: {login}")
+        print(json.dumps({k: v for k, v in login.items() if k != "password"}, indent=2))
 
-    print("=== Persist all three meters ===")
-    saved = http.post("/api/meters/config", payload)
-    if not isinstance(saved, dict) or saved.get("saved") is not True:
-        raise RuntimeError(f"meter save was not accepted: {saved}")
-    if saved.get("meter_count") != 3:
-        raise RuntimeError(f"controller persisted unexpected meter_count: {saved}")
-    if saved.get("control_enabled") is not False:
-        raise RuntimeError(f"safety interlock failed: meter save did not force control disabled: {saved}")
-    if saved.get("restart_required") is not True:
-        raise RuntimeError(f"controller did not require restart after meter-map mutation: {saved}")
-    print(json.dumps(saved, indent=2))
+        print("=== Persist all three meters ===")
+        saved = http.post("/api/meters/config", payload)
+        if not isinstance(saved, dict) or saved.get("saved") is not True:
+            raise RuntimeError(f"meter save was not accepted: {saved}")
+        if saved.get("meter_count") != 3:
+            raise RuntimeError(f"controller persisted unexpected meter_count: {saved}")
+        if saved.get("control_enabled") is not False:
+            raise RuntimeError(f"safety interlock failed: meter save did not force control disabled: {saved}")
+        if saved.get("restart_required") is not True:
+            raise RuntimeError(f"controller did not require restart after meter-map mutation: {saved}")
+        print(json.dumps(saved, indent=2))
 
-    print("=== Restart controller ===")
-    try:
-        restart = http.post("/api/system/restart", {})
-        print(json.dumps(restart, indent=2))
-    except Exception as exc:
-        # A clean restart can close the HTTP connection before the response is delivered.
-        print(f"restart request connection closed/errored (allowed during reboot): {exc}")
+        print("=== Restart controller ===")
+        try:
+            restart = http.post("/api/system/restart", {})
+            print(json.dumps(restart, indent=2))
+        except Exception as exc:
+            # A clean restart can close the HTTP connection before the response is delivered.
+            print(f"restart request connection closed/errored (allowed during reboot): {exc}")
 
-    # Old session cookie may survive in the client jar but /api/meters is operator-readable.
-    first_after = wait_for_controller(http, args.reconnect_timeout)
-    print("Controller HTTP is reachable again.")
+        # Old session cookie may survive in the client jar but /api/meters is operator-readable.
+        first_after = wait_for_controller(http, args.reconnect_timeout)
+        print("Controller HTTP is reachable again.")
+    else:
+        first_after = before
+        print("MEASURE-ONLY: no auth, configuration write, or restart will be performed.")
 
-    samples = [first_after]
-    while len(samples) < args.samples:
-        time.sleep(args.sample_interval)
-        samples.append(http.get("/api/meters"))
+    telemetry = require_control_disabled(http)
+    control_enabled_final = bool(telemetry.get("control", {}).get("enabled"))
+    samples, timestamps = capture_samples(http, first_after, args.samples, args.sample_interval)
+    telemetry_final = require_control_disabled(http)
+    control_enabled_final = bool(telemetry_final.get("control", {}).get("enabled"))
 
-    report = summarize_samples(samples)
+    report = summarize_samples(samples, timestamps, probes, args.label, control_enabled_final)
     print("=== REAL board <-> simulator communication report ===")
     print(json.dumps(report, indent=2))
     return 0 if report["result"] == "PASS" else 2
