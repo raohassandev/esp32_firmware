@@ -291,8 +291,19 @@ function handleRequest(socket, frame, scenario, context) {
 
 function createServer(scenario = SCENARIO) {
     const context = { sourceReads: 0, generatorPowerReads: 0 };
-    return net.createServer((socket) => {
+    const server = net.createServer((socket) => {
         let pending = Buffer.alloc(0);
+        // A client dropping its TCP connection (a real ESP32 on a flaky
+        // Wi-Fi link, reset by a modem/router, a killed test client) fires
+        // 'error' on THIS socket. Without a handler here Node treats it as
+        // an unhandled exception and crashes the whole process -- taking
+        // down every other client's connection with it, silently, since
+        // this typically runs backgrounded with nobody watching stdout.
+        // One flaky client must never be able to kill the simulator for
+        // every other device talking to it.
+        socket.on('error', () => {
+            /* swallow: the 'close' event still fires and cleans up normally */
+        });
         socket.on('data', (chunk) => {
             pending = Buffer.concat([pending, chunk]);
             while (pending.length >= 7) {
@@ -305,6 +316,7 @@ function createServer(scenario = SCENARIO) {
             }
         });
     });
+    return server;
 }
 
 function request(port, unitId, functionCode, address, valueOrCount, timeoutMs = 800) {
