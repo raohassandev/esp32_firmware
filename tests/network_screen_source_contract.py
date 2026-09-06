@@ -60,6 +60,24 @@ require("password_length < 8U" in BACKEND_C,
         "a non-empty Wi-Fi password shorter than 8 characters must be rejected, "
         "matching the web API's own Wi-Fi config validation")
 
+# --- bench prefill only exists behind the same bypass flag, and is loud
+#     about it (both a boot log and an on-screen banner) ---
+require("bench_default_credential" in NETWORK_SCREEN_H,
+        "the backend struct must carry an explicit bench-prefill field rather "
+        "than the screen guessing a default credential on its own")
+prefill_idx = BACKEND_C.index("snprintf(backend->bench_default_credential")
+enclosing_if_idx = BACKEND_C.rindex(
+    "#if defined(CONFIG_WAVESHARE_BENCH_NETWORK_AUTH_BYPASS)", 0, prefill_idx)
+enclosing_endif_idx = BACKEND_C.index("#endif", prefill_idx)
+require(
+    enclosing_if_idx < prefill_idx < enclosing_endif_idx,
+    "the prefill must only be set inside a bypass-gated #if block, "
+    "never unconditionally",
+)
+require("bench_prefill" in NETWORK_SCREEN_C and "BENCH BUILD" in NETWORK_SCREEN_C,
+        "the locked screen must show an on-screen bench warning whenever a "
+        "prefilled credential is present, not only log to the serial console")
+
 # --- the signal indicator is persistent (nav bar), not confined to the
 #     Network page -- that was the explicit point of the request ---
 require("nav_signal" in SCREEN_APP_C, "a persistent nav-bar signal indicator must exist")

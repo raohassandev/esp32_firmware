@@ -208,7 +208,13 @@ bool local_network_backend_init(network_screen_backend_t *backend)
 #if defined(CONFIG_WAVESHARE_BENCH_NETWORK_AUTH_BYPASS) && CONFIG_WAVESHARE_BENCH_NETWORK_AUTH_BYPASS
     ESP_LOGW(TAG, "BENCH BUILD: this image was built with "
                   "CONFIG_WAVESHARE_BENCH_NETWORK_AUTH_BYPASS=y -- the Network page's "
-                  "Engineering unlock accepts ANY credential. This must not ship.");
+                  "Engineering unlock accepts ANY credential and is prefilled. This must not ship.");
+    /* Any placeholder works -- local_unlock() ignores the value entirely
+     * under this Kconfig option. It only needs to be non-empty so the
+     * field is not blank and render_locked() knows to show the bench
+     * banner. */
+    snprintf(backend->bench_default_credential, sizeof(backend->bench_default_credential),
+            "bench-bypass");
 #endif
     backend->unlock = local_unlock;
     backend->lock = local_lock;

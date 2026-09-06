@@ -304,11 +304,18 @@ static void rebuild_status(void)
 static void render_locked(void)
 {
     lv_obj_t *form = form_container();
+    const bool bench_prefill = s_ui.backend.bench_default_credential[0] != '\0';
     heading(form, "Network · Engineering locked",
-            "Use the same Engineering password as the protected web workspace. This page scans "
-            "for Wi-Fi networks and lets you connect the panel directly from its own screen, "
-            "without a phone, laptop or the ZLAN/EM500 bench network.");
-    s_ui.credential = field(form, "Engineering credential", "", true);
+            bench_prefill
+                ? "BENCH BUILD: the Engineering unlock below is bypassed and prefilled for "
+                  "convenience -- this build must not ship. This page scans for Wi-Fi networks "
+                  "and lets you connect the panel directly from its own screen, without a "
+                  "phone, laptop or the ZLAN/EM500 bench network."
+                : "Use the same Engineering password as the protected web workspace. This page "
+                  "scans for Wi-Fi networks and lets you connect the panel directly from its "
+                  "own screen, without a phone, laptop or the ZLAN/EM500 bench network.");
+    s_ui.credential = field(form, "Engineering credential",
+                            bench_prefill ? s_ui.backend.bench_default_credential : "", true);
     button(form, "Unlock network settings", unlock_clicked);
 }
 

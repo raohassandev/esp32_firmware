@@ -55,6 +55,11 @@ typedef struct {
 
 typedef struct {
     void *context;
+    /* Bench-only: when non-empty, prefilled into the credential field so an
+     * operator does not have to type anything before tapping Unlock. Set
+     * only by a backend built with the bench auth-bypass Kconfig option
+     * enabled -- see local_network_backend.c. Empty on every other build. */
+    char bench_default_credential[64];
     network_screen_auth_result_t (*unlock)(void *context,
                                            const char *credential,
                                            uint32_t *retry_after_ms,
