@@ -482,10 +482,20 @@ engineering_local_auth_result_t engineering_auth_verify_local_credential(
 
 bool engineering_auth_is_authorized(httpd_req_t *request)
 {
+#if defined(CONFIG_PVDG_BENCH_ENGINEERING_AUTH_BYPASS) && CONFIG_PVDG_BENCH_ENGINEERING_AUTH_BYPASS
+    /* BENCH BUILD -- see the "Automatrix PV-DG Controller" Kconfig menu.
+     * Every Engineering-gated HTTP endpoint answers as authorized, no
+     * password or session cookie checked at all. Logged on every call so
+     * it cannot pass unnoticed in a build's own logs. */
+    ESP_LOGW(TAG, "BENCH BUILD: Engineering HTTP authentication is BYPASSED "
+                  "(CONFIG_PVDG_BENCH_ENGINEERING_AUTH_BYPASS=y). This must not ship.");
+    return true;
+#else
     portENTER_CRITICAL(&s_lock);
     bool configured = s_password_configured;
     portEXIT_CRITICAL(&s_lock);
     return configured && session_cookie_valid(request, true);
+#endif
 }
 
 esp_err_t engineering_auth_require(httpd_req_t *request)
@@ -656,6 +666,11 @@ static esp_err_t password_post(httpd_req_t *request)
 
 esp_err_t engineering_auth_init(void)
 {
+#if defined(CONFIG_PVDG_BENCH_ENGINEERING_AUTH_BYPASS) && CONFIG_PVDG_BENCH_ENGINEERING_AUTH_BYPASS
+    ESP_LOGW(TAG, "BENCH BUILD: this image was built with "
+                  "CONFIG_PVDG_BENCH_ENGINEERING_AUTH_BYPASS=y -- every Engineering-gated "
+                  "HTTP endpoint answers as authorized with no password check. This must not ship.");
+#endif
     auth_record_t record = {0};
     esp_err_t err = load_record(&record);
     portENTER_CRITICAL(&s_lock);

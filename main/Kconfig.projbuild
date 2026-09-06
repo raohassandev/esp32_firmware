@@ -46,4 +46,21 @@ config PVDG_DEFAULT_ZLAN_PORT
     range 1 65535
     default 502
 
+config PVDG_BENCH_ENGINEERING_AUTH_BYPASS
+    bool "Bench-only: skip Engineering authentication on every protected HTTP API"
+    default n
+    help
+        BENCH/DEVELOPMENT ONLY. When enabled, engineering_auth_is_authorized()
+        always returns true, so every Engineering-gated HTTP endpoint (meter
+        config, inverter config, Wi-Fi config, source commissioning, etc.)
+        answers as if a valid session were already present, regardless of
+        password or cookie.
+
+        This must be 'n' for any build that is reachable outside a closed
+        bench network -- it removes the check entirely rather than embedding
+        a known credential, so there is no password to even rotate. The
+        runtime logs a loud warning on every boot and on every request this
+        lets through. Leave disabled for production, field, customer, resale
+        and unattended builds.
+
 endmenu
