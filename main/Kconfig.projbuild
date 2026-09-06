@@ -63,4 +63,23 @@ config PVDG_BENCH_ENGINEERING_AUTH_BYPASS
         lets through. Leave disabled for production, field, customer, resale
         and unattended builds.
 
+config PVDG_BENCH_ENGINEERING_PASSWORD_RESET
+    bool "Bench-only: expose an HTTP endpoint that erases the Engineering password"
+    default n
+    help
+        BENCH/DEVELOPMENT ONLY. Adds POST /api/engineering/bench-reset, which
+        erases the persisted Engineering password (NVS namespace eng_auth)
+        and returns the controller to its one-time-setup-code state, without
+        requiring the old password. Unlike
+        PVDG_BENCH_ENGINEERING_AUTH_BYPASS this does not remove the
+        authentication check itself -- it only gives a way back in when the
+        password is lost on a bench unit, the same recovery a genuine forgot-
+        password flow would need. The new setup code is logged to the serial
+        console only, never returned in the HTTP response, and every use is
+        logged with a loud warning.
+
+        This must be 'n' for any build that is reachable outside a closed
+        bench network -- it lets anyone on the LAN with no credential at all
+        force the controller back into an unauthenticated setup state.
+
 endmenu

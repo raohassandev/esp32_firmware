@@ -148,7 +148,7 @@ esp_err_t web_server_start(void)
      * Keep four spare slots so the next reviewed endpoint cannot silently take
      * the server to a zero-headroom start failure. The derived source contract
      * recomputes this count on every relevant change. */
-    config.max_uri_handlers = 48;
+    config.max_uri_handlers = 52;
     config.stack_size = 8192;
     /* The default of 7 leaves only 4 client sockets once httpd takes its 3
      * internal ones, and a browser opens up to 6 keep-alive connections per
