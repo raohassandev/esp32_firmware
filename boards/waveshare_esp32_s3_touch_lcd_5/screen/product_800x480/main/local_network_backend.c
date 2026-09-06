@@ -6,9 +6,12 @@
 
 #include "config_manager.h"
 #include "engineering_auth.h"
+#include "esp_log.h"
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "network_manager.h"
+
+static const char *TAG = "local_network_backend";
 
 /* Reuses the same Engineering-credential gate as
  * local_source_commissioning_backend.c, with its own private unlock session
@@ -58,6 +61,21 @@ static network_screen_auth_result_t local_unlock(void *context,
                                                   bool *setup_required)
 {
     (void)context;
+    (void)credential;
+    /* BENCH CREDENTIAL BYPASS -- REMOVE BEFORE PRODUCTION RELEASE
+     *
+     * See the "Waveshare bench conveniences" Kconfig menu for the full
+     * rationale. Any credential (even empty) unlocks Wi-Fi provisioning
+     * while this is enabled; the check below never reaches
+     * engineering_auth_verify_local_credential(). It logs on every call so
+     * a build shipped with this on cannot pass unnoticed in its own logs. */
+#if defined(CONFIG_WAVESHARE_BENCH_NETWORK_AUTH_BYPASS) && CONFIG_WAVESHARE_BENCH_NETWORK_AUTH_BYPASS
+    ESP_LOGW(TAG, "BENCH BUILD: Network page Engineering unlock is BYPASSED "
+                  "(CONFIG_WAVESHARE_BENCH_NETWORK_AUTH_BYPASS=y). This must not ship.");
+    if (setup_required) *setup_required = false;
+    s_unlocked_until_ms = now_ms() + LOCAL_NETWORK_ENGINEERING_SESSION_MS;
+    return NETWORK_SCREEN_AUTH_OK;
+#else
     const engineering_local_auth_result_t auth =
         engineering_auth_verify_local_credential(credential, retry_after_ms, &s_setup_required);
     if (setup_required) *setup_required = s_setup_required;
@@ -69,6 +87,7 @@ static network_screen_auth_result_t local_unlock(void *context,
     if (auth == ENGINEERING_LOCAL_AUTH_LOCKED) return NETWORK_SCREEN_AUTH_LOCKED;
     if (auth == ENGINEERING_LOCAL_AUTH_DENIED) return NETWORK_SCREEN_AUTH_DENIED;
     return NETWORK_SCREEN_AUTH_ERROR;
+#endif
 }
 
 static void local_lock(void *context)
@@ -186,6 +205,11 @@ bool local_network_backend_init(network_screen_backend_t *backend)
     memset(backend, 0, sizeof(*backend));
     s_unlocked_until_ms = 0U;
     s_setup_required = false;
+#if defined(CONFIG_WAVESHARE_BENCH_NETWORK_AUTH_BYPASS) && CONFIG_WAVESHARE_BENCH_NETWORK_AUTH_BYPASS
+    ESP_LOGW(TAG, "BENCH BUILD: this image was built with "
+                  "CONFIG_WAVESHARE_BENCH_NETWORK_AUTH_BYPASS=y -- the Network page's "
+                  "Engineering unlock accepts ANY credential. This must not ship.");
+#endif
     backend->unlock = local_unlock;
     backend->lock = local_lock;
     backend->read_status = local_read_status;

@@ -197,9 +197,8 @@ lv_obj_t *screen_app_create(lv_obj_t *parent)
      * does not reflow the nav row's flex-grow buttons as the text changes
      * length between "Wi-Fi ||||" and "Wi-Fi: none". */
     s_app.nav_signal = lv_label_create(nav);
-    lv_label_set_text(s_app.nav_signal, "Wi-Fi: none");
-    lv_obj_set_style_text_color(s_app.nav_signal, lv_color_hex(0x9EADBF), LV_PART_MAIN);
-    lv_obj_set_width(s_app.nav_signal, 90);
+    screen_ui_apply_wifi_indicator(s_app.nav_signal, false, 0);
+    lv_obj_set_width(s_app.nav_signal, 60);
     lv_obj_set_style_text_align(s_app.nav_signal, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
 
     s_app.content = lv_obj_create(s_app.root);
@@ -311,9 +310,8 @@ void screen_app_apply_telemetry(const screen_telemetry_snapshot_t *snapshot)
     /* Runs regardless of which page is active -- see the nav-bar comment in
      * screen_app_create() for why this indicator must not be page-scoped. */
     if (s_app.nav_signal && s_app.telemetry.valid) {
-        (void)screen_ui_set_text_if_changed(
-            s_app.nav_signal,
-            screen_ui_wifi_bars(s_app.telemetry.network_online, s_app.telemetry.rssi));
+        screen_ui_apply_wifi_indicator(s_app.nav_signal, s_app.telemetry.network_online,
+                                       s_app.telemetry.rssi);
     }
 
     if (active_is(SCREEN_PAGE_COMMISSIONING)) {

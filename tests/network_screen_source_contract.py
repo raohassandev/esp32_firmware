@@ -63,10 +63,12 @@ require("password_length < 8U" in BACKEND_C,
 # --- the signal indicator is persistent (nav bar), not confined to the
 #     Network page -- that was the explicit point of the request ---
 require("nav_signal" in SCREEN_APP_C, "a persistent nav-bar signal indicator must exist")
-require("screen_ui_wifi_bars" in SCREEN_APP_C, "the nav-bar indicator must use the shared bars helper")
-require("const char *screen_ui_wifi_bars(bool online, int rssi)" in WIDGETS_C,
-        "the shared Wi-Fi bars helper must exist in one place, not be duplicated per page")
-require("screen_ui_wifi_bars" in WIDGETS_H, "the shared helper must be declared for other pages to reuse")
+require("screen_ui_apply_wifi_indicator" in SCREEN_APP_C, "the nav-bar indicator must use the shared indicator helper")
+require("void screen_ui_apply_wifi_indicator(lv_obj_t *label, bool online, int rssi)" in WIDGETS_C,
+        "the shared Wi-Fi indicator helper must exist in one place, not be duplicated per page")
+require("screen_ui_apply_wifi_indicator" in WIDGETS_H, "the shared helper must be declared for other pages to reuse")
+require("LV_SYMBOL_WIFI" in WIDGETS_C,
+        "the indicator must use LVGL's built-in Wi-Fi icon glyph, not raw Unicode bars or plain text")
 
 # --- ASCII only: a missing Unicode glyph in the compiled-in LVGL font must
 #     never silently render as a blank indicator ---

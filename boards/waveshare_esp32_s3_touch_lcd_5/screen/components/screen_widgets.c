@@ -117,18 +117,26 @@ const char *screen_ui_safe_text(const char *text, const char *fallback)
  * 2.4 GHz industrial panel rarely exceeds -30 dBm even next to the AP, so
  * the top bracket intentionally starts at -55, not 0.
  *
- * Plain ASCII on purpose: the compiled-in LVGL font is not guaranteed to
- * carry Unicode block-element glyphs (U+2582/2584/2586/2588/2591), and a
- * missing glyph renders as an invisible/blank tofu box with no error --
- * exactly the kind of "signal indicator that silently shows nothing" this
- * feature exists to prevent. "|" filled vs "." empty is always in every
- * font this project ships. */
-const char *screen_ui_wifi_bars(bool online, int rssi)
+ * The icon itself never changes shape -- LVGL ships exactly one Wi-Fi
+ * glyph (LV_SYMBOL_WIFI), not a set of bar-count icons -- so strength is
+ * carried by color (green/amber/red) and by the dBm number next to it,
+ * not by swapping glyphs. Offline uses the muted/disabled color and the
+ * icon is still shown so the indicator's position never jumps around as
+ * connectivity changes. */
+void screen_ui_apply_wifi_indicator(lv_obj_t *label, bool online, int rssi)
 {
-    if (!online) return "Wi-Fi: none";
-    if (rssi >= -55) return "Wi-Fi ||||";
-    if (rssi >= -67) return "Wi-Fi |||.";
-    if (rssi >= -75) return "Wi-Fi ||..";
-    if (rssi >= -85) return "Wi-Fi |...";
-    return "Wi-Fi ....";
+    if (!label) return;
+    char text[24];
+    uint32_t color;
+    if (!online) {
+        snprintf(text, sizeof(text), LV_SYMBOL_WIFI " --");
+        color = MUTED;
+    } else {
+        snprintf(text, sizeof(text), LV_SYMBOL_WIFI " %d", rssi);
+        if (rssi >= -67) color = GOOD;
+        else if (rssi >= -80) color = WARN;
+        else color = 0xF07178U; /* weak/marginal link, same red used for unhealthy state text */
+    }
+    (void)screen_ui_set_text_if_changed(label, text);
+    lv_obj_set_style_text_color(label, lv_color_hex(color), LV_PART_MAIN);
 }

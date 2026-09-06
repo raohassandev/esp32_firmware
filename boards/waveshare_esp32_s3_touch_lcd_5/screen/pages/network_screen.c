@@ -16,6 +16,7 @@ typedef struct {
     lv_obj_t *keyboard;
     lv_obj_t *credential;
     lv_obj_t *status_label;
+    lv_obj_t *status_icon;
     lv_obj_t *ssid_field;
     lv_obj_t *password_field;
     lv_obj_t *list;
@@ -291,14 +292,13 @@ static void rebuild_status(void)
         snprintf(text, sizeof(text), "Setup access point active: %s (no configured network in range)",
                  s_ui.status.ssid);
     } else if (s_ui.status.network_online) {
-        snprintf(text, sizeof(text), "Connected: %s  %s  IP %s",
-                 s_ui.status.ssid,
-                 screen_ui_wifi_bars(true, s_ui.status.rssi),
-                 s_ui.status.ip[0] ? s_ui.status.ip : "--");
+        snprintf(text, sizeof(text), "Connected: %s  IP %s",
+                 s_ui.status.ssid, s_ui.status.ip[0] ? s_ui.status.ip : "--");
     } else {
-        snprintf(text, sizeof(text), "Disconnected (%s)", screen_ui_wifi_bars(false, 0));
+        snprintf(text, sizeof(text), "Disconnected");
     }
     lv_label_set_text(s_ui.status_label, text);
+    screen_ui_apply_wifi_indicator(s_ui.status_icon, s_ui.status.network_online, s_ui.status.rssi);
 }
 
 static void render_locked(void)
@@ -323,8 +323,10 @@ static void render_unlocked(void)
     lv_obj_set_flex_flow(top, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(top, LV_FLEX_ALIGN_SPACE_BETWEEN,
                           LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    s_ui.status_icon = lv_label_create(top);
     s_ui.status_label = lv_label_create(top);
     lv_obj_set_style_text_color(s_ui.status_label, lv_color_hex(0xF2F6FA), LV_PART_MAIN);
+    lv_obj_set_flex_grow(s_ui.status_label, 1);
     button(top, "Lock", lock_clicked);
     rebuild_status();
 
@@ -359,6 +361,7 @@ static void render(void)
     lv_obj_clean(s_ui.body);
     s_ui.credential = NULL;
     s_ui.status_label = NULL;
+    s_ui.status_icon = NULL;
     s_ui.list = NULL;
     s_ui.ssid_field = NULL;
     s_ui.password_field = NULL;
