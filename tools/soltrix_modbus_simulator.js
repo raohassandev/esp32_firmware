@@ -11,7 +11,17 @@ const SCENARIO = String(scenarioArg ? scenarioArg.split('=')[1] : 'normal').toLo
 const SELF_TEST = args.has('--self-test');
 
 const EM500_SOURCE_ADDRESS = 0x2160;
-const EM500_POWER_ADDRESS = 57;
+// 58, not 57: confirmed on four independent sources -- live hardware probing
+// (docs/METER_COMMISSIONING_2026-07-29.md sign-off), the SolTrix EMS
+// driver-registry (server/runtime/soltrix/driver-registry/drivers/
+// em500-energy-meter.json, "activePowerTotal" @58, "verified live"), and
+// SolTrix's own real-device reference doc
+// (server/docs/planning_docs/EM500_WM15_METER_REFERENCE.md). The firmware's
+// config default is still 57 (components/config_manager/config_manager.c) --
+// meter_manager.c tolerates either value in config, but a real EM500 answers
+// activePowerTotal at 58, so the simulator must emulate the real meter here,
+// not the firmware's uncorrected default. Do not "fix" this back to 57.
+const EM500_POWER_ADDRESS = 58;
 const EM500_TARIFF1_IMPORT_ADDRESS = 0x1B48;
 const EM500_TARIFF2_IMPORT_ADDRESS = 0x1B5C;
 
