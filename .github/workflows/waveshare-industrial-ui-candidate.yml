@@ -2,11 +2,6 @@ name: Waveshare Industrial UI exact candidate
 
 on:
   pull_request:
-    paths:
-      - 'boards/waveshare_esp32_s3_touch_lcd_5/**'
-      - 'components/**'
-      - 'web/**'
-      - '.github/workflows/waveshare-industrial-ui-candidate.yml'
   workflow_dispatch:
 
 permissions:
