@@ -5,9 +5,10 @@ request/response code path against the standalone SolTrix simulator. That
 number is easy to misquote as "the achieved field Modbus rate" once it looks
 good on a screen -- it is not: the real RS485 leg past the ZLAN gateway is
 bounded by Modbus RTU physics (t3.5 + byte time), not by this code path.
-This contract locks in the honesty guardrails and the serialized
-(one-outstanding-transaction) pattern that make the measurement meaningful
-at all.
+This contract locks in the honesty guardrails, the serialized
+(one-outstanding-transaction) pattern, and strict MBAP response matching so
+stale/cross-delivered responses can never be counted as successful latency
+samples.
 """
 
 from pathlib import Path
@@ -47,6 +48,35 @@ data_idx = TOOL.index("client.on('data'")
 require(
     send_idx < data_idx,
     "sendNext must be defined before the response handler that re-invokes it",
+)
+
+# --- every received frame must be tied to the one outstanding request before
+#     it is allowed to become a latency sample. This is the same hard rule used
+#     after the ZLAN cross-delivery defect: wrong TID or unit-id is not data. ---
+require(
+    "function validateReadResponse" in TOOL,
+    "the test must have an explicit response validator rather than assuming "
+    "the next TCP frame belongs to the outstanding request",
+)
+for token in (
+    "transactionId !== expectedTransactionId",
+    "unitId !== expectedUnitId",
+    "protocolId !== 0",
+    "functionCode !== 3",
+    "byteCount !== expectedBytes",
+):
+    require(token in TOOL, f"strict Modbus response check missing: {token}")
+
+validate_idx = TOOL.index("validateReadResponse(frame, inFlightTransactionId, unitId, count)")
+latency_idx = TOOL.index("latenciesMs.push(elapsedMs)")
+require(
+    validate_idx < latency_idx,
+    "a frame must pass strict TID/unit/function/payload validation before its "
+    "latency is counted as a successful sample",
+)
+require(
+    "stale/cross-delivered" in TOOL,
+    "the source comment must preserve why strict matching is non-negotiable",
 )
 
 # --- it must exercise the real simulator devices/registers, not synthetic ones ---
