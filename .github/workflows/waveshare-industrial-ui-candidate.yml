@@ -53,6 +53,7 @@ jobs:
             "$BOARD_DIR/screen/pages/commissioning_screen.c"
             "$BOARD_DIR/screen/pages/network_screen.c"
             "$BOARD_DIR/screen/pages/network_screen.h"
+            "$BOARD_DIR/screen/pages/overview_screen.c"
             "$BOARD_DIR/screen/pages/readiness_screen.c"
             "$PRODUCT_DIR/README.md"
             "$PRODUCT_DIR/dependencies.lock"
