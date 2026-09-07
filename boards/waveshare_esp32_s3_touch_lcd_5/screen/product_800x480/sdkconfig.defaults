@@ -69,3 +69,11 @@ CONFIG_FREERTOS_USE_TRACE_FACILITY=y
 # route widget allocations through the ESP heap so PSRAM remains available.
 CONFIG_LV_USE_BUILTIN_MALLOC=n
 CONFIG_LV_USE_CLIB_MALLOC=y
+
+# Industrial-UI redesign: the app previously had only Montserrat 14 compiled
+# in, so every title, label and value rendered at the same size/weight --
+# no visual hierarchy was possible. These add the two larger weights used by
+# screen_widgets.c for section titles (20) and hero metric values (24) on
+# the 800x480 panel; 14 remains the body/default size.
+CONFIG_LV_FONT_MONTSERRAT_20=y
+CONFIG_LV_FONT_MONTSERRAT_24=y

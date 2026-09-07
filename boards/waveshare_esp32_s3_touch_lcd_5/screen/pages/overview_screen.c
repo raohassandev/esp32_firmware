@@ -4,9 +4,11 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "screen_widgets.h"
+
 #define OVERVIEW_VALUE_TEXT_MAX 24U
-#define OVERVIEW_VALUE_DRAW_WIDTH 120
-#define OVERVIEW_VALUE_DRAW_HEIGHT 28
+#define OVERVIEW_VALUE_DRAW_WIDTH 150
+#define OVERVIEW_VALUE_DRAW_HEIGHT 34
 #define OVERVIEW_STATUS_TEXT_MAX 64U
 #define OVERVIEW_STATUS_DRAW_WIDTH 300
 
@@ -47,11 +49,11 @@ static overview_widgets_t s_ui;
 
 static void style_panel(lv_obj_t *obj)
 {
-    lv_obj_set_style_bg_color(obj, lv_color_hex(0x151B24), LV_PART_MAIN);
-    lv_obj_set_style_border_color(obj, lv_color_hex(0x2E3948), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(obj, lv_color_hex(SCREEN_COLOR_SURFACE_RAISED), LV_PART_MAIN);
+    lv_obj_set_style_border_color(obj, lv_color_hex(SCREEN_COLOR_BORDER), LV_PART_MAIN);
     lv_obj_set_style_border_width(obj, 1, LV_PART_MAIN);
-    lv_obj_set_style_radius(obj, 10, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(obj, 12, LV_PART_MAIN);
+    lv_obj_set_style_radius(obj, SCREEN_RADIUS_MD, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(obj, SCREEN_SPACE_MD, LV_PART_MAIN);
 }
 
 static void make_fixed_surface(lv_obj_t *obj)
@@ -84,7 +86,7 @@ static lv_obj_t *make_value_card(lv_obj_t *parent,
     lv_label_set_text(title_label, title);
     lv_obj_set_width(title_label, LV_PCT(100));
     lv_label_set_long_mode(title_label, LV_LABEL_LONG_CLIP);
-    lv_obj_set_style_text_color(title_label, lv_color_hex(0x9EADBF), LV_PART_MAIN);
+    lv_obj_set_style_text_color(title_label, lv_color_hex(SCREEN_COLOR_TEXT_SECONDARY), LV_PART_MAIN);
 
     lv_obj_t *value = lv_label_create(card);
     if (value_buffer && value_capacity > 0U) {
@@ -94,10 +96,14 @@ static lv_obj_t *make_value_card(lv_obj_t *parent,
     } else {
         lv_label_set_text(value, "--");
     }
+    /* These four numbers are the entire point of the Overview page -- they
+     * get the hero font and the accent color so they read as the headline
+     * content, not just another label the same size as everything else. */
     lv_obj_set_size(value, OVERVIEW_VALUE_DRAW_WIDTH, OVERVIEW_VALUE_DRAW_HEIGHT);
     lv_label_set_long_mode(value, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_align(value, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
-    lv_obj_set_style_text_color(value, lv_color_hex(0xF2F6FA), LV_PART_MAIN);
+    lv_obj_set_style_text_color(value, lv_color_hex(SCREEN_COLOR_ACCENT), LV_PART_MAIN);
+    lv_obj_set_style_text_font(value, SCREEN_FONT_HERO, LV_PART_MAIN);
     if (value_out) *value_out = value;
     return card;
 }
@@ -120,7 +126,7 @@ static lv_obj_t *make_state_row(lv_obj_t *parent,
 
     lv_obj_t *name_label = lv_label_create(row);
     lv_label_set_text(name_label, name);
-    lv_obj_set_style_text_color(name_label, lv_color_hex(0x9EADBF), LV_PART_MAIN);
+    lv_obj_set_style_text_color(name_label, lv_color_hex(SCREEN_COLOR_TEXT_SECONDARY), LV_PART_MAIN);
 
     lv_obj_t *value = lv_label_create(row);
     if (value_buffer && value_capacity > 0U) {
@@ -136,7 +142,7 @@ static lv_obj_t *make_state_row(lv_obj_t *parent,
     lv_obj_set_width(value, OVERVIEW_STATUS_DRAW_WIDTH);
     lv_label_set_long_mode(value, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_align(value, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
-    lv_obj_set_style_text_color(value, lv_color_hex(0xF2F6FA), LV_PART_MAIN);
+    lv_obj_set_style_text_color(value, lv_color_hex(SCREEN_COLOR_TEXT_PRIMARY), LV_PART_MAIN);
     if (value_out) *value_out = value;
     return row;
 }
@@ -225,13 +231,13 @@ lv_obj_t *overview_screen_create(lv_obj_t *parent)
     s_ui.root = root;
     make_fixed_surface(root);
     lv_obj_set_size(root, LV_PCT(100), LV_PCT(100));
-    lv_obj_set_style_bg_color(root, lv_color_hex(0x0B1017), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(root, lv_color_hex(SCREEN_COLOR_BG_APP), LV_PART_MAIN);
     lv_obj_set_style_border_width(root, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(root, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(root, 14, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(root, SCREEN_SPACE_MD, LV_PART_MAIN);
     lv_obj_set_layout(root, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(root, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(root, 10, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(root, SCREEN_SPACE_MD, LV_PART_MAIN);
 
     lv_obj_t *header = lv_obj_create(root);
     lv_obj_remove_style_all(header);
@@ -243,13 +249,9 @@ lv_obj_t *overview_screen_create(lv_obj_t *parent)
     lv_obj_set_flex_align(header, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
 
-    lv_obj_t *title = lv_label_create(header);
-    lv_label_set_text(title, "Automatrix PV-DG");
-    lv_obj_set_style_text_color(title, lv_color_hex(0xF2F6FA), LV_PART_MAIN);
+    (void)screen_ui_title(header, "Automatrix PV-DG");
 
-    s_ui.backend_state = lv_label_create(header);
-    lv_label_set_text(s_ui.backend_state, "BACKEND: WAITING");
-    lv_obj_set_style_text_color(s_ui.backend_state, lv_color_hex(0xF2B84B), LV_PART_MAIN);
+    s_ui.backend_state = screen_ui_badge(header, "BACKEND: WAITING", false);
 
     lv_obj_t *chips = lv_obj_create(root);
     lv_obj_remove_style_all(chips);
@@ -264,13 +266,13 @@ lv_obj_t *overview_screen_create(lv_obj_t *parent)
     lv_label_set_text(s_ui.source, "Source: unknown");
     lv_obj_set_width(s_ui.source, 220);
     lv_label_set_long_mode(s_ui.source, LV_LABEL_LONG_CLIP);
-    lv_obj_set_style_text_color(s_ui.source, lv_color_hex(0xD5DEE8), LV_PART_MAIN);
+    lv_obj_set_style_text_color(s_ui.source, lv_color_hex(SCREEN_COLOR_TEXT_PRIMARY), LV_PART_MAIN);
 
     s_ui.control_mode = lv_label_create(chips);
     lv_label_set_text(s_ui.control_mode, "Control: --");
     lv_obj_set_flex_grow(s_ui.control_mode, 1);
     lv_label_set_long_mode(s_ui.control_mode, LV_LABEL_LONG_CLIP);
-    lv_obj_set_style_text_color(s_ui.control_mode, lv_color_hex(0xD5DEE8), LV_PART_MAIN);
+    lv_obj_set_style_text_color(s_ui.control_mode, lv_color_hex(SCREEN_COLOR_TEXT_PRIMARY), LV_PART_MAIN);
 
     lv_obj_t *values = lv_obj_create(root);
     lv_obj_remove_style_all(values);
@@ -281,6 +283,9 @@ lv_obj_t *overview_screen_create(lv_obj_t *parent)
     lv_obj_set_flex_flow(values, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(values, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_START,
                           LV_FLEX_ALIGN_START);
+    /* SPACE_BETWEEN already distributes the ~4% of row width left over by
+     * four 24%-wide cards -- an explicit column gap on top of that would
+     * overflow the row since it does not wrap. */
     lv_obj_set_style_pad_column(values, 0, LV_PART_MAIN);
 
     make_value_card(values, "GRID / ACTIVE SOURCE", &s_ui.grid_value,
@@ -311,13 +316,13 @@ lv_obj_t *overview_screen_create(lv_obj_t *parent)
     lv_label_set_text(s_ui.inhibit_reason, "Control reason: --");
     lv_label_set_long_mode(s_ui.inhibit_reason, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(s_ui.inhibit_reason, LV_PCT(100));
-    lv_obj_set_style_text_color(s_ui.inhibit_reason, lv_color_hex(0xC7D0DA), LV_PART_MAIN);
+    lv_obj_set_style_text_color(s_ui.inhibit_reason, lv_color_hex(SCREEN_COLOR_TEXT_SECONDARY), LV_PART_MAIN);
 
     s_ui.firmware_version = lv_label_create(bottom);
     lv_label_set_text(s_ui.firmware_version, "Firmware: --");
     lv_obj_set_width(s_ui.firmware_version, LV_PCT(100));
     lv_label_set_long_mode(s_ui.firmware_version, LV_LABEL_LONG_CLIP);
-    lv_obj_set_style_text_color(s_ui.firmware_version, lv_color_hex(0x7F8B99), LV_PART_MAIN);
+    lv_obj_set_style_text_color(s_ui.firmware_version, lv_color_hex(SCREEN_COLOR_TEXT_SECONDARY), LV_PART_MAIN);
     return root;
 }
 
@@ -325,9 +330,7 @@ void overview_screen_apply_live(const screen_live_snapshot_t *snapshot)
 {
     if (!snapshot || !snapshot->valid || !s_ui.root) return;
 
-    if (set_text_if_changed(s_ui.backend_state, "BACKEND: ONLINE")) {
-        lv_obj_set_style_text_color(s_ui.backend_state, lv_color_hex(0x62D28F), LV_PART_MAIN);
-    }
+    screen_ui_set_badge(s_ui.backend_state, "BACKEND: ONLINE", true);
     set_kw_static(s_ui.grid_value, s_ui.grid_text, sizeof(s_ui.grid_text),
                   snapshot->has_grid_kw, snapshot->grid_kw);
     set_kw_static(s_ui.solar_value, s_ui.solar_text, sizeof(s_ui.solar_text),
@@ -409,9 +412,7 @@ void overview_screen_apply_status(const screen_status_snapshot_t *snapshot)
 void overview_screen_show_backend_unavailable(void)
 {
     if (!s_ui.root) return;
-    if (set_text_if_changed(s_ui.backend_state, "BACKEND: UNAVAILABLE")) {
-        lv_obj_set_style_text_color(s_ui.backend_state, lv_color_hex(0xF07178), LV_PART_MAIN);
-    }
+    screen_ui_set_badge(s_ui.backend_state, "BACKEND: UNAVAILABLE", false);
     set_kw_static(s_ui.grid_value, s_ui.grid_text, sizeof(s_ui.grid_text), false, 0.0);
     set_kw_static(s_ui.solar_value, s_ui.solar_text, sizeof(s_ui.solar_text), false, 0.0);
     set_kw_static(s_ui.requested_value, s_ui.requested_text, sizeof(s_ui.requested_text), false, 0.0);

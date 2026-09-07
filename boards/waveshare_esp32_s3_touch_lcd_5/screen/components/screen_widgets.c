@@ -4,22 +4,30 @@
 #include <stdio.h>
 #include <string.h>
 
-static const uint32_t PANEL = 0x151B24;
-static const uint32_t BORDER = 0x2E3948;
-static const uint32_t TEXT = 0xF2F6FA;
-static const uint32_t MUTED = 0x9EADBF;
-static const uint32_t GOOD = 0x62D28F;
-static const uint32_t WARN = 0xF2B84B;
-
 lv_obj_t *screen_ui_panel(lv_obj_t *parent)
 {
     lv_obj_t *obj = lv_obj_create(parent);
-    lv_obj_set_style_bg_color(obj, lv_color_hex(PANEL), LV_PART_MAIN);
-    lv_obj_set_style_border_color(obj, lv_color_hex(BORDER), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(obj, lv_color_hex(SCREEN_COLOR_SURFACE), LV_PART_MAIN);
+    lv_obj_set_style_border_color(obj, lv_color_hex(SCREEN_COLOR_BORDER), LV_PART_MAIN);
     lv_obj_set_style_border_width(obj, 1, LV_PART_MAIN);
-    lv_obj_set_style_radius(obj, 10, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(obj, 12, LV_PART_MAIN);
-    lv_obj_set_style_text_color(obj, lv_color_hex(TEXT), LV_PART_MAIN);
+    lv_obj_set_style_radius(obj, SCREEN_RADIUS_MD, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(obj, SCREEN_SPACE_MD, LV_PART_MAIN);
+    lv_obj_set_style_text_color(obj, lv_color_hex(SCREEN_COLOR_TEXT_PRIMARY), LV_PART_MAIN);
+    lv_obj_set_style_text_font(obj, SCREEN_FONT_BODY, LV_PART_MAIN);
+    return obj;
+}
+
+lv_obj_t *screen_ui_card(lv_obj_t *parent)
+{
+    lv_obj_t *obj = screen_ui_panel(parent);
+    lv_obj_set_style_bg_color(obj, lv_color_hex(SCREEN_COLOR_SURFACE_RAISED), LV_PART_MAIN);
+    /* A 2px accent-tinted top edge reads as "this card is lit/raised"
+     * without needing a real drop shadow, which is expensive to redraw
+     * on every refresh of an RGB panel. */
+    lv_obj_set_style_border_side(obj, LV_BORDER_SIDE_TOP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(obj, 2, LV_PART_MAIN);
+    lv_obj_set_style_border_color(obj, lv_color_hex(SCREEN_COLOR_ACCENT), LV_PART_MAIN);
+    lv_obj_set_style_border_opa(obj, LV_OPA_50, LV_PART_MAIN);
     return obj;
 }
 
@@ -27,7 +35,8 @@ lv_obj_t *screen_ui_title(lv_obj_t *parent, const char *text)
 {
     lv_obj_t *label = lv_label_create(parent);
     lv_label_set_text(label, text ? text : "");
-    lv_obj_set_style_text_color(label, lv_color_hex(TEXT), LV_PART_MAIN);
+    lv_obj_set_style_text_color(label, lv_color_hex(SCREEN_COLOR_TEXT_PRIMARY), LV_PART_MAIN);
+    lv_obj_set_style_text_font(label, SCREEN_FONT_TITLE, LV_PART_MAIN);
     return label;
 }
 
@@ -35,7 +44,7 @@ lv_obj_t *screen_ui_muted_label(lv_obj_t *parent, const char *text)
 {
     lv_obj_t *label = lv_label_create(parent);
     lv_label_set_text(label, text ? text : "");
-    lv_obj_set_style_text_color(label, lv_color_hex(MUTED), LV_PART_MAIN);
+    lv_obj_set_style_text_color(label, lv_color_hex(SCREEN_COLOR_TEXT_SECONDARY), LV_PART_MAIN);
     return label;
 }
 
@@ -43,7 +52,7 @@ lv_obj_t *screen_ui_value_label(lv_obj_t *parent, const char *text)
 {
     lv_obj_t *label = lv_label_create(parent);
     lv_label_set_text(label, text ? text : "--");
-    lv_obj_set_style_text_color(label, lv_color_hex(TEXT), LV_PART_MAIN);
+    lv_obj_set_style_text_color(label, lv_color_hex(SCREEN_COLOR_TEXT_PRIMARY), LV_PART_MAIN);
     return label;
 }
 
@@ -57,11 +66,46 @@ lv_obj_t *screen_ui_row(lv_obj_t *parent, const char *name, lv_obj_t **value_out
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_top(row, SCREEN_SPACE_XS, LV_PART_MAIN);
+    lv_obj_set_style_pad_bottom(row, SCREEN_SPACE_XS, LV_PART_MAIN);
 
     screen_ui_muted_label(row, name);
     lv_obj_t *value = screen_ui_value_label(row, "--");
     if (value_out) *value_out = value;
     return row;
+}
+
+lv_obj_t *screen_ui_badge(lv_obj_t *parent, const char *text, bool healthy)
+{
+    lv_obj_t *badge = lv_obj_create(parent);
+    lv_obj_remove_flag(badge, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(badge, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_set_height(badge, LV_SIZE_CONTENT);
+    lv_obj_set_width(badge, LV_SIZE_CONTENT);
+    lv_obj_set_style_pad_hor(badge, SCREEN_SPACE_SM, LV_PART_MAIN);
+    lv_obj_set_style_pad_ver(badge, SCREEN_SPACE_XS, LV_PART_MAIN);
+    lv_obj_set_style_radius(badge, SCREEN_RADIUS_SM, LV_PART_MAIN);
+    lv_obj_set_style_border_width(badge, 0, LV_PART_MAIN);
+
+    lv_obj_t *label = lv_label_create(badge);
+    lv_obj_set_style_text_font(label, SCREEN_FONT_BODY, LV_PART_MAIN);
+    lv_obj_center(label);
+
+    screen_ui_set_badge(badge, text, healthy);
+    return badge;
+}
+
+void screen_ui_set_badge(lv_obj_t *badge, const char *text, bool healthy)
+{
+    if (!badge) return;
+    const uint32_t fill = healthy ? SCREEN_COLOR_SUCCESS : SCREEN_COLOR_WARNING;
+    lv_obj_set_style_bg_color(badge, lv_color_hex(fill), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(badge, LV_OPA_20, LV_PART_MAIN);
+
+    lv_obj_t *label = lv_obj_get_child(badge, 0);
+    if (!label) return;
+    (void)screen_ui_set_text_if_changed(label, text && text[0] ? text : "Unknown");
+    lv_obj_set_style_text_color(label, lv_color_hex(fill), LV_PART_MAIN);
 }
 
 bool screen_ui_set_text_if_changed(lv_obj_t *label, const char *text)
@@ -104,7 +148,8 @@ void screen_ui_set_state_text(lv_obj_t *label, const char *text, bool healthy)
     /* The colour change is intentionally kept independent from text comparison:
      * a backend may keep the same state label while its health classification
      * changes, and correctness wins over avoiding this small-label invalidation. */
-    lv_obj_set_style_text_color(label, lv_color_hex(healthy ? GOOD : WARN), LV_PART_MAIN);
+    lv_obj_set_style_text_color(label, lv_color_hex(healthy ? SCREEN_COLOR_SUCCESS : SCREEN_COLOR_WARNING),
+                                LV_PART_MAIN);
 }
 
 const char *screen_ui_safe_text(const char *text, const char *fallback)
@@ -130,12 +175,12 @@ void screen_ui_apply_wifi_indicator(lv_obj_t *label, bool online, int rssi)
     uint32_t color;
     if (!online) {
         snprintf(text, sizeof(text), LV_SYMBOL_WIFI " --");
-        color = MUTED;
+        color = SCREEN_COLOR_TEXT_SECONDARY;
     } else {
         snprintf(text, sizeof(text), LV_SYMBOL_WIFI " %d", rssi);
-        if (rssi >= -67) color = GOOD;
-        else if (rssi >= -80) color = WARN;
-        else color = 0xF07178U; /* weak/marginal link, same red used for unhealthy state text */
+        if (rssi >= -67) color = SCREEN_COLOR_SUCCESS;
+        else if (rssi >= -80) color = SCREEN_COLOR_WARNING;
+        else color = SCREEN_COLOR_DANGER;
     }
     (void)screen_ui_set_text_if_changed(label, text);
     lv_obj_set_style_text_color(label, lv_color_hex(color), LV_PART_MAIN);

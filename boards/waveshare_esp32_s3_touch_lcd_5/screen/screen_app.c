@@ -1,6 +1,7 @@
 #include "screen_app.h"
 
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "alarms_screen.h"
@@ -19,6 +20,7 @@ typedef struct {
     lv_obj_t *root;
     lv_obj_t *content;
     lv_obj_t *pages[SCREEN_PAGE_COUNT];
+    lv_obj_t *nav_buttons[SCREEN_PAGE_COUNT];
     lv_obj_t *nav_signal;
     screen_page_t active;
     screen_status_snapshot_t status;
@@ -143,16 +145,47 @@ static void nav_clicked(lv_event_t *event)
     screen_app_show_page((screen_page_t)raw);
 }
 
-static lv_obj_t *nav_button(lv_obj_t *parent, const char *text, screen_page_t page)
+/* The nav bar previously gave no indication of which page was open --
+ * every button used the same default LVGL styling regardless of state, so
+ * an operator glancing at the panel could not tell where they were. This
+ * applies (or clears) the accent-filled "active tab" look on demand. */
+static void nav_button_set_active(lv_obj_t *button, bool active)
+{
+    if (!button) return;
+    lv_obj_set_style_bg_color(button,
+                              lv_color_hex(active ? SCREEN_COLOR_ACCENT : SCREEN_COLOR_SURFACE_RAISED),
+                              LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(button, active ? LV_OPA_COVER : LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_t *label = lv_obj_get_child(button, 0);
+    if (label) {
+        lv_obj_set_style_text_color(
+            label, lv_color_hex(active ? SCREEN_COLOR_ACCENT_ON : SCREEN_COLOR_TEXT_SECONDARY),
+            LV_PART_MAIN);
+    }
+}
+
+static lv_obj_t *nav_button(lv_obj_t *parent, const char *icon, const char *text, screen_page_t page)
 {
     lv_obj_t *button = lv_button_create(parent);
     make_fixed_surface(button);
+    lv_obj_set_style_radius(button, SCREEN_RADIUS_SM, LV_PART_MAIN);
+    lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
     lv_obj_set_height(button, SCREEN_MIN_TOUCH_TARGET_PX);
     lv_obj_set_flex_grow(button, 1);
     lv_obj_add_event_cb(button, nav_clicked, LV_EVENT_CLICKED, (void *)(uintptr_t)page);
+
     lv_obj_t *label = lv_label_create(button);
-    lv_label_set_text(label, text);
+    if (icon && icon[0]) {
+        char combined[48];
+        snprintf(combined, sizeof(combined), "%s  %s", icon, text);
+        lv_label_set_text(label, combined);
+    } else {
+        lv_label_set_text(label, text);
+    }
     lv_obj_center(label);
+    nav_button_set_active(button, false);
+
+    if ((unsigned)page < (unsigned)SCREEN_PAGE_COUNT) s_app.nav_buttons[page] = button;
     return button;
 }
 
@@ -164,13 +197,13 @@ lv_obj_t *screen_app_create(lv_obj_t *parent)
     s_app.root = lv_obj_create(parent ? parent : lv_screen_active());
     make_fixed_surface(s_app.root);
     lv_obj_set_size(s_app.root, LV_PCT(100), LV_PCT(100));
-    lv_obj_set_style_bg_color(s_app.root, lv_color_hex(0x0B1017), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_app.root, lv_color_hex(SCREEN_COLOR_BG_APP), LV_PART_MAIN);
     lv_obj_set_style_border_width(s_app.root, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(s_app.root, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(s_app.root, 8, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(s_app.root, SCREEN_SPACE_MD, LV_PART_MAIN);
     lv_obj_set_layout(s_app.root, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(s_app.root, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(s_app.root, 7, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(s_app.root, SCREEN_SPACE_MD, LV_PART_MAIN);
 
     lv_obj_t *nav = lv_obj_create(s_app.root);
     lv_obj_remove_style_all(nav);
@@ -179,16 +212,21 @@ lv_obj_t *screen_app_create(lv_obj_t *parent)
     lv_obj_set_height(nav, SCREEN_MIN_TOUCH_TARGET_PX);
     lv_obj_set_layout(nav, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(nav, LV_FLEX_FLOW_ROW);
-    lv_obj_set_style_pad_column(nav, 5, LV_PART_MAIN);
+    lv_obj_set_style_pad_column(nav, SCREEN_SPACE_XS, LV_PART_MAIN);
+    lv_obj_set_style_pad_bottom(nav, SCREEN_SPACE_SM, LV_PART_MAIN);
+    lv_obj_set_style_border_side(nav, LV_BORDER_SIDE_BOTTOM, LV_PART_MAIN);
+    lv_obj_set_style_border_width(nav, 1, LV_PART_MAIN);
+    lv_obj_set_style_border_color(nav, lv_color_hex(SCREEN_COLOR_BORDER), LV_PART_MAIN);
 
-    nav_button(nav, "Overview", SCREEN_PAGE_OVERVIEW);
-    nav_button(nav, "Grid", SCREEN_PAGE_GRID);
-    nav_button(nav, "Solar", SCREEN_PAGE_SOLAR);
-    nav_button(nav, "Alarms", SCREEN_PAGE_ALARMS);
-    nav_button(nav, "Ready", SCREEN_PAGE_READINESS);
-    nav_button(nav, "Commission", SCREEN_PAGE_COMMISSIONING);
-    nav_button(nav, "Source", SCREEN_PAGE_SOURCE);
-    nav_button(nav, "Network", SCREEN_PAGE_NETWORK);
+    nav_button(nav, LV_SYMBOL_HOME, "Overview", SCREEN_PAGE_OVERVIEW);
+    nav_button(nav, LV_SYMBOL_CHARGE, "Grid", SCREEN_PAGE_GRID);
+    nav_button(nav, NULL, "Solar", SCREEN_PAGE_SOLAR);
+    nav_button(nav, LV_SYMBOL_BELL, "Alarms", SCREEN_PAGE_ALARMS);
+    nav_button(nav, LV_SYMBOL_OK, "Ready", SCREEN_PAGE_READINESS);
+    nav_button(nav, LV_SYMBOL_SETTINGS, "Commission", SCREEN_PAGE_COMMISSIONING);
+    nav_button(nav, NULL, "Source", SCREEN_PAGE_SOURCE);
+    nav_button(nav, LV_SYMBOL_WIFI, "Network", SCREEN_PAGE_NETWORK);
+    nav_button_set_active(s_app.nav_buttons[SCREEN_PAGE_OVERVIEW], true);
 
     /* Persistent Wi-Fi signal indicator: lives in the nav row so it stays
      * visible on every page, not only the Network settings screen -- an
@@ -219,9 +257,11 @@ void screen_app_show_page(screen_page_t page)
     if (!s_app.root || (unsigned)page >= (unsigned)SCREEN_PAGE_COUNT) return;
     if (!ensure_page(page)) return;
     for (int i = 0; i < (int)SCREEN_PAGE_COUNT; ++i) {
-        if (!s_app.pages[i]) continue;
-        if (i == (int)page) lv_obj_remove_flag(s_app.pages[i], LV_OBJ_FLAG_HIDDEN);
-        else lv_obj_add_flag(s_app.pages[i], LV_OBJ_FLAG_HIDDEN);
+        if (s_app.pages[i]) {
+            if (i == (int)page) lv_obj_remove_flag(s_app.pages[i], LV_OBJ_FLAG_HIDDEN);
+            else lv_obj_add_flag(s_app.pages[i], LV_OBJ_FLAG_HIDDEN);
+        }
+        nav_button_set_active(s_app.nav_buttons[i], i == (int)page);
     }
     s_app.active = page;
 }
