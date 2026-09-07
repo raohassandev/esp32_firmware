@@ -201,7 +201,7 @@ static void set_operation_message(const char *text, bool good)
     if (!s_ui.operation_message) return;
     (void)screen_ui_set_text_if_changed(s_ui.operation_message, text ? text : "");
     lv_obj_set_style_text_color(s_ui.operation_message,
-                                lv_color_hex(good ? 0x62D28F : 0xF07178),
+                                lv_color_hex(good ? SCREEN_COLOR_SUCCESS : SCREEN_COLOR_DANGER),
                                 LV_PART_MAIN);
 }
 

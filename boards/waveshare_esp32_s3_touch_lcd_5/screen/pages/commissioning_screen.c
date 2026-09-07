@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "screen_widgets.h"
 
 /* PRAGMA MARK: BENCH CREDENTIAL PREFILL — REMOVE BEFORE PRODUCTION RELEASE
  *
@@ -153,7 +154,7 @@ static void set_message(const char *text, bool good)
     if (!s_ui.message) return;
     lv_label_set_text(s_ui.message, text ? text : "");
     lv_obj_set_style_text_color(s_ui.message,
-                                lv_color_hex(good ? 0x62D28F : 0xF07178),
+                                lv_color_hex(good ? SCREEN_COLOR_SUCCESS : SCREEN_COLOR_DANGER),
                                 LV_PART_MAIN);
 }
 
@@ -202,7 +203,7 @@ static lv_obj_t *field(lv_obj_t *parent, const char *label, const char *value, b
     lv_obj_t *caption = lv_label_create(row);
     lv_label_set_text(caption, label);
     lv_obj_set_width(caption, 250);
-    lv_obj_set_style_text_color(caption, lv_color_hex(0xC7D0DA), LV_PART_MAIN);
+    lv_obj_set_style_text_color(caption, lv_color_hex(SCREEN_COLOR_TEXT_SECONDARY), LV_PART_MAIN);
 
     lv_obj_t *input = lv_textarea_create(row);
     lv_textarea_set_one_line(input, true);
@@ -240,7 +241,7 @@ static lv_obj_t *checkbox_field(lv_obj_t *parent, const char *label, bool value)
     lv_obj_t *caption = lv_label_create(row);
     lv_label_set_text(caption, label);
     lv_obj_set_width(caption, 250);
-    lv_obj_set_style_text_color(caption, lv_color_hex(0xC7D0DA), LV_PART_MAIN);
+    lv_obj_set_style_text_color(caption, lv_color_hex(SCREEN_COLOR_TEXT_SECONDARY), LV_PART_MAIN);
     lv_obj_t *box = lv_checkbox_create(row);
     lv_checkbox_set_text(box, "");
     if (value) lv_obj_add_state(box, LV_STATE_CHECKED);
@@ -262,7 +263,7 @@ static lv_obj_t *dropdown_field(lv_obj_t *parent, const char *label,
     lv_obj_t *caption = lv_label_create(row);
     lv_label_set_text(caption, label);
     lv_obj_set_width(caption, 250);
-    lv_obj_set_style_text_color(caption, lv_color_hex(0xC7D0DA), LV_PART_MAIN);
+    lv_obj_set_style_text_color(caption, lv_color_hex(SCREEN_COLOR_TEXT_SECONDARY), LV_PART_MAIN);
     lv_obj_t *drop = lv_dropdown_create(row);
     lv_dropdown_set_options(drop, options);
     lv_dropdown_set_selected(drop, selected);
@@ -286,13 +287,13 @@ static void heading(lv_obj_t *parent, const char *title, const char *detail)
 {
     lv_obj_t *h = lv_label_create(parent);
     lv_label_set_text(h, title);
-    lv_obj_set_style_text_color(h, lv_color_hex(0xF2F6FA), LV_PART_MAIN);
+    lv_obj_set_style_text_color(h, lv_color_hex(SCREEN_COLOR_TEXT_PRIMARY), LV_PART_MAIN);
     if (!detail || !detail[0]) return;
     lv_obj_t *d = lv_label_create(parent);
     lv_label_set_text(d, detail);
     lv_label_set_long_mode(d, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(d, LV_PCT(100));
-    lv_obj_set_style_text_color(d, lv_color_hex(0x9EADBF), LV_PART_MAIN);
+    lv_obj_set_style_text_color(d, lv_color_hex(SCREEN_COLOR_TEXT_SECONDARY), LV_PART_MAIN);
 }
 
 static bool checked(lv_obj_t *obj)
@@ -680,7 +681,7 @@ static lv_obj_t *form_container(void)
 {
     lv_obj_t *form = lv_obj_create(s_ui.body);
     lv_obj_set_size(form, LV_PCT(100), LV_PCT(100));
-    lv_obj_set_style_bg_color(form, lv_color_hex(0x101720), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(form, lv_color_hex(SCREEN_COLOR_SURFACE), LV_PART_MAIN);
     lv_obj_set_style_border_width(form, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(form, 8, LV_PART_MAIN);
     lv_obj_set_style_pad_all(form, 10, LV_PART_MAIN);
@@ -968,7 +969,7 @@ static void render_review(void)
                                       : s_ui.gate.inhibit_reason);
             lv_label_set_long_mode(detail, LV_LABEL_LONG_WRAP);
             lv_obj_set_width(detail, LV_PCT(100));
-            lv_obj_set_style_text_color(detail, lv_color_hex(0xF2B84B), LV_PART_MAIN);
+            lv_obj_set_style_text_color(detail, lv_color_hex(SCREEN_COLOR_WARNING), LV_PART_MAIN);
         }
     }
     if (s_ui.config.restart_required) button(form, "Restart controller", restart_clicked, NULL);
@@ -1022,7 +1023,7 @@ lv_obj_t *commissioning_screen_create(lv_obj_t *parent)
     s_ui.root = lv_obj_create(parent ? parent : lv_screen_active());
     make_fixed(s_ui.root);
     lv_obj_set_size(s_ui.root, LV_PCT(100), LV_PCT(100));
-    lv_obj_set_style_bg_color(s_ui.root, lv_color_hex(0x0B1017), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_ui.root, lv_color_hex(SCREEN_COLOR_BG_APP), LV_PART_MAIN);
     lv_obj_set_style_border_width(s_ui.root, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(s_ui.root, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(s_ui.root, 8, LV_PART_MAIN);
@@ -1041,7 +1042,7 @@ lv_obj_t *commissioning_screen_create(lv_obj_t *parent)
                           LV_FLEX_ALIGN_CENTER);
     s_ui.step_label = lv_label_create(top);
     lv_obj_set_width(s_ui.step_label, 420);
-    lv_obj_set_style_text_color(s_ui.step_label, lv_color_hex(0xF2F6FA), LV_PART_MAIN);
+    lv_obj_set_style_text_color(s_ui.step_label, lv_color_hex(SCREEN_COLOR_TEXT_PRIMARY), LV_PART_MAIN);
     button(top, "Back", back_clicked, NULL);
     button(top, "Next", next_clicked, NULL);
     button(top, "Lock", lock_clicked, NULL);

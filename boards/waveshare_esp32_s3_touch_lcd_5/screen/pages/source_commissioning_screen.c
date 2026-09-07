@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "screen_widgets.h"
 
 /* PRAGMA MARK: BENCH CREDENTIAL PREFILL — REMOVE BEFORE PRODUCTION RELEASE
  *
@@ -82,7 +83,7 @@ static void set_message(const char *text, bool good)
     if (!s_ui.message) return;
     lv_label_set_text(s_ui.message, text ? text : "");
     lv_obj_set_style_text_color(s_ui.message,
-                                lv_color_hex(good ? 0x62D28F : 0xF07178),
+                                lv_color_hex(good ? SCREEN_COLOR_SUCCESS : SCREEN_COLOR_DANGER),
                                 LV_PART_MAIN);
 }
 
@@ -130,7 +131,7 @@ static lv_obj_t *row(lv_obj_t *parent, const char *label)
     lv_obj_t *caption = lv_label_create(item);
     lv_label_set_text(caption, label);
     lv_obj_set_width(caption, 270);
-    lv_obj_set_style_text_color(caption, lv_color_hex(0xC7D0DA), LV_PART_MAIN);
+    lv_obj_set_style_text_color(caption, lv_color_hex(SCREEN_COLOR_TEXT_SECONDARY), LV_PART_MAIN);
     return item;
 }
 
@@ -197,12 +198,12 @@ static void heading(lv_obj_t *parent, const char *title, const char *detail)
 {
     lv_obj_t *h = lv_label_create(parent);
     lv_label_set_text(h, title);
-    lv_obj_set_style_text_color(h, lv_color_hex(0xF2F6FA), LV_PART_MAIN);
+    lv_obj_set_style_text_color(h, lv_color_hex(SCREEN_COLOR_TEXT_PRIMARY), LV_PART_MAIN);
     lv_obj_t *d = lv_label_create(parent);
     lv_label_set_text(d, detail);
     lv_label_set_long_mode(d, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(d, LV_PCT(100));
-    lv_obj_set_style_text_color(d, lv_color_hex(0x9EADBF), LV_PART_MAIN);
+    lv_obj_set_style_text_color(d, lv_color_hex(SCREEN_COLOR_TEXT_SECONDARY), LV_PART_MAIN);
 }
 
 static bool checked(lv_obj_t *obj)
@@ -230,7 +231,7 @@ static lv_obj_t *form_container(void)
 {
     lv_obj_t *form = lv_obj_create(s_ui.body);
     lv_obj_set_size(form, LV_PCT(100), LV_PCT(100));
-    lv_obj_set_style_bg_color(form, lv_color_hex(0x101720), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(form, lv_color_hex(SCREEN_COLOR_SURFACE), LV_PART_MAIN);
     lv_obj_set_style_border_width(form, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(form, 8, LV_PART_MAIN);
     lv_obj_set_style_pad_all(form, 10, LV_PART_MAIN);
@@ -487,7 +488,7 @@ lv_obj_t *source_commissioning_screen_create(lv_obj_t *parent)
     s_ui.root = lv_obj_create(parent ? parent : lv_screen_active());
     make_fixed(s_ui.root);
     lv_obj_set_size(s_ui.root, LV_PCT(100), LV_PCT(100));
-    lv_obj_set_style_bg_color(s_ui.root, lv_color_hex(0x0B1017), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_ui.root, lv_color_hex(SCREEN_COLOR_BG_APP), LV_PART_MAIN);
     lv_obj_set_style_border_width(s_ui.root, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(s_ui.root, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(s_ui.root, 8, LV_PART_MAIN);
@@ -507,7 +508,7 @@ lv_obj_t *source_commissioning_screen_create(lv_obj_t *parent)
     lv_obj_t *title = lv_label_create(top);
     lv_label_set_text(title, "Source Evidence Commissioning");
     lv_obj_set_width(title, 500);
-    lv_obj_set_style_text_color(title, lv_color_hex(0xF2F6FA), LV_PART_MAIN);
+    lv_obj_set_style_text_color(title, lv_color_hex(SCREEN_COLOR_TEXT_PRIMARY), LV_PART_MAIN);
     button(top, "Lock", lock_clicked);
 
     s_ui.body = lv_obj_create(s_ui.root);

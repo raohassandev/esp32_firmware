@@ -32,7 +32,7 @@ static void set_blocker(const char *text, bool healthy)
     const char *current = lv_label_get_text(s_ui.commissioning_blocker);
     if (!current || strcmp(current, next) != 0) lv_label_set_text(s_ui.commissioning_blocker, next);
     lv_obj_set_style_text_color(s_ui.commissioning_blocker,
-                                lv_color_hex(healthy ? 0x62D28F : 0xF2B84B), LV_PART_MAIN);
+                                lv_color_hex(healthy ? SCREEN_COLOR_SUCCESS : SCREEN_COLOR_WARNING), LV_PART_MAIN);
 }
 
 lv_obj_t *readiness_screen_create(lv_obj_t *parent)
