@@ -1,99 +1,101 @@
-# AISH-OS Evidence Index v4
+# AISH-OS Evidence Index v5
 
 Master program: #79. Evidence is valid only for the exact source/head/artifact/config/profile/site identity named. Software CI and validators never substitute for physical acceptance.
 
 ## Live integration baseline
 
-Current `dev`: `14d13a0d6e5c4b4b95cea35b8cc32f1880ae8134` after governed PR #176.
+Current `dev`: `7cb824a2341cb9072b1a3176afbd3685dec1a32a` after governed PR #181.
 
-## Current merged release/evidence chain
+## Current software/evidence chain
 
 | Capability | Exact evidence | State |
 |---|---|---|
-| Waveshare post-soak validation | PR #150 -> `184d7e658ac44496a4f9efe0fd5db5844ad7fa43` | MERGED TOOLING ONLY |
-| Generator/source-transition physical record validation | PR #151 -> `892a5811160098a765df7895af943eadf0457d48` | MERGED TOOLING ONLY |
-| Secure OTA real-controller record validation | PR #152 -> `ad651806edb95a749b7d65b61fe1f6b2cf2148db` | MERGED TOOLING ONLY |
-| Real site source commissioning validation | PR #156 -> `1c6e1de9ba01c759bc7dc6331f418160614cbbd7` | MERGED TOOLING ONLY |
-| Inverter per-model physical production qualification | PR #158 -> `56e2abfb9291b8b5f0786dc8051820a53865984b` | MERGED TOOLING ONLY |
-| Waveshare physical soak capture executor | PR #159 -> `3fd831b677ff590c54cb5cef412a55c9cdea5ca8` | MERGED TOOLING ONLY |
-| Integrated FAT/endurance/signed-SAT evidence gate | PR #160 -> `1b4d7631862afdb38da99fbbae9aa170729b0bdb` | MERGED TOOLING ONLY |
-| Governance reconciliation through PR #160 | PR #161 -> `72e817140a27f9833d79662a0d9b994e63477906` | MERGED |
-| Industrial UI shell/design system | PR #165 head `75d42885a4baa92ef57bb674416671108f59a656` -> `ad4a091c267e9fc11e0903604fee5c8369da2488` | MERGED SOFTWARE |
-| Industrial Operator actionable workflow | PR #167 head `57e243ba8a7ec0870c3e820637cf8809d56eb27d` -> `8fd6f1988ea32ba08b86872e62d873388abbed8f` | MERGED SOFTWARE |
-| Industrial Engineering workspace | PR #169 head `1f63573f591ea974ba8debc6800f687c148e5125` -> `77e9c9d7046549970dc9bc58bd683304d4f1ced3` | MERGED SOFTWARE |
-| Single Industrial UI nav ownership | PR #172 -> `4029a86ac15261a424a77401443680b551c7609f` | MERGED SOFTWARE |
-| Browser socket/LRU/N16R8 PSRAM resilience | PR #173 -> `ada5cc8010183a69e831260b8d8bf36c1bb0dbed` | MERGED REGRESSION GATE |
-| Industrial UI exact-image physical evidence validation | PR #175 head `931534dd490e95ee683b6c78904fde278add3111` -> `9a22d56b9749a7689581e2b8f5e92df3c1e58038` | MERGED TOOLING ONLY |
-| Final task-based Operator IA | PR #176 head `4dfd09b76f9eb678ac1f6411f60904a5340271cd`; Industrial UI `33883395788`, physical tools `33883395629`, poller `33883395606`, OTA `33883395684`, browser resilience `33883395506`, full Firmware/Web/ESP32-S3 `33883395633` GREEN -> merge `14d13a0d6e5c4b4b95cea35b8cc32f1880ae8134` | MERGED SOFTWARE |
+| Core runtime/config/Modbus safety | PR #99/#102/#108/#114/#117/#119 etc. | MERGED SOFTWARE |
+| Rollback-safe OTA + always-on regression | PR #145/#148 | MERGED SOFTWARE |
+| Site/inverter/generator/OTA/FAT physical validators | PR #151/#152/#156/#158/#160 | MERGED TOOLING ONLY |
+| Historical Waveshare final/post-soak/capture tooling | PR #142/#150/#159 | MERGED TOOLING ONLY |
+| Industrial UI shell/operator/engineering/nav/browser chain | PR #165/#167/#169/#172/#173/#176 | MERGED SOFTWARE |
+| Governance through Industrial UI v1 | PR #177 -> `150118a8425462e1756b115ddf3d463a022b395f` | MERGED |
+| Exact current Industrial UI Waveshare integration | PR #179 head `72a1a82a8fc5ad4406b5bd51fba1f80f9c182884` | SOFTWARE GREEN / DRAFT PHYSICAL-GATED |
+| Industrial UI physical evidence authority v2 | PR #181 -> `7cb824a2341cb9072b1a3176afbd3685dec1a32a` | MERGED TOOLING ONLY |
 
-## Held physical/runtime identities
+## Exact Industrial UI v1 physical candidate — #164/#174
 
-### Historical Waveshare exact candidate — #87/#27
+The immutable candidate is now selected and fully identified:
+
+- PR: #179 (intentionally Draft until genuine #174 physical PASS)
+- source: `72a1a82a8fc5ad4406b5bd51fba1f80f9c182884`
+- tree: `3069c65b4234fcd2b6418f9bbbe7859f1cd9abce`
+- artifact id/name: `10293685030` / `industrial-ui-waveshare-800x480-candidate`
+- artifact digest: `sha256:44dc05fe2c6e61d3a8b5fdfc7c936937da948691a2038358d5c0b3c1008de541`
+- application SHA256: `0bbdb75be4ea7c0337f07e83dbdd3e34736ce8f667a42aa11abeb5c638f60734`
+- UF2 SHA256: `199feec247563130f800d25e2a7024ebbaf64a65d3d8b6c6c5c9ec4c242b2500`
+- dependencies lock SHA256: `fd82d3c69b9507f0b4966e1d7a9479a9ee49e7cc58b8199966db75d4af86eb91`
+- effective sdkconfig SHA256: `4df1cfd44cd617b35cf3700daf70fc8633ae05132b4d334b68675757f6fed822`
+- build container: `espressif/idf:v6.0.1`
+- rollback: enabled
+- compiled STA credentials: absent
+- compiled Engineering credential prefill: absent
+- Engineering HTTP bench bypass: disabled
+- Network-page bench bypass: disabled
+- minimum native touch target: 44 px
+
+The exact PR #179 candidate earned current root firmware/web checks, exact Waveshare ESP-IDF build/package, immutable dependency-lock/config checks, UF2 generation and independent diagnostic build. These are software/build prerequisites, not a panel PASS.
+
+PR #181 provides the current physical evidence contract and exact starter `evidence/candidates/industrial_ui_72a1a82_physical_observations.json`. The starter is explicitly `UNEXECUTED_TEMPLATE_NOT_A_PHYSICAL_PASS` and all physical observation flags are false by default.
+
+A genuine #174 PASS must physically prove on this exact image:
+- native 800x480 visual hierarchy, touch behavior and Operator/Engineering role boundaries;
+- Network layout/scan/select/manual SSID/password/connect/restart/Wi-Fi indicator/Engineering lock and observed connected RSSI;
+- Grid + Generator 1..3 run/breaker + optional Transfer/ATS + optional synchronism source mapping round trips, save disabling current automatic control and no kW-sign source inference;
+- alarm All/Active/Unack filters, Priority/State/ID sorts, Engineering acknowledgement and operator acknowledgement refusal;
+- real board↔bench-simulator Modbus connection, request/success counters that increase, at least 3 decoded samples and decoded values following simulator changes;
+- browser/API/history responsiveness, resource stability, no fatal/reset/wedge; and one uninterrupted >=4 h / >=240-sample run.
+
+No physical PASS exists yet for this candidate.
+
+## Historical Waveshare exact candidate — #87/#27
 
 - source `87841ecee727fe1d814d4186be8c8c26e4afafb4`
 - tree `6ddd7900f9b4ece0fba9349b905e1c078fc3401e`
-- package run `33622358267`
-- artifact `9843536218` / `waveshare-800x480-87841ece`
-- ZIP digest `sha256:89e621034d4c91096fc5d38dd57ac40eeeab34275e4af1fc0461b48575039096`
-- app SHA256 `8be2a2aad5f223d8b9bca498db2e12c04f7f205feaa9908b7922c37421c46593`
-- short display/touch/Alarms physical gate: PASS
-- first continuous attempt: ~2 h / 121 one-minute samples + 25 clean backend rounds, interrupted by USB dock/power disappearance
-- required new uninterrupted >=4 h / >=240 same-image run: PENDING
+- artifact `9843536218`
+- digest `sha256:89e621034d4c91096fc5d38dd57ac40eeeab34275e4af1fc0461b48575039096`
+- application SHA256 `8be2a2aad5f223d8b9bca498db2e12c04f7f205feaa9908b7922c37421c46593`
+- short display/touch/Alarms gate: PASS
+- first continuous attempt: ~2 h / 121 samples before external bench power-path interruption
+- uninterrupted >=4 h / >=240 run: PENDING
 
-PR #159 supplies fail-closed serial/backend capture; PR #142 final/package validation; PR #150 post-soak parity/persistence validation. None creates the physical PASS. This identity predates Industrial UI v1 and cannot qualify #174.
+This old identity predates the current Industrial UI and never qualifies #174. After its own final soak PASS, #25/#26 still require backend parity/recovery and persistence/ARM on that exact old image.
 
-### Industrial UI v1 exact-image physical candidate — #164/#174
+## Other held physical authorities
 
-Software is complete on current `dev` through PR #176, but **no immutable physical candidate has yet been selected and no physical PASS exists**.
+### Generator source transition — #80
+Draft PR #106 head `a1620789235d21b515f9f245f2329fab88b50558` remains software-GREEN and frozen for physical disposition. PR #151 validates supplied evidence. Genuine bench PASS is mandatory before replay/promotion.
 
-Before #174 physical execution freeze and record:
-- exact source SHA and Git tree;
-- exact firmware/package artifact id and immutable digest;
-- application image SHA256;
-- exact Waveshare/LVGL build configuration;
-- persisted configuration identity relevant to UI/runtime;
-- fresh exact-head Firmware/Web/ESP32-S3, Industrial UI, browser resilience and physical-tool CI for the same source.
+### Site source commissioning — #81
+PR #156 validates exact site-specific breaker/run/ATS/sync provenance, address/contact/mask/polarity, physical toggle, stale/recovery and meter CT/PT/type/word-order/scale/sign. Another site/model or kW-sign inference is not evidence.
 
-Then execute native 800x480 Overview/Grid/Solar/Alarms/Readiness, Engineering Commission/Configure/Service, Guided Commissioning/expert Service routes, light/dark readability, touchscreen and role checks, browser/API/history responsiveness, resource/fatal counters and one uninterrupted >=4 h / >=240-sample same-image run. PR #175 validates supplied evidence but cannot observe the panel.
+### Production inverter profiles — #82
+PR #158 validates staged exact-model qualification. Pending catalogue entries remain write-locked until exact applicable official model/firmware/manual plus physical identity/telemetry/status/write/readback/rollback and signed production approval exist.
 
-### Generator source transition
+### Secure OTA — #86
+PR #152 validates the real-controller interruption/power-loss/rollback record on one exact intended release identity. Build/CI evidence is insufficient.
 
-Draft PR #106 exact head `a1620789235d21b515f9f245f2329fab88b50558` remains software-GREEN and frozen for #80 physical disposition. After genuine bench PASS, production promotion requires an equivalent current-`dev` replay, fresh exact-head CI and 0-behind expected-head merge.
+### Integrated FAT/SAT — #83
+PR #160 is the final evidence contract: genuine prerequisite physical references, complete Grid/Generator/mixed-source FAT, all three Modbus modes and degraded-peer/network/resource endurance, accepted exact UI/OTA references and authorized signed SAT.
 
-### Site source commissioning
+## Rev-A H2/H3/H4 evidence
 
-PR #156 provides the fail-closed evidence contract. Physical PASS requires exact site-specific breaker/run/ATS/synchronism provenance, manual/wiring reference, address/contact/mask/polarity, physical toggle, stale/recovery and meter sign/scaling proof. Another site/model or kW-sign inference is not evidence.
+Historical provider artifact `9909976209` is evidence only. Reproducibility run `33884657384` could not reproduce historical `DRC=0` and returned 20 DRC violations / 0 unconnected. #85 therefore requires authoritative component/fabricator evidence for any exceptions, rules committed before a new checkpoint, and fresh ERC/DRC/SI/STEP/provider-package acceptance to a new H2 identity. #162 H4 physical qualification follows only from the new accepted package.
 
-### Production inverter profiles
+## Final release evidence outputs still required
 
-PR #158 provides staged documented -> read-only qualified -> write qualified -> production approved evidence validation. Generic core safety remains merged, but no model becomes production-approved without exact applicable manufacturer manual/model/firmware plus physical identity/telemetry/status/write/readback/rollback and signed approval.
+1. #174 exact PR #179 candidate physical PASS.
+2. #80 generator/source-transition physical PASS and governed replay/promotion.
+3. #81 real site source/meter mapping PASS.
+4. #82 exact deployed inverter profile production approvals.
+5. #86 exact-release OTA physical PASS.
+6. #83 integrated FAT/endurance and authorized signed SAT.
+7. #91 final identity index with zero critical blockers.
 
-### Secure OTA
-
-Rollback-safe OTA software is PR #145; always-on regression is PR #148; physical evidence validation is PR #152. #86 remains physical on one exact intended OTA-capable release identity. No historical or Industrial UI HMI PASS automatically transfers to a different OTA image.
-
-### Integrated FAT/SAT
-
-PR #160 is the final release evidence contract. It requires genuine prerequisite physical PASS references, complete Grid/Generator/mixed-source FAT, all three Modbus connection modes and degraded-peer/network/resource endurance, zero fatal/reset/resource-collapse counters, exact OTA physical evidence, exact accepted UI release identity and authorized signed SAT.
-
-## Rev-A H2/H3 evidence
-
-Historical KiCad release run `33797012638` produced routed checkpoint `324e0db1600c2fd883d83f923a0c442669b237f0`, a marker claiming `ERC=0`, `DRC=0`, `UNCONNECTED=0`, L2 ground/SI PASS and STEP PASS, plus provider artifact `9909976209` digest `sha256:869bc723cd05f106aab850aa3de65bb4b46d600b77bc08e91dbedcaef41bd496` and engineering artifact `9909977211` digest `sha256:246830e56b8a17be3a0057186e7e30102c5e5dd371fb3bf4e64c2279502e8ea7`.
-
-That historical `DRC=0` result is **not currently reproducible from the frozen checkpoint**. PR #163 head `f020be6bcabc8dec6c05d80aaf00ec47fe6476b4` deliberately removed a post-checkpoint `.kicad_dru` relaxation and replayed the original KiCad 10.0.5 upgrade/refill/save DRC semantics on a byte-for-byte copy. Run `33884657384` passed frozen checkpoint provenance, schematic ERC, netlist/design-control/HW-interface/power-budget checks, SI geometry, statistics and STEP, but DRC still returned **20 violations / 0 unconnected**: four USB-C J2 internal hole-clearance violations, two J3 RJ45 copper-edge violations, two U1 ESP32 copper-edge violations and twelve U1 thermal-via minimum-drill violations. The run uploaded evidence artifact `9941333133`, digest `sha256:668ab99694a0408b673b6b2875d396286bf965dce1a01f1de7de09c8540760b3`.
-
-Therefore PR #163 must not be merged as a deterministic H2 PASS and the historical provider package must not be treated as the final fabrication package. Rev-A now requires a **new controlled H2 acceptance**: justify any footprint/fabrication exceptions from authoritative component/fabricator evidence, commit the approved rule context before the checkpoint, rerun ERC/DRC/SI/STEP/provider-package gates, and mint a new exact H2 checkpoint/package identity. H2/H3 automation never substitutes for H4 fabricated-prototype acceptance.
-
-## Remaining release evidence outputs
-
-1. #87/#27 historical new uninterrupted Waveshare >=4 h / >=240 sample same-image PASS, then #25/#26 on that same historical identity.
-2. #174 new Industrial UI exact-image native 800x480/touch/browser/resource >=4 h PASS on its own immutable candidate.
-3. #80 generator/source-transition physical matrix.
-4. #81 real site source-contact/polarity/meter mapping PASS.
-5. #82 per-deployed-model official-manual + physical production approval.
-6. #86 complete secure OTA real-controller matrix.
-7. #83 integrated Grid/DG/mixed-source FAT, Modbus/network endurance and signed SAT.
-8. Rev-A new controlled H2 checkpoint/package, then #162 H4 fabricated prototype qualification.
-9. Final release SHA/config/profile/source-map/artifact/UI index with no critical blocker.
-
-Partial physical intervals cannot be combined to manufacture continuity, thresholds cannot be lowered to manufacture PASS, and no physical PASS transfers across changed identities unless the governing gate explicitly permits and proves equivalence.
+Historical #87/#27/#25/#26 and Rev-A #85/#162 remain separate tracked hardware lanes and must not be silently used as evidence for a changed release identity. Partial physical intervals cannot be combined, thresholds cannot be lowered, and no validator manufactures a physical PASS.
