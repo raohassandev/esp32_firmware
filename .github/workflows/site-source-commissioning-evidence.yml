@@ -30,9 +30,18 @@ jobs:
         run: python3 -m py_compile tools/site_source_commissioning_verify.py
       - name: Run site commissioning validator tests
         run: python3 tests/site_source_commissioning_tools_test.py
-      - name: Confirm blank commissioning template fails closed
+      - name: Confirm blank commissioning template fails closed under external identity lock
         run: |
-          ! python3 tools/site_source_commissioning_verify.py \
+          set -euo pipefail
+          if python3 tools/site_source_commissioning_verify.py \
             tools/site_source_commissioning.example.json \
             --expected-firmware-sha aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
-            --expected-artifact-digest sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            --expected-artifact-digest sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \
+            --expected-site-id SITE-TO-BE-COMMISSIONED \
+            --expected-config-identity UNQUALIFIED \
+            --expected-site-sld-digest sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc \
+            --expected-channel-map-digest sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd; then
+            echo 'ERROR: unexecuted site commissioning template unexpectedly passed'
+            exit 1
+          fi
+          echo 'Unexecuted site commissioning template correctly fails closed'
