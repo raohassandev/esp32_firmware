@@ -15,6 +15,11 @@ K="docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $PWD:/work -w /work kica
 # escape vias before any signal router can occupy their vertical clearance.
 $KPY hardware/kicad/tools/post_route_finalize.py "$PCB"
 
+# Parent H2 run 34700172988 isolated the small F.Cu GND island containing
+# U13:3 after a different-but-valid Freerouting ordering occupied its only safe
+# post-route escape corridor. Reserve that return-path access before routing too.
+$KPY hardware/kicad/tools/pre_route_u13_gnd_escape.py "$PCB"
+
 # USB and W5500 MDI topology are release-owned, not generic-autorouter-owned.
 # Route and lock them before Specctra export. This is required by the frozen SI
 # contract: Run #24's generic Ethernet route was 64..81 mm with 3..5 vias and
