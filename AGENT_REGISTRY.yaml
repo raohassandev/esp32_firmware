@@ -1,6 +1,7 @@
-version: 4
-updated_at: 2026-09-12T13:05:00+05:00
+version: 5
+updated_at: 2026-09-12T16:23:00+05:00
 master_issue: 79
+reconciliation_parent_before_this_revision: 8016c005be8d548e9388026a89592b70b92ec1a3
 truth_rule: live_repository_over_stale_docs
 
 wip_policy:
@@ -21,6 +22,7 @@ agents:
       - enforce_exact_head_zero_behind_expected_head_merge_gates
       - reconcile_governance_after_every_state_change
       - preserve_frozen_physical_candidate_identity
+      - record_reconciliation_parent_not_unknown_future_merge_sha
 
   runtime_software_team:
     role: CODER_RUNTIME_SAFETY
@@ -41,20 +43,21 @@ agents:
     artifact_id: 10293685030
     artifact_digest: sha256:44dc05fe2c6e61d3a8b5fdfc7c936937da948691a2038358d5c0b3c1008de541
     application_sha256: 0bbdb75be4ea7c0337f07e83dbdd3e34736ce8f667a42aa11abeb5c638f60734
-    evidence_tooling_prs: [175, 181]
+    evidence_tooling_prs: [175, 181, 183]
     status: SOFTWARE_COMPLETE_EXACT_IMAGE_FROZEN_PHYSICAL_HMI_PENDING
     rules:
       - do_not_modify_PR179_candidate_before_physical_disposition
       - historical_87841ece_physical_pass_does_not_transfer
       - validator_or_CI_pass_does_not_equal_physical_HMI_pass
       - operator_and_engineering_auth_boundaries_remain_fail_closed
+      - transfer_and_sync_applicability_must_be_explicit_in_physical_record
 
   release_evidence_team:
     role: CODER_RELEASE_EVIDENCE_AND_AUTOMATION
     owner: ChatGPT
     qa: GitHub_Actions
-    status: COMPLETE_FOR_CURRENT_RELEASE_PHYSICAL_GATES
-    evidence_prs: [142, 150, 151, 152, 156, 158, 159, 160, 175, 181]
+    status: COMPLETE_FOR_CURRENT_RELEASE_PHYSICAL_GATES_AFTER_V3_MERGE
+    evidence_prs: [142, 150, 151, 152, 156, 158, 159, 160, 175, 181, 183]
     coverage:
       - historical_waveshare_final_acceptance_and_post_soak
       - industrial_ui_exact_image_network_source_alarm_modbus_and_endurance_acceptance
@@ -68,15 +71,24 @@ agents:
       - exact_identity_required
       - incomplete_records_fail_closed
       - thresholds_cannot_be_lowered_to_manufacture_pass
+      - optional_topology_absence_requires_explicit_reason_not_fake_pass
 
   industrial_ui_physical_team:
     role: PHYSICAL_EXECUTOR_QA_L16
     owner: authorized_hardware_executor
     issues: [164, 174]
-    evidence_tooling_pr: 181
     candidate_sha: 72a1a82a8fc5ad4406b5bd51fba1f80f9c182884
     candidate_artifact_id: 10293685030
     status: READY_FOR_REAL_PANEL_EXECUTION_NOT_PASSED
+    requirements:
+      - exact_candidate_identity
+      - real_native_panel_visual_touch_role_observations
+      - real_network_workflow
+      - grid_gen1_gen2_gen3_mapping_roundtrips
+      - explicit_transfer_and_sync_applicability
+      - real_alarm_role_filter_sort_ack_observations
+      - real_board_modbus_counter_and_decoded_value_evidence
+      - uninterrupted_4h_240_sample_soak
 
   source_transition_physical_team:
     role: PHYSICAL_EXECUTOR_QA_L2
@@ -118,6 +130,7 @@ agents:
     role: PRODUCT_HARDWARE_L9
     owner: ChatGPT_orchestrator_plus_hardware_engineer
     issue: 85
+    h2_requalification_issue: 178
     implementation_pr: 19
     h4_issue: 162
     status: NEW_CONTROLLED_H2_REQUIRED_THEN_H4_PHYSICAL
