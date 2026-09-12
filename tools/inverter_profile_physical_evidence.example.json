@@ -1,6 +1,7 @@
 {
-  "schema": 1,
+  "schema": 2,
   "stage": "documented",
+  "evidence_state": "UNEXECUTED_TEMPLATE_NOT_QUALIFICATION_EVIDENCE",
   "manufacturer": "REPLACE_WITH_EXACT_MANUFACTURER",
   "model": "REPLACE_WITH_EXACT_MODEL",
   "inverter_firmware": "REPLACE_WITH_EXACT_INVERTER_FIRMWARE",
@@ -20,6 +21,7 @@
     "evidence_ref": "UNQUALIFIED",
     "firmware_scope": {
       "applicability_confirmed": false,
+      "exact_inverter_firmware": "REPLACE_WITH_EXACT_INVERTER_FIRMWARE",
       "basis": "UNQUALIFIED"
     }
   },

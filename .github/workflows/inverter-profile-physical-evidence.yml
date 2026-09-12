@@ -30,8 +30,24 @@ jobs:
         run: python3 -m py_compile tools/inverter_profile_physical_evidence_verify.py
       - name: Run inverter physical evidence tests
         run: python3 tests/inverter_profile_physical_evidence_test.py
-      - name: Confirm blank manufacturer template fails closed
+      - name: Confirm blank manufacturer template fails closed under external identity lock
         run: |
-          ! python3 tools/inverter_profile_physical_evidence_verify.py \
+          set -euo pipefail
+          if python3 tools/inverter_profile_physical_evidence_verify.py \
             tools/inverter_profile_physical_evidence.example.json \
-            --expected-stage documented
+            --expected-stage documented \
+            --expected-manufacturer UNQUALIFIED_VENDOR \
+            --expected-model UNQUALIFIED_MODEL \
+            --expected-inverter-firmware UNQUALIFIED_FW \
+            --expected-profile-sha 0000000000000000000000000000000000000000 \
+            --expected-controller-sha 1111111111111111111111111111111111111111 \
+            --expected-controller-artifact-digest sha256:2222222222222222222222222222222222222222222222222222222222222222 \
+            --expected-manual-revision UNQUALIFIED_REV \
+            --expected-manual-digest sha256:3333333333333333333333333333333333333333333333333333333333333333 \
+            --expected-topology direct_tcp \
+            --expected-endpoint 127.0.0.1:502 \
+            --expected-unit-id 1; then
+            echo 'ERROR: unexecuted inverter qualification template unexpectedly passed'
+            exit 1
+          fi
+          echo 'Unexecuted inverter qualification template correctly fails closed'
