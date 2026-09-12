@@ -6,7 +6,7 @@ Freerouting plateaus on this board (run 32515524912 stopped improving at pass
 small unrouted residue. The residue is never in the same place: successive runs
 left ETH_EXRES, USB_CC2, USB_5V and ETH_MISO open. What those nets have in
 common is that they are the longest low-speed connections on the board - the six
-SPI/control lines from U1 at x=18.5 to U2 at x=111.8 cross the entire logic
+SPI/control lines from U1 at x=19.0 to U2 at x=111.8 cross the entire logic
 area - so they are the first thing the router gives up on when it stalls.
 
 These are Freerouting's own vertices from run 32515524912, where the whole set
@@ -15,8 +15,11 @@ nets from its search instead of raising its budget or relaxing a gate, and makes
 the routed result repeatable. None of them carries a timing requirement: the
 W5500 SPI runs well below any length-matching threshold, and RST/INT are static.
 
-Regenerate from a routed board with tools/dump_spi_backbone if the placement of
-U1 or U2 ever changes; the endpoint assertions below fail loudly if it has.
+The H2 edge-clearance repair moves U1 exactly +0.50 mm in X with unchanged
+rotation/Y. Only the six MCU-side endpoints/local RST stub below are translated
+by +0.50 mm; W5500-side and intermediate historical DRC-clean vertices remain
+unchanged. Regenerate from a routed board with tools/dump_spi_backbone if any
+other U1/U2 placement dimension changes; the endpoint assertions fail loudly.
 """
 from pathlib import Path
 import sys
@@ -28,7 +31,7 @@ WIDTH_SPI_MM = 0.20
 ETH_SPI_BACKBONE = {
     'ETH_CS': {
         'tracks': (
-            ('F.Cu', (18.5000, 59.1750), (19.5517, 59.1750)),
+            ('F.Cu', (19.0000, 59.1750), (19.5517, 59.1750)),
             ('F.Cu', (29.9835, 59.5766), (31.5233, 61.1164)),
             ('F.Cu', (32.3597, 61.1164), (33.0573, 61.8140)),
             ('F.Cu', (113.0996, 64.7500), (111.8375, 64.7500)),
@@ -52,7 +55,7 @@ ETH_SPI_BACKBONE = {
             ('F.Cu', (23.8191, 60.4450), (24.2241, 60.8500)),
             ('F.Cu', (111.8375, 66.7500), (110.8960, 66.7500)),
             ('F.Cu', (110.8960, 66.7500), (109.5899, 68.0561)),
-            ('F.Cu', (18.5000, 60.4450), (23.8191, 60.4450)),
+            ('F.Cu', (19.0000, 60.4450), (23.8191, 60.4450)),
             ('B.Cu', (109.5899, 68.0561), (108.8802, 68.0561)),
             ('B.Cu', (39.6403, 66.8794), (37.7380, 64.9771)),
             ('B.Cu', (108.8802, 68.0561), (107.7035, 66.8794)),
@@ -64,7 +67,7 @@ ETH_SPI_BACKBONE = {
     },
     'ETH_MISO': {
         'tracks': (
-            ('F.Cu', (18.5000, 55.3650), (23.1197, 55.3650)),
+            ('F.Cu', (19.0000, 55.3650), (23.1197, 55.3650)),
             ('F.Cu', (108.3344, 65.6158), (108.4686, 65.7500)),
             ('F.Cu', (108.4686, 65.7500), (111.8375, 65.7500)),
             ('F.Cu', (23.1197, 55.3650), (23.6226, 55.8679)),
@@ -86,7 +89,7 @@ ETH_SPI_BACKBONE = {
         'tracks': (
             ('F.Cu', (111.8375, 66.2500), (109.5466, 66.2500)),
             ('F.Cu', (109.5466, 66.2500), (109.4421, 66.3545)),
-            ('F.Cu', (18.5000, 57.9050), (26.7179, 57.9050)),
+            ('F.Cu', (19.0000, 57.9050), (26.7179, 57.9050)),
             ('F.Cu', (26.7179, 57.9050), (26.9984, 58.1855)),
             ('B.Cu', (31.8129, 63.0000), (103.6656, 63.0000)),
             ('B.Cu', (26.9984, 58.1855), (31.8129, 63.0000)),
@@ -98,10 +101,10 @@ ETH_SPI_BACKBONE = {
     'ETH_RST': {
         'tracks': (
             ('F.Cu', (112.5710, 68.8415), (113.2500, 68.1625)),
-            ('F.Cu', (14.7100, 63.6983), (15.7921, 63.6983)),
+            ('F.Cu', (15.2100, 63.6983), (15.7921, 63.6983)),
             ('F.Cu', (15.7921, 63.6983), (16.5317, 62.9587)),
             ('F.Cu', (111.6174, 68.8415), (112.5710, 68.8415)),
-            ('F.Cu', (14.7100, 64.7500), (14.7100, 63.6983)),
+            ('F.Cu', (15.2100, 64.7500), (15.2100, 63.6983)),
             ('B.Cu', (38.6896, 66.4967), (28.0969, 66.4967)),
             ('B.Cu', (39.1912, 67.0691), (39.1912, 66.9983)),
             ('B.Cu', (41.7293, 69.6072), (39.1912, 67.0691)),
@@ -121,7 +124,7 @@ ETH_SPI_BACKBONE = {
             ('F.Cu', (109.3677, 65.2500), (109.0532, 64.9355)),
             ('F.Cu', (20.1181, 57.2014), (25.7949, 57.2014)),
             ('F.Cu', (111.8375, 65.2500), (109.3677, 65.2500)),
-            ('F.Cu', (18.5000, 56.6350), (19.5517, 56.6350)),
+            ('F.Cu', (19.0000, 56.6350), (19.5517, 56.6350)),
             ('B.Cu', (101.4839, 57.3662), (25.9597, 57.3662)),
             ('B.Cu', (25.9597, 57.3662), (25.7949, 57.2014)),
             ('B.Cu', (109.0532, 64.9355), (101.4839, 57.3662)),
