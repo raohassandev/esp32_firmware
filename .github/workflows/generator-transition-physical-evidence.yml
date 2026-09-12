@@ -26,9 +26,19 @@ jobs:
         run: python3 -m py_compile tools/generator_transition_physical_verify.py
       - name: Run generator physical evidence validator tests
         run: python3 tests/generator_transition_physical_tools_test.py
-      - name: Confirm example record fails closed before physical execution
+      - name: Confirm example record fails closed under external identity lock
         run: |
-          ! python3 tools/generator_transition_physical_verify.py \
+          set -euo pipefail
+          if python3 tools/generator_transition_physical_verify.py \
             tools/generator_transition_physical.example.json \
             --expected-firmware-sha a1620789235d21b515f9f245f2329fab88b50558 \
-            --expected-artifact-digest sha256:not-a-physical-artifact
+            --expected-artifact-digest sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+            --expected-site-id UNEXECUTED-BENCH \
+            --expected-config-identity UNEXECUTED-CONFIG \
+            --expected-topology-digest sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \
+            --expected-source-map-digest sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc \
+            --expected-meter-map-digest sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd; then
+            echo 'ERROR: unexecuted generator physical template unexpectedly passed'
+            exit 1
+          fi
+          echo 'Unexecuted generator physical template correctly fails closed'
