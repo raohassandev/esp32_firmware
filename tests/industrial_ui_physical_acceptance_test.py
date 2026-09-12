@@ -218,6 +218,23 @@ def main():
     assert template["modbus_request_count_after"] == 0
     assert template["modbus_decoded_sample_count"] == 0
 
+    candidate = json.loads((ROOT / "evidence/candidates/industrial_ui_72a1a82_physical_observations.json").read_text())
+    assert candidate["evidence_state"] == "UNEXECUTED_TEMPLATE_NOT_A_PHYSICAL_PASS"
+    assert candidate["candidate_sha"] == "72a1a82a8fc5ad4406b5bd51fba1f80f9c182884"
+    assert candidate["tree_sha"] == "3069c65b4234fcd2b6418f9bbbe7859f1cd9abce"
+    assert candidate["artifact_id"] == 10293685030
+    assert candidate["artifact_digest"] == "sha256:44dc05fe2c6e61d3a8b5fdfc7c936937da948691a2038358d5c0b3c1008de541"
+    assert candidate["application_sha256"] == "0bbdb75be4ea7c0337f07e83dbdd3e34736ce8f667a42aa11abeb5c638f60734"
+    assert candidate["bench_engineering_http_auth_bypass"] is False
+    assert candidate["bench_network_page_auth_bypass"] is False
+    for group in (
+        MOD.REQUIRED_VISUAL_FLAGS, MOD.REQUIRED_TOUCH_FLAGS, MOD.REQUIRED_RUNTIME_FLAGS,
+        MOD.REQUIRED_NETWORK_FLAGS, MOD.REQUIRED_SOURCE_COMMISSIONING_FLAGS,
+        MOD.REQUIRED_ALARM_FLAGS, MOD.REQUIRED_MODBUS_FLAGS,
+    ):
+        for key in group:
+            assert candidate[key] is False, key
+
     print("Industrial UI physical acceptance v2 tool tests passed")
 
 
