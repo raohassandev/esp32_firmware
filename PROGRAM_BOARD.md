@@ -1,15 +1,15 @@
-# AISH-OS v5 Program Board
+# AISH-OS v6 Program Board
 
-Authoritative master: #79. **Reconciliation parent:** `dev` `8016c005be8d548e9388026a89592b70b92ec1a3` after PR #182. Live repository and genuine physical evidence override this board. This board intentionally records the known parent before its own revision rather than claiming an unknowable future merge SHA.
+Authoritative master: #79. **Reconciliation parent:** `dev` `f924726db9c24ab55ebe4f43fe28caf75a9b2c3d` after PR #183. Live repository and genuine physical evidence override this board. This board intentionally records the known parent before its own revision rather than claiming an unknowable future merge SHA.
 
 ## Executive board
 
 | Lane | Scope | State | Execution owner / next gate |
 |---|---|---|---|
-| L0/L8 | Program management/governance | CONTINUOUS / PARENT-SEMANTICS RECONCILED | ChatGPT / #84 |
+| L0/L8 | Program management/governance | CONTINUOUS / LIVE RECONCILIATION | ChatGPT / #84 |
 | L1 | Modbus modes/deadlines | SOFTWARE COMPLETE | #83 physical endurance |
 | L2 | Generator source transition | SOFTWARE GREEN / BENCH PENDING | #80; Draft #106; PR #151 |
-| L3 | Historical Waveshare release | SHORT PASS / FINAL SOAK PENDING | #87/#27; then #25/#26 |
+| L3 | Historical Waveshare release | RETIRED / SUPERSEDED EVIDENCE ONLY | #87/#24/#25/#26/#27 closed `not_planned`; PR #20/#57/#67 closed unmerged |
 | L4 | Secure OTA | SOFTWARE COMPLETE / PHYSICAL PENDING | #86; PR #152 |
 | L5 | Real site source commissioning | TOOLING COMPLETE / SITE EXECUTION PENDING | #81; PR #156 |
 | L6 | Production inverter profiles | GENERIC CORE + TOOLING COMPLETE / MODEL QUALIFICATION PENDING | #82; PR #158 |
@@ -24,7 +24,7 @@ Authoritative master: #79. **Reconciliation parent:** `dev` `8016c005be8d548e938
 
 ## Current Industrial UI Waveshare candidate
 
-PR #179 is intentionally Draft and frozen for physical #174:
+PR #179 is the sole current Waveshare release candidate and remains intentionally Draft/frozen for physical #174:
 
 - source `72a1a82a8fc5ad4406b5bd51fba1f80f9c182884`
 - tree `3069c65b4234fcd2b6418f9bbbe7859f1cd9abce`
@@ -37,7 +37,7 @@ PR #179 is intentionally Draft and frozen for physical #174:
 
 PR #179 exact root/build/package and independent diagnostic build are software-GREEN. Its native UI includes the current Product Core integration, Network scan/select/manual/connect/restart, Grid/Generator 1..3 plus optional Transfer/Sync source commissioning, current alarms/events with filters/sorts/Engineering-only acknowledgement, and fail-closed auth/control behavior. No physical PASS exists yet for this identity.
 
-PR #181 established the complete v2 #174 evidence surface. PR #183 corrects one evidence-contract mismatch without touching PR #179: Transfer/ATS and synchronized Grid+Generator are now explicitly topology-dependent. For executed evidence, each optional surface must declare applicability; configured channels require a real round-trip PASS, while absent/unsupported channels require roundtrip=false plus a factual non-empty reason. Missing applicability, contradiction or fake optional PASS fails closed.
+PR #181 established the complete #174 evidence surface. PR #183 corrected Transfer/ATS and synchronized Grid+Generator to explicit topology-dependent applicability without touching PR #179 firmware. For executed evidence, configured channels require a real round-trip PASS; absent/unsupported channels require roundtrip=false plus a factual non-empty reason. Missing applicability, contradiction or fake optional PASS fails closed.
 
 ## Physical release dependency graph
 
@@ -49,11 +49,17 @@ PR #181 established the complete v2 #174 evidence surface. PR #183 corrects one 
 6. **Final #83:** execute integrated Grid/DG/mixed-source FAT, all Modbus modes/network endurance and signed SAT.
 7. **#91/#79:** bind final evidence identity and close only with zero critical blockers.
 
-The historical `87841ece...` Waveshare lane (#87/#27/#25/#26) remains separate. Its prior short PASS and interrupted ~2 h soak never transfer to PR #179.
+## Retired historical Waveshare graph
+
+Historical source `87841ecee727fe1d814d4186be8c8c26e4afafb4` retains its own short physical PASS and interrupted ~2 h / 121-sample attempt. The old >=4 h, backend-parity and persistence/ARM gates were never completed. Because this image predates the current Industrial UI and cannot qualify PR #179, issues #87/#24/#25/#26/#27 were closed `not_planned` and PRs #20/#57/#67 were closed unmerged on 2026-09-12. This retirement removes a duplicate active release path; it does not rewrite the old evidence into PASS.
+
+## Production inverter evidence boundary
+
+Current #82 audit has narrowed known targets without unlocking writes: GoodWe GW100K-HT still needs the exact official HT production protocol; Huawei SUN2000-115KTL-M2 still needs an exact official applicable ME-family Modbus definition; Solis `S6-EH3P(80-125)K10-NV-YD-H` family is exact but the available compiled register reference is non-authoritative for production writes; Growatt/Knox/FoxESS exact installed model/protocol identity remains unresolved.
 
 ## Rev-A product-hardware track
 
-Historical provider artifact `9909976209` is retained as evidence only. Deterministic replay run `33884657384` could not reproduce historical `DRC=0` and returned 20 DRC violations. Before any final fabrication, #178/#85 require authoritative component/fabricator evidence for necessary exceptions, approved narrowly scoped rules committed before a new checkpoint, and fresh ERC/DRC/SI/STEP/provider-package acceptance to a new exact H2 identity. #162 H4 physical prototype qualification follows only after that.
+Historical provider artifact `9909976209` is retained as evidence only. Deterministic replay run `33884657384` returned 20 DRC violations. Exact affected identities are U1 Espressif ESP32-S3-WROOM-1-N8, J2 GCT USB4105-GF-A-120 and J3 CETUS J1B1211CCD. Before any final fabrication, #178/#85 require authoritative component and intended-fabricator evidence, approved narrowly scoped rules committed before a new checkpoint, and fresh ERC/DRC/SI/STEP/provider-package acceptance to a new exact H2 identity. #162 H4 physical prototype qualification follows only after that.
 
 ## Operating policy
 
@@ -61,6 +67,7 @@ Historical provider artifact `9909976209` is retained as evidence only. Determin
 - Keep 2–3 independent active CI lanes where meaningful; hardware/site waits never stop independent work.
 - Every software merge uses fresh live target, exact head, fresh required CI, `behind_by=0`, and expected-head guard.
 - Frozen physical candidates are not rebased/churned merely because `dev` advances.
+- Superseded release graphs are retired rather than kept open as duplicate active paths; historical evidence remains immutable.
 - Governance revisions state their known parent baseline; they never pretend to know their future merge commit.
 - No guessed protocol/register/polarity/timing/topology/hardware-rule evidence and no fabricated physical PASS.
-- Project reaches 100% only after all required physical dependencies, promotions, FAT/endurance, signed SAT and final traceability close.
+- Project reaches 100% only after all required current-release physical dependencies, promotions, FAT/endurance, signed SAT and final traceability close.
