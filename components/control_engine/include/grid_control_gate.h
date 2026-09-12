@@ -21,6 +21,7 @@ typedef enum {
 typedef struct {
     bool recovery_tracking;
     bool loss_tracking;
+    source_mode_t recovery_mode;
     uint32_t recovery_since_ms;
     uint32_t loss_since_ms;
 } grid_gate_memory_t;

@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""Phase 4: a source change must never leave PV commanded on the outgoing source.
-
-Phase 4 needed far less new code than expected, because the debounce added in
-phase 1 and the stability gate already in the power policy together produce the
-required behaviour. This contract pins that behaviour down so it cannot be
-dismantled by a later change that looks harmless in isolation.
-"""
+"""A source change must never leave PV commanded on the outgoing source."""
 
 from pathlib import Path
 
@@ -13,50 +7,75 @@ ROOT = Path(__file__).resolve().parents[1]
 POLICY = (ROOT / "components/control_engine/power_control_policy.c").read_text(encoding="utf-8")
 CONTROL = (ROOT / "components/control_engine/control_engine.c").read_text(encoding="utf-8")
 DETECT = (ROOT / "components/source_detection/source_detection_engine.c").read_text(encoding="utf-8")
+GATE_H = (ROOT / "components/control_engine/include/grid_control_gate.h").read_text(encoding="utf-8")
+GATE = (ROOT / "components/control_engine/grid_control_gate.c").read_text(encoding="utf-8")
 POLICY_TEST = (ROOT / "tests/power_control_policy_test.c").read_text(encoding="utf-8")
+INTEGRATION_TEST = (ROOT / "tests/solar_grid_integration_test.c").read_text(encoding="utf-8")
 
 
 def require(condition, message):
     assert condition, message
 
 
-# 1. Only a settled source may drive the plant. Anything else is not "stable".
 stable = POLICY[POLICY.index("static bool source_mode_is_stable"):]
 stable = stable[:stable.index("\n}")]
 for unsettled in ("SOURCE_MODE_UNKNOWN", "SOURCE_MODE_NO_SOURCE",
                   "SOURCE_MODE_TRANSFER", "SOURCE_MODE_CONFLICT"):
     require(unsettled not in stable,
-            f"{unsettled} must never count as a stable source: a transition would keep PV "
-            "commanded on the source being left behind")
+            f"{unsettled} must never count as a stable source")
 
-# 2. The stability gate must sit in the early-return guard, so an unsettled source
-#    is rejected before any command is computed - never ramped down from.
 step = POLICY[POLICY.index("power_control_output_t power_control_step"):]
 guard = step[:step.index("return")]
 require("source_mode_is_stable(input->source_mode)" in guard,
-        "the stability gate must be part of the guard that rejects an input outright, "
-        "so a changeover cannot produce a ramped-down command instead of zero")
-
-# 3. The control engine must act within the same cycle, not wait for the next one.
+        "source stability must remain in the early fail-closed guard")
 require("if (!control_enabled || !policy.valid) {" in CONTROL,
-        "an invalid policy result must be handled in the same control cycle")
+        "invalid policy results must be handled in the same control cycle")
 zeroing = CONTROL[CONTROL.index("if (!control_enabled || !policy.valid) {"):]
 zeroing = zeroing[:zeroing.index("float applied_kw")]
 require("policy.requested_pv_kw = 0.0f;" in zeroing,
-        "an invalid policy result must zero the request immediately, not decay it")
+        "an invalid source/policy result must zero the request immediately")
+require("integral_kw = 0.0f;" in zeroing,
+        "invalid source evidence must discard the previous PI integral")
+require("else if (!previous_cycle_valid)" in CONTROL and
+        "current_target_kw = 0.0f;" in CONTROL,
+        "recovery must restart ramp state after an invalid cycle")
 
-# 4. The transition itself must be debounced, and must report unknown while it runs
-#    rather than holding the previous source.
-require("SOURCE_STATE_UNKNOWN" in DETECT, "the detection engine must have an unknown state")
+require("SOURCE_STATE_UNKNOWN" in DETECT, "source detection needs an unknown state")
 require("DEBOUNCE_PENDING" in DETECT or "debounce" in DETECT.lower(),
         "source transitions must be debounced")
 require("stable_state = SOURCE_STATE_UNKNOWN" in DETECT,
-        "a new candidate source must clear the settled state rather than retaining the old one")
+        "a candidate change must clear the outgoing settled state")
 
-# 5. The behaviour must be executably tested, not merely asserted here.
+require("source_mode_t recovery_mode;" in GATE_H,
+        "gate memory must remember which carrying mode earned the dwell")
+for carrying in ("SOURCE_MODE_GRID_ONLY", "SOURCE_MODE_GENERATOR_ONLY",
+                 "SOURCE_MODE_ISLAND", "SOURCE_MODE_GRID_GENERATOR_SYNC"):
+    require(carrying in GATE, f"qualified carrying mode missing from source gate: {carrying}")
+require("memory->recovery_mode != input->source_mode" in GATE,
+        "a source-mode change must restart the stabilization dwell")
+require("memory->recovery_mode = input->source_mode" in GATE,
+        "the source gate must bind the dwell to the current carrying mode")
+require("input->source_mode == SOURCE_MODE_TRANSFER" not in
+        GATE[GATE.index("static bool source_mode_can_carry_control"):GATE.index("grid_gate_output_t")],
+        "transfer must never be a carrying mode")
+require("output.control_allowed = output.recovery_stable" in GATE,
+        "authority must remain blocked until the current source earns its dwell")
+require("source_absent_or_unknown" in GATE and "output.loss_confirmed" in GATE,
+        "loss classification must remain separate from immediate authority blocking")
+require('case GRID_GATE_LOST: return "source_lost"' in GATE,
+        "status text must not mislabel generator/source loss as grid-only loss")
+
 require("SOURCE_MODE_TRANSFER" in POLICY_TEST and "SOURCE_MODE_CONFLICT" in POLICY_TEST,
-        "every unsettled source must be exercised by the host test")
+        "unsettled source modes must be exercised by the host policy test")
 require("ramp_down_kw_per_second = 1.0f" in POLICY_TEST,
-        "the test must prove a slow ramp cannot soften the zeroing on a transition")
+        "host test must prove a slow ramp cannot soften transition zeroing")
+for token in (
+    "test_source_change_requires_new_dwell",
+    "SOURCE_MODE_GENERATOR_ONLY",
+    "SOURCE_MODE_ISLAND",
+    "SOURCE_MODE_GRID_GENERATOR_SYNC",
+    "memory.recovery_mode == SOURCE_MODE_GENERATOR_ONLY",
+):
+    require(token in INTEGRATION_TEST, f"source-gate integration coverage missing: {token}")
 
-print("source transition source contract passed")
+print("source transition and recovery gate contract passed")
