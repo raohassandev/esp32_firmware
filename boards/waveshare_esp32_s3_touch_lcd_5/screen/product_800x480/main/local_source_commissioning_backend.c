@@ -103,6 +103,18 @@ static void signal_to_core(const source_commission_signal_t *source,
     target->active_value = source->active_value;
 }
 
+static void sync_generator0_compat(solar_grid_config_t *config)
+{
+    if (!config) return;
+    const solar_grid_generator_config_t *generator = &config->generators[0];
+    config->generator_rated_kw = generator->rated_kw;
+    config->generator_minimum_loading_percent = generator->minimum_loading_percent;
+    config->generator_reserve_kw = generator->reserve_kw;
+    config->generator_reverse_power_margin_kw = generator->reverse_power_margin_kw;
+    config->generator_running = generator->running;
+    config->generator_breaker_closed = generator->breaker_closed;
+}
+
 static bool local_read_config(void *context, source_commission_config_t *out)
 {
     (void)context;
@@ -182,6 +194,11 @@ static bool local_save_config(void *context,
     next.evidence_stale_timeout_ms = source->evidence_stale_timeout_ms;
     next.grid_loss_trip_ms = source->grid_loss_trip_ms;
     next.grid_recovery_stable_ms = source->grid_recovery_stable_ms;
+
+    /* Schema 4 retains the old Generator-1 fields as a compatibility mirror.
+     * Keep that mirror coherent before the explicit validation below. The
+     * config store normalises it again before persistence. */
+    sync_generator0_compat(&next);
 
     /* Solar-Grid schema validation is the only authority for register, pairing
      * and timing validity. The HMI never infers contacts from power sign and
