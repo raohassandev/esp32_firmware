@@ -43,8 +43,12 @@
   "source_gen1_mapping_roundtrip_ok": false,
   "source_gen2_mapping_roundtrip_ok": false,
   "source_gen3_mapping_roundtrip_ok": false,
+  "source_transfer_configured": null,
   "source_transfer_mapping_roundtrip_ok": false,
+  "source_transfer_not_configured_reason": "",
+  "source_sync_configured": null,
   "source_sync_mapping_roundtrip_ok": false,
+  "source_sync_not_configured_reason": "",
   "source_save_forces_auto_disabled": false,
   "source_status_not_inferred_from_kw_sign": false,
   "alarm_filter_all_ok": false,
@@ -64,5 +68,5 @@
   "modbus_decoded_values_follow_simulator_changes": false,
   "roles_exercised": [],
   "routes_exercised": [],
-  "bench_notes": "Record native 800x480 layout/touch, Network scan/select/manual/connect/restart and RSSI, complete Grid/Gen1..3/Transfer/Sync source-mapping round trips, alarm filter/sort/role-gated acknowledgement, real board-to-bench-simulator Modbus counter deltas/decoded samples, exact build/config identity, API responsiveness, resource behavior and anomalies. Do not set a flag true unless observed on this exact image. This file does not replace #80 source-transition, #81 site-source, #82 inverter, #86 OTA or #83 FAT/SAT physical evidence."
+  "bench_notes": "Record native 800x480 layout/touch, Network scan/select/manual/connect/restart and RSSI, Grid/Gen1..3 source-mapping round trips, and explicit Transfer/ATS + Grid/Generator Sync applicability. If Transfer or Sync is configured, prove its mapping round trip. If it is not configured/supported for this bench topology, leave its roundtrip false and record a non-empty reason; never invent optional evidence. Also record alarm filter/sort/role-gated acknowledgement, real board-to-bench-simulator Modbus counter deltas/decoded samples, exact build/config identity, API responsiveness, resource behavior and anomalies. Do not set a flag true unless observed on this exact image. This file does not replace #80 source-transition, #81 site-source, #82 inverter, #86 OTA or #83 FAT/SAT physical evidence."
 }
