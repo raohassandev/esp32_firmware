@@ -1,10 +1,16 @@
 {
-  "schema": 1,
+  "schema": 2,
+  "evidence_state": "UNEXECUTED_TEMPLATE_NOT_PHYSICAL_EVIDENCE",
   "site_id": "SITE-TO-BE-COMMISSIONED",
   "firmware_sha": "REPLACE_WITH_EXACT_FLASHED_SHA",
   "artifact_digest": "sha256:REPLACE_WITH_EXACT_ARTIFACT_DIGEST",
   "config_identity": "UNQUALIFIED",
   "site_sld_ref": "REPLACE_WITH_APPROVED_SITE_SLD_REVISION",
+  "site_sld_digest": "sha256:REPLACE_WITH_APPROVED_SITE_SLD_DIGEST",
+  "channel_map_ref": "REPLACE_WITH_APPROVED_CHANNEL_MAP_REFERENCE",
+  "channel_map_digest": "sha256:REPLACE_WITH_APPROVED_CHANNEL_MAP_DIGEST",
+  "evidence_package_ref": "UNEXECUTED",
+  "evidence_package_digest": "sha256:REPLACE_WITH_FINAL_EVIDENCE_PACKAGE_DIGEST",
   "power_sign_used_as_source_authority": false,
   "automatic_control_enabled_during_commissioning": false,
   "required_channel_ids": [
@@ -36,16 +42,23 @@
       "semantic": "grid-generator synchronism evidence",
       "required": false,
       "qualification_status": "not_supported",
+      "site_id": "SITE-TO-BE-COMMISSIONED",
+      "config_identity": "UNQUALIFIED",
+      "channel_map_digest": "sha256:REPLACE_WITH_APPROVED_CHANNEL_MAP_DIGEST",
       "not_supported_reason": "REPLACE only if the approved topology explicitly proves synchronized operation is unsupported",
       "topology_ref": "REPLACE_WITH_AUTHORITATIVE_TOPOLOGY_REFERENCE"
     }
   ],
   "configuration_acceptance": {
+    "site_id": "SITE-TO-BE-COMMISSIONED",
+    "config_identity": "UNQUALIFIED",
+    "channel_map_digest": "sha256:REPLACE_WITH_APPROVED_CHANNEL_MAP_DIGEST",
     "readback_exact_match": false,
     "unqualified_blocks_automatic_control": false,
     "stale_missing_conflict_fail_closed": false,
     "physical_toggle_maps_expected_mode": false,
     "contradictory_power_sign_cannot_override_contacts": false,
-    "evidence_ref": "UNTESTED"
+    "evidence_ref": "UNTESTED",
+    "evidence_digest": "sha256:REPLACE_WITH_CONFIGURATION_ACCEPTANCE_EVIDENCE_DIGEST"
   }
 }
