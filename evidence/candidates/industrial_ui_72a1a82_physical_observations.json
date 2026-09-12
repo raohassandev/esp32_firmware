@@ -1,8 +1,21 @@
 {
-  "candidate_sha": "FILL_EXACT_SOURCE_SHA",
-  "tree_sha": "FILL_EXACT_TREE_SHA",
-  "artifact_digest": "sha256:FILL_EXACT_ARTIFACT_DIGEST",
-  "application_sha256": "FILL_EXACT_APPLICATION_SHA256",
+  "evidence_state": "UNEXECUTED_TEMPLATE_NOT_A_PHYSICAL_PASS",
+  "candidate_sha": "72a1a82a8fc5ad4406b5bd51fba1f80f9c182884",
+  "tree_sha": "3069c65b4234fcd2b6418f9bbbe7859f1cd9abce",
+  "artifact_id": 10293685030,
+  "artifact_name": "industrial-ui-waveshare-800x480-candidate",
+  "artifact_digest": "sha256:44dc05fe2c6e61d3a8b5fdfc7c936937da948691a2038358d5c0b3c1008de541",
+  "application_sha256": "0bbdb75be4ea7c0337f07e83dbdd3e34736ce8f667a42aa11abeb5c638f60734",
+  "uf2_sha256": "199feec247563130f800d25e2a7024ebbaf64a65d3d8b6c6c5c9ec4c242b2500",
+  "effective_sdkconfig_sha256": "4df1cfd44cd617b35cf3700daf70fc8633ae05132b4d334b68675757f6fed822",
+  "dependencies_lock_sha256": "fd82d3c69b9507f0b4966e1d7a9479a9ee49e7cc58b8199966db75d4af86eb91",
+  "container_image": "espressif/idf:v6.0.1",
+  "rollback_enabled": true,
+  "compiled_sta_credentials": false,
+  "compiled_engineering_credential_prefill": false,
+  "bench_engineering_http_auth_bypass": false,
+  "bench_network_page_auth_bypass": false,
+  "minimum_native_touch_target_px": 44,
   "page_cycles": 0,
   "alarms_opened": false,
   "touch_responsive": false,
@@ -64,5 +77,5 @@
   "modbus_decoded_values_follow_simulator_changes": false,
   "roles_exercised": [],
   "routes_exercised": [],
-  "bench_notes": "Record native 800x480 layout/touch, Network scan/select/manual/connect/restart and RSSI, complete Grid/Gen1..3/Transfer/Sync source-mapping round trips, alarm filter/sort/role-gated acknowledgement, real board-to-bench-simulator Modbus counter deltas/decoded samples, exact build/config identity, API responsiveness, resource behavior and anomalies. Do not set a flag true unless observed on this exact image. This file does not replace #80 source-transition, #81 site-source, #82 inverter, #86 OTA or #83 FAT/SAT physical evidence."
+  "bench_notes": "This file is identity-bound starter evidence for #174 and is deliberately all-false/unexecuted. Change observation fields only from real measurements on this exact artifact. Never copy PASS fields from another candidate or historical Waveshare evidence."
 }

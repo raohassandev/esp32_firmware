@@ -61,14 +61,30 @@ def observations(**overrides):
         "sweep_absent": True,
         "reload_absent": True,
         "tear_or_corruption_absent": True,
+        "wifi_connected_rssi_dbm": -55,
+        "modbus_request_count_before": 10,
+        "modbus_request_count_after": 30,
+        "modbus_success_count_before": 9,
+        "modbus_success_count_after": 28,
+        "modbus_decoded_sample_count": 5,
         "roles_exercised": ["operator", "engineering"],
         "routes_exercised": [
             "dashboard", "meters", "inverters", "alarms", "readiness",
-            "engineering", "commissioning", "system",
+            "engineering", "commissioning", "network", "system",
         ],
     }
-    for key in MOD.REQUIRED_VISUAL_FLAGS + MOD.REQUIRED_TOUCH_FLAGS + MOD.REQUIRED_RUNTIME_FLAGS:
-        data[key] = True
+    groups = (
+        MOD.REQUIRED_VISUAL_FLAGS,
+        MOD.REQUIRED_TOUCH_FLAGS,
+        MOD.REQUIRED_RUNTIME_FLAGS,
+        MOD.REQUIRED_NETWORK_FLAGS,
+        MOD.REQUIRED_SOURCE_COMMISSIONING_FLAGS,
+        MOD.REQUIRED_ALARM_FLAGS,
+        MOD.REQUIRED_MODBUS_FLAGS,
+    )
+    for group in groups:
+        for key in group:
+            data[key] = True
     data.update(overrides)
     return data
 
@@ -89,6 +105,7 @@ def main():
     assert good.passed, good.failures
     assert good.base_waveshare["serial"]["observed_runtime_seconds"] >= 14400
     assert good.base_waveshare["serial"]["soak_samples"] >= 240
+    assert good.modbus["passed"] is True
 
     wrong_tree = evaluate(observations(tree_sha="e" * 40))
     assert not wrong_tree.passed and "identity_mismatch:tree_sha" in wrong_tree.failures
@@ -102,6 +119,44 @@ def main():
     runtime = evaluate(observations(browser_lockout_absent=False))
     assert not runtime.passed and "runtime_not_passed:browser_lockout_absent" in runtime.failures
 
+    network = evaluate(observations(network_scan_ok=False))
+    assert not network.passed and "network_not_passed:network_scan_ok" in network.failures
+
+    invalid_rssi = evaluate(observations(wifi_connected_rssi_dbm=None))
+    assert not invalid_rssi.passed and "network_invalid:wifi_connected_rssi_dbm" in invalid_rssi.failures
+
+    source = evaluate(observations(source_gen3_mapping_roundtrip_ok=False))
+    assert not source.passed
+    assert "source_commissioning_not_passed:source_gen3_mapping_roundtrip_ok" in source.failures
+
+    transfer = evaluate(observations(source_transfer_mapping_roundtrip_ok=False))
+    assert not transfer.passed
+    assert "source_commissioning_not_passed:source_transfer_mapping_roundtrip_ok" in transfer.failures
+
+    alarm = evaluate(observations(alarm_operator_ack_refused=False))
+    assert not alarm.passed and "alarm_not_passed:alarm_operator_ack_refused" in alarm.failures
+
+    modbus_flag = evaluate(observations(board_modbus_simulator_connected=False))
+    assert not modbus_flag.passed
+    assert "modbus:modbus_not_passed:board_modbus_simulator_connected" in modbus_flag.failures
+
+    no_requests = evaluate(observations(modbus_request_count_before=10, modbus_request_count_after=10))
+    assert not no_requests.passed and "modbus:modbus_request_count_did_not_increase" in no_requests.failures
+
+    no_success = evaluate(observations(modbus_success_count_before=9, modbus_success_count_after=9))
+    assert not no_success.passed and "modbus:modbus_success_count_did_not_increase" in no_success.failures
+
+    impossible_success = evaluate(observations(modbus_request_count_after=20, modbus_success_count_after=21))
+    assert not impossible_success.passed
+    assert "modbus:modbus_success_count_exceeds_request_count" in impossible_success.failures
+
+    low_samples = evaluate(observations(modbus_decoded_sample_count=2))
+    assert not low_samples.passed and "modbus:modbus_decoded_sample_count_below_3" in low_samples.failures
+
+    invalid_counter = evaluate(observations(modbus_request_count_after=True))
+    assert not invalid_counter.passed
+    assert "modbus:modbus_invalid_counter:modbus_request_count_after" in invalid_counter.failures
+
     roles = evaluate(observations(roles_exercised=["operator"]))
     assert not roles.passed and "roles_exercised_must_equal_operator_and_engineering" in roles.failures
 
@@ -110,6 +165,12 @@ def main():
     missing_route = evaluate(routes)
     assert not missing_route.passed
     assert "routes_missing:commissioning" in missing_route.failures
+
+    network_route = observations()
+    network_route["routes_exercised"] = [x for x in network_route["routes_exercised"] if x != "network"]
+    missing_network = evaluate(network_route)
+    assert not missing_network.passed
+    assert "routes_missing:network" in missing_network.failures
 
     touch = evaluate(observations(touch_responsive=False))
     assert not touch.passed
@@ -123,12 +184,58 @@ def main():
     assert not wdt.passed
     assert any(x.startswith("waveshare:serial:fatal:task_wdt") for x in wdt.failures)
 
+    # Legacy evidence that satisfied the original #175 validator must fail v2
+    # until the new physical surfaces are actually exercised.
+    legacy = observations()
+    for group in (
+        MOD.REQUIRED_NETWORK_FLAGS,
+        MOD.REQUIRED_SOURCE_COMMISSIONING_FLAGS,
+        MOD.REQUIRED_ALARM_FLAGS,
+        MOD.REQUIRED_MODBUS_FLAGS,
+    ):
+        for key in group:
+            legacy.pop(key, None)
+    for key in (
+        "wifi_connected_rssi_dbm", "modbus_request_count_before", "modbus_request_count_after",
+        "modbus_success_count_before", "modbus_success_count_after", "modbus_decoded_sample_count",
+    ):
+        legacy.pop(key, None)
+    legacy["routes_exercised"] = [x for x in legacy["routes_exercised"] if x != "network"]
+    old_evidence = evaluate(legacy)
+    assert not old_evidence.passed
+    assert any(x.startswith("network_not_passed:") for x in old_evidence.failures)
+    assert any(x.startswith("source_commissioning_not_passed:") for x in old_evidence.failures)
+    assert any(x.startswith("alarm_not_passed:") for x in old_evidence.failures)
+    assert any(x.startswith("modbus:") for x in old_evidence.failures)
+
     template = json.loads((ROOT / "evidence/templates/industrial_ui_physical_observations.json").read_text())
     assert template["candidate_sha"] == "FILL_EXACT_SOURCE_SHA"
     assert template["overview_layout_ok"] is False
     assert template["browser_lockout_absent"] is False
+    assert template["network_scan_ok"] is False
+    assert template["source_gen3_mapping_roundtrip_ok"] is False
+    assert template["alarm_sort_priority_ok"] is False
+    assert template["modbus_request_count_after"] == 0
+    assert template["modbus_decoded_sample_count"] == 0
 
-    print("Industrial UI physical acceptance tool tests passed")
+    candidate = json.loads((ROOT / "evidence/candidates/industrial_ui_72a1a82_physical_observations.json").read_text())
+    assert candidate["evidence_state"] == "UNEXECUTED_TEMPLATE_NOT_A_PHYSICAL_PASS"
+    assert candidate["candidate_sha"] == "72a1a82a8fc5ad4406b5bd51fba1f80f9c182884"
+    assert candidate["tree_sha"] == "3069c65b4234fcd2b6418f9bbbe7859f1cd9abce"
+    assert candidate["artifact_id"] == 10293685030
+    assert candidate["artifact_digest"] == "sha256:44dc05fe2c6e61d3a8b5fdfc7c936937da948691a2038358d5c0b3c1008de541"
+    assert candidate["application_sha256"] == "0bbdb75be4ea7c0337f07e83dbdd3e34736ce8f667a42aa11abeb5c638f60734"
+    assert candidate["bench_engineering_http_auth_bypass"] is False
+    assert candidate["bench_network_page_auth_bypass"] is False
+    for group in (
+        MOD.REQUIRED_VISUAL_FLAGS, MOD.REQUIRED_TOUCH_FLAGS, MOD.REQUIRED_RUNTIME_FLAGS,
+        MOD.REQUIRED_NETWORK_FLAGS, MOD.REQUIRED_SOURCE_COMMISSIONING_FLAGS,
+        MOD.REQUIRED_ALARM_FLAGS, MOD.REQUIRED_MODBUS_FLAGS,
+    ):
+        for key in group:
+            assert candidate[key] is False, key
+
+    print("Industrial UI physical acceptance v2 tool tests passed")
 
 
 if __name__ == "__main__":
