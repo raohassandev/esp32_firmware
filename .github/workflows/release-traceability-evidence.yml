@@ -29,10 +29,17 @@ jobs:
       - name: Run release traceability regression tests
         working-directory: tools
         run: python3 test_release_traceability_verify.py
-      - name: Prove unexecuted starter fails closed
+      - name: Prove unexecuted starter fails closed under external identity lock
         run: |
-          if python3 tools/release_traceability_verify.py evidence/candidates/final_release_traceability_observations.json; then
+          EXPECTED_SHA="$(git rev-parse HEAD)"
+          EXPECTED_TREE="$(git show -s --format=%T HEAD)"
+          EXPECTED_ARTIFACT="sha256:0000000000000000000000000000000000000000000000000000000000000000"
+          if python3 tools/release_traceability_verify.py \
+            evidence/candidates/final_release_traceability_observations.json \
+            --expected-release-sha "$EXPECTED_SHA" \
+            --expected-release-tree "$EXPECTED_TREE" \
+            --expected-artifact-digest "$EXPECTED_ARTIFACT"; then
             echo 'ERROR: unexecuted final-release starter unexpectedly passed' >&2
             exit 1
           fi
-          echo 'Unexecuted final-release starter correctly fails closed.'
+          echo 'Unexecuted final-release starter correctly fails closed under the external identity lock.'
