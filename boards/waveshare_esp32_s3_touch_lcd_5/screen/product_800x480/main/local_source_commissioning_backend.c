@@ -12,6 +12,9 @@
 
 #define LOCAL_SOURCE_ENGINEERING_SESSION_MS (30ULL * 60ULL * 1000ULL)
 
+_Static_assert(SOURCE_COMMISSIONING_MAX_GENERATORS == SOLAR_GRID_MAX_GENERATORS,
+               "native source commissioning must expose every Core generator channel");
+
 static uint64_t s_unlocked_until_ms;
 static bool s_setup_required;
 static bool s_restart_required;
@@ -52,9 +55,9 @@ static bool require_unlocked(source_commission_action_result_t *result)
 }
 
 static source_commission_auth_result_t local_unlock(void *context,
-                                                    const char *credential,
-                                                    uint32_t *retry_after_ms,
-                                                    bool *setup_required)
+                                                     const char *credential,
+                                                     uint32_t *retry_after_ms,
+                                                     bool *setup_required)
 {
     (void)context;
     const engineering_local_auth_result_t auth =
@@ -104,6 +107,7 @@ static bool local_read_config(void *context, source_commission_config_t *out)
 {
     (void)context;
     if (!out || !unlocked()) return false;
+
     solar_grid_config_t solar = {0};
     if (solar_grid_config_get_snapshot(&solar) != ESP_OK) return false;
 
@@ -112,13 +116,30 @@ static bool local_read_config(void *context, source_commission_config_t *out)
     out->unlocked = true;
     out->setup_required = s_setup_required;
     out->restart_required = s_restart_required;
-    out->evidence_enabled = solar.grid_available.enabled && solar.grid_breaker_closed.enabled;
+
+    out->grid_evidence_enabled = solar.grid_available.enabled && solar.grid_breaker_closed.enabled;
     signal_to_screen(&solar.grid_available, &out->grid_available);
     signal_to_screen(&solar.grid_breaker_closed, &out->grid_breaker_closed);
+
+    for (uint8_t i = 0U; i < SOURCE_COMMISSIONING_MAX_GENERATORS; ++i) {
+        out->generator_evidence_enabled[i] =
+            solar.generators[i].running.enabled && solar.generators[i].breaker_closed.enabled;
+        signal_to_screen(&solar.generators[i].running, &out->generator_running[i]);
+        signal_to_screen(&solar.generators[i].breaker_closed,
+                         &out->generator_breaker_closed[i]);
+    }
+
+    out->transfer_evidence_enabled = solar.transfer_active.enabled;
+    out->synchronism_evidence_enabled = solar.grid_generator_synchronized.enabled;
+    signal_to_screen(&solar.transfer_active, &out->transfer_active);
+    signal_to_screen(&solar.grid_generator_synchronized,
+                     &out->grid_generator_synchronized);
+
     out->evidence_poll_interval_ms = solar.evidence_poll_interval_ms;
     out->evidence_stale_timeout_ms = solar.evidence_stale_timeout_ms;
     out->grid_loss_trip_ms = solar.grid_loss_trip_ms;
     out->grid_recovery_stable_ms = solar.grid_recovery_stable_ms;
+
     s_unlocked_until_ms = now_ms() + LOCAL_SOURCE_ENGINEERING_SESSION_MS;
     return true;
 }
@@ -138,18 +159,36 @@ static bool local_save_config(void *context,
         return false;
     }
 
-    signal_to_core(&source->grid_available, source->evidence_enabled, &next.grid_available);
-    signal_to_core(&source->grid_breaker_closed, source->evidence_enabled, &next.grid_breaker_closed);
+    signal_to_core(&source->grid_available, source->grid_evidence_enabled,
+                   &next.grid_available);
+    signal_to_core(&source->grid_breaker_closed, source->grid_evidence_enabled,
+                   &next.grid_breaker_closed);
+
+    for (uint8_t i = 0U; i < SOURCE_COMMISSIONING_MAX_GENERATORS; ++i) {
+        signal_to_core(&source->generator_running[i], source->generator_evidence_enabled[i],
+                       &next.generators[i].running);
+        signal_to_core(&source->generator_breaker_closed[i],
+                       source->generator_evidence_enabled[i],
+                       &next.generators[i].breaker_closed);
+    }
+
+    signal_to_core(&source->transfer_active, source->transfer_evidence_enabled,
+                   &next.transfer_active);
+    signal_to_core(&source->grid_generator_synchronized,
+                   source->synchronism_evidence_enabled,
+                   &next.grid_generator_synchronized);
+
     next.evidence_poll_interval_ms = source->evidence_poll_interval_ms;
     next.evidence_stale_timeout_ms = source->evidence_stale_timeout_ms;
     next.grid_loss_trip_ms = source->grid_loss_trip_ms;
     next.grid_recovery_stable_ms = source->grid_recovery_stable_ms;
 
-    /* Shared Solar-Grid validation remains the authority. The local HMI does not
-     * reinterpret signal completeness, timing or register bounds. */
+    /* Solar-Grid schema validation is the only authority for register, pairing
+     * and timing validity. The HMI never infers contacts from power sign and
+     * never substitutes one generator's evidence for another. */
     if (!solar_grid_config_valid(&next)) {
         result_set(result, false, false,
-                   "Core rejected source evidence. Check meter slot, FC03/FC04, non-zero masks and timing bounds.");
+                   "Core rejected source evidence. Check each enabled Grid/Generator pair, optional Transfer/Sync signal, meter slot, FC03/FC04, non-zero masks and timing bounds.");
         return false;
     }
 
@@ -171,7 +210,7 @@ static bool local_save_config(void *context,
 
     s_restart_required = true;
     result_set(result, true, true,
-               "Source evidence saved. Automatic control is disabled; restart before source qualification.");
+               "Grid, generator, transfer and synchronism evidence saved. Automatic control is disabled; restart before source qualification.");
     return true;
 }
 
