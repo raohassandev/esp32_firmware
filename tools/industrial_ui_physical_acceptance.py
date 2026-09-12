@@ -1,15 +1,23 @@
 #!/usr/bin/env python3
 """Validate exact-image Industrial UI Waveshare physical acceptance evidence.
 
-This tool cannot observe the LCD or touchscreen. It combines the established
-serial/resource soak gate with explicit human/bench observations for the new
-Industrial UI workflow. CI validates evidence structure; it cannot create a
+This tool cannot observe the LCD, touchscreen, source contacts, Wi-Fi network,
+or Modbus traffic by itself. It combines the established serial/resource soak
+gate with explicit human/bench observations for the Industrial UI workflow.
+CI validates evidence structure and fail-closed rules; it cannot create a
 physical PASS.
+
+The v2 acceptance surface intentionally covers the complete hardware workflow
+carried by the current Waveshare integration candidate: native Network
+commissioning, complete Grid/Generator/Transfer/Sync source mapping, alarm
+filter/sort/acknowledgement behavior, and real board-to-bench-simulator Modbus
+activity with monotonically increasing counters and decoded samples.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -30,10 +38,58 @@ REQUIRED_TOUCH_FLAGS = (
 REQUIRED_RUNTIME_FLAGS = (
     "unrelated_api_responsive", "history_events_responsive", "browser_lockout_absent",
 )
+REQUIRED_NETWORK_FLAGS = (
+    "network_page_layout_ok",
+    "network_scan_ok",
+    "network_select_ok",
+    "network_manual_ssid_ok",
+    "network_password_entry_ok",
+    "network_connect_ok",
+    "network_restart_ok",
+    "wifi_signal_indicator_ok",
+    "network_engineering_lock_ok",
+)
+REQUIRED_SOURCE_COMMISSIONING_FLAGS = (
+    "source_grid_mapping_roundtrip_ok",
+    "source_gen1_mapping_roundtrip_ok",
+    "source_gen2_mapping_roundtrip_ok",
+    "source_gen3_mapping_roundtrip_ok",
+    "source_transfer_mapping_roundtrip_ok",
+    "source_sync_mapping_roundtrip_ok",
+    "source_save_forces_auto_disabled",
+    "source_status_not_inferred_from_kw_sign",
+)
+REQUIRED_ALARM_FLAGS = (
+    "alarm_filter_all_ok",
+    "alarm_filter_active_ok",
+    "alarm_filter_unack_ok",
+    "alarm_sort_priority_ok",
+    "alarm_sort_state_ok",
+    "alarm_sort_id_ok",
+    "alarm_engineering_ack_ok",
+    "alarm_operator_ack_refused",
+)
+REQUIRED_MODBUS_FLAGS = (
+    "board_modbus_simulator_connected",
+    "modbus_decoded_values_follow_simulator_changes",
+)
 REQUIRED_ROUTES = {
     "dashboard", "meters", "inverters", "alarms", "readiness",
-    "engineering", "commissioning", "system",
+    "engineering", "commissioning", "network", "system",
 }
+
+
+@dataclass
+class ModbusEvidence:
+    passed: bool
+    request_count_before: int
+    request_count_after: int
+    success_count_before: int
+    success_count_after: int
+    decoded_sample_count: int
+    flags: dict[str, bool]
+    failures: list[str]
+
 
 @dataclass
 class IndustrialUiResult:
@@ -45,6 +101,10 @@ class IndustrialUiResult:
     visual: dict[str, bool]
     touch: dict[str, bool]
     runtime: dict[str, bool]
+    network: dict[str, bool]
+    source_commissioning: dict[str, bool]
+    alarms: dict[str, bool]
+    modbus: dict
     base_waveshare: dict
     failures: list[str]
 
@@ -69,6 +129,44 @@ def _flags(observations: dict, keys: tuple[str, ...], prefix: str, failures: lis
     return result
 
 
+def _nonnegative_int(observations: dict, key: str, failures: list[str]) -> int:
+    value = observations.get(key)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        failures.append(f"modbus_invalid_counter:{key}")
+        return -1
+    return value
+
+
+def _evaluate_modbus(observations: dict) -> ModbusEvidence:
+    failures: list[str] = []
+    flags = _flags(observations, REQUIRED_MODBUS_FLAGS, "modbus", failures)
+    req_before = _nonnegative_int(observations, "modbus_request_count_before", failures)
+    req_after = _nonnegative_int(observations, "modbus_request_count_after", failures)
+    ok_before = _nonnegative_int(observations, "modbus_success_count_before", failures)
+    ok_after = _nonnegative_int(observations, "modbus_success_count_after", failures)
+    decoded_samples = _nonnegative_int(observations, "modbus_decoded_sample_count", failures)
+
+    if req_before >= 0 and req_after >= 0 and req_after <= req_before:
+        failures.append("modbus_request_count_did_not_increase")
+    if ok_before >= 0 and ok_after >= 0 and ok_after <= ok_before:
+        failures.append("modbus_success_count_did_not_increase")
+    if req_after >= 0 and ok_after >= 0 and ok_after > req_after:
+        failures.append("modbus_success_count_exceeds_request_count")
+    if decoded_samples >= 0 and decoded_samples < 3:
+        failures.append("modbus_decoded_sample_count_below_3")
+
+    return ModbusEvidence(
+        passed=not failures,
+        request_count_before=req_before,
+        request_count_after=req_after,
+        success_count_before=ok_before,
+        success_count_after=ok_after,
+        decoded_sample_count=decoded_samples,
+        flags=flags,
+        failures=failures,
+    )
+
+
 def evaluate(
     serial_text: str,
     observations: dict,
@@ -91,6 +189,14 @@ def evaluate(
     visual = _flags(observations, REQUIRED_VISUAL_FLAGS, "visual", failures)
     touch = _flags(observations, REQUIRED_TOUCH_FLAGS, "touch", failures)
     runtime = _flags(observations, REQUIRED_RUNTIME_FLAGS, "runtime", failures)
+    network = _flags(observations, REQUIRED_NETWORK_FLAGS, "network", failures)
+    source_commissioning = _flags(
+        observations, REQUIRED_SOURCE_COMMISSIONING_FLAGS, "source_commissioning", failures
+    )
+    alarms = _flags(observations, REQUIRED_ALARM_FLAGS, "alarm", failures)
+
+    modbus = _evaluate_modbus(observations)
+    failures.extend(f"modbus:{item}" for item in modbus.failures)
 
     # The product UI gate extends, never replaces, the existing display/touch
     # gate. The base evaluator therefore still requires alarms/touch/no-sweep/
@@ -119,6 +225,13 @@ def evaluate(
     if missing:
         failures.append("routes_missing:" + ",".join(missing))
 
+    # A physical evidence file must record a finite RSSI observed after the
+    # Network workflow reached connected state. This is evidence of a real
+    # Wi-Fi result, not a magic threshold/quality assertion.
+    wifi_rssi = observations.get("wifi_connected_rssi_dbm")
+    if isinstance(wifi_rssi, bool) or not isinstance(wifi_rssi, (int, float)) or not math.isfinite(float(wifi_rssi)):
+        failures.append("network_invalid:wifi_connected_rssi_dbm")
+
     return IndustrialUiResult(
         passed=not failures,
         candidate_sha=candidate_sha,
@@ -128,13 +241,17 @@ def evaluate(
         visual=visual,
         touch=touch,
         runtime=runtime,
+        network=network,
+        source_commissioning=source_commissioning,
+        alarms=alarms,
+        modbus=asdict(modbus),
         base_waveshare=asdict(base),
         failures=failures,
     )
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Validate Industrial UI exact-image Waveshare physical evidence")
+    parser = argparse.ArgumentParser(description="Validate complete Industrial UI exact-image Waveshare physical evidence")
     parser.add_argument("serial_log", type=Path)
     parser.add_argument("observations_json", type=Path)
     parser.add_argument("--expected-candidate-sha", required=True)
@@ -182,6 +299,15 @@ def main() -> int:
         print(f"- observed_runtime_seconds={serial.get('observed_runtime_seconds')}")
         print(f"- soak_samples={serial.get('soak_samples')}")
         print(f"- minimum_checked_dma_free={serial.get('minimum_checked_dma_free')}")
+        print(
+            "- modbus_requests="
+            f"{result.modbus.get('request_count_before')}->{result.modbus.get('request_count_after')}"
+        )
+        print(
+            "- modbus_successes="
+            f"{result.modbus.get('success_count_before')}->{result.modbus.get('success_count_after')}"
+        )
+        print(f"- modbus_decoded_samples={result.modbus.get('decoded_sample_count')}")
     return 0 if result.passed else 1
 
 
