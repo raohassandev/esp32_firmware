@@ -8,9 +8,10 @@ separate islands. The current deterministic placement moved the ESP32 endpoint
 The historical long F.Cu segment at y~=43.2 is no longer valid: current R70 and
 SW1 occupy that corridor. Keep the proven U1 left escape, then move the long
 middle trunk off F.Cu. A short F.Cu branch serves R69, a B.Cu trunk crosses the
-logic area, and a short F.Cu branch serves U14. The three-pad placement
-assertion remains fail-closed so any later placement change requires explicit
-route regeneration. In1.Cu is intentionally untouched.
+logic area, and a short F.Cu branch serves U14. The B.Cu trunk uses an explicit
+dogleg above the reserved R69 GND escape via at (25.725, 46.000). The three-pad
+placement assertion remains fail-closed so any later placement change requires
+explicit route regeneration. In1.Cu is intentionally untouched.
 """
 from pathlib import Path
 import sys
@@ -28,8 +29,10 @@ EXPECTED_PADS = {
 # Controlled topology:
 #   U1 F.Cu escape -> In2 descent -> via/trunk junction at (19.982,46.0)
 #   -> short F.Cu branch to R69
+#   -> B.Cu dogleg at y=46.8 around GND via (25.725,46.0)
 #   -> long B.Cu trunk to (49.0,46.7) -> short F.Cu branch to U14.
-# This deliberately avoids the obsolete R70/SW1 F.Cu corridor around y=43.
+# This deliberately avoids both the obsolete R70/SW1 F.Cu corridor around y=43
+# and the reserved R69 GND escape on B.Cu.
 TRACKS = (
     ("F.Cu", (19.0000, 52.8250), (17.4483, 52.8250)),
     ("F.Cu", (17.4483, 52.8250), (17.2336, 53.0397)),
@@ -37,7 +40,9 @@ TRACKS = (
     ("In2.Cu", (17.2336, 53.0868), (19.9820, 50.3384)),
     ("In2.Cu", (19.9820, 50.3384), (19.9820, 46.0000)),
     ("F.Cu", (19.9820, 46.0000), (23.1750, 46.0000)),
-    ("B.Cu", (19.9820, 46.0000), (49.0000, 46.7000)),
+    ("B.Cu", (19.9820, 46.0000), (24.7000, 46.8000)),
+    ("B.Cu", (24.7000, 46.8000), (26.7500, 46.8000)),
+    ("B.Cu", (26.7500, 46.8000), (49.0000, 46.7000)),
     ("F.Cu", (49.0000, 46.7000), (50.8625, 46.7000)),
 )
 VIAS = (
