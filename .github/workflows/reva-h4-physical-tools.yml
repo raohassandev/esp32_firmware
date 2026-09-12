@@ -41,6 +41,7 @@ jobs:
             --expected-h2-sha a877e5d844af114a6e4386f6294f514288ca5df6 \
             --expected-provider-digest sha256:27b1709537715f08e928e65137262553791a95f957c19703da8dc3a104db0d30 \
             --expected-firmware-sha 0000000000000000000000000000000000000000 \
+            --expected-firmware-artifact-digest sha256:0000000000000000000000000000000000000000000000000000000000000000 \
             --json > /tmp/h4-template-result.json; then
             echo 'ERROR: unexecuted H4 starter unexpectedly passed'
             cat /tmp/h4-template-result.json
