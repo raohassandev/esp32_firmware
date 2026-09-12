@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import copy
 import importlib.util
 import sys
 from pathlib import Path
@@ -129,6 +128,9 @@ def record():
             "ended_at": "2026-09-03T10:10:00+05:00",
             "identity_raw": "raw identity bytes/log",
             "identity_decoded": "ExactVendor EXACT-100K V1.2.3",
+            "observed_manufacturer": MANUFACTURER,
+            "observed_model": MODEL,
+            "observed_inverter_firmware": INVERTER_FW,
             "identity_matches_exact_model_firmware": True,
             "telemetry_evidence_ref": "bench-telemetry-crosscheck-01",
             "status_evidence_ref": "bench-status-toggle-correlation-01",
@@ -263,6 +265,10 @@ def main() -> None:
     mixed_manual["register_map"]["command"]["manual_document_sha256"] = "sha256:" + "8" * 64
     assert_failure(mixed_manual, "register_map:command:manual_document_sha256_mismatch")
 
+    observed_wrong_model = record()
+    observed_wrong_model["physical_read_only"]["observed_model"] = "LOOKALIKE-100K"
+    assert_failure(observed_wrong_model, "physical_read_only:observed_model_mismatch")
+
     status_guess = record()
     status_guess["physical_read_only"]["status_register_physically_correlated"] = False
     assert_failure(status_guess, "physical_read_only:status_not_physically_correlated")
@@ -274,6 +280,10 @@ def main() -> None:
     overlap = record()
     overlap["physical_write"]["started_at"] = "2026-09-03T10:05:00+05:00"
     assert_failure(overlap, "physical_write:started_before_read_only_evidence_completed")
+
+    raw_outside = record()
+    raw_outside["physical_write"]["requested_raw_value"] = 1001
+    assert_failure(raw_outside, "physical_write:requested_raw_value_outside_documented_range")
 
     no_readback = record()
     no_readback["physical_write"]["readback_within_tolerance"] = False
