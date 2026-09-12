@@ -2,9 +2,9 @@
 """Fail-closed validator for real-site Grid/Generator/ATS/source evidence.
 
 The validator does not discover registers, infer source state from kW sign, or
-operate field equipment. It accepts only a commissioning record made against
-an exact firmware/artifact/config identity with authoritative site/manual
-provenance and physical before/after/stale/recovery observations.
+operate field equipment. It accepts only an executed commissioning record bound
+to an externally frozen firmware/artifact/site/config/SLD/channel-map identity
+with authoritative provenance and physical before/after/stale/recovery evidence.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -20,6 +21,9 @@ from typing import Any
 
 VALID_STATUS = {"pass", "unqualified", "not_supported"}
 VALID_MAPPING = {"hardwired", "modbus"}
+EVIDENCE_STATE = "EXECUTED_SITE_SOURCE_COMMISSIONING_EVIDENCE"
+SHA40 = re.compile(r"^[0-9a-f]{40}$")
+SHA256 = re.compile(r"^(?:sha256:)?[0-9a-f]{64}$")
 
 
 @dataclass
@@ -28,6 +32,9 @@ class SiteCommissioningResult:
     site_id: str
     firmware_sha: str
     artifact_digest: str
+    config_identity: str
+    site_sld_digest: str
+    channel_map_digest: str
     channels_seen: list[str]
     failures: list[str]
 
@@ -53,6 +60,19 @@ def _time(value: object) -> datetime | None:
     return parsed if parsed.tzinfo is not None else None
 
 
+def _sha40(value: object) -> bool:
+    return bool(SHA40.fullmatch(str(value or "").strip().lower()))
+
+
+def _digest(value: object) -> bool:
+    return bool(SHA256.fullmatch(str(value or "").strip().lower()))
+
+
+def _normalized_digest(value: object) -> str:
+    raw = str(value or "").strip().lower()
+    return raw if raw.startswith("sha256:") else f"sha256:{raw}"
+
+
 def _check_mapping(channel: dict[str, Any], prefix: str, failures: list[str]) -> None:
     mapping = channel.get("mapping")
     if not isinstance(mapping, dict):
@@ -70,8 +90,9 @@ def _check_mapping(channel: dict[str, Any], prefix: str, failures: list[str]) ->
     else:
         if not _text(mapping.get("endpoint"), 3):
             failures.append(f"{prefix}:endpoint_missing")
-        if not isinstance(mapping.get("unit_id"), int) or isinstance(mapping.get("unit_id"), bool):
-            failures.append(f"{prefix}:unit_id_missing")
+        unit_id = mapping.get("unit_id")
+        if not isinstance(unit_id, int) or isinstance(unit_id, bool) or unit_id < 0 or unit_id > 247:
+            failures.append(f"{prefix}:unit_id_invalid")
         if not isinstance(mapping.get("function_code"), int) or isinstance(mapping.get("function_code"), bool):
             failures.append(f"{prefix}:function_code_missing")
         if not _text(mapping.get("address"), 1):
@@ -101,26 +122,75 @@ def _check_meter(channel: dict[str, Any], prefix: str, failures: list[str]) -> N
             failures.append(f"{prefix}:meter_not_applicable_reason_missing")
         return
 
-    for key in ("meter_id", "role", "ct_pt_polarity_ref", "data_type", "word_order", "sign_convention", "independent_reference"):
+    for key in (
+        "meter_id",
+        "role",
+        "ct_pt_polarity_ref",
+        "data_type",
+        "word_order",
+        "sign_convention",
+        "independent_reference",
+    ):
         if not _text(meter.get(key), 2):
             failures.append(f"{prefix}:meter_field_missing:{key}")
     if not _number(meter.get("scale")):
         failures.append(f"{prefix}:meter_scale_invalid")
-    if "raw" not in meter:
-        failures.append(f"{prefix}:meter_raw_missing")
+    if not _number(meter.get("raw")):
+        failures.append(f"{prefix}:meter_raw_invalid")
     if not _number(meter.get("scaled_kw")):
         failures.append(f"{prefix}:meter_scaled_kw_invalid")
+    if _number(meter.get("raw")) and _number(meter.get("scale")) and _number(meter.get("scaled_kw")):
+        calculated = float(meter["raw"]) * float(meter["scale"])
+        if not math.isclose(calculated, float(meter["scaled_kw"]), rel_tol=1e-9, abs_tol=1e-9):
+            failures.append(f"{prefix}:meter_raw_scale_mismatch")
     if not _text(meter.get("known_physical_direction"), 6):
         failures.append(f"{prefix}:meter_known_direction_missing")
     if meter.get("sign_proven") is not True:
         failures.append(f"{prefix}:meter_sign_not_proven")
 
+    connection = meter.get("connection")
+    if not isinstance(connection, dict) or not isinstance(connection.get("applicable"), bool):
+        failures.append(f"{prefix}:meter_connection_applicability_missing")
+    elif connection.get("applicable") is True:
+        if not _text(connection.get("endpoint"), 3):
+            failures.append(f"{prefix}:meter_endpoint_missing")
+        unit_id = connection.get("unit_id")
+        if not isinstance(unit_id, int) or isinstance(unit_id, bool) or unit_id < 0 or unit_id > 247:
+            failures.append(f"{prefix}:meter_unit_id_invalid")
+    elif not _text(connection.get("not_applicable_reason"), 8):
+        failures.append(f"{prefix}:meter_connection_not_applicable_reason_missing")
 
-def _check_commissioning(channel: dict[str, Any], prefix: str, failures: list[str]) -> None:
+
+def _check_binding(
+    obj: dict[str, Any],
+    prefix: str,
+    site_id: str,
+    config_identity: str,
+    channel_map_digest: str,
+    failures: list[str],
+) -> None:
+    if str(obj.get("site_id", "")).strip() != site_id:
+        failures.append(f"{prefix}:site_id_mismatch")
+    if str(obj.get("config_identity", "")).strip() != config_identity:
+        failures.append(f"{prefix}:config_identity_mismatch")
+    if _normalized_digest(obj.get("channel_map_digest")) != channel_map_digest:
+        failures.append(f"{prefix}:channel_map_digest_mismatch")
+
+
+def _check_commissioning(
+    channel: dict[str, Any],
+    prefix: str,
+    site_id: str,
+    config_identity: str,
+    channel_map_digest: str,
+    failures: list[str],
+) -> None:
     proof = channel.get("commissioning")
     if not isinstance(proof, dict):
         failures.append(f"{prefix}:commissioning_missing")
         return
+
+    _check_binding(proof, f"{prefix}:commissioning", site_id, config_identity, channel_map_digest, failures)
 
     started = _time(proof.get("started_at"))
     ended = _time(proof.get("ended_at"))
@@ -129,15 +199,30 @@ def _check_commissioning(channel: dict[str, Any], prefix: str, failures: list[st
     elif ended <= started:
         failures.append(f"{prefix}:commissioning_time_not_increasing")
 
-    for key in ("physical_before", "physical_after", "runtime_before", "runtime_after", "toggle_evidence_ref", "hmi_api_observation_ref"):
+    for key in (
+        "physical_before",
+        "physical_after",
+        "runtime_before",
+        "runtime_after",
+        "toggle_evidence_ref",
+        "hmi_api_observation_ref",
+    ):
         if not _text(proof.get(key), 4):
             failures.append(f"{prefix}:commissioning_field_missing:{key}")
+    if _text(proof.get("physical_before")) and _text(proof.get("physical_after")):
+        if str(proof.get("physical_before")).strip() == str(proof.get("physical_after")).strip():
+            failures.append(f"{prefix}:physical_toggle_no_state_change")
+    if _text(proof.get("runtime_before")) and _text(proof.get("runtime_after")):
+        if str(proof.get("runtime_before")).strip() == str(proof.get("runtime_after")).strip():
+            failures.append(f"{prefix}:runtime_toggle_no_state_change")
     if "raw_before" not in proof or "raw_after" not in proof:
         failures.append(f"{prefix}:raw_before_after_missing")
     elif proof.get("raw_before") == proof.get("raw_after"):
         failures.append(f"{prefix}:physical_toggle_no_raw_change")
     if proof.get("semantic_match") is not True:
         failures.append(f"{prefix}:runtime_semantic_not_proven")
+    if not _digest(proof.get("toggle_evidence_digest")):
+        failures.append(f"{prefix}:toggle_evidence_digest_invalid")
 
     stale = proof.get("stale_test")
     if not isinstance(stale, dict):
@@ -147,8 +232,12 @@ def _check_commissioning(channel: dict[str, Any], prefix: str, failures: list[st
             failures.append(f"{prefix}:stale_test_not_performed")
         if stale.get("fail_closed") is not True:
             failures.append(f"{prefix}:stale_test_not_fail_closed")
+        if not _text(stale.get("observed_fail_closed_state"), 4):
+            failures.append(f"{prefix}:stale_observed_fail_closed_state_missing")
         if not _text(stale.get("evidence_ref"), 4):
             failures.append(f"{prefix}:stale_evidence_ref_missing")
+        if not _digest(stale.get("evidence_digest")):
+            failures.append(f"{prefix}:stale_evidence_digest_invalid")
 
     recovery = proof.get("recovery_test")
     if not isinstance(recovery, dict):
@@ -158,10 +247,17 @@ def _check_commissioning(channel: dict[str, Any], prefix: str, failures: list[st
             failures.append(f"{prefix}:recovery_test_not_performed")
         if recovery.get("authority_returned_early") is not False:
             failures.append(f"{prefix}:authority_returned_early_not_false")
-        if not _number(recovery.get("observed_dwell_ms")) or float(recovery.get("observed_dwell_ms", 0)) < 0:
+        observed = recovery.get("observed_dwell_ms")
+        if not _number(observed) or float(observed) < 0:
             failures.append(f"{prefix}:recovery_dwell_invalid")
+        timing = channel.get("timing") if isinstance(channel.get("timing"), dict) else {}
+        configured = timing.get("recovery_ms")
+        if _number(observed) and _number(configured) and float(observed) < float(configured):
+            failures.append(f"{prefix}:recovery_dwell_below_configured_authority")
         if not _text(recovery.get("evidence_ref"), 4):
             failures.append(f"{prefix}:recovery_evidence_ref_missing")
+        if not _digest(recovery.get("evidence_digest")):
+            failures.append(f"{prefix}:recovery_evidence_digest_invalid")
 
     persistence = proof.get("persistence")
     if not isinstance(persistence, dict):
@@ -171,8 +267,14 @@ def _check_commissioning(channel: dict[str, Any], prefix: str, failures: list[st
             failures.append(f"{prefix}:config_not_written")
         if persistence.get("readback_match") is not True:
             failures.append(f"{prefix}:config_readback_not_proven")
+        if str(persistence.get("config_identity_readback", "")).strip() != config_identity:
+            failures.append(f"{prefix}:config_identity_readback_mismatch")
+        if _normalized_digest(persistence.get("channel_map_digest_readback")) != channel_map_digest:
+            failures.append(f"{prefix}:channel_map_digest_readback_mismatch")
         if not _text(persistence.get("evidence_ref"), 4):
             failures.append(f"{prefix}:persistence_evidence_ref_missing")
+        if not _digest(persistence.get("evidence_digest")):
+            failures.append(f"{prefix}:persistence_evidence_digest_invalid")
 
     if proof.get("pass") is not True:
         failures.append(f"{prefix}:commissioning_pass_not_true")
@@ -180,7 +282,14 @@ def _check_commissioning(channel: dict[str, Any], prefix: str, failures: list[st
         failures.append(f"{prefix}:pass_reason_missing")
 
 
-def _check_channel(channel: dict[str, Any], failures: list[str]) -> str:
+def _check_channel(
+    channel: dict[str, Any],
+    site_id: str,
+    config_identity: str,
+    site_sld_ref: str,
+    channel_map_digest: str,
+    failures: list[str],
+) -> str:
     channel_id = str(channel.get("id", "")).strip()
     prefix = f"channel:{channel_id or 'missing'}"
     if not channel_id:
@@ -194,6 +303,9 @@ def _check_channel(channel: dict[str, Any], failures: list[str]) -> str:
     if status not in VALID_STATUS:
         failures.append(f"{prefix}:qualification_status_invalid")
         return channel_id
+
+    if status in {"pass", "not_supported"}:
+        _check_binding(channel, prefix, site_id, config_identity, channel_map_digest, failures)
 
     if status == "not_supported":
         if channel.get("required") is True:
@@ -216,6 +328,8 @@ def _check_channel(channel: dict[str, Any], failures: list[str]) -> str:
         for key in ("signal_source", "manufacturer", "model", "manual_revision", "wiring_drawing_ref", "site_sld_ref"):
             if not _text(provenance.get(key), 3):
                 failures.append(f"{prefix}:provenance_field_missing:{key}")
+        if str(provenance.get("site_sld_ref", "")).strip() != site_sld_ref:
+            failures.append(f"{prefix}:provenance_site_sld_ref_mismatch")
 
     _check_mapping(channel, prefix, failures)
 
@@ -233,26 +347,62 @@ def _check_channel(channel: dict[str, Any], failures: list[str]) -> str:
         failures.append(f"{prefix}:power_sign_source_authority_not_forbidden")
 
     _check_meter(channel, prefix, failures)
-    _check_commissioning(channel, prefix, failures)
+    _check_commissioning(channel, prefix, site_id, config_identity, channel_map_digest, failures)
     return channel_id
 
 
-def evaluate(record: dict[str, Any], expected_firmware_sha: str, expected_artifact_digest: str) -> SiteCommissioningResult:
+def evaluate(
+    record: dict[str, Any],
+    expected_firmware_sha: str,
+    expected_artifact_digest: str,
+    expected_site_id: str,
+    expected_config_identity: str,
+    expected_site_sld_digest: str,
+    expected_channel_map_digest: str,
+) -> SiteCommissioningResult:
     failures: list[str] = []
     site_id = str(record.get("site_id", "")).strip()
-    firmware_sha = str(record.get("firmware_sha", "")).strip()
-    artifact_digest = str(record.get("artifact_digest", "")).strip().lower()
+    firmware_sha = str(record.get("firmware_sha", "")).strip().lower()
+    artifact_digest = _normalized_digest(record.get("artifact_digest"))
+    config_identity = str(record.get("config_identity", "")).strip()
+    site_sld_ref = str(record.get("site_sld_ref", "")).strip()
+    site_sld_digest = _normalized_digest(record.get("site_sld_digest"))
+    channel_map_digest = _normalized_digest(record.get("channel_map_digest"))
 
+    if record.get("evidence_state") != EVIDENCE_STATE:
+        failures.append("evidence_state_not_executed")
     if not _text(site_id, 2):
         failures.append("site_id_missing")
-    if firmware_sha != expected_firmware_sha:
+    if site_id != str(expected_site_id).strip():
+        failures.append("site_id_mismatch")
+    if not _sha40(firmware_sha):
+        failures.append("firmware_sha_invalid")
+    if firmware_sha != str(expected_firmware_sha).strip().lower():
         failures.append("firmware_sha_mismatch")
-    if artifact_digest != expected_artifact_digest.strip().lower():
+    if not _digest(record.get("artifact_digest")):
+        failures.append("artifact_digest_invalid")
+    if artifact_digest != _normalized_digest(expected_artifact_digest):
         failures.append("artifact_digest_mismatch")
-    if not _text(record.get("config_identity"), 4):
+    if not _text(config_identity, 4):
         failures.append("config_identity_missing")
-    if not _text(record.get("site_sld_ref"), 4):
+    if config_identity != str(expected_config_identity).strip():
+        failures.append("config_identity_mismatch")
+    if not _text(site_sld_ref, 4):
         failures.append("site_sld_ref_missing")
+    if not _digest(record.get("site_sld_digest")):
+        failures.append("site_sld_digest_invalid")
+    if site_sld_digest != _normalized_digest(expected_site_sld_digest):
+        failures.append("site_sld_digest_mismatch")
+    if not _text(record.get("channel_map_ref"), 4):
+        failures.append("channel_map_ref_missing")
+    if not _digest(record.get("channel_map_digest")):
+        failures.append("channel_map_digest_invalid")
+    if channel_map_digest != _normalized_digest(expected_channel_map_digest):
+        failures.append("channel_map_digest_mismatch")
+    if not _text(record.get("evidence_package_ref"), 4):
+        failures.append("evidence_package_ref_missing")
+    if not _digest(record.get("evidence_package_digest")):
+        failures.append("evidence_package_digest_invalid")
     if record.get("power_sign_used_as_source_authority") is not False:
         failures.append("power_sign_source_authority_not_forbidden")
     if record.get("automatic_control_enabled_during_commissioning") is not False:
@@ -267,7 +417,7 @@ def evaluate(record: dict[str, Any], expected_firmware_sha: str, expected_artifa
         if not isinstance(channel, dict):
             failures.append(f"channel_invalid:{index}")
             continue
-        channel_id = _check_channel(channel, failures)
+        channel_id = _check_channel(channel, site_id, config_identity, site_sld_ref, channel_map_digest, failures)
         if channel_id:
             if channel_id in seen:
                 failures.append(f"channel_duplicate:{channel_id}")
@@ -301,14 +451,25 @@ def evaluate(record: dict[str, Any], expected_firmware_sha: str, expected_artifa
         ):
             if config_gate.get(key) is not True:
                 failures.append(f"configuration_acceptance_not_proven:{key}")
+        if str(config_gate.get("site_id", "")).strip() != site_id:
+            failures.append("configuration_acceptance_site_id_mismatch")
+        if str(config_gate.get("config_identity", "")).strip() != config_identity:
+            failures.append("configuration_acceptance_config_identity_mismatch")
+        if _normalized_digest(config_gate.get("channel_map_digest")) != channel_map_digest:
+            failures.append("configuration_acceptance_channel_map_digest_mismatch")
         if not _text(config_gate.get("evidence_ref"), 4):
             failures.append("configuration_acceptance_evidence_ref_missing")
+        if not _digest(config_gate.get("evidence_digest")):
+            failures.append("configuration_acceptance_evidence_digest_invalid")
 
     return SiteCommissioningResult(
         passed=not failures,
         site_id=site_id,
         firmware_sha=firmware_sha,
         artifact_digest=artifact_digest,
+        config_identity=config_identity,
+        site_sld_digest=site_sld_digest,
+        channel_map_digest=channel_map_digest,
         channels_seen=sorted(seen),
         failures=failures,
     )
@@ -319,8 +480,27 @@ def main() -> int:
     parser.add_argument("evidence_json", type=Path)
     parser.add_argument("--expected-firmware-sha", required=True)
     parser.add_argument("--expected-artifact-digest", required=True)
+    parser.add_argument("--expected-site-id", required=True)
+    parser.add_argument("--expected-config-identity", required=True)
+    parser.add_argument("--expected-site-sld-digest", required=True)
+    parser.add_argument("--expected-channel-map-digest", required=True)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
+
+    if not _sha40(args.expected_firmware_sha):
+        print("SITE SOURCE COMMISSIONING FAIL: expected firmware SHA invalid", file=sys.stderr)
+        return 2
+    for label, value in (
+        ("artifact digest", args.expected_artifact_digest),
+        ("site SLD digest", args.expected_site_sld_digest),
+        ("channel-map digest", args.expected_channel_map_digest),
+    ):
+        if not _digest(value):
+            print(f"SITE SOURCE COMMISSIONING FAIL: expected {label} invalid", file=sys.stderr)
+            return 2
+    if not _text(args.expected_site_id, 2) or not _text(args.expected_config_identity, 4):
+        print("SITE SOURCE COMMISSIONING FAIL: expected site/config identity invalid", file=sys.stderr)
+        return 2
 
     try:
         record = json.loads(args.evidence_json.read_text(encoding="utf-8"))
@@ -331,7 +511,15 @@ def main() -> int:
         print("SITE SOURCE COMMISSIONING FAIL: JSON must be an object", file=sys.stderr)
         return 2
 
-    result = evaluate(record, args.expected_firmware_sha, args.expected_artifact_digest)
+    result = evaluate(
+        record,
+        args.expected_firmware_sha,
+        args.expected_artifact_digest,
+        args.expected_site_id,
+        args.expected_config_identity,
+        args.expected_site_sld_digest,
+        args.expected_channel_map_digest,
+    )
     if args.json:
         print(json.dumps(asdict(result), indent=2, sort_keys=True))
     else:
