@@ -1,0 +1,4 @@
+(sym_lib_table
+  (version 7)
+  (lib (name "Automatrix")(type "KiCad")(uri "${KIPRJMOD}/Automatrix.kicad_sym")(options "")(descr "Rev-A project local symbols"))
+)

@@ -1,0 +1,19 @@
+{
+  "board": {},
+  "boards": [],
+  "cvpcb": {},
+  "erc": {},
+  "libraries": {},
+  "meta": {
+    "filename": "Automatrix_PVDG_RevA.kicad_pro",
+    "version": 1
+  },
+  "net_settings": {},
+  "pcbnew": {},
+  "schematic": {},
+  "sheets": [],
+  "text_variables": {
+    "PROJECT_NAME": "Automatrix ESP32 PV-DG Controller",
+    "REVISION": "Rev-A"
+  }
+}

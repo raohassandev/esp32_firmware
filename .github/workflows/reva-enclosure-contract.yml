@@ -1,0 +1,18 @@
+name: Rev-A enclosure contract
+
+on:
+  push:
+    branches: [hardware/kicad-reva-implementation]
+    paths:
+      - 'hardware/mechanical/**'
+      - '.github/workflows/reva-enclosure-contract.yml'
+
+jobs:
+  enclosure-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate PCB/enclosure static contract
+        run: python3 hardware/mechanical/tools/validate_enclosure_contract.py
+      - name: Syntax-check mechanical handoff extractor
+        run: python3 -m py_compile hardware/mechanical/tools/extract_pcb_mechanics.py

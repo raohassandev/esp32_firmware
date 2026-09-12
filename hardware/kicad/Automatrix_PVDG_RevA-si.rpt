@@ -1,0 +1,17 @@
+REV-A SIGNAL-INTEGRITY GEOMETRY GATE
+L2_GND=PASS zones=1 In1_signal_tracks=0
+ETH_TXP length_mm=2.636 vias=0 layers=F.Cu segments=2
+ETH_TXP_MAG length_mm=8.078 vias=1 layers=F.Cu,In2.Cu segments=2
+ETH_TXN length_mm=3.483 vias=0 layers=F.Cu segments=2
+ETH_TXN_MAG length_mm=11.817 vias=1 layers=F.Cu,In2.Cu segments=4
+ETH_RXP length_mm=6.562 vias=0 layers=F.Cu segments=3
+ETH_RXP_MAG length_mm=5.478 vias=1 layers=F.Cu,In2.Cu segments=2
+ETH_RXN length_mm=4.562 vias=0 layers=F.Cu segments=3
+ETH_RXN_MAG length_mm=10.718 vias=1 layers=F.Cu,In2.Cu segments=4
+USB_D+ length_mm=137.485 vias=3 layers=B.Cu,F.Cu,In2.Cu segments=13
+USB_D- length_mm=143.162 vias=4 layers=B.Cu,F.Cu,In2.Cu segments=14
+USB_D+_MCU length_mm=14.209 vias=2 layers=F.Cu,In2.Cu segments=5
+USB_D-_MCU length_mm=13.508 vias=2 layers=F.Cu,In2.Cu segments=5
+ETH_TOTAL TXP=10.714 TXN=15.299 RXP=12.040 RXN=15.281
+USB_TOTAL D+_mm=151.694 D-_mm=156.670 skew_mm=4.976
+SIGNAL_INTEGRITY_GEOMETRY=PASS

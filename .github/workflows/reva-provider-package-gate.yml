@@ -1,0 +1,29 @@
+name: Rev-A provider package gate
+
+on:
+  push:
+    branches:
+      - hardware/kicad-reva-implementation
+    paths:
+      - 'hardware/kicad/tools/build_provider_package.py'
+      - 'hardware/kicad/tools/export_manufacturing_outputs.sh'
+      - '.github/workflows/reva-provider-package-gate.yml'
+
+jobs:
+  provider-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Static-check release tooling
+        run: |
+          python3 -m py_compile hardware/kicad/tools/build_provider_package.py
+          bash -n hardware/kicad/tools/export_manufacturing_outputs.sh
+      - name: Prove FINAL package is blocked before H2
+        run: |
+          set +e
+          python3 hardware/kicad/tools/build_provider_package.py > /tmp/provider-gate.log 2>&1
+          rc=$?
+          set -e
+          cat /tmp/provider-gate.log
+          test "$rc" = "2"
+          grep -q 'PROVIDER PACKAGE: NOT READY' /tmp/provider-gate.log

@@ -1,0 +1,60 @@
+{
+  "revision": "Rev-A",
+  "mcu": "ESP32-S3-WROOM-1-N8",
+  "mandatory": {
+    "usb": {"d_minus": 19, "d_plus": 20},
+    "rs485_a": {"tx": 43, "rx": 44, "de_re": 42},
+    "rs485_b": {"tx": 17, "rx": 18, "de_re": 16},
+    "hmi_uart": {"tx": 15, "rx": 14},
+    "ethernet_w5500": {"sclk": 12, "mosi": 11, "miso": 13, "cs": 10, "int": 9, "reset": 8},
+    "relay_outputs": {"relay1": 4, "relay2": 5, "relay3": 6, "relay4": 7},
+    "status_led": 35,
+    "status_alert": 21,
+    "boot": 0
+  },
+  "optional": {
+    "digital_inputs": {"di1": 1, "di2": 2, "di3": 47, "di4": 48},
+    "rtc": {"sda": 38, "scl": 39},
+    "microsd": {"sclk": 40, "mosi": 41, "miso": 37, "cs": 36}
+  },
+  "external_connectors": {
+    "J_PWR": {"pins": {"1": "VIN_12_24V_POS", "2": "GND"}, "mandatory": true},
+    "J_RS485A": {"pins": {"1": "A", "2": "B", "3": "GND"}, "mandatory": true},
+    "J_RS485B": {"pins": {"1": "A", "2": "B", "3": "GND"}, "mandatory": true},
+    "J_HMI": {"pins": {"1": "+5V_HMI", "2": "GND", "3": "TX_FROM_CONTROLLER", "4": "RX_TO_CONTROLLER"}, "mandatory": true},
+    "J_RELAY1": {"pins": {"1": "NC", "2": "COM", "3": "NO"}, "mandatory": true},
+    "J_RELAY2": {"pins": {"1": "NC", "2": "COM", "3": "NO"}, "mandatory": true},
+    "J_RELAY3": {"pins": {"1": "NC", "2": "COM", "3": "NO"}, "mandatory": true},
+    "J_RELAY4": {"pins": {"1": "NC", "2": "COM", "3": "NO"}, "mandatory": true},
+    "J_DI": {"pins": {"1": "DI1", "2": "DI2", "3": "DI3", "4": "DI4", "5": "COM"}, "mandatory": false},
+    "J_RS232": {"pins": {"1": "TX", "2": "RX", "3": "GND"}, "mandatory": false},
+    "J_ETH": {"interface": "10/100_Ethernet_RJ45_with_integrated_magnetics", "mandatory": true},
+    "J_USB": {"interface": "USB2_device_native_ESP32S3", "mandatory": true},
+    "J_SD": {"interface": "microSD_SPI", "mandatory": false}
+  },
+  "electrical_levels": {
+    "field_power_nominal": "12/24VDC",
+    "hmi_uart_logic": "3.3V MCU with protected/translated 5V-compatible serial HMI interface",
+    "rs485": "3.3V transceiver side; differential field bus",
+    "relay_contacts": "dry contact Form-C; system target 5A resistive maximum pending prototype/product validation",
+    "digital_inputs_optional": "isolated 12/24VDC field inputs"
+  },
+  "constraints": {
+    "strapping_pins": [0, 3, 45, 46],
+    "reserved_flash_preference": [26, 27, 28, 29, 30, 31, 32],
+    "native_usb_pins": [19, 20],
+    "all_relay_outputs_default_off": true,
+    "rs485_ports_independent": true,
+    "hmi_uart_not_shared_with_rs485": true
+  },
+  "firmware_gap_to_close_before_prototype_acceptance": [
+    "add Ethernet interface support for W5500 and allow it as field-network path",
+    "add direct Modbus RTU transport for both hardware RS485 buses",
+    "keep existing Modbus TCP transport for Ethernet/Wi-Fi devices",
+    "add transport-neutral device configuration for TCP versus direct RTU",
+    "add relay GPIO safe-default initialization before application control",
+    "add HMI UART configuration using dedicated UART",
+    "drive GPIO35/GPIO21 status pair: RUN=green, WARNING=green+red, FAULT=red",
+    "add optional DI/RTC/microSD drivers only when populated"
+  ]
+}
