@@ -20,7 +20,7 @@ Master program: #79. Live repository truth overrides this checklist. **Reconcili
 
 ## RETIRED HISTORICAL WAVESHARE EVIDENCE
 
-- [x] **L3 / #87/#24/#25/#26/#27 — retired as superseded historical evidence.** Exact source `87841ecee727fe1d814d4186be8c8c26e4afafb4` retains its short physical PASS and interrupted ~2 h / 121-sample record, but the >=4 h gate was never passed. Issues #24/#25/#26/#27/#87 and PRs #20/#57/#67 are closed/superseded. No historical PASS transfers to PR #179.
+- [x] **L3 / #87/#24/#25/#26/#27 — retired as superseded historical evidence.** Exact source `87841ecee727fe1d814d4186be8c8c26e4afafb4` retains its short physical PASS and interrupted ~2 h / 121-sample record, but the >=4 h gate was never passed. Issues #24/#25/#26/#27/#87 and PRs #20/#57/#67 were closed `not_planned`/unmerged on 2026-09-12 because PR #179/#174 is the sole current Waveshare release path. No historical PASS transfers to PR #179.
 
 ## ACTIVE MANAGEMENT / GOVERNANCE
 
