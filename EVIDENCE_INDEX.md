@@ -1,10 +1,10 @@
-# AISH-OS Evidence Index v6
+# AISH-OS Evidence Index v7
 
 Master program: #79. Evidence is valid only for the exact source/head/tree/artifact/config/profile/site identity named. Software CI and validators never substitute for physical acceptance.
 
 ## Integration reconciliation parent
 
-Known parent before this revision: `dev` `8016c005be8d548e9388026a89592b70b92ec1a3` after governed PR #182. The post-revision live `dev` head is deliberately not hard-coded here because a PR cannot know its own future merge SHA; fetch live repository state before every execution decision.
+Known parent before this revision: `dev` `f924726db9c24ab55ebe4f43fe28caf75a9b2c3d` after governed PR #183. The post-revision live `dev` head is deliberately not hard-coded here because a PR cannot know its own future merge SHA; fetch live repository state before every execution decision.
 
 ## Current software/evidence chain
 
@@ -13,13 +13,13 @@ Known parent before this revision: `dev` `8016c005be8d548e9388026a89592b70b92ec1
 | Core runtime/config/Modbus safety | PR #99/#102/#108/#114/#117/#119 etc. | MERGED SOFTWARE |
 | Rollback-safe OTA + always-on regression | PR #145/#148 | MERGED SOFTWARE |
 | Site/inverter/generator/OTA/FAT physical validators | PR #151/#152/#156/#158/#160 | MERGED TOOLING ONLY |
-| Historical Waveshare final/post-soak/capture tooling | PR #142/#150/#159 | MERGED TOOLING ONLY |
+| Historical Waveshare final/post-soak/capture tooling | PR #142/#150/#159 | MERGED TOOLING / HISTORICAL ONLY |
 | Industrial UI shell/operator/engineering/nav/browser chain | PR #165/#167/#169/#172/#173/#176 | MERGED SOFTWARE |
 | Governance through Industrial UI v1 | PR #177 -> `150118a8425462e1756b115ddf3d463a022b395f` | MERGED |
 | Exact current Industrial UI Waveshare integration | PR #179 head `72a1a82a8fc5ad4406b5bd51fba1f80f9c182884` | SOFTWARE GREEN / DRAFT PHYSICAL-GATED |
 | Industrial UI physical evidence authority v2 | PR #181 -> `7cb824a2341cb9072b1a3176afbd3685dec1a32a` | MERGED TOOLING ONLY |
 | Eight-file governance reconciliation | PR #182 -> `8016c005be8d548e9388026a89592b70b92ec1a3` | MERGED |
-| Industrial UI physical evidence v3 topology correction | PR #183 | CI/PROMOTION GATED; NO FIRMWARE CHANGE |
+| Industrial UI physical evidence v3 topology correction + governance semantics | PR #183 -> `f924726db9c24ab55ebe4f43fe28caf75a9b2c3d` | MERGED TOOLING/GOVERNANCE; NO FIRMWARE CHANGE |
 
 ## Exact Industrial UI v1 physical candidate — #164/#174
 
@@ -46,7 +46,7 @@ The exact PR #179 candidate earned current root firmware/web checks, exact Waves
 
 PR #181 established the full Network/source/alarm/Modbus physical evidence contract and exact starter `evidence/candidates/industrial_ui_72a1a82_physical_observations.json`. The starter is explicitly `UNEXECUTED_TEMPLATE_NOT_A_PHYSICAL_PASS`.
 
-PR #183 corrects the only discovered v2 contract mismatch: #174 says Transfer/ATS and synchronism are optional when configured, while v2 required both roundtrip flags unconditionally. V3 requires explicit boolean applicability for each optional channel. If configured, real round-trip PASS is mandatory and a skip reason is contradictory. If not configured/supported, roundtrip must remain false and a non-empty factual reason is mandatory. Applicability left `null` in the unexecuted starter prevents accidental PASS.
+PR #183 corrected the discovered v2 contract mismatch: Transfer/ATS and synchronism are topology-dependent. V3 requires explicit boolean applicability for each optional channel. If configured, real round-trip PASS is mandatory and a skip reason is contradictory. If not configured/supported, roundtrip must remain false and a non-empty factual reason is mandatory. Applicability left `null` in the unexecuted starter prevents accidental PASS.
 
 A genuine #174 PASS must physically prove on this exact image:
 - native 800x480 visual hierarchy, touch behavior and Operator/Engineering role boundaries;
@@ -60,18 +60,21 @@ A genuine #174 PASS must physically prove on this exact image:
 
 No physical PASS exists yet for this candidate.
 
-## Historical Waveshare exact candidate — #87/#27
+## Retired historical Waveshare evidence — source `87841ece...`
 
 - source `87841ecee727fe1d814d4186be8c8c26e4afafb4`
 - tree `6ddd7900f9b4ece0fba9349b905e1c078fc3401e`
 - artifact `9843536218`
 - digest `sha256:89e621034d4c91096fc5d38dd57ac40eeeab34275e4af1fc0461b48575039096`
 - application SHA256 `8be2a2aad5f223d8b9bca498db2e12c04f7f205feaa9908b7922c37421c46593`
-- short display/touch/Alarms gate: PASS
+- short display/touch/Alarms gate: PASS on this exact old identity only
 - first continuous attempt: ~2 h / 121 samples before external bench power-path interruption
-- uninterrupted >=4 h / >=240 run: PENDING
+- uninterrupted >=4 h / >=240 run: NOT COMPLETED
+- backend parity/recovery and persistence/ARM final matrices: NOT COMPLETED
+- issues #87/#24/#25/#26/#27: CLOSED `not_planned` as superseded on 2026-09-12
+- PRs #20/#57/#67: CLOSED UNMERGED as superseded on 2026-09-12
 
-This old identity predates the current Industrial UI and never qualifies #174. After its own final soak PASS, #25/#26 still require backend parity/recovery and persistence/ARM on that exact old image.
+This retirement preserves historical truth and removes a duplicate active release path. It is not a final physical PASS and never qualifies #174 or PR #179.
 
 ## Other held physical authorities
 
@@ -82,7 +85,7 @@ Draft PR #106 head `a1620789235d21b515f9f245f2329fab88b50558` remains software-G
 PR #156 validates exact site-specific breaker/run/ATS/sync provenance, address/contact/mask/polarity, physical toggle, stale/recovery and meter CT/PT/type/word-order/scale/sign. Another site/model or kW-sign inference is not evidence.
 
 ### Production inverter profiles — #82
-PR #158 validates staged exact-model qualification. Pending catalogue entries remain write-locked until exact applicable official model/firmware/manual plus physical identity/telemetry/status/write/readback/rollback and signed production approval exist.
+PR #158 validates staged exact-model qualification. Pending profiles remain write-locked. Current provenance boundary: GoodWe GW100K-HT still needs exact official HT control protocol; Huawei SUN2000-115KTL-M2 needs exact official applicable ME-family Modbus definitions; Solis `S6-EH3P(80-125)K10-NV-YD-H` exact family is known but the available compiled map is non-authoritative for writes; Growatt/Knox/FoxESS exact installed model/protocol is unresolved. Every deployed profile still needs physical write/readback/rollback and signed approval.
 
 ### Secure OTA — #86
 PR #152 validates the real-controller interruption/power-loss/rollback record on one exact intended release identity. Build/CI evidence is insufficient.
@@ -92,7 +95,7 @@ PR #160 is the final evidence contract: genuine prerequisite physical references
 
 ## Rev-A H2/H3/H4 evidence
 
-Historical provider artifact `9909976209` is evidence only. Reproducibility run `33884657384` could not reproduce historical `DRC=0` and returned 20 DRC violations / 0 unconnected. #178/#85 therefore require authoritative component/fabricator evidence for any exceptions, rules committed before a new checkpoint, and fresh ERC/DRC/SI/STEP/provider-package acceptance to a new H2 identity. #162 H4 physical qualification follows only from the new accepted package.
+Historical provider artifact `9909976209` is evidence only. Reproducibility run `33884657384` returned 20 DRC violations / 0 unconnected. Exact affected identities are U1 Espressif ESP32-S3-WROOM-1-N8, J2 GCT USB4105-GF-A-120 and J3 CETUS J1B1211CCD. #178/#85 therefore require authoritative component and intended-fabricator evidence for any exceptions, rules committed before a new checkpoint, and fresh ERC/DRC/SI/STEP/provider-package acceptance to a new H2 identity. #162 H4 physical qualification follows only from the new accepted package.
 
 ## Final release evidence outputs still required
 
@@ -104,4 +107,4 @@ Historical provider artifact `9909976209` is evidence only. Reproducibility run 
 6. #83 integrated FAT/endurance and authorized signed SAT.
 7. #91 final identity index with zero critical blockers.
 
-Historical #87/#27/#25/#26 and Rev-A #178/#85/#162 remain separate tracked hardware lanes and must not be silently used as evidence for a changed release identity. Partial physical intervals cannot be combined, thresholds cannot be lowered, optional topology cannot be invented, and no validator manufactures a physical PASS.
+Retired historical Waveshare evidence and Rev-A hardware evidence remain separate exact identities. Partial physical intervals cannot be combined, thresholds cannot be lowered, optional topology cannot be invented, and no validator manufactures a physical PASS.
