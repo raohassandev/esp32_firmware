@@ -2,10 +2,15 @@
 """Lock the proven Rev-A STATUS_ALERT_CTL route before generic autorouting.
 
 Freerouting can plateau with this one three-pad low-speed control net split into
-separate islands.  The geometry below comes from the clean KiCad-10 candidate in
-PR validation run 32522110531 (DRC=0, UNCONNECTED=0).  Assert all three pad
-coordinates before adding copper so a placement change fails closed instead of
-silently applying stale geometry.  In1.Cu is intentionally untouched.
+separate islands. The long geometry below comes from the clean KiCad-10
+candidate in PR validation run 32522110531 (DRC=0, UNCONNECTED=0).
+
+The current deterministic placement moves the ESP32 endpoint +0.50 mm in X and
+places R_STATUS_ALERT_PD at (23.175, 46.000). Preserve the proven long route and
+vias, translate only the MCU-side endpoint, and add one short F.Cu branch from
+the existing route node to the current pull-down pad. Assert all three current
+pad coordinates before adding copper so any further placement change still
+fails closed. In1.Cu is intentionally untouched.
 """
 from pathlib import Path
 import sys
@@ -16,16 +21,19 @@ NET = "STATUS_ALERT_CTL"
 WIDTH_MM = 0.20
 EXPECTED_PADS = {
     (50.8625, 46.7000),  # U_LEDLOGIC/U14 pin 13
-    (22.1750, 44.0000),  # R_STATUS_ALERT_PD/R69 pin 1
-    (18.5000, 52.8250),  # ESP32/U1 GPIO21 pad
+    (23.1750, 46.0000),  # R_STATUS_ALERT_PD/R69 pin 1
+    (19.0000, 52.8250),  # ESP32/U1 GPIO21 pad after +0.50 mm edge repair
 }
 TRACKS = (
-    ("F.Cu", (18.5000, 52.8250), (17.4483, 52.8250)),
+    ("F.Cu", (19.0000, 52.8250), (17.4483, 52.8250)),
     ("F.Cu", (17.4483, 52.8250), (17.2336, 53.0397)),
     ("F.Cu", (17.2336, 53.0397), (17.2336, 53.0868)),
     ("In2.Cu", (17.2336, 53.0868), (19.9820, 50.3384)),
     ("In2.Cu", (19.9820, 50.3384), (19.9820, 44.0000)),
     ("F.Cu", (19.9820, 44.0000), (22.1750, 44.0000)),
+    # Current R69 pad moved from the historical route node. Keep the old node as
+    # the trunk junction and add only this short branch to the actual pad.
+    ("F.Cu", (22.1750, 44.0000), (23.1750, 46.0000)),
     ("F.Cu", (22.1750, 44.0000), (23.0025, 43.1725)),
     ("F.Cu", (23.0025, 43.1725), (24.9958, 43.1725)),
     ("F.Cu", (24.9958, 43.1725), (25.7699, 43.9466)),
