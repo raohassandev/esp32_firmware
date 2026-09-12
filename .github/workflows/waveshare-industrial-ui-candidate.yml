@@ -56,6 +56,7 @@ jobs:
             "$BOARD_DIR/screen/pages/overview_screen.c"
             "$BOARD_DIR/screen/pages/readiness_screen.c"
             "$BOARD_DIR/screen/pages/source_commissioning_screen.c"
+            "$BOARD_DIR/screen/pages/source_commissioning_screen.h"
             "$PRODUCT_DIR/README.md"
             "$PRODUCT_DIR/dependencies.lock"
             "$PRODUCT_DIR/main/CMakeLists.txt"
@@ -66,6 +67,7 @@ jobs:
             "$PRODUCT_DIR/main/local_commissioning_backend.h"
             "$PRODUCT_DIR/main/local_network_backend.c"
             "$PRODUCT_DIR/main/local_network_backend.h"
+            "$PRODUCT_DIR/main/local_source_commissioning_backend.c"
             "$PRODUCT_DIR/main/main.c"
             "$PRODUCT_DIR/sdkconfig.defaults"
             "$BOARD_DIR/screen/screen_app.c"
@@ -106,6 +108,7 @@ jobs:
           grep -Fq '#define SCREEN_MIN_TOUCH_TARGET_PX 44' "$touch_shell"
           grep -Fq 'lv_obj_set_style_min_height' "$touch_shell"
           grep -Fq 'enforce_min_touch_targets(created)' "$touch_shell"
+          python3 tests/waveshare_source_commissioning_source_contract.py
 
       - name: Enforce current provisioning, dependency and rollback safety defaults
         shell: bash
@@ -239,7 +242,7 @@ jobs:
           candidate_sha=$CANDIDATE_SHA
           candidate_tree=$candidate_tree
           board_source_sha=$BOARD_SOURCE_SHA
-          reviewed_board_delta=$BOARD_DIR/screen/CMakeLists.txt,$BOARD_DIR/screen/README.md,$BOARD_DIR/screen/SCREEN_TODO.md,$BOARD_DIR/screen/api/screen_api.h,$BOARD_DIR/screen/components/screen_widgets.c,$BOARD_DIR/screen/components/screen_widgets.h,$BOARD_DIR/screen/pages/alarms_screen.c,$BOARD_DIR/screen/pages/alarms_screen.h,$BOARD_DIR/screen/pages/commissioning_screen.c,$BOARD_DIR/screen/pages/network_screen.c,$BOARD_DIR/screen/pages/network_screen.h,$BOARD_DIR/screen/pages/overview_screen.c,$BOARD_DIR/screen/pages/readiness_screen.c,$BOARD_DIR/screen/pages/source_commissioning_screen.c,$PRODUCT_DIR/README.md,$PRODUCT_DIR/dependencies.lock,$PRODUCT_DIR/main/CMakeLists.txt,$PRODUCT_DIR/main/Kconfig.projbuild,$PRODUCT_DIR/main/idf_component.yml,$PRODUCT_DIR/main/local_backend_provider.c,$PRODUCT_DIR/main/local_commissioning_backend.c,$PRODUCT_DIR/main/local_commissioning_backend.h,$PRODUCT_DIR/main/local_network_backend.c,$PRODUCT_DIR/main/local_network_backend.h,$PRODUCT_DIR/main/main.c,$PRODUCT_DIR/sdkconfig.defaults,$BOARD_DIR/screen/screen_app.c,$BOARD_DIR/screen/screen_app.h
+          reviewed_board_delta=$BOARD_DIR/screen/CMakeLists.txt,$BOARD_DIR/screen/README.md,$BOARD_DIR/screen/SCREEN_TODO.md,$BOARD_DIR/screen/api/screen_api.h,$BOARD_DIR/screen/components/screen_widgets.c,$BOARD_DIR/screen/components/screen_widgets.h,$BOARD_DIR/screen/pages/alarms_screen.c,$BOARD_DIR/screen/pages/alarms_screen.h,$BOARD_DIR/screen/pages/commissioning_screen.c,$BOARD_DIR/screen/pages/network_screen.c,$BOARD_DIR/screen/pages/network_screen.h,$BOARD_DIR/screen/pages/overview_screen.c,$BOARD_DIR/screen/pages/readiness_screen.c,$BOARD_DIR/screen/pages/source_commissioning_screen.c,$BOARD_DIR/screen/pages/source_commissioning_screen.h,$PRODUCT_DIR/README.md,$PRODUCT_DIR/dependencies.lock,$PRODUCT_DIR/main/CMakeLists.txt,$PRODUCT_DIR/main/Kconfig.projbuild,$PRODUCT_DIR/main/idf_component.yml,$PRODUCT_DIR/main/local_backend_provider.c,$PRODUCT_DIR/main/local_commissioning_backend.c,$PRODUCT_DIR/main/local_commissioning_backend.h,$PRODUCT_DIR/main/local_network_backend.c,$PRODUCT_DIR/main/local_network_backend.h,$PRODUCT_DIR/main/local_source_commissioning_backend.c,$PRODUCT_DIR/main/main.c,$PRODUCT_DIR/sdkconfig.defaults,$BOARD_DIR/screen/screen_app.c,$BOARD_DIR/screen/screen_app.h
           industrial_ui_software_baseline=$INDUSTRIAL_UI_BASELINE
           integration_base_dev=$INTEGRATION_BASE_DEV
           container_image=espressif/idf:v6.0.1
