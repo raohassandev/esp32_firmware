@@ -42,25 +42,17 @@ b.FIXED.update({
     'R_ETH_RXN_DAMP': (123.6, 62.8, 0),
     'R_ETH_TXP_DAMP': (123.6, 66.0, 0),
     'R_ETH_TXN_DAMP': (123.6, 68.5, 0),
-    # Put the four 49.9R W5500 line-bias parts on the routed MDI rows instead
-    # of the generic x=94..99 mm spill positions seen in Runs #200/#52/#202.
-    # Pad 2 is the *_MAG signal node, pad 1 the ETH_AVDD node. The column sits
-    # between the damping pads (x=124.425) and the MagJack courtyard (x>=127.755),
-    # so only one 1.55 mm-wide vertical column fits and every ETH_AVDD pad must
-    # stay >=0.775 mm clear of a foreign *_MAG trunk (0.475 pad + 0.10 track
-    # half-widths + 0.20 mm clearance).
-    #
-    # RXP/TXP trunks already cross x=126.6 on their way to the MagJack via
-    # columns (x=128.15 / x=130.70), so those two bias pad 2 nodes are placed
-    # exactly on their own trunk row: the termination tap is inline, adds no
-    # extra copper and cannot cross a neighbouring row. RXN stops at its x=125.40
-    # via so it keeps a short same-net diagonal stub; TXN carries its trunk out to
-    # x=127.60 and is tapped by a 0.875 mm vertical drop. All four are offset in y
-    # to hold >=0.3 mm courtyard separation inside the single column.
-    'R_ETH_RXP_BIAS': (126.6, 59.475, 270),
-    'R_ETH_RXN_BIAS': (126.6, 63.0, 270),
-    'R_ETH_TXP_BIAS': (126.6, 66.825, 90),
-    'R_ETH_TXN_BIAS': (126.6, 70.2, 90),
+    # Keep the four 49.9R W5500 line-bias parts on the routed MDI rows instead
+    # of generic spill positions. The H2 edge-clearance repair moves J3/MagJack
+    # 0.30 mm inward, so move this complete controlled termination column by the
+    # same 0.30 mm. Relative J3-to-bias geometry is preserved and the column
+    # remains well separated from the damping column at x=123.6. Freerouting is
+    # regenerated after placement, so no historical trunk coordinate is treated
+    # as routing authority.
+    'R_ETH_RXP_BIAS': (126.3, 59.475, 270),
+    'R_ETH_RXN_BIAS': (126.3, 63.0, 270),
+    'R_ETH_TXP_BIAS': (126.3, 66.825, 90),
+    'R_ETH_TXN_BIAS': (126.3, 70.2, 90),
     # Keep DI4 reverse-protection beside its DI functional block, clear of the
     # controlled MDI termination column and MagJack route corridor.
     'D_DI4': (139.0, 72.0, 0),
