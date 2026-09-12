@@ -211,6 +211,9 @@ def check_read_only(
             "ended_at",
             "identity_raw",
             "identity_decoded",
+            "observed_manufacturer",
+            "observed_model",
+            "observed_inverter_firmware",
             "telemetry_evidence_ref",
             "status_evidence_ref",
             "evidence_package_ref",
@@ -227,6 +230,14 @@ def check_read_only(
         failures.append("physical_read_only:timestamps_invalid")
     if ro.get("identity_matches_exact_model_firmware") is not True:
         failures.append("physical_read_only:identity_mismatch")
+    observed_identity = (
+        ("manufacturer", ro.get("observed_manufacturer"), rec.get("manufacturer")),
+        ("model", ro.get("observed_model"), rec.get("model")),
+        ("inverter_firmware", ro.get("observed_inverter_firmware"), rec.get("inverter_firmware")),
+    )
+    for key, actual, wanted in observed_identity:
+        if str(actual or "").strip() != str(wanted or "").strip():
+            failures.append(f"physical_read_only:observed_{key}_mismatch")
     if ro.get("status_register_physically_correlated") is not True:
         failures.append("physical_read_only:status_not_physically_correlated")
     if ro.get("write_attempted") is not False:
@@ -252,10 +263,16 @@ def check_write(
 ) -> tuple[datetime | None, datetime | None]:
     maps = rec.get("register_map")
     readback_tolerance: float | None = None
+    command_raw_min: float | None = None
+    command_raw_max: float | None = None
     if not isinstance(maps, dict):
         failures.append("register_map_missing_for_write")
     else:
-        check_map(maps.get("command"), "register_map:command", failures, manual_revision, manual_digest, writable=True)
+        command = maps.get("command")
+        check_map(command, "register_map:command", failures, manual_revision, manual_digest, writable=True)
+        if isinstance(command, dict) and finite(command.get("raw_min")) and finite(command.get("raw_max")):
+            command_raw_min = float(command["raw_min"])
+            command_raw_max = float(command["raw_max"])
         check_map(maps.get("readback"), "register_map:readback", failures, manual_revision, manual_digest)
         rb = maps.get("readback") if isinstance(maps.get("readback"), dict) else {}
         if not finite(rb.get("tolerance")) or float(rb.get("tolerance", -1)) < 0:
@@ -301,6 +318,11 @@ def check_write(
     ):
         if not finite(w.get(key)):
             failures.append(f"physical_write:{key}_invalid")
+
+    if finite(w.get("requested_raw_value")) and command_raw_min is not None and command_raw_max is not None:
+        requested_raw = float(w["requested_raw_value"])
+        if requested_raw < command_raw_min or requested_raw > command_raw_max:
+            failures.append("physical_write:requested_raw_value_outside_documented_range")
 
     if readback_tolerance is not None and finite(w.get("requested_engineering_value")) and finite(w.get("observed_readback_engineering_value")):
         error = abs(float(w["observed_readback_engineering_value"]) - float(w["requested_engineering_value"]))
