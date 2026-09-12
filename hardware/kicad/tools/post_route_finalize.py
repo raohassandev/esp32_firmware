@@ -37,11 +37,12 @@ TRACK_CLEAR = 0.24
 # 0.75 mm spokes to stay clear of Y1; immediate pre-route KiCad DRC is authority.
 # Run #48 isolated W5500 U2:16; it uses the same perpendicular escape proven for
 # U2:19/U2:23. Run #45 mapped C3:2, U2:48, U2:19 and R35:2.
-# U2:29 was also in a skipped surface island but its earlier reserved via already
-# closed that electrical connection, so it remains a single reservation only.
-# W5500 edge pads escape perpendicular away from the package; passive GND pads
-# escape away from their opposite terminal. Immediate KiCad pre-route DRC is the
-# release authority for these dense but deterministic reservations.
+# Parent H2 run #222 isolated the F.Cu GND region around U13:3 in the dense
+# SD/RTC/HMI band. Run #223 proved a padless via at the island centre is not
+# legal because it enters the adjacent U13:2 HMI_RX_IN clearance envelope.
+# Reserve U13:3 itself with a leftward 1.50 mm spoke instead; this keeps the
+# pad-connected surface copper tied to L2 before the stochastic router arrives.
+# Immediate KiCad pre-route DRC remains the release authority.
 PRE_ROUTE_GND_ESCAPES = (
     ("C14", "2", 0.90, 0.00),
     ("C15", "2", 0.75, 0.00),
@@ -64,6 +65,7 @@ PRE_ROUTE_GND_ESCAPES = (
     ("U2", "16", 0.00, -1.50),
     ("U2", "19", 0.00, -1.50),
     ("R35", "2", 0.90, 0.00),
+    ("U13", "3", -1.50, 0.00),
 )
 
 # PR Run #50 produced a padless F.Cu GND fragment at this exact relay-row
@@ -78,14 +80,6 @@ PRE_ROUTE_GND_STITCH_VIAS = (
     # before routing instead, exactly as the W5500 escapes above. y=67.70 keeps
     # 0.82 mm to the locked ETH_INT B.Cu backbone at y=66.879.
     ("RUN206_LOGIC_ROW", 44.62, 67.70),
-    # Parent H2 run #222 produced a stochastic surface-GND island in the dense
-    # SD/RTC band at x=74.198..75.788, y=83.874..84.752. Post-route stitching
-    # found 3438 legal via targets but every straight/dogleg/staircase F.Cu tail
-    # was blocked by the completed route. Reserve the L2 access inside that exact
-    # island before Specctra export so the router must preserve the return path.
-    # The static reservation assertion below and the immediate pre-route KiCad
-    # DRC remain authoritative; no manufacturing or clearance rule is relaxed.
-    ("RUN222_SD_RTC_ROW", 75.00, 84.30),
 )
 
 
@@ -110,6 +104,20 @@ def boxes_overlap(a, b):
     ax0, ax1, ay0, ay1 = a
     bx0, bx1, by0, by1 = b
     return not (ax1 < bx0 or bx1 < ax0 or ay1 < by0 or by1 < ay0)
+
+
+def pad_label(pad):
+    """Return a stable diagnostic label across KiCad parent container types."""
+    try:
+        parent = pad.GetParent()
+        ref = parent.GetReference() if hasattr(parent, "GetReference") else "<container>"
+    except Exception:
+        ref = "<unknown>"
+    try:
+        number = pad.GetNumber()
+    except Exception:
+        number = "?"
+    return f"{ref}:{number}"
 
 
 def gnd_net(board):
@@ -155,7 +163,7 @@ def assert_escape_clear(board, pad, via_xy, gcode):
             if via_box[0] <= vx <= via_box[1] and via_box[2] <= vy <= via_box[3]:
                 raise RuntimeError(
                     f"pre-route GND via {via_xy} violates pad clearance to "
-                    f"{other.GetParent().GetReference()}:{other.GetNumber()} net={other.GetNetname()}"
+                    f"{pad_label(other)} net={other.GetNetname()}"
                 )
             try:
                 on_front = other.IsOnLayer(pcbnew.F_Cu)
@@ -165,9 +173,8 @@ def assert_escape_clear(board, pad, via_xy, gcode):
                 track_box = (bx0 - track_r, bx1 + track_r, by0 - track_r, by1 + track_r)
                 if boxes_overlap(corridor, track_box):
                     raise RuntimeError(
-                        f"pre-route GND spoke {pad.GetParent().GetReference()}:{pad.GetNumber()} "
-                        f"violates F.Cu pad clearance to {other.GetParent().GetReference()}:{other.GetNumber()} "
-                        f"net={other.GetNetname()}"
+                        f"pre-route GND spoke {pad_label(pad)} violates F.Cu pad clearance to "
+                        f"{pad_label(other)} net={other.GetNetname()}"
                     )
 
 
@@ -186,7 +193,7 @@ def assert_reserved_via_clear(board, via_xy, gcode, label):
             if bx0 - via_r <= vx <= bx1 + via_r and by0 - via_r <= vy <= by1 + via_r:
                 raise RuntimeError(
                     f"pre-route GND stitch {label} at {via_xy} violates pad clearance to "
-                    f"{pad.GetParent().GetReference()}:{pad.GetNumber()} net={pad.GetNetname()}"
+                    f"{pad_label(pad)} net={pad.GetNetname()}"
                 )
 
 
