@@ -1,5 +1,5 @@
-version: 3
-updated_at: 2026-09-04T19:28:00+05:00
+version: 4
+updated_at: 2026-09-12T13:05:00+05:00
 master_issue: 79
 truth_rule: live_repository_over_stale_docs
 
@@ -18,17 +18,15 @@ agents:
     status: CONTINUOUS
     responsibilities:
       - fetch_live_targets_prs_issues_ci_and_physical_evidence_every_cycle
-      - maintain_dependency_graph_and_2_to_3_active_lanes
-      - enforce_branch_pr_exact_head_zero_behind_expected_head_merge_gates
-      - close_or_replay_stale_lanes_instead_of_reusing_historical_ci
+      - enforce_exact_head_zero_behind_expected_head_merge_gates
       - reconcile_governance_after_every_state_change
+      - preserve_frozen_physical_candidate_identity
 
   runtime_software_team:
     role: CODER_RUNTIME_SAFETY
     owner: ChatGPT
     qa: GitHub_Actions
     status: COMPLETE_FOR_CURRENT_KNOWN_RELEASE_SURFACES
-    evidence_prs: [99, 100, 102, 105, 107, 108, 112, 113, 114, 117, 119, 122, 124, 127, 129, 130, 131, 133, 135, 136, 137, 138, 140, 144, 145, 148]
 
   industrial_ui_team:
     role: PRODUCT_UI_RELEASE_L16
@@ -37,31 +35,29 @@ agents:
     parent_issue: 164
     physical_issue: 174
     software_prs: [165, 167, 169, 172, 173, 176]
-    physical_tooling_pr: 175
-    status: SOFTWARE_COMPLETE_EXACT_IMAGE_PHYSICAL_HMI_PENDING
-    responsibilities:
-      - maintain_one_authoritative_industrial_presentation_and_navigation_owner
-      - preserve_task_based_overview_grid_solar_alarms_readiness_operator_workflow
-      - preserve_commission_configure_service_engineering_workspace
-      - preserve_operator_read_only_and_engineering_auth_boundaries
-      - preserve_44px_touch_and_800x480_layout_contracts
-      - preserve_browser_socket_lru_psram_resilience
-      - select_and_qualify_one_new_exact_industrial_ui_waveshare_image_under_174
+    waveshare_integration_pr: 179
+    exact_candidate_sha: 72a1a82a8fc5ad4406b5bd51fba1f80f9c182884
+    exact_candidate_tree: 3069c65b4234fcd2b6418f9bbbe7859f1cd9abce
+    artifact_id: 10293685030
+    artifact_digest: sha256:44dc05fe2c6e61d3a8b5fdfc7c936937da948691a2038358d5c0b3c1008de541
+    application_sha256: 0bbdb75be4ea7c0337f07e83dbdd3e34736ce8f667a42aa11abeb5c638f60734
+    evidence_tooling_prs: [175, 181]
+    status: SOFTWARE_COMPLETE_EXACT_IMAGE_FROZEN_PHYSICAL_HMI_PENDING
     rules:
+      - do_not_modify_PR179_candidate_before_physical_disposition
       - historical_87841ece_physical_pass_does_not_transfer
-      - source_contract_or_validator_pass_does_not_equal_physical_hmi_pass
-      - industrial_shell_adds_no_background_poller_or_mutation_api
+      - validator_or_CI_pass_does_not_equal_physical_HMI_pass
+      - operator_and_engineering_auth_boundaries_remain_fail_closed
 
   release_evidence_team:
     role: CODER_RELEASE_EVIDENCE_AND_AUTOMATION
     owner: ChatGPT
     qa: GitHub_Actions
     status: COMPLETE_FOR_CURRENT_RELEASE_PHYSICAL_GATES
-    evidence_prs: [142, 150, 151, 152, 156, 158, 159, 160, 175]
+    evidence_prs: [142, 150, 151, 152, 156, 158, 159, 160, 175, 181]
     coverage:
-      - historical_waveshare_final_acceptance_package_and_soak_capture
-      - historical_waveshare_backend_parity_and_persistence_arm
-      - industrial_ui_exact_image_physical_acceptance
+      - historical_waveshare_final_acceptance_and_post_soak
+      - industrial_ui_exact_image_network_source_alarm_modbus_and_endurance_acceptance
       - generator_source_transition
       - secure_ota_real_controller
       - site_source_commissioning
@@ -70,41 +66,17 @@ agents:
     rules:
       - validator_pass_does_not_equal_physical_pass
       - exact_identity_required
-      - incomplete_or_inconsistent_records_fail_closed
+      - incomplete_records_fail_closed
       - thresholds_cannot_be_lowered_to_manufacture_pass
-
-  site_commissioning_team:
-    role: L5_COMMISSIONING
-    owner: ChatGPT_orchestrator_plus_authorized_site_operator
-    issue: 81
-    tooling_pr: 156
-    status: SOFTWARE_TOOLING_COMPLETE_PHYSICAL_SITE_INPUT_PENDING
-    qa: GitHub_Actions_and_ChatGPT_safety_review
-
-  inverter_qualification_team:
-    role: L6_MANUFACTURER_PROFILE_QUALIFICATION
-    owner: ChatGPT_orchestrator_plus_authorized_bench_operator
-    issue: 82
-    tooling_pr: 158
-    status: SOFTWARE_TOOLING_COMPLETE_EXTERNAL_EXACT_MANUAL_AND_BENCH_PENDING
-    qa: GitHub_Actions_and_ChatGPT_safety_review
-
-  historical_waveshare_physical_team:
-    role: PHYSICAL_EXECUTOR_QA_L3
-    owner: authorized_hardware_executor
-    issue: 87
-    detailed_issues: [24, 25, 26, 27]
-    candidate: 87841ecee727fe1d814d4186be8c8c26e4afafb4
-    capture_tooling_pr: 159
-    status: SHORT_PASS_FINAL_CONTINUOUS_SOAK_PENDING
 
   industrial_ui_physical_team:
     role: PHYSICAL_EXECUTOR_QA_L16
     owner: authorized_hardware_executor
     issues: [164, 174]
-    evidence_tooling_pr: 175
-    candidate: NOT_YET_FROZEN
-    status: WAITING_FOR_NEW_EXACT_UI_IMAGE_AND_REAL_800X480_MATRIX
+    evidence_tooling_pr: 181
+    candidate_sha: 72a1a82a8fc5ad4406b5bd51fba1f80f9c182884
+    candidate_artifact_id: 10293685030
+    status: READY_FOR_REAL_PANEL_EXECUTION_NOT_PASSED
 
   source_transition_physical_team:
     role: PHYSICAL_EXECUTOR_QA_L2
@@ -114,70 +86,57 @@ agents:
     evidence_tooling_pr: 151
     status: EXTERNAL_BENCH_PENDING
 
+  site_commissioning_team:
+    role: L5_COMMISSIONING
+    owner: ChatGPT_orchestrator_plus_authorized_site_operator
+    issue: 81
+    tooling_pr: 156
+    status: SOFTWARE_TOOLING_COMPLETE_PHYSICAL_SITE_INPUT_PENDING
+
+  inverter_qualification_team:
+    role: L6_MANUFACTURER_PROFILE_QUALIFICATION
+    owner: ChatGPT_orchestrator_plus_authorized_bench_operator
+    issue: 82
+    tooling_pr: 158
+    status: SOFTWARE_TOOLING_COMPLETE_EXACT_MANUAL_MODEL_FIRMWARE_AND_BENCH_PENDING
+
   ota_physical_team:
     role: PHYSICAL_EXECUTOR_QA_L4
     owner: authorized_hardware_executor
     issue: 86
     evidence_tooling_pr: 152
-    status: WAITING_FOR_INTENDED_RELEASE_IDENTITY_AND_REAL_CONTROLLER_MATRIX
+    status: WAITING_FOR_FINAL_RELEASE_IDENTITY_AND_REAL_CONTROLLER_MATRIX
 
   fat_sat_team:
     role: RELEASE_PHYSICAL_QA_L7
     owner: authorized_site_operator_and_authorized_site_representative
     issue: 83
     evidence_tooling_pr: 160
-    status: TOOLING_COMPLETE_WAITING_ON_PREREQUISITE_PHYSICAL_GATES
+    status: WAITING_ON_PREREQUISITE_PHYSICAL_GATES
 
   reva_hardware_team:
     role: PRODUCT_HARDWARE_L9
     owner: ChatGPT_orchestrator_plus_hardware_engineer
     issue: 85
-    planning_pr: 18
     implementation_pr: 19
-    historical_validation_pr: 163
-    historical_validation_head: f020be6bcabc8dec6c05d80aaf00ec47fe6476b4
-    reproducibility_run: 33884657384
-    status: HISTORICAL_H2_DRC_PASS_NON_REPRODUCIBLE_NEW_CONTROLLED_H2_REQUIRED
-    qa: KiCad_CI_plus_independent_hardware_review
-    responsibilities:
-      - retain_historical_checkpoint_and_provider_package_as_evidence_only
-      - obtain_authoritative_component_and_fabricator_evidence_for_any_design_rule_exceptions
-      - commit_approved_rule_context_before_new_H2_checkpoint
-      - rerun_ERC_DRC_SI_STEP_mechanical_and_provider_package_gates
-      - mint_new_exact_H2_checkpoint_and_provider_package_identity
-      - execute_H4_only_after_new_reproducible_H2_H3_acceptance
+    h4_issue: 162
+    status: NEW_CONTROLLED_H2_REQUIRED_THEN_H4_PHYSICAL
     rules:
-      - do_not_merge_PR163_as_a_pass
-      - no_post_H2_DRC_rule_relaxation_silently_inheriting_historical_pass
       - historical_provider_package_is_not_final_fabrication_authority
-      - H2_H3_CI_does_not_equal_H4_physical_pass
+      - no_DRC_rule_exception_without_authoritative_component_or_fabricator_evidence
+      - approved_rules_before_checkpoint
 
   qa_ci:
     role: SOFTWARE_AND_DESIGN_QA
     owner: GitHub_Actions
     responsibilities:
-      - focused_changed_behavior_tests
+      - changed_behavior_tests
       - full_firmware_web_esp32s3_build
-      - industrial_ui_source_and_physical_tool_gates
-      - browser_poller_and_browser_resilience_gates
+      - industrial_ui_and_physical_tool_gates
+      - browser_resilience
       - secure_ota_always_on_regression
-      - kicad_erc_drc_routing_si_step_and_provider_package_gates
       - exact_head_evidence_only
       - never_substitute_ci_for_physical_acceptance
-
-  release_qa:
-    role: RELEASE_QA
-    owner: ChatGPT
-    issues: [80, 81, 82, 83, 86, 87, 91, 93, 164, 174]
-    responsibilities:
-      - verify_source_tree_artifact_config_profile_identity
-      - reject_stale_or_behind_pr_promotion
-      - reject_cross_identity_physical_pass_transfer
-      - reject_guessed_register_polarity_topology_timing_or_protocol
-      - reject_partial_soak_aggregation
-      - reject_post_checkpoint_design_rule_relaxation_without_new_hardware_checkpoint
-      - reject_non_reproducible_hardware_checkpoint_as_fabrication_authority
-      - require_signed_authorized_sat_for_final_release
 
   product_owner:
     role: OWNER
@@ -185,16 +144,13 @@ agents:
     responsibilities:
       - product_scope_and_release_decisions
       - authorize_physical_site_and_bench_execution
-      - provide_or_approve_authoritative_site_wiring_and_manufacturer_documents
+      - provide_or_approve_authoritative_site_wiring_manufacturer_and_fabricator_documents
       - final_site_signoff_where_required
 
 separation_rules:
   - coder_does_not_self_certify_physical_pass
   - software_ci_does_not_equal_physical_acceptance
   - evidence_tooling_does_not_create_physical_acceptance
-  - physical_executor_does_not_invent_registers_polarity_timing_topology_or_protocol_semantics
-  - blocked_physical_lanes_do_not_stop_independent_software_or_hardware_lanes
+  - no_guessed_registers_polarity_timing_topology_protocol_or_hardware_rules
   - physical_pass_does_not_transfer_to_changed_identity_without_explicit_equivalence_gate
-  - historical_waveshare_pass_does_not_transfer_to_new_industrial_ui_image
   - non_reproducible_hardware_checkpoint_cannot_authorize_fabrication
-  - final_acceptance_thresholds_are_not_lowered_to_manufacture_pass

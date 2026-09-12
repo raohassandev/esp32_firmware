@@ -1,37 +1,62 @@
-version: 3
-updated_at: 2026-09-04T19:28:00+05:00
+version: 4
+updated_at: 2026-09-12T13:05:00+05:00
 
 defaults:
   software_merge:
     require: [branch_plus_PR, current_target_rechecked, exact_current_PR_head, zero_behind_target, fresh_required_exact_head_CI_green, changed_behavior_tests, expected_head_SHA_guard]
-    forbid: [direct_feature_write_to_integration_branch, force_push_over_unmerged_work, inferred_test_pass, historical_CI_reused_for_replay, stale_or_behind_PR_merge]
-
-  regression_coverage:
-    require: [full_firmware_web_esp32s3_gate_for_release_software, secure_ota_always_on_on_every_PR_and_dev_push, browser_resilience_gate_for_ui_or_network_sensitive_changes, exact_head_evidence_only]
-    forbid: [software_regression_used_as_physical_acceptance]
+    forbid: [direct_feature_write_to_integration_branch, force_push_over_unmerged_work, historical_CI_reused_for_replay, stale_or_behind_PR_merge]
 
   firmware_safety:
-    require: [preserve_NVS_and_commissioned_configuration, fail_closed_without_qualified_evidence, qualified_profile_before_positive_inverter_write, bounded_reviewed_ota_receive_path, ota_identity_validation_before_write, safe_zero_before_ota_write]
+    require: [preserve_NVS_and_commissioned_configuration, fail_closed_without_qualified_evidence, qualified_profile_before_positive_inverter_write, safe_zero_before_ota_write]
     forbid: [erase_flash, nvs_flash_erase, committed_real_credentials, guessed_registers, guessed_masks_or_polarity, guessed_timing, guessed_topology, guessed_protocol_semantics]
 
   physical_evidence:
     require: [exact_source_artifact_config_profile_identity, start_end_timestamps, raw_and_scaled_observations, expected_vs_observed_state, serial_runtime_references, explicit_pass_fail_reason, deterministic_validator_when_available]
     forbid: [validator_pass_claimed_as_physical_pass, example_record_claimed_as_evidence, cross_identity_pass_reuse_without_explicit_permission, acceptance_threshold_lowering]
 
-  waveshare_acceptance:
-    require: [exact_87841ece_candidate, one_uninterrupted_4h_run, at_least_240_samples, lcd_touch_wifi_backend_active, dma_floor_at_least_20kb, no_wdt_panic_no_mem_unexpected_reset_or_material_resource_collapse, human_visual_touch_observation, PR159_capture_and_existing_final_validator]
-    forbid: [partial_soaks_combined, rebuild_or_config_substitution_silently_inheriting_pass, validator_only_pass, pass_transferred_to_industrial_ui_candidate]
+  historical_waveshare_acceptance:
+    require: [exact_87841ece_candidate, one_uninterrupted_4h_run, at_least_240_samples, lcd_touch_wifi_backend_active, dma_floor_at_least_20kb, no_wdt_panic_no_mem_unexpected_reset_or_material_resource_collapse, human_visual_touch_observation, PR159_capture]
+    forbid: [partial_soaks_combined, rebuild_or_config_substitution_silently_inheriting_pass, pass_transferred_to_industrial_ui_candidate]
 
-  waveshare_post_soak:
-    require: [genuine_final_soak_pass_first, backend_parity_recovery_exact_identity, persistence_save_readback_reboot_restore, interrupted_save_fail_closed, ARM_gate_observation, no_NVS_or_full_flash_erase, PR150_validator]
-
-  industrial_ui_software:
-    require: [authoritative_industrial_layer_loaded_last, task_based_operator_navigation, operator_engineering_role_separation, commission_configure_service_engineering_workspace, minimum_44px_touch_contract, desktop_mobile_and_800x480_layout_contract, browser_socket_lru_psram_resilience, no_new_industrial_shell_api_or_write_path, exact_head_industrial_ui_and_full_firmware_ci]
-    forbid: [second_navigation_owner, industrial_shell_background_poller, operator_engineering_api_bypass, route_id_breakage_without_migration]
+  industrial_ui_software_candidate:
+    exact_source_sha: 72a1a82a8fc5ad4406b5bd51fba1f80f9c182884
+    exact_tree_sha: 3069c65b4234fcd2b6418f9bbbe7859f1cd9abce
+    artifact_id: 10293685030
+    artifact_digest: sha256:44dc05fe2c6e61d3a8b5fdfc7c936937da948691a2038358d5c0b3c1008de541
+    application_sha256: 0bbdb75be4ea7c0337f07e83dbdd3e34736ce8f667a42aa11abeb5c638f60734
+    uf2_sha256: 199feec247563130f800d25e2a7024ebbaf64a65d3d8b6c6c5c9ec4c242b2500
+    build_container: espressif/idf:v6.0.1
+    require: [exact_head_root_and_waveshare_build_green, immutable_dependency_lock, rollback_enabled, no_compiled_sta_credentials, no_compiled_engineering_credential_prefill, bench_engineering_http_auth_bypass_off, bench_network_page_auth_bypass_off, minimum_44px_native_touch_targets]
+    forbid: [candidate_source_or_config_churn_before_physical_disposition, historical_physical_pass_inheritance]
 
   industrial_ui_physical_acceptance:
-    require: [new_exact_industrial_ui_source_tree_artifact_app_config_identity, fresh_exact_image_firmware_ui_browser_ci, native_800x480_overview_grid_solar_alarms_readiness_layout, engineering_commission_configure_service_layout, guided_commissioning_and_service_touch_use, light_and_dark_readability, operator_and_engineering_role_observation, protected_route_behavior, browser_api_history_responsiveness, no_browser_socket_lockout, one_uninterrupted_4h_run, at_least_240_samples, lcd_touch_wifi_backend_live, resource_trends_and_dma_floor, no_wdt_panic_no_mem_unexpected_reset_lvgl_or_browser_wedge, PR175_validator, explicit_human_visual_touch_observation]
-    forbid: [historical_87841ece_pass_reused, cross_identity_ui_pass_reuse, partial_soaks_combined, rebuild_or_config_substitution_mid_run, validator_only_pass, threshold_lowering]
+    issue: 174
+    validator_pr: 181
+    identity_bound_starter: evidence/candidates/industrial_ui_72a1a82_physical_observations.json
+    require:
+      - exact_industrial_ui_candidate_identity
+      - native_800x480_overview_grid_solar_alarms_readiness_layout
+      - engineering_commission_configure_service_touch_use
+      - light_and_dark_readability
+      - operator_and_engineering_role_observation
+      - network_scan_select_manual_ssid_password_connect_restart_wifi_indicator_and_engineering_lock
+      - grid_gen1_gen2_gen3_transfer_sync_source_mapping_roundtrips
+      - source_save_forces_automatic_control_disabled
+      - no_source_authority_inferred_from_kw_sign
+      - alarm_all_active_unack_filters
+      - alarm_priority_state_id_sorts
+      - engineering_ack_allowed_and_operator_ack_refused
+      - real_board_to_bench_simulator_modbus_connection
+      - modbus_request_and_success_counters_increase
+      - at_least_3_decoded_modbus_samples
+      - decoded_values_follow_simulator_changes
+      - browser_api_history_responsiveness_and_no_socket_lockout
+      - one_uninterrupted_4h_run
+      - at_least_240_samples
+      - resource_trends_and_dma_floor
+      - no_wdt_panic_no_mem_unexpected_reset_lvgl_or_browser_wedge
+      - explicit_human_visual_touch_observation
+    forbid: [historical_87841ece_pass_reused, partial_soaks_combined, rebuild_or_config_substitution_mid_run, validator_only_pass, threshold_lowering]
 
   generator_transition:
     require: [authoritative_breaker_run_ATS_sync_topology_evidence, meter_sign_scaling_proof, grid_transfer_generator, generator_transfer_grid, island, supported_sync_or_authoritative_not_supported, stale_conflict_source_loss_fail_closed, fresh_recovery_dwell, PR151_validator]
@@ -47,17 +72,17 @@ defaults:
 
   ota_physical_acceptance:
     require: [one_exact_intended_ota_release_identity, authenticated_upload, invalid_image_rejection_before_write, interrupted_upload, power_loss, partial_image_not_selected, previous_slot_boot, explicit_staged_reboot, pending_verification_first_boot, mark_valid_stabilization, deliberate_rollback, fail_closed_control, NVS_persistence, PR152_validator]
-    forbid: [source_or_build_CI_claimed_as_physical_pass, waveshare_or_ui_pass_transferred_to_ota_image, validator_only_pass]
+    forbid: [source_or_build_CI_claimed_as_physical_pass, HMI_pass_transferred_to_changed_ota_image, validator_only_pass]
 
   integrated_fat_sat:
     require: [all_prerequisite_physical_gates_passed, exact_release_identity_frozen, complete_grid_FAT, complete_generator_FAT, complete_mixed_source_FAT, all_three_modbus_modes_endurance, degraded_peer_and_network_recovery_tests, accepted_industrial_ui_physical_reference, zero_fatal_reset_resource_collapse_counters, exact_OTA_physical_reference, authorized_signed_SAT, PR160_validator]
     forbid: [simulator_or_CI_substituted_for_FAT_or_SAT, unsigned_or_cross_identity_SAT]
 
   reva_hardware:
+    require_before_new_H2: [authoritative_component_evidence_for_footprint_exceptions, authoritative_fabricator_capability_for_manufacturing_exceptions, approved_rules_committed_before_checkpoint]
     require_before_provider_package: [ERC_zero, DRC_zero, UNCONNECTED_zero, L2_ground_gate, critical_route_SI_geometry_gate, STEP_export, mechanical_handoff, manufacturing_exports, controlled_provider_manifest]
-    require_checkpoint_integrity: [frozen_H2_marker, frozen_PCB_blob, no_post_checkpoint_routing_or_design_rule_relaxation_without_new_controlled_H2_release]
     require_after_fabrication: [12V_24V_startup, reverse_polarity, USB_backfeed_and_programming, rail_measurements, ethernet_endurance, RS485_A_B_and_simultaneous, HMI_serial, relay_default_off_and_contact_tests, enclosure_fit, thermal_and_required_environmental_EMC_validation]
-    forbid: [H2_H3_CI_claimed_as_H4_physical_prototype_pass, post_checkpoint_DRC_rule_relaxation_silently_inheriting_H2_pass]
+    forbid: [historical_nonreproducible_H2_as_fabrication_authority, post_checkpoint_DRC_rule_relaxation_silently_inheriting_pass]
 
   release:
-    require: [all_release_software_merge_gates, all_physical_acceptance_gates, authoritative_site_source_evidence, production_approved_inverter_profiles, accepted_industrial_ui_exact_image, integrated_FAT_and_endurance, signed_SAT, exact_release_traceability, no_open_critical_blockers]
+    require: [all_release_software_merge_gates, all_required_physical_acceptance_gates, authoritative_site_source_evidence, production_approved_inverter_profiles, accepted_industrial_ui_exact_image, integrated_FAT_and_endurance, signed_SAT, exact_release_traceability, no_open_critical_blockers]

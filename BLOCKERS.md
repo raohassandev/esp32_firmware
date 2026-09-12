@@ -1,34 +1,28 @@
-# AISH-OS Blocker Ledger v4
+# AISH-OS Blocker Ledger v5
 
-Master program: #79. Current software baseline: `dev` `14d13a0d6e5c4b4b95cea35b8cc32f1880ae8134` after governed PR #176. Software/evidence automation exists for current release physical gates; remaining release blockers are genuine physical/site/manufacturer acceptance or explicitly tracked integration work.
+Master program: #79. Snapshot software baseline: `dev` `7cb824a2341cb9072b1a3176afbd3685dec1a32a` after PR #181. Known software and evidence-authority gaps are closed; remaining release blockers require genuine physical/site/manufacturer/fabricator execution or governed post-PASS promotion.
 
-## B-001 — Historical Waveshare uninterrupted final acceptance
+## B-001 — Industrial UI exact-image Waveshare physical acceptance
 
-**Lane:** L3 / #87/#27  
-**Exact candidate:** `87841ecee727fe1d814d4186be8c8c26e4afafb4`  
-**State:** SHORT PASS / >=4 H CONTINUOUS SOAK PENDING  
-**Automation:** PR #159
+**Lane:** L16 / #164/#174  
+**Exact candidate:** PR #179 head `72a1a82a8fc5ad4406b5bd51fba1f80f9c182884`; tree `3069c65b4234fcd2b6418f9bbbe7859f1cd9abce`  
+**Artifact:** `10293685030`; digest `sha256:44dc05fe2c6e61d3a8b5fdfc7c936937da948691a2038358d5c0b3c1008de541`  
+**Application SHA256:** `0bbdb75be4ea7c0337f07e83dbdd3e34736ce8f667a42aa11abeb5c638f60734`  
+**State:** SOFTWARE + EVIDENCE AUTHORITY COMPLETE / PHYSICAL PANEL EXECUTION PENDING  
+**Automation:** PR #181; identity-bound starter `evidence/candidates/industrial_ui_72a1a82_physical_observations.json`
 
-Prior run reached ~2 h / 121 samples plus 25 clean backend rounds before USB dock/power disappearance; partial runs are not additive. Obtain one new uninterrupted >=4 h / >=240-sample run on the same image. Human visual/touch observation remains required. This historical PASS cannot be copied to the newer Industrial UI image.
+Physically prove native 800x480 layout/touch/roles; Network scan/select/manual/connect/restart; Grid, Gen1..3, Transfer and Sync source mappings; alarm filters/sorts and Engineering-only acknowledgement; real board↔bench-simulator Modbus counter/value activity; browser/API/resource health; and one uninterrupted >=4 h / >=240-sample run. PR #179 remains Draft/frozen until genuine PASS. Historical Waveshare evidence cannot transfer.
 
-## B-002 — Historical Waveshare backend parity + persistence/ARM
-
-**Issues:** #25/#26  
-**State:** BLOCKED UNTIL B-001 PASS  
-**Automation:** PR #150
-
-After B-001, execute backend parity/recovery and save/readback/reboot/restore/interrupted-save/ARM matrices on the same accepted historical identity.
-
-## B-003 — Generator transition physical bench
+## B-002 — Generator transition physical bench
 
 **Lane:** L2 / #80  
 **Runtime candidate:** Draft PR #106 head `a1620789235d21b515f9f245f2329fab88b50558`  
 **State:** SOFTWARE GREEN / PHYSICAL BENCH PENDING  
 **Automation:** PR #151
 
-Physical Grid<->Transfer<->Generator, island, supported sync, stale/conflict/source-loss, source-contact evidence, meter sign/scaling and recovery dwell must pass. Then replay identical runtime behavior to latest `dev` and re-earn CI before merge.
+Physical Grid<->Transfer<->Generator, island/sync, stale/conflict/source-loss, source-contact evidence, meter sign/scaling and recovery dwell must pass. Then replay equivalent runtime behavior to current `dev` and re-earn exact-head CI before merge.
 
-## B-004 — Real site source commissioning
+## B-003 — Real site source commissioning
 
 **Lane:** L5 / #81  
 **State:** PHYSICAL SITE INPUT/EXECUTION PENDING  
@@ -36,58 +30,52 @@ Physical Grid<->Transfer<->Generator, island, supported sync, stale/conflict/sou
 
 Need exact breaker/run/ATS/sync provenance, manual/wiring reference, terminal/register/address/mask/polarity, physical before/after toggle, stale/recovery and meter CT/PT/type/word-order/scale/sign. kW sign cannot manufacture source authority.
 
-## B-005 — Production inverter profiles
+## B-004 — Production inverter profiles
 
 **Lane:** L6 / #82  
-**State:** EXACT OFFICIAL DOCUMENT + MODEL-SPECIFIC BENCH PENDING  
+**State:** EXACT OFFICIAL MODEL/FIRMWARE/MANUAL + BENCH + SIGNED APPROVAL PENDING  
 **Automation:** PR #158
 
-Generic write safety is complete, but each deployed inverter model still requires exact official manual/model/firmware applicability, identity/telemetry/status proof, command/readback/tolerance/failure/rollback bench evidence and signed production approval. Wrong-family or guessed register maps remain forbidden.
+Current catalogue entries `huawei.sun2000.pending`, `goodwe.commercial.pending`, `solis.commercial.pending` and `foxess.commercial.pending` are intentionally fail-closed. Each deployed model requires exact official manual applicability, physical identity/telemetry/status, controlled write/readback/failure/rollback/safe-zero and signed production approval. Wrong-family or guessed maps remain forbidden.
 
-## B-006 — Secure OTA physical qualification
+## B-005 — Secure OTA physical qualification
 
-**Lane:** L4 / #86/#50  
-**State:** REAL CONTROLLER MATRIX PENDING AFTER INTENDED RELEASE IDENTITY FREEZE  
+**Lane:** L4 / #86  
+**State:** REAL CONTROLLER MATRIX PENDING ON EXACT INTENDED FINAL RELEASE IDENTITY  
 **Automation:** PR #152
 
-Execute authenticated upload, invalid rejection before write, interruption, power loss, partial-image non-selection, previous-slot recovery, explicit reboot, pending verification, mark-valid, deliberate rollback, fail-closed control and NVS persistence on one immutable intended OTA release identity.
+Execute authenticated upload, invalid-image rejection before write, interrupted upload, power loss, partial-image non-selection, previous-slot boot, pending verification, mark-valid, deliberate rollback, fail-closed control and NVS persistence.
 
-## B-007 — Integrated Grid/DG/Modbus endurance and signed SAT
+## B-006 — Integrated Grid/DG/Modbus endurance and signed SAT
 
 **Lane:** L7 / #83  
 **State:** BLOCKED BY PREREQUISITE PHYSICAL GATES  
 **Automation:** PR #160
 
-Final execution requires complete Grid, Generator and mixed-source FAT; all three Modbus modes; slow/dead/exception/reset/reconnect/gateway/Wi-Fi/multi-device endurance; resource trends; zero fatal/reset/resource-collapse counters; and authorized signed SAT tied to exact release SHA/config/profile/source-map/UI identity.
+Final execution requires complete Grid, Generator and mixed-source FAT; all three Modbus modes; slow/dead/exception/reset/reconnect/gateway/Wi-Fi/multi-device endurance; resource trends; zero fatal/reset/resource-collapse counters; accepted UI and OTA physical references; and authorized signed SAT tied to exact release identity.
 
-## B-008 — Rev-A H2 reproducibility + H4 prototype
+## B-007 — Rev-A H2 reproducibility + H4 prototype
 
 **Lane:** L9 / #85/#162  
-**State:** HISTORICAL H2 DRC PASS NON-REPRODUCIBLE / NEW CONTROLLED H2 REQUIRED / H4 PENDING  
-**Historical evidence:** run `33797012638`; provider artifact `9909976209`, digest `sha256:869bc723cd05f106aab850aa3de65bb4b46d600b77bc08e91dbedcaef41bd496`
+**State:** NEW CONTROLLED H2 REQUIRED / H4 PENDING  
+**Historical provider artifact:** `9909976209` — evidence only, not fabrication authority  
+**Reproducibility run:** `33884657384` — DRC FAIL, 20 violations / 0 unconnected
 
-PR #163 head `f020be6bcabc8dec6c05d80aaf00ec47fe6476b4` removed the post-checkpoint `.kicad_dru` relaxation and replayed the original KiCad 10.0.5 upgrade/refill/save DRC semantics on a copy of frozen checkpoint `324e0db1600c2fd883d83f923a0c442669b237f0`. Run `33884657384` still failed DRC with 20 violations / 0 unconnected while provenance, ERC, design-control, HW-interface, power budget, SI, stats and STEP passed. The violations are J2 USB-C internal hole clearance (4), J3 RJ45 edge clearance (2), U1 ESP32 edge clearance (2), and U1 thermal-via minimum drill (12). Evidence artifact `9941333133`, digest `sha256:668ab99694a0408b673b6b2875d396286bf965dce1a01f1de7de09c8540760b3`.
+Before new H2, obtain authoritative component/fabricator evidence for any footprint/manufacturing exception and commit approved rules. Then rerun ERC/DRC/SI/STEP/provider packaging to a new exact H2 identity. H4 fabrication and electrical/comms/relay/enclosure/thermal/environmental qualification follow only from that new accepted package.
 
-Do not merge #163 as a PASS and do not fabricate from the historical provider ZIP. A new controlled H2 acceptance is required with authoritative component/fabricator evidence for any exceptions, approved rules committed before checkpoint, fresh ERC/DRC/SI/STEP/provider package, and a new exact H2 identity. Only after that may #162 H4 fabricated-board electrical/communications/relay/enclosure/thermal/environmental acceptance begin.
+## B-008 — Historical Waveshare final acceptance (separate legacy lane)
 
-## B-009 — Industrial UI v1 exact-image Waveshare acceptance
+**Lane:** L3 / #87/#27/#25/#26  
+**Exact candidate:** `87841ecee727fe1d814d4186be8c8c26e4afafb4`  
+**State:** SHORT PASS / >=4 H CONTINUOUS SOAK PENDING  
+**Automation:** PR #159 then PR #150
 
-**Lane:** L16 / #164/#174  
-**Software baseline:** PR #176 merge `14d13a0d6e5c4b4b95cea35b8cc32f1880ae8134`  
-**State:** SOFTWARE COMPLETE / NEW EXACT-IMAGE PHYSICAL HMI ACCEPTANCE PENDING  
-**Automation:** PR #175 merge `9a22d56b9749a7689581e2b8f5e92df3c1e58038`
+Prior run reached ~2 h / 121 samples before bench power-path interruption; partial runs are not additive. After one genuine >=4 h / >=240-sample PASS, complete backend parity/recovery and persistence/ARM on the same old identity. This lane does not qualify PR #179.
 
-Select one immutable new Industrial UI Waveshare-capable firmware/package identity and physically prove native 800x480 Overview/Grid/Solar/Alarms/Readiness layout, Engineering Commission/Configure/Service workflows, light/dark readability, touchscreen/role behavior, browser/API responsiveness, resource stability and one uninterrupted >=4 h / >=240-sample same-image observation. Do not inherit #87/#27 `87841ece...` evidence and do not treat PR #175 validator PASS as hardware PASS.
+## Final closure blocker
 
-## Resolved infrastructure/tooling blockers
+**#91 / #79:** after all required physical gates pass, bind exact release SHA/artifact/config/site maps/approved inverter profiles/UI/OTA/FAT/SAT evidence and require zero critical blockers before release closure.
 
-- Generator physical record infrastructure — PR #151.
-- Secure OTA physical record infrastructure — PR #152.
-- Site source commissioning record infrastructure — PR #156.
-- Inverter production qualification record infrastructure — PR #158.
-- Waveshare automated soak capture infrastructure — PR #159.
-- Integrated FAT/endurance/SAT record infrastructure — PR #160.
-- Industrial UI exact-image physical record infrastructure — PR #175.
-- Browser socket/LRU/PSRAM resilience regression gate — PR #173.
+## Resolved software/tooling blockers
 
-No new software patch should be created merely to avoid executing a physical gate. New code is justified only by an observed defect, missing capability, failed current evidence contract or governed integration defect.
+Current release evidence authority is complete through PR #181. No new software patch should be created merely to avoid executing a physical gate. New code is justified only by an observed current defect, missing capability, failed evidence contract or governed integration defect.
