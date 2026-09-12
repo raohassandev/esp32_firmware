@@ -1,7 +1,7 @@
-version: 6
-updated_at: 2026-09-12T16:47:00+05:00
+version: 7
+updated_at: 2026-09-12T23:20:00+05:00
 master_issue: 79
-reconciliation_parent_before_this_revision: f924726db9c24ab55ebe4f43fe28caf75a9b2c3d
+reconciliation_parent_before_this_revision: c333db0752be89bdcb9bfbda01e2f19a1f05709f
 truth_rule: live_repository_over_stale_docs
 
 wip_policy:
@@ -57,8 +57,8 @@ agents:
     role: CODER_RELEASE_EVIDENCE_AND_AUTOMATION
     owner: ChatGPT
     qa: GitHub_Actions
-    status: COMPLETE_FOR_CURRENT_RELEASE_PHYSICAL_GATES_AFTER_V3_MERGE
-    evidence_prs: [142, 150, 151, 152, 156, 158, 159, 160, 175, 181, 183]
+    status: TOOLING_COMPLETE_FINAL_PHYSICAL_RECORDS_PENDING
+    evidence_prs: [142, 150, 151, 152, 156, 158, 159, 160, 175, 181, 183, 187, 188]
     coverage:
       - current_industrial_ui_exact_image_network_source_alarm_modbus_and_endurance_acceptance
       - generator_source_transition
@@ -66,6 +66,8 @@ agents:
       - site_source_commissioning
       - inverter_model_physical_qualification
       - integrated_fat_modbus_endurance_and_signed_sat
+      - reva_h4_identity_bound_physical_acceptance
+      - final_release_traceability_manifest
       - retired_historical_waveshare_evidence_validation_preserved_for_traceability_only
     rules:
       - validator_pass_does_not_equal_physical_pass
@@ -73,6 +75,7 @@ agents:
       - incomplete_records_fail_closed
       - thresholds_cannot_be_lowered_to_manufacture_pass
       - optional_topology_absence_requires_explicit_reason_not_fake_pass
+      - final_release_manifest_cannot_inherit_cross_identity_pass_without_explicit_governed_replay
 
   industrial_ui_physical_team:
     role: PHYSICAL_EXECUTOR_QA_L16
@@ -81,15 +84,6 @@ agents:
     candidate_sha: 72a1a82a8fc5ad4406b5bd51fba1f80f9c182884
     candidate_artifact_id: 10293685030
     status: READY_FOR_REAL_PANEL_EXECUTION_NOT_PASSED
-    requirements:
-      - exact_candidate_identity
-      - real_native_panel_visual_touch_role_observations
-      - real_network_workflow
-      - grid_gen1_gen2_gen3_mapping_roundtrips
-      - explicit_transfer_and_sync_applicability
-      - real_alarm_role_filter_sort_ack_observations
-      - real_board_modbus_counter_and_decoded_value_evidence
-      - uninterrupted_4h_240_sample_soak
 
   historical_waveshare_lane:
     role: RETIRED_EVIDENCE_ONLY
@@ -144,12 +138,27 @@ agents:
     h2_requalification_issue: 178
     planning_pr: 18
     implementation_pr: 19
+    h2_repair_pr: 185
     h4_issue: 162
-    status: NEW_CONTROLLED_H2_REQUIRED_THEN_H4_PHYSICAL
+    h4_tooling_pr: 187
+    h2_freeze_sha: a877e5d844af114a6e4386f6294f514288ca5df6
+    provider_rfq_artifact_id: 10300571374
+    status: H2_CAD_REQUALIFIED_INTENDED_FABRICATOR_DFM_AND_H4_PHYSICAL_PENDING
     rules:
-      - historical_provider_package_is_not_final_fabrication_authority
-      - no_DRC_rule_exception_without_authoritative_component_and_intended_fabricator_evidence
-      - approved_rules_before_checkpoint
+      - current_H2_is_clean_CAD_and_RFD_DFM_candidate_not_fabrication_approval
+      - intended_fabricator_written_DFM_required_before_fabrication_authority
+      - no_DRC_rule_weakening_to_create_pass
+      - H4_validator_does_not_create_physical_pass
+
+  release_traceability_team:
+    role: L11_FINAL_RELEASE_EVIDENCE_BINDING
+    owner: ChatGPT
+    qa: GitHub_Actions_plus_authorized_release_signoff
+    issue: 91
+    tooling_pr: 188
+    validator: tools/release_traceability_verify.py
+    starter: evidence/candidates/final_release_traceability_observations.json
+    status: TOOLING_COMPLETE_FINAL_EXACT_RELEASE_EVIDENCE_PENDING
 
   qa_ci:
     role: SOFTWARE_AND_DESIGN_QA
@@ -160,6 +169,8 @@ agents:
       - industrial_ui_and_physical_tool_gates
       - browser_resilience
       - secure_ota_always_on_regression
+      - release_traceability_regression
+      - reva_h4_evidence_regression
       - exact_head_evidence_only
       - never_substitute_ci_for_physical_acceptance
 
@@ -178,5 +189,5 @@ separation_rules:
   - evidence_tooling_does_not_create_physical_acceptance
   - no_guessed_registers_polarity_timing_topology_protocol_or_hardware_rules
   - physical_pass_does_not_transfer_to_changed_identity_without_explicit_equivalence_gate
-  - non_reproducible_hardware_checkpoint_cannot_authorize_fabrication
+  - clean_H2_CAD_checkpoint_does_not_equal_fabricator_DFM_acceptance
   - superseded_historical_lane_closure_does_not_convert_incomplete_evidence_into_pass
