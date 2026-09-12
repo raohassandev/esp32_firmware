@@ -4,8 +4,8 @@
 This tool never creates physical evidence and never turns CAD/CI results into a
 hardware PASS. It validates a record produced by an authorized physical
 executor against the exact H2/provider/firmware identity supplied on the CLI.
-Missing, ambiguous, contradictory, skipped-mandatory, or unsafe evidence fails
-closed.
+Missing, ambiguous, contradictory, skipped-mandatory, cross-artifact, or unsafe
+evidence fails closed.
 """
 
 from __future__ import annotations
@@ -65,6 +65,7 @@ class H4Result:
     h2_checkpoint_sha: str
     provider_artifact_digest: str
     firmware_sha: str
+    firmware_artifact_digest: str
     board_serial: str
     tests_seen: list[str]
     failures: list[str]
@@ -113,12 +114,15 @@ def _check_identity(
     expected_h2_sha: str,
     expected_provider_digest: str,
     expected_firmware_sha: str,
+    expected_firmware_artifact_digest: str,
     failures: list[str],
-) -> tuple[str, str, str, str]:
+) -> tuple[str, str, str, str, str]:
     h2 = str(record.get("h2_checkpoint_sha", "")).strip().lower()
     provider = str(record.get("provider_artifact_digest", "")).strip().lower()
     firmware = _dict(record.get("firmware"))
     fw_sha = str(firmware.get("sha", "")).strip().lower()
+    fw_digest = str(firmware.get("artifact_digest", "")).strip().lower()
+    expected_fw_digest = str(expected_firmware_artifact_digest or "").strip().lower()
     board = _dict(record.get("board_identity"))
     board_serial = str(board.get("board_serial", "")).strip()
 
@@ -139,8 +143,12 @@ def _check_identity(
         failures.append("provider_artifact_ref_missing")
     if not _text(firmware.get("artifact_ref"), 4):
         failures.append("firmware_artifact_ref_missing")
-    if not SHA256.fullmatch(str(firmware.get("artifact_digest", "")).strip().lower()):
+    if not SHA256.fullmatch(fw_digest):
         failures.append("firmware_artifact_digest_invalid")
+    if not SHA256.fullmatch(expected_fw_digest):
+        failures.append("expected_firmware_artifact_digest_invalid")
+    elif fw_digest != expected_fw_digest:
+        failures.append("firmware_artifact_digest_mismatch")
 
     for key in ("pcb_lot", "pcba_lot", "board_serial", "bom_variant", "assembly_variant"):
         if not _text(board.get(key), 2):
@@ -149,10 +157,10 @@ def _check_identity(
     if not isinstance(substitutions, list):
         failures.append("approved_substitutions_not_list")
 
-    return h2, provider, fw_sha, board_serial
+    return h2, provider, fw_sha, fw_digest, board_serial
 
 
-def _check_fabricator(record: dict[str, Any], failures: list[str]) -> None:
+def _check_fabricator(record: dict[str, Any], failures: list[str]) -> datetime | None:
     fab = _dict(record.get("fabricator"))
     if not _text(fab.get("name"), 2):
         failures.append("fabricator_name_missing")
@@ -160,7 +168,10 @@ def _check_fabricator(record: dict[str, Any], failures: list[str]) -> None:
         failures.append("fabricator_dfm_not_accepted")
     if not _text(fab.get("dfm_acceptance_ref"), 4):
         failures.append("fabricator_dfm_acceptance_ref_missing")
-    if _timestamp(fab.get("dfm_accepted_at")) is None:
+    if not SHA256.fullmatch(str(fab.get("dfm_acceptance_digest", "")).strip().lower()):
+        failures.append("fabricator_dfm_acceptance_digest_invalid")
+    accepted_at = _timestamp(fab.get("dfm_accepted_at"))
+    if accepted_at is None:
         failures.append("fabricator_dfm_accepted_at_invalid")
     minima = _dict(fab.get("accepted_minima_mm"))
     expected = {"drill": 0.20, "hole_clearance": 0.18, "copper_edge": 0.25}
@@ -169,9 +180,12 @@ def _check_fabricator(record: dict[str, Any], failures: list[str]) -> None:
             failures.append(f"fabricator_minimum_missing:{key}")
         elif float(minima[key]) > target + 1e-9:
             failures.append(f"fabricator_minimum_does_not_accept_h2:{key}")
+    return accepted_at
 
 
-def _check_bench(record: dict[str, Any], failures: list[str]) -> None:
+def _check_bench(
+    record: dict[str, Any], failures: list[str]
+) -> tuple[datetime | None, datetime | None]:
     bench = _dict(record.get("bench"))
     for key in ("executor", "supply_model", "enclosure_revision"):
         if not _text(bench.get(key), 2):
@@ -188,6 +202,7 @@ def _check_bench(record: dict[str, Any], failures: list[str]) -> None:
         failures.append("bench_current_limit_invalid")
     if not _refs(bench.get("instrument_refs"), 1):
         failures.append("bench_instrument_refs_missing")
+    return started, ended
 
 
 def _check_runtime(record: dict[str, Any], failures: list[str]) -> None:
@@ -201,7 +216,28 @@ def _check_runtime(record: dict[str, Any], failures: list[str]) -> None:
         failures.append("runtime_serial_log_refs_missing")
 
 
-def _check_pass_test(test: dict[str, Any], test_id: str, failures: list[str]) -> None:
+def _check_time_window(
+    prefix: str,
+    started: datetime | None,
+    ended: datetime | None,
+    bench_started: datetime | None,
+    bench_ended: datetime | None,
+    failures: list[str],
+) -> None:
+    if started is not None and bench_started is not None and started < bench_started:
+        failures.append(f"{prefix}:started_before_bench")
+    if ended is not None and bench_ended is not None and ended > bench_ended:
+        failures.append(f"{prefix}:ended_after_bench")
+
+
+def _check_pass_test(
+    test: dict[str, Any],
+    test_id: str,
+    failures: list[str],
+    bench_started: datetime | None = None,
+    bench_ended: datetime | None = None,
+    enforce_bench_window: bool = True,
+) -> datetime | None:
     prefix = f"test:{test_id}"
     started = _timestamp(test.get("started_at"))
     ended = _timestamp(test.get("ended_at"))
@@ -211,6 +247,10 @@ def _check_pass_test(test: dict[str, Any], test_id: str, failures: list[str]) ->
         failures.append(f"{prefix}:ended_at_invalid")
     if started is not None and ended is not None and ended <= started:
         failures.append(f"{prefix}:time_not_increasing")
+    if enforce_bench_window:
+        _check_time_window(prefix, started, ended, bench_started, bench_ended, failures)
+    if not _text(test.get("stimulus"), 8):
+        failures.append(f"{prefix}:stimulus_missing")
     if not _text(test.get("expected"), 8):
         failures.append(f"{prefix}:expected_missing")
     if not _text(test.get("observed"), 8):
@@ -220,21 +260,35 @@ def _check_pass_test(test: dict[str, Any], test_id: str, failures: list[str]) ->
     measurements = test.get("measurements")
     if not isinstance(measurements, dict):
         failures.append(f"{prefix}:measurements_not_object")
+    elif not measurements:
+        failures.append(f"{prefix}:measurements_empty")
+    return ended
 
 
-def _check_optional_test(test: dict[str, Any], failures: list[str]) -> None:
+def _check_optional_test(
+    test: dict[str, Any],
+    failures: list[str],
+    bench_started: datetime | None,
+    bench_ended: datetime | None,
+) -> datetime | None:
     status = str(test.get("status", "")).strip()
     prefix = f"test:{OPTIONAL_FEATURE_TEST}"
     populated = test.get("populated_features")
     absent = test.get("not_populated_features")
     if not isinstance(populated, list) or not isinstance(absent, list):
         failures.append(f"{prefix}:feature_lists_missing")
-        return
+        return None
     if status == "PASS":
         if not populated:
             failures.append(f"{prefix}:pass_without_populated_features")
-        _check_pass_test(test, OPTIONAL_FEATURE_TEST, failures)
-    elif status == "SKIPPED_NOT_POPULATED":
+        return _check_pass_test(
+            test,
+            OPTIONAL_FEATURE_TEST,
+            failures,
+            bench_started,
+            bench_ended,
+        )
+    if status == "SKIPPED_NOT_POPULATED":
         if populated:
             failures.append(f"{prefix}:skip_with_populated_features")
         if not absent:
@@ -243,29 +297,53 @@ def _check_optional_test(test: dict[str, Any], failures: list[str]) -> None:
             failures.append(f"{prefix}:skip_reason_missing")
         if not _refs(test.get("evidence_refs"), 1):
             failures.append(f"{prefix}:population_evidence_missing")
-    else:
-        failures.append(f"{prefix}:invalid_status")
+        started = _timestamp(test.get("started_at"))
+        ended = _timestamp(test.get("ended_at"))
+        if started is None:
+            failures.append(f"{prefix}:started_at_invalid")
+        if ended is None:
+            failures.append(f"{prefix}:ended_at_invalid")
+        if started is not None and ended is not None and ended <= started:
+            failures.append(f"{prefix}:time_not_increasing")
+        _check_time_window(prefix, started, ended, bench_started, bench_ended, failures)
+        return ended
+    failures.append(f"{prefix}:invalid_status")
+    return None
 
 
-def _check_external_lab(test: dict[str, Any], failures: list[str]) -> None:
+def _check_external_lab(test: dict[str, Any], failures: list[str]) -> datetime | None:
     status = str(test.get("status", "")).strip()
     prefix = f"test:{EXTERNAL_LAB_TEST}"
     if status == "PASS":
-        _check_pass_test(test, EXTERNAL_LAB_TEST, failures)
+        ended = _check_pass_test(
+            test,
+            EXTERNAL_LAB_TEST,
+            failures,
+            enforce_bench_window=False,
+        )
         if not _text(test.get("lab_name"), 2):
             failures.append(f"{prefix}:lab_name_missing")
         if not _text(test.get("report_ref"), 4):
             failures.append(f"{prefix}:report_ref_missing")
-    elif status == "DEFERRED_EXTERNAL_LAB":
+        if not SHA256.fullmatch(str(test.get("report_digest", "")).strip().lower()):
+            failures.append(f"{prefix}:report_digest_invalid")
+        return ended
+    if status == "DEFERRED_EXTERNAL_LAB":
         if not _text(test.get("status_reason"), 12):
             failures.append(f"{prefix}:defer_reason_missing")
         if not _text(test.get("deferred_plan_ref"), 4):
             failures.append(f"{prefix}:deferred_plan_ref_missing")
-    else:
-        failures.append(f"{prefix}:invalid_status")
+        return None
+    failures.append(f"{prefix}:invalid_status")
+    return None
 
 
-def _check_tests(record: dict[str, Any], failures: list[str]) -> list[str]:
+def _check_tests(
+    record: dict[str, Any],
+    failures: list[str],
+    bench_started: datetime | None,
+    bench_ended: datetime | None,
+) -> tuple[list[str], datetime | None]:
     raw = record.get("tests")
     tests = raw if isinstance(raw, list) else []
     if not isinstance(raw, list):
@@ -285,6 +363,7 @@ def _check_tests(record: dict[str, Any], failures: list[str]) -> list[str]:
             continue
         seen[test_id] = item
 
+    latest_end: datetime | None = None
     for test_id in H4_TEST_IDS:
         if test_id not in seen:
             failures.append(f"test_missing:{test_id}")
@@ -294,17 +373,26 @@ def _check_tests(record: dict[str, Any], failures: list[str]) -> list[str]:
         if status not in VALID_STATUS:
             failures.append(f"test:{test_id}:status_invalid")
             continue
+        ended: datetime | None = None
         if test_id in MANDATORY_TESTS:
             if status != "PASS":
                 failures.append(f"test:{test_id}:mandatory_not_pass")
             else:
-                _check_pass_test(test, test_id, failures)
+                ended = _check_pass_test(
+                    test,
+                    test_id,
+                    failures,
+                    bench_started,
+                    bench_ended,
+                )
         elif test_id == OPTIONAL_FEATURE_TEST:
-            _check_optional_test(test, failures)
+            ended = _check_optional_test(test, failures, bench_started, bench_ended)
         elif test_id == EXTERNAL_LAB_TEST:
-            _check_external_lab(test, failures)
+            ended = _check_external_lab(test, failures)
+        if ended is not None and (latest_end is None or ended > latest_end):
+            latest_end = ended
 
-    return sorted(seen)
+    return sorted(seen), latest_end
 
 
 def evaluate(
@@ -312,39 +400,61 @@ def evaluate(
     expected_h2_sha: str,
     expected_provider_digest: str,
     expected_firmware_sha: str,
+    expected_firmware_artifact_digest: str,
 ) -> H4Result:
     failures: list[str] = []
 
     if record.get("evidence_state") != "EXECUTED_PHYSICAL_EVIDENCE":
         failures.append("evidence_state_not_executed")
 
-    h2, provider, firmware, board_serial = _check_identity(
+    h2, provider, firmware, firmware_digest, board_serial = _check_identity(
         record,
         expected_h2_sha,
         expected_provider_digest,
         expected_firmware_sha,
+        expected_firmware_artifact_digest,
         failures,
     )
-    _check_fabricator(record, failures)
-    _check_bench(record, failures)
+    dfm_accepted_at = _check_fabricator(record, failures)
+    bench_started, bench_ended = _check_bench(record, failures)
+    if (
+        dfm_accepted_at is not None
+        and bench_started is not None
+        and dfm_accepted_at > bench_started
+    ):
+        failures.append("fabricator_dfm_accepted_after_bench_started")
     _check_runtime(record, failures)
-    tests_seen = _check_tests(record, failures)
+    tests_seen, latest_test_end = _check_tests(
+        record,
+        failures,
+        bench_started,
+        bench_ended,
+    )
 
     signoff = _dict(record.get("signoff"))
     if signoff.get("accepted") is not True:
         failures.append("signoff_not_accepted")
     if not _text(signoff.get("authorized_by"), 2):
         failures.append("signoff_authorized_by_missing")
-    if _timestamp(signoff.get("accepted_at")) is None:
+    accepted_at = _timestamp(signoff.get("accepted_at"))
+    if accepted_at is None:
         failures.append("signoff_accepted_at_invalid")
+    latest_required = bench_ended
+    if latest_test_end is not None and (latest_required is None or latest_test_end > latest_required):
+        latest_required = latest_test_end
+    if accepted_at is not None and latest_required is not None and accepted_at < latest_required:
+        failures.append("signoff_before_testing_completed")
     if not _text(signoff.get("evidence_package_ref"), 4):
         failures.append("signoff_evidence_package_ref_missing")
+    if not SHA256.fullmatch(str(signoff.get("evidence_package_digest", "")).strip().lower()):
+        failures.append("signoff_evidence_package_digest_invalid")
 
     return H4Result(
         passed=not failures,
         h2_checkpoint_sha=h2,
         provider_artifact_digest=provider,
         firmware_sha=firmware,
+        firmware_artifact_digest=firmware_digest,
         board_serial=board_serial,
         tests_seen=tests_seen,
         failures=failures,
@@ -357,6 +467,7 @@ def main() -> int:
     parser.add_argument("--expected-h2-sha", required=True)
     parser.add_argument("--expected-provider-digest", required=True)
     parser.add_argument("--expected-firmware-sha", required=True)
+    parser.add_argument("--expected-firmware-artifact-digest", required=True)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
@@ -374,6 +485,7 @@ def main() -> int:
         expected_h2_sha=args.expected_h2_sha,
         expected_provider_digest=args.expected_provider_digest,
         expected_firmware_sha=args.expected_firmware_sha,
+        expected_firmware_artifact_digest=args.expected_firmware_artifact_digest,
     )
     if args.json:
         print(json.dumps(asdict(result), indent=2, sort_keys=True))
@@ -383,6 +495,7 @@ def main() -> int:
             print(f"- {failure}")
         print(f"- h2_checkpoint_sha={result.h2_checkpoint_sha}")
         print(f"- firmware_sha={result.firmware_sha}")
+        print(f"- firmware_artifact_digest={result.firmware_artifact_digest}")
         print(f"- board_serial={result.board_serial}")
         print(f"- tests_seen={','.join(result.tests_seen)}")
     return 0 if result.passed else 1
