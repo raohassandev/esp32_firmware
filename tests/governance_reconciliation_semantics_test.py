@@ -83,9 +83,10 @@ def main() -> None:
     assert "release_dependency: false" in gates
 
     todo = contents["TODO.md"]
-    assert "## RETIRED HISTORICAL WAVESHARE EVIDENCE" in todo
-    assert "issues #24/#25/#26/#27/#87 and PRs #20/#57/#67 were closed" in todo
-    assert "- [ ] **L3 / #87/#27" not in todo
+    todo_lower = todo.lower()
+    assert "## retired historical waveshare evidence" in todo_lower
+    assert "issues #24/#25/#26/#27/#87 and prs #20/#57/#67 were closed" in todo_lower
+    assert "- [ ] **l3 / #87/#27" not in todo_lower
 
     blockers = contents["BLOCKERS.md"]
     assert "## RETIRED — Historical Waveshare acceptance graph" in blockers
