@@ -41,7 +41,7 @@ A record that is internally self-consistent but belongs to a different device, m
 
 ## Physical read-only stage
 
-Capture start/end timestamps, raw and decoded identity, telemetry cross-checks and physical status/fault correlation. Store an immutable evidence-package reference and SHA-256. No write may be attempted during this stage.
+Capture start/end timestamps, raw and decoded identity, and the separately observed manufacturer, model and inverter-firmware values. Those observed values must exactly match the frozen identity; a boolean `identity_matches=true` cannot substitute for the recorded values. Also capture telemetry cross-checks and physical status/fault correlation. Store an immutable evidence-package reference and SHA-256. No write may be attempted during this stage.
 
 ## Physical write stage
 
@@ -59,7 +59,7 @@ Keep automatic control disabled and use an authorized bench/site condition where
 - rollback/failure-path evidence with original and restored measured values;
 - reconnect identity revalidation and proof that stale identity blocks write authority.
 
-The validator independently checks measured command/readback and rollback differences against the documented tolerance; a boolean `pass` alone is not sufficient. Write qualification cannot start before read-only qualification has completed.
+The requested raw command must remain inside the exact manufacturer-documented raw range. The validator independently checks measured command/readback and rollback differences against the documented tolerance; a boolean `pass` alone is not sufficient. Write qualification cannot start before read-only qualification has completed.
 
 ## Production approval stage
 
