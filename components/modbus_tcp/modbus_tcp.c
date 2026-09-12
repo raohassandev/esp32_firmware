@@ -10,6 +10,8 @@
 
 #define MODBUS_MIN_TIMEOUT_MS 100U
 #define MODBUS_MAX_TIMEOUT_MS 60000U
+#define MODBUS_MAX_MBAP_LENGTH 254U
+#define MODBUS_MAX_STALE_FRAMES_PER_EXCHANGE 4U
 
 static void put_u16(uint8_t *dst, uint16_t value)
 {
@@ -255,36 +257,60 @@ static esp_err_t exchange(modbus_connection_t *c, const uint8_t *request, size_t
     err = send_all(c->socket_fd, request, request_len, deadline_us);
     if (err != ESP_OK) return err;
 
-    uint8_t header[7];
-    err = recv_all(c->socket_fd, header, sizeof(header), deadline_us);
-    if (err != ESP_OK) return err;
-    uint16_t transaction = get_u16(header);
-    uint16_t protocol = get_u16(header + 2);
-    uint16_t length = get_u16(header + 4);
-    if (transaction != c->transaction_id || protocol != 0 ||
-        header[6] != c->endpoint.unit_id || length < 2) {
-        return ESP_ERR_INVALID_RESPONSE;
+    /* Some TCP-to-RTU gateways can deliver a completed response from an older
+     * downstream RTU request before the response for the current TCP request.
+     * Never accept such a frame as current data, but do not let one stale ADU
+     * poison the stream either. Drain a bounded number of structurally valid
+     * stale ADUs and continue waiting for the exact TID + Unit ID under the
+     * SAME original deadline. The request is sent exactly once: this is receive
+     * resynchronisation, not a same-call retry/replay. */
+    uint8_t stale_body[MODBUS_MAX_MBAP_LENGTH - 1U];
+    unsigned stale_frames = 0U;
+    for (;;) {
+        uint8_t header[7];
+        err = recv_all(c->socket_fd, header, sizeof(header), deadline_us);
+        if (err != ESP_OK) return err;
+
+        uint16_t transaction = get_u16(header);
+        uint16_t protocol = get_u16(header + 2);
+        uint16_t length = get_u16(header + 4);
+        if (protocol != 0U || length < 2U || length > MODBUS_MAX_MBAP_LENGTH) {
+            return ESP_ERR_INVALID_RESPONSE;
+        }
+
+        size_t body_len = (size_t)length - 1U;
+        bool current_frame = transaction == c->transaction_id &&
+                             header[6] == c->endpoint.unit_id;
+        if (!current_frame) {
+            err = recv_all(c->socket_fd, stale_body, body_len, deadline_us);
+            if (err != ESP_OK) return err;
+            stale_frames++;
+            if (stale_frames > MODBUS_MAX_STALE_FRAMES_PER_EXCHANGE) {
+                return ESP_ERR_INVALID_RESPONSE;
+            }
+            continue;
+        }
+
+        if (body_len > pdu_capacity) return ESP_ERR_INVALID_SIZE;
+        err = recv_all(c->socket_fd, pdu, body_len, deadline_us);
+        if (err != ESP_OK) return err;
+        if (pdu[0] == (expected_function | 0x80U)) {
+            if (body_len != 2U) return ESP_ERR_INVALID_RESPONSE;
+            c->last_exception_valid = true;
+            c->last_exception_function = pdu[0];
+            c->last_exception_code = pdu[1];
+            c->last_exception_ms = (uint32_t)(now_us() / 1000LL);
+            c->exception_count++;
+            c->last_response_ms = c->last_exception_ms;
+            c->last_exchange_device_exception = true;
+            return ESP_ERR_INVALID_RESPONSE;
+        }
+        if (pdu[0] != expected_function) return ESP_ERR_INVALID_RESPONSE;
+        *pdu_length = body_len;
+        c->success_count++;
+        c->last_response_ms = (uint32_t)(now_us() / 1000LL);
+        return ESP_OK;
     }
-    size_t body_len = length - 1;
-    if (body_len > pdu_capacity) return ESP_ERR_INVALID_SIZE;
-    err = recv_all(c->socket_fd, pdu, body_len, deadline_us);
-    if (err != ESP_OK) return err;
-    if (pdu[0] == (expected_function | 0x80U)) {
-        if (body_len != 2U) return ESP_ERR_INVALID_RESPONSE;
-        c->last_exception_valid = true;
-        c->last_exception_function = pdu[0];
-        c->last_exception_code = pdu[1];
-        c->last_exception_ms = (uint32_t)(now_us() / 1000LL);
-        c->exception_count++;
-        c->last_response_ms = c->last_exception_ms;
-        c->last_exchange_device_exception = true;
-        return ESP_ERR_INVALID_RESPONSE;
-    }
-    if (pdu[0] != expected_function) return ESP_ERR_INVALID_RESPONSE;
-    *pdu_length = body_len;
-    c->success_count++;
-    c->last_response_ms = (uint32_t)(now_us() / 1000LL);
-    return ESP_OK;
 }
 
 esp_err_t modbus_tcp_read_registers(modbus_connection_t *c, uint8_t function_code,

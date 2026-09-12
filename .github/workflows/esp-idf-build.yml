@@ -25,7 +25,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Check browser modules
+      - name: Check browser and bench-tool modules
         run: |
           set -euo pipefail
           node --check web/theme.js
@@ -62,6 +62,8 @@ jobs:
           node --check web/solar-grid.js
           node --check tools/soltrix_modbus_simulator.js
           node --check tools/soltrix_modbus_simulator_test.js
+          node --check tools/modbus_high_speed_test.js
+          python3 -m py_compile tools/bench_board_simulator_comm_test.py
           node web/tests/wifi-utils.test.js
           node web/tests/devices-utils.test.js
           node web/tests/em500-utils.test.js
@@ -93,11 +95,21 @@ jobs:
             components/control_engine/power_control_policy.c \
             -lm -o /tmp/solar_grid_integration_test
           /tmp/solar_grid_integration_test
-      - name: Run SolTrix Modbus inverter simulator self-test
+      - name: Run SolTrix Modbus simulator self-test
         run: |
           set -euo pipefail
           node tools/soltrix_modbus_simulator.js --self-test
           node tools/soltrix_modbus_simulator_test.js
+      - name: Run strict Modbus high-speed loopback test
+        run: |
+          set -euo pipefail
+          node tools/modbus_high_speed_test.js --transactions=100
+      - name: Check Modbus high-speed test safety contract
+        run: python3 tests/modbus_high_speed_test_source_contract.py
+      - name: Check bench board-simulator runner safety contract
+        run: python3 tests/bench_board_simulator_comm_test_source_contract.py
+      - name: Check Waveshare source commissioning coverage
+        run: python3 tests/waveshare_source_commissioning_source_contract.py
       - name: Check telemetry source contract
         run: python3 tests/telemetry_source_contract.py
       - name: Check multi-meter configuration contract
