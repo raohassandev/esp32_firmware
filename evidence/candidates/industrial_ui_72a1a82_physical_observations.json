@@ -56,8 +56,12 @@
   "source_gen1_mapping_roundtrip_ok": false,
   "source_gen2_mapping_roundtrip_ok": false,
   "source_gen3_mapping_roundtrip_ok": false,
+  "source_transfer_configured": null,
   "source_transfer_mapping_roundtrip_ok": false,
+  "source_transfer_not_configured_reason": "",
+  "source_sync_configured": null,
   "source_sync_mapping_roundtrip_ok": false,
+  "source_sync_not_configured_reason": "",
   "source_save_forces_auto_disabled": false,
   "source_status_not_inferred_from_kw_sign": false,
   "alarm_filter_all_ok": false,
@@ -77,5 +81,5 @@
   "modbus_decoded_values_follow_simulator_changes": false,
   "roles_exercised": [],
   "routes_exercised": [],
-  "bench_notes": "This file is identity-bound starter evidence for #174 and is deliberately all-false/unexecuted. Change observation fields only from real measurements on this exact artifact. Never copy PASS fields from another candidate or historical Waveshare evidence."
+  "bench_notes": "This file is identity-bound starter evidence for #174 and is deliberately all-false/unexecuted. Change observation fields only from real measurements on this exact artifact. For Transfer/ATS and Sync, first record explicit configured applicability; configured channels require a real round-trip PASS, while absent/unsupported channels require roundtrip=false plus a non-empty factual reason. Never copy PASS fields from another candidate or historical Waveshare evidence."
 }

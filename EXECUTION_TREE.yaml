@@ -1,9 +1,11 @@
-version: 4
-updated_at: 2026-09-12T13:05:00+05:00
+version: 5
+updated_at: 2026-09-12T16:20:00+05:00
 repo: raohassandev/esp32_firmware
 master_issue: 79
 integration_branch: dev
-integration_head_at_snapshot: 7cb824a2341cb9072b1a3176afbd3685dec1a32a
+reconciliation_parent_before_this_revision: 8016c005be8d548e9388026a89592b70b92ec1a3
+reconciliation_parent_source: PR_182_merge
+snapshot_semantics: parent_is_known_pre_revision_baseline_live_dev_must_be_refetched_every_cycle
 truth_rule: live_repository_over_stale_docs
 wip_limit_ci_active_software_prs: 3
 preferred_ci_active_software_prs: 2
@@ -21,7 +23,7 @@ lanes:
     evidence_tooling_pr: 151
     status: SOFTWARE_GREEN_PHYSICAL_BENCH_PENDING
     merge_forbidden_until_physical_pass: true
-    post_pass_rule: replay_identical_validated_runtime_slice_onto_current_dev_then_fresh_exact_head_ci
+    post_pass_rule: replay_identical_validated_runtime_slice_onto_then_current_dev_then_fresh_exact_head_ci
 
   L3_historical_waveshare_release:
     issue: 87
@@ -68,11 +70,12 @@ lanes:
     issue: 84
     owner: ChatGPT
     qa: GitHub_Actions_and_diff_review
-    status: ACTIVE_RECONCILIATION_AFTER_PR181
-    active_reconciliation_branch: docs/governance-reconcile-waveshare-v2
+    status: CONTINUOUS_LIVE_RECONCILIATION
+    rule: reconciliation_documents_record_known_parent_not_future_merge_sha
 
   L9_reva_product_hardware:
     issue: 85
+    h2_requalification_issue: 178
     planning_pr: 18
     implementation_pr: 19
     h4_issue: 162
@@ -85,7 +88,7 @@ lanes:
       - historical_provider_package_is_evidence_only_not_fabrication_authority
       - authoritative_component_and_fabricator_evidence_required_before_rule_exceptions
       - approved_rules_must_precede_new_H2_checkpoint
-      - new_H2_must_rerun_ERC_DRC_SI_STEP_and_provider_package
+      - new_H2_must_rerun_ERC_DRC_UNCONNECTED_SI_STEP_and_provider_package
       - H4_physical_validation_required_after_fabrication
 
   L10_browser_final_audit:
@@ -123,14 +126,16 @@ lanes:
     rollback_enabled: true
     bench_engineering_http_auth_bypass: false
     bench_network_page_auth_bypass: false
-    evidence_tooling_prs: [175, 181]
+    evidence_tooling_prs: [175, 181, 183]
     identity_bound_starter: evidence/candidates/industrial_ui_72a1a82_physical_observations.json
     software_status: COMPLETE_GREEN_EXACT_IMAGE_FROZEN
     status: PHYSICAL_EXECUTION_PENDING
     physical_requirements:
       - native_800x480_visual_touch_role_matrix
       - network_scan_select_manual_connect_restart_and_wifi_indicator
-      - grid_gen1_gen2_gen3_transfer_sync_source_commissioning_roundtrips
+      - grid_gen1_gen2_gen3_source_commissioning_roundtrips
+      - transfer_ATS_explicit_applicability_configured_requires_roundtrip_unconfigured_requires_reason
+      - sync_explicit_applicability_configured_requires_roundtrip_unconfigured_requires_reason
       - alarm_all_active_unack_filters_priority_state_id_sorts_and_role_gated_ack
       - real_board_to_bench_simulator_modbus_counter_growth_and_decoded_value_changes
       - browser_api_history_responsiveness_and_resource_stability
@@ -138,10 +143,11 @@ lanes:
     historical_L3_pass_transfer_forbidden: true
     pr179_merge_forbidden_until_genuine_174_pass: true
 
-recent_governed_dev_merges:
+known_governed_merges_before_this_revision:
   pr_176: 14d13a0d6e5c4b4b95cea35b8cc32f1880ae8134
   pr_177: 150118a8425462e1756b115ddf3d463a022b395f
   pr_181: 7cb824a2341cb9072b1a3176afbd3685dec1a32a
+  pr_182: 8016c005be8d548e9388026a89592b70b92ec1a3
 
 release_done_definition:
   - all_release_target_software_merged_with_exact_head_zero_behind_gates
@@ -150,6 +156,6 @@ release_done_definition:
   - secure_ota_physical_rollback_interruption_matrix_complete
   - grid_dg_mixed_source_fat_and_modbus_network_endurance_complete
   - signed_sat_complete
-  - final_evidence_traceable_to_release_sha_config_profiles_ui_and_artifacts
+  - final_evidence_traceable_to_release_sha_tree_config_profiles_ui_and_artifacts
   - no_acceptance_threshold_weakened_to_manufacture_pass
   - no_open_critical_blockers

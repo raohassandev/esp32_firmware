@@ -62,6 +62,12 @@ def observations(**overrides):
         "reload_absent": True,
         "tear_or_corruption_absent": True,
         "wifi_connected_rssi_dbm": -55,
+        "source_transfer_configured": True,
+        "source_transfer_mapping_roundtrip_ok": True,
+        "source_transfer_not_configured_reason": "",
+        "source_sync_configured": True,
+        "source_sync_mapping_roundtrip_ok": True,
+        "source_sync_not_configured_reason": "",
         "modbus_request_count_before": 10,
         "modbus_request_count_after": 30,
         "modbus_success_count_before": 9,
@@ -129,9 +135,63 @@ def main():
     assert not source.passed
     assert "source_commissioning_not_passed:source_gen3_mapping_roundtrip_ok" in source.failures
 
-    transfer = evaluate(observations(source_transfer_mapping_roundtrip_ok=False))
-    assert not transfer.passed
-    assert "source_commissioning_not_passed:source_transfer_mapping_roundtrip_ok" in transfer.failures
+    transfer_required = evaluate(observations(source_transfer_mapping_roundtrip_ok=False))
+    assert not transfer_required.passed
+    assert "source_commissioning_not_passed:source_transfer_mapping_roundtrip_ok" in transfer_required.failures
+
+    transfer_absent = evaluate(observations(
+        source_transfer_configured=False,
+        source_transfer_mapping_roundtrip_ok=False,
+        source_transfer_not_configured_reason="Bench topology has no Transfer/ATS evidence channel",
+    ))
+    assert transfer_absent.passed, transfer_absent.failures
+
+    transfer_missing_reason = evaluate(observations(
+        source_transfer_configured=False,
+        source_transfer_mapping_roundtrip_ok=False,
+        source_transfer_not_configured_reason="",
+    ))
+    assert not transfer_missing_reason.passed
+    assert (
+        "source_commissioning_missing_not_configured_reason:source_transfer_not_configured_reason"
+        in transfer_missing_reason.failures
+    )
+
+    transfer_inconsistent = evaluate(observations(
+        source_transfer_configured=False,
+        source_transfer_mapping_roundtrip_ok=True,
+        source_transfer_not_configured_reason="Bench topology has no Transfer/ATS evidence channel",
+    ))
+    assert not transfer_inconsistent.passed
+    assert (
+        "source_commissioning_inconsistent_not_configured:source_transfer_mapping_roundtrip_ok"
+        in transfer_inconsistent.failures
+    )
+
+    sync_absent = evaluate(observations(
+        source_sync_configured=False,
+        source_sync_mapping_roundtrip_ok=False,
+        source_sync_not_configured_reason="Bench topology does not support synchronized Grid+Generator operation",
+    ))
+    assert sync_absent.passed, sync_absent.failures
+
+    invalid_optional_applicability = evaluate(observations(source_sync_configured=None))
+    assert not invalid_optional_applicability.passed
+    assert (
+        "source_commissioning_invalid_applicability:source_sync_configured"
+        in invalid_optional_applicability.failures
+    )
+
+    configured_with_skip_reason = evaluate(observations(
+        source_sync_configured=True,
+        source_sync_mapping_roundtrip_ok=True,
+        source_sync_not_configured_reason="not really absent",
+    ))
+    assert not configured_with_skip_reason.passed
+    assert (
+        "source_commissioning_inconsistent_configured_reason:source_sync_not_configured_reason"
+        in configured_with_skip_reason.failures
+    )
 
     alarm = evaluate(observations(alarm_operator_ack_refused=False))
     assert not alarm.passed and "alarm_not_passed:alarm_operator_ack_refused" in alarm.failures
@@ -184,8 +244,9 @@ def main():
     assert not wdt.passed
     assert any(x.startswith("waveshare:serial:fatal:task_wdt") for x in wdt.failures)
 
-    # Legacy evidence that satisfied the original #175 validator must fail v2
-    # until the new physical surfaces are actually exercised.
+    # Legacy evidence that satisfied the original #175 validator must fail v3
+    # until the new physical surfaces and optional-topology applicability are
+    # actually exercised/declared.
     legacy = observations()
     for group in (
         MOD.REQUIRED_NETWORK_FLAGS,
@@ -196,6 +257,9 @@ def main():
         for key in group:
             legacy.pop(key, None)
     for key in (
+        "source_transfer_configured", "source_transfer_mapping_roundtrip_ok",
+        "source_transfer_not_configured_reason", "source_sync_configured",
+        "source_sync_mapping_roundtrip_ok", "source_sync_not_configured_reason",
         "wifi_connected_rssi_dbm", "modbus_request_count_before", "modbus_request_count_after",
         "modbus_success_count_before", "modbus_success_count_after", "modbus_decoded_sample_count",
     ):
@@ -205,6 +269,7 @@ def main():
     assert not old_evidence.passed
     assert any(x.startswith("network_not_passed:") for x in old_evidence.failures)
     assert any(x.startswith("source_commissioning_not_passed:") for x in old_evidence.failures)
+    assert any(x.startswith("source_commissioning_invalid_applicability:") for x in old_evidence.failures)
     assert any(x.startswith("alarm_not_passed:") for x in old_evidence.failures)
     assert any(x.startswith("modbus:") for x in old_evidence.failures)
 
@@ -214,6 +279,12 @@ def main():
     assert template["browser_lockout_absent"] is False
     assert template["network_scan_ok"] is False
     assert template["source_gen3_mapping_roundtrip_ok"] is False
+    assert template["source_transfer_configured"] is None
+    assert template["source_transfer_mapping_roundtrip_ok"] is False
+    assert template["source_transfer_not_configured_reason"] == ""
+    assert template["source_sync_configured"] is None
+    assert template["source_sync_mapping_roundtrip_ok"] is False
+    assert template["source_sync_not_configured_reason"] == ""
     assert template["alarm_sort_priority_ok"] is False
     assert template["modbus_request_count_after"] == 0
     assert template["modbus_decoded_sample_count"] == 0
@@ -234,8 +305,14 @@ def main():
     ):
         for key in group:
             assert candidate[key] is False, key
+    assert candidate["source_transfer_configured"] is None
+    assert candidate["source_transfer_mapping_roundtrip_ok"] is False
+    assert candidate["source_transfer_not_configured_reason"] == ""
+    assert candidate["source_sync_configured"] is None
+    assert candidate["source_sync_mapping_roundtrip_ok"] is False
+    assert candidate["source_sync_not_configured_reason"] == ""
 
-    print("Industrial UI physical acceptance v2 tool tests passed")
+    print("Industrial UI physical acceptance v3 tool tests passed")
 
 
 if __name__ == "__main__":
