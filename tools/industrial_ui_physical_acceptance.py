@@ -7,11 +7,12 @@ gate with explicit human/bench observations for the Industrial UI workflow.
 CI validates evidence structure and fail-closed rules; it cannot create a
 physical PASS.
 
-The v2 acceptance surface intentionally covers the complete hardware workflow
-carried by the current Waveshare integration candidate: native Network
-commissioning, complete Grid/Generator/Transfer/Sync source mapping, alarm
-filter/sort/acknowledgement behavior, and real board-to-bench-simulator Modbus
-activity with monotonically increasing counters and decoded samples.
+The v3 acceptance surface covers the complete hardware workflow carried by the
+current Waveshare integration candidate: native Network commissioning, complete
+Grid/Generator source mapping, optional Transfer/ATS and Grid+Generator Sync
+mapping with explicit applicability, alarm filter/sort/acknowledgement behavior,
+and real board-to-bench-simulator Modbus activity with monotonically increasing
+counters and decoded samples.
 """
 from __future__ import annotations
 
@@ -54,10 +55,22 @@ REQUIRED_SOURCE_COMMISSIONING_FLAGS = (
     "source_gen1_mapping_roundtrip_ok",
     "source_gen2_mapping_roundtrip_ok",
     "source_gen3_mapping_roundtrip_ok",
-    "source_transfer_mapping_roundtrip_ok",
-    "source_sync_mapping_roundtrip_ok",
     "source_save_forces_auto_disabled",
     "source_status_not_inferred_from_kw_sign",
+)
+OPTIONAL_SOURCE_MAPPINGS = (
+    (
+        "transfer",
+        "source_transfer_configured",
+        "source_transfer_mapping_roundtrip_ok",
+        "source_transfer_not_configured_reason",
+    ),
+    (
+        "sync",
+        "source_sync_configured",
+        "source_sync_mapping_roundtrip_ok",
+        "source_sync_not_configured_reason",
+    ),
 )
 REQUIRED_ALARM_FLAGS = (
     "alarm_filter_all_ok",
@@ -102,7 +115,7 @@ class IndustrialUiResult:
     touch: dict[str, bool]
     runtime: dict[str, bool]
     network: dict[str, bool]
-    source_commissioning: dict[str, bool]
+    source_commissioning: dict
     alarms: dict[str, bool]
     modbus: dict
     base_waveshare: dict
@@ -126,6 +139,44 @@ def _flags(observations: dict, keys: tuple[str, ...], prefix: str, failures: lis
         result[key] = passed
         if not passed:
             failures.append(f"{prefix}_not_passed:{key}")
+    return result
+
+
+def _evaluate_optional_source_mapping(
+    observations: dict,
+    label: str,
+    configured_key: str,
+    roundtrip_key: str,
+    reason_key: str,
+    failures: list[str],
+) -> dict:
+    configured = observations.get(configured_key)
+    roundtrip = observations.get(roundtrip_key)
+    reason = observations.get(reason_key)
+
+    result = {
+        configured_key: configured,
+        roundtrip_key: roundtrip is True,
+        reason_key: reason if isinstance(reason, str) else "",
+    }
+
+    if not isinstance(configured, bool):
+        failures.append(f"source_commissioning_invalid_applicability:{configured_key}")
+        return result
+
+    if configured:
+        if roundtrip is not True:
+            failures.append(f"source_commissioning_not_passed:{roundtrip_key}")
+        if isinstance(reason, str) and reason.strip():
+            failures.append(f"source_commissioning_inconsistent_configured_reason:{reason_key}")
+        return result
+
+    if roundtrip is True:
+        failures.append(f"source_commissioning_inconsistent_not_configured:{roundtrip_key}")
+    if not isinstance(reason, str) or not reason.strip():
+        failures.append(f"source_commissioning_missing_not_configured_reason:{reason_key}")
+    else:
+        result[reason_key] = reason.strip()
     return result
 
 
@@ -190,9 +241,15 @@ def evaluate(
     touch = _flags(observations, REQUIRED_TOUCH_FLAGS, "touch", failures)
     runtime = _flags(observations, REQUIRED_RUNTIME_FLAGS, "runtime", failures)
     network = _flags(observations, REQUIRED_NETWORK_FLAGS, "network", failures)
-    source_commissioning = _flags(
+    source_commissioning: dict = _flags(
         observations, REQUIRED_SOURCE_COMMISSIONING_FLAGS, "source_commissioning", failures
     )
+    for label, configured_key, roundtrip_key, reason_key in OPTIONAL_SOURCE_MAPPINGS:
+        source_commissioning.update(
+            _evaluate_optional_source_mapping(
+                observations, label, configured_key, roundtrip_key, reason_key, failures
+            )
+        )
     alarms = _flags(observations, REQUIRED_ALARM_FLAGS, "alarm", failures)
 
     modbus = _evaluate_modbus(observations)
