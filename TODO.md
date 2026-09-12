@@ -1,6 +1,6 @@
-# AISH-OS Live TODO v6
+# AISH-OS Live TODO v7
 
-Master program: #79. Live repository truth overrides this checklist. **Reconciliation parent:** `dev` `8016c005be8d548e9388026a89592b70b92ec1a3` (PR #182 merge). This file deliberately does not claim that parent is the post-reconciliation live head; every execution cycle must fetch live `dev` before acting.
+Master program: #79. Live repository truth overrides this checklist. **Reconciliation parent:** `dev` `f924726db9c24ab55ebe4f43fe28caf75a9b2c3d` (PR #183 merge). This file deliberately records the known parent before this reconciliation; every execution cycle must fetch live `dev` before acting.
 
 ## RELEASE-CRITICAL EXECUTION QUEUE
 
@@ -12,10 +12,9 @@ Master program: #79. Live repository truth overrides this checklist. **Reconcili
 - [ ] **P0 / L7 / #83 — Integrated FAT/endurance/SAT.** After prerequisites pass, execute complete Grid/DG/mixed-source FAT, all three Modbus modes, degraded peers/network resets/recovery/resource trends and signed SAT using PR #160.
 - [ ] **P0 / #91 — Final release evidence index.** Bind final release SHA/tree/artifact/config/site source maps/approved profiles/UI physical record/OTA/FAT/SAT records; zero critical blockers; close #79 only then.
 
-## SEPARATE HISTORICAL WAVESHARE LANE
+## RETIRED HISTORICAL WAVESHARE EVIDENCE
 
-- [ ] **L3 / #87/#27 — historical `87841ece...` final soak.** Obtain one uninterrupted >=4 h / >=240-sample run with existing capture tooling. Prior ~2 h / 121-sample interrupted run is not additive and cannot qualify PR #179.
-- [ ] **#25/#26 — historical backend parity + persistence/ARM.** Execute only after genuine historical soak PASS on that exact old identity.
+- [x] **L3 / #87/#24/#25/#26/#27 — retired as superseded historical evidence.** Exact source `87841ecee727fe1d814d4186be8c8c26e4afafb4` retains its short physical PASS and interrupted ~2 h / 121-sample record, but the >=4 h gate was never passed. Issues #24/#25/#26/#27/#87 and PRs #20/#57/#67 were closed `not_planned`/unmerged on 2026-09-12 because PR #179/#174 is the sole current Waveshare release path. No historical PASS transfers to PR #179.
 
 ## REV-A PRODUCT HARDWARE TRACK
 
@@ -25,7 +24,7 @@ Master program: #79. Live repository truth overrides this checklist. **Reconcili
 ## ACTIVE MANAGEMENT / GOVERNANCE
 
 - [ ] **L8 / #84 — governance reconciliation service.** Keep all eight authoritative artifacts synchronized after state changes. A reconciliation file records its known parent baseline, not an unknowable future merge SHA; live `dev` must be fetched every cycle.
-- [ ] **L13 / #93 — promotion graph hygiene.** Exact-head CI + zero-behind + expected-head merge; preserve frozen physical candidates.
+- [ ] **L13 / #93 — promotion graph hygiene.** Exact-head CI + zero-behind + expected-head merge; preserve frozen physical candidates and retire superseded graphs rather than leaving duplicate active paths.
 - [ ] **L14 / #94 — orchestration cycle.** Physical waits do not stop independent software/governance/hardware work.
 
 ## COMPLETED SOFTWARE / EVIDENCE AUTHORITY
@@ -34,8 +33,8 @@ Master program: #79. Live repository truth overrides this checklist. **Reconcili
 - [x] Industrial UI software chain PR #165/#167/#169/#172/#173/#176.
 - [x] PR #179 exact Waveshare Industrial UI candidate software: root + exact board builds GREEN; source commissioning, Network, alarms, auth, rollback and exact packaging complete. Remains Draft because physical #174 is not passed.
 - [x] PR #181: #174 evidence authority expanded to Network/source/alarm/real-Modbus surfaces with exact identity-bound unexecuted starter.
-- [x] PR #182: eight-file governance reconciliation merged from parent `7cb824a...` to integration merge `8016c005...`.
-- [x] Physical/evidence validators for historical Waveshare, source transition, OTA, site source, inverter profiles and integrated FAT/SAT are implemented and fail closed on incomplete evidence.
+- [x] PR #183: topology-correct optional Transfer/Sync evidence semantics plus governance known-parent regression merged to `f924726db9c24ab55ebe4f43fe28caf75a9b2c3d` without changing frozen PR #179 firmware.
+- [x] Physical/evidence validators for source transition, OTA, site source, inverter profiles and integrated FAT/SAT are implemented and fail closed on incomplete evidence.
 
 ## GLOBAL DONE GATE
 
