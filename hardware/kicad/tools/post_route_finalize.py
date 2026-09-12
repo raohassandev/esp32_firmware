@@ -78,6 +78,14 @@ PRE_ROUTE_GND_STITCH_VIAS = (
     # before routing instead, exactly as the W5500 escapes above. y=67.70 keeps
     # 0.82 mm to the locked ETH_INT B.Cu backbone at y=66.879.
     ("RUN206_LOGIC_ROW", 44.62, 67.70),
+    # Parent H2 run #222 produced a stochastic surface-GND island in the dense
+    # SD/RTC band at x=74.198..75.788, y=83.874..84.752. Post-route stitching
+    # found 3438 legal via targets but every straight/dogleg/staircase F.Cu tail
+    # was blocked by the completed route. Reserve the L2 access inside that exact
+    # island before Specctra export so the router must preserve the return path.
+    # The static reservation assertion below and the immediate pre-route KiCad
+    # DRC remain authoritative; no manufacturing or clearance rule is relaxed.
+    ("RUN222_SD_RTC_ROW", 75.00, 84.30),
 )
 
 
