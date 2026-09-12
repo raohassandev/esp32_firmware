@@ -40,7 +40,35 @@ defaults:
     issue: 174
     validator_lineage: [175, 181, 183]
     identity_bound_starter: evidence/candidates/industrial_ui_72a1a82_physical_observations.json
-    require: [exact_industrial_ui_candidate_identity, native_800x480_overview_grid_solar_alarms_readiness_layout, engineering_commission_configure_service_touch_use, light_and_dark_readability, operator_and_engineering_role_observation, network_scan_select_manual_ssid_password_connect_restart_wifi_indicator_and_engineering_lock, grid_gen1_gen2_gen3_source_mapping_roundtrips, transfer_ATS_applicability_explicit_boolean, sync_applicability_explicit_boolean, source_save_forces_automatic_control_disabled, no_source_authority_inferred_from_kw_sign, alarm_all_active_unack_filters, alarm_priority_state_id_sorts, engineering_ack_allowed_and_operator_ack_refused, real_board_to_bench_simulator_modbus_connection, modbus_request_and_success_counters_increase, at_least_3_decoded_modbus_samples, decoded_values_follow_simulator_changes, browser_api_history_responsiveness_and_no_socket_lockout, one_uninterrupted_4h_run, at_least_240_samples, resource_trends_and_dma_floor, no_wdt_panic_no_mem_unexpected_reset_lvgl_or_browser_wedge, explicit_human_visual_touch_observation]
+    require:
+      - exact_industrial_ui_candidate_identity
+      - native_800x480_overview_grid_solar_alarms_readiness_layout
+      - engineering_commission_configure_service_touch_use
+      - light_and_dark_readability
+      - operator_and_engineering_role_observation
+      - network_scan_select_manual_ssid_password_connect_restart_wifi_indicator_and_engineering_lock
+      - grid_gen1_gen2_gen3_source_mapping_roundtrips
+      - transfer_ATS_applicability_explicit_boolean
+      - transfer_ATS_if_configured_roundtrip_must_pass
+      - transfer_ATS_if_not_configured_roundtrip_false_and_nonempty_reason
+      - sync_applicability_explicit_boolean
+      - sync_if_configured_roundtrip_must_pass
+      - sync_if_not_configured_roundtrip_false_and_nonempty_reason
+      - source_save_forces_automatic_control_disabled
+      - no_source_authority_inferred_from_kw_sign
+      - alarm_all_active_unack_filters
+      - alarm_priority_state_id_sorts
+      - engineering_ack_allowed_and_operator_ack_refused
+      - real_board_to_bench_simulator_modbus_connection
+      - modbus_request_and_success_counters_increase
+      - at_least_3_decoded_modbus_samples
+      - decoded_values_follow_simulator_changes
+      - browser_api_history_responsiveness_and_no_socket_lockout
+      - one_uninterrupted_4h_run
+      - at_least_240_samples
+      - resource_trends_and_dma_floor
+      - no_wdt_panic_no_mem_unexpected_reset_lvgl_or_browser_wedge
+      - explicit_human_visual_touch_observation
     forbid: [historical_87841ece_pass_reused, partial_soaks_combined, rebuild_or_config_substitution_mid_run, validator_only_pass, threshold_lowering, optional_mapping_fake_pass_when_not_configured, optional_mapping_omitted_without_applicability_or_reason]
 
   generator_transition:
