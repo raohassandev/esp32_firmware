@@ -22,3 +22,5 @@ jobs:
         run: python3 tests/industrial_ui_physical_acceptance_test.py
       - name: Validate evidence template JSON
         run: python3 -m json.tool evidence/templates/industrial_ui_physical_observations.json >/dev/null
+      - name: Guard governance reconciliation semantics
+        run: python3 tests/governance_reconciliation_semantics_test.py
