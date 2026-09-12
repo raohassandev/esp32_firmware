@@ -10,6 +10,7 @@ extern "C" {
 #endif
 
 #define SOURCE_COMMISSIONING_MAX_METERS 4U
+#define SOURCE_COMMISSIONING_MAX_GENERATORS 3U
 #define SOURCE_COMMISSIONING_MESSAGE_MAX 192U
 
 typedef enum {
@@ -38,9 +39,22 @@ typedef struct {
     bool unlocked;
     bool setup_required;
     bool restart_required;
-    bool evidence_enabled;
+
+    /* Source authority is explicit. Grid and each generator use paired
+     * evidence; transfer and synchronism are independent optional contacts.
+     * No channel is inferred from measured kW or from another channel. */
+    bool grid_evidence_enabled;
+    bool generator_evidence_enabled[SOURCE_COMMISSIONING_MAX_GENERATORS];
+    bool transfer_evidence_enabled;
+    bool synchronism_evidence_enabled;
+
     source_commission_signal_t grid_available;
     source_commission_signal_t grid_breaker_closed;
+    source_commission_signal_t generator_running[SOURCE_COMMISSIONING_MAX_GENERATORS];
+    source_commission_signal_t generator_breaker_closed[SOURCE_COMMISSIONING_MAX_GENERATORS];
+    source_commission_signal_t transfer_active;
+    source_commission_signal_t grid_generator_synchronized;
+
     uint32_t evidence_poll_interval_ms;
     uint32_t evidence_stale_timeout_ms;
     uint32_t grid_loss_trip_ms;
