@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Validate recorded generator/source-transition physical qualification evidence.
+"""Fail-closed validator for generator/source-transition physical evidence.
 
-This tool does not control a generator, breaker, inverter or site. It validates
-an evidence record produced by an authorized physical executor. Missing,
-ambiguous or unsafe evidence fails closed. Power sign may corroborate flow but
-may never be used as the sole source/breaker/synchronism authority.
+This tool never controls a generator, breaker, ATS, inverter or site. It only
+validates evidence captured by an authorized physical executor. A record must be
+bound to one independently frozen firmware/artifact/site/config/topology/source-
+map/meter-map identity. Missing, copied, ambiguous or unsafe evidence fails
+closed. Power sign may corroborate electrical direction but may never be the
+sole source/breaker/synchronism authority.
 """
 
 from __future__ import annotations
@@ -12,12 +14,16 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+EVIDENCE_STATE = "EXECUTED_GENERATOR_TRANSITION_PHYSICAL_EVIDENCE"
+SHA40 = re.compile(r"^[0-9a-f]{40}$")
+SHA256 = re.compile(r"^(?:sha256:)?[0-9a-f]{64}$")
 
 REQUIRED_SCENARIOS = (
     "grid_to_generator",
@@ -62,6 +68,10 @@ class GeneratorPhysicalResult:
     firmware_sha: str
     artifact_digest: str
     site_id: str
+    config_identity: str
+    topology_digest: str
+    source_map_digest: str
+    meter_map_digest: str
     scenarios_seen: list[str]
     failures: list[str]
 
@@ -74,9 +84,7 @@ def _timestamp(value: object) -> datetime | None:
         parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError:
         return None
-    if parsed.tzinfo is None:
-        return None
-    return parsed
+    return parsed if parsed.tzinfo is not None else None
 
 
 def _nonempty_text(value: object, minimum: int = 1) -> bool:
@@ -92,38 +100,120 @@ def _finite_number(value: object) -> bool:
         return False
 
 
-def _meter_complete(value: object) -> bool:
-    if not isinstance(value, dict):
-        return False
-    return (
-        "raw" in value
-        and _finite_number(value.get("scaled_kw"))
-        and isinstance(value.get("fresh"), bool)
-        and _nonempty_text(value.get("sign_provenance"), 8)
-    )
+def _sha40(value: object) -> bool:
+    return bool(SHA40.fullmatch(str(value or "").strip().lower()))
+
+
+def _digest(value: object) -> bool:
+    return bool(SHA256.fullmatch(str(value or "").strip().lower()))
+
+
+def _normalized_digest(value: object) -> str:
+    raw = str(value or "").strip().lower()
+    return raw if raw.startswith("sha256:") else f"sha256:{raw}"
 
 
 def _authority_sequence(value: object) -> list[str] | None:
     if not isinstance(value, list) or not value:
         return None
     sequence = [str(item).strip() for item in value]
-    if any(item not in VALID_AUTHORITY for item in sequence):
-        return None
-    return sequence
+    return sequence if all(item in VALID_AUTHORITY for item in sequence) else None
 
 
-def _check_scenario(scenario: dict[str, Any], supports_sync: bool, failures: list[str]) -> None:
+def _check_exact_identity(
+    obj: dict[str, Any],
+    prefix: str,
+    identity: dict[str, str],
+    failures: list[str],
+) -> None:
+    checks = (
+        ("firmware_sha", str(obj.get("firmware_sha", "")).strip().lower(), identity["firmware_sha"]),
+        ("artifact_digest", _normalized_digest(obj.get("artifact_digest")), identity["artifact_digest"]),
+        ("site_id", str(obj.get("site_id", "")).strip(), identity["site_id"]),
+        ("config_identity", str(obj.get("config_identity", "")).strip(), identity["config_identity"]),
+        ("topology_digest", _normalized_digest(obj.get("topology_digest")), identity["topology_digest"]),
+        ("source_map_digest", _normalized_digest(obj.get("source_map_digest")), identity["source_map_digest"]),
+        ("meter_map_digest", _normalized_digest(obj.get("meter_map_digest")), identity["meter_map_digest"]),
+    )
+    for key, actual, expected in checks:
+        if actual != expected:
+            failures.append(f"{prefix}:{key}_mismatch")
+
+
+def _check_meter(value: object, prefix: str, failures: list[str]) -> None:
+    if not isinstance(value, dict):
+        failures.append(f"{prefix}:meter_evidence_missing")
+        return
+    for key in ("meter_id", "role", "ct_pt_polarity_ref", "data_type", "word_order", "sign_provenance"):
+        if not _nonempty_text(value.get(key), 2):
+            failures.append(f"{prefix}:meter_field_missing:{key}")
+    if not isinstance(value.get("fresh"), bool):
+        failures.append(f"{prefix}:meter_fresh_missing")
+    for key in ("raw", "scale", "scaled_kw"):
+        if not _finite_number(value.get(key)):
+            failures.append(f"{prefix}:meter_{key}_invalid")
+    if all(_finite_number(value.get(key)) for key in ("raw", "scale", "scaled_kw")):
+        calculated = float(value["raw"]) * float(value["scale"])
+        if not math.isclose(calculated, float(value["scaled_kw"]), rel_tol=1e-9, abs_tol=1e-9):
+            failures.append(f"{prefix}:meter_raw_scale_mismatch")
+
+
+def _check_recovery(
+    scenario: dict[str, Any],
+    prefix: str,
+    scenario_start: datetime | None,
+    scenario_end: datetime | None,
+    failures: list[str],
+) -> None:
+    if scenario.get("authority_returned_early") is not False:
+        failures.append(f"{prefix}:authority_returned_early_not_false")
+
+    recovery_start = _timestamp(scenario.get("recovery_started_at"))
+    recovery_end = _timestamp(scenario.get("recovery_ended_at"))
+    if recovery_start is None or recovery_end is None or recovery_end <= recovery_start:
+        failures.append(f"{prefix}:recovery_timestamps_invalid")
+    elif scenario_start is not None and scenario_end is not None:
+        if recovery_start < scenario_start or recovery_end > scenario_end:
+            failures.append(f"{prefix}:recovery_timestamps_outside_scenario")
+
+    dwell = scenario.get("recovery_dwell_ms")
+    if not _finite_number(dwell) or float(dwell) <= 0:
+        failures.append(f"{prefix}:recovery_dwell_missing")
+    elif recovery_start is not None and recovery_end is not None and recovery_end > recovery_start:
+        measured_ms = (recovery_end - recovery_start).total_seconds() * 1000.0
+        if measured_ms + 1e-6 < float(dwell):
+            failures.append(f"{prefix}:recovery_timestamp_duration_shorter_than_claimed_dwell")
+
+    if not _nonempty_text(scenario.get("recovery_evidence_ref"), 4):
+        failures.append(f"{prefix}:recovery_evidence_ref_missing")
+    if not _digest(scenario.get("recovery_evidence_digest")):
+        failures.append(f"{prefix}:recovery_evidence_digest_invalid")
+
+
+def _check_scenario(
+    scenario: dict[str, Any],
+    supports_sync: bool,
+    topology_ref: str,
+    identity: dict[str, str],
+    failures: list[str],
+) -> None:
     scenario_id = str(scenario.get("id", "")).strip()
     prefix = f"scenario:{scenario_id or 'missing'}"
     outcome = str(scenario.get("outcome", "")).strip()
+
+    _check_exact_identity(scenario, prefix, identity, failures)
+    if not _nonempty_text(scenario.get("evidence_ref"), 4):
+        failures.append(f"{prefix}:evidence_ref_missing")
+    if not _digest(scenario.get("evidence_digest")):
+        failures.append(f"{prefix}:evidence_digest_invalid")
 
     if scenario_id == "synchronized" and not supports_sync:
         if outcome != "not_supported":
             failures.append(f"{prefix}:must_be_not_supported")
         if not _nonempty_text(scenario.get("not_supported_reason"), 8):
             failures.append(f"{prefix}:not_supported_reason_missing")
-        if not _nonempty_text(scenario.get("topology_ref"), 4):
-            failures.append(f"{prefix}:topology_ref_missing")
+        if str(scenario.get("topology_ref", "")).strip() != topology_ref:
+            failures.append(f"{prefix}:topology_ref_mismatch")
         return
 
     if outcome != "pass":
@@ -141,17 +231,17 @@ def _check_scenario(scenario: dict[str, Any], supports_sync: bool, failures: lis
     raw_source = scenario.get("raw_source_evidence")
     if not isinstance(raw_source, dict) or not raw_source:
         failures.append(f"{prefix}:raw_source_evidence_missing")
+    if not _nonempty_text(scenario.get("raw_source_evidence_ref"), 4):
+        failures.append(f"{prefix}:raw_source_evidence_ref_missing")
+    if not _digest(scenario.get("raw_source_evidence_digest")):
+        failures.append(f"{prefix}:raw_source_evidence_digest_invalid")
 
     detected_modes = scenario.get("detected_modes")
-    if not isinstance(detected_modes, list) or not detected_modes or not all(
-        _nonempty_text(item) for item in detected_modes
-    ):
+    if not isinstance(detected_modes, list) or not detected_modes or not all(_nonempty_text(item) for item in detected_modes):
         failures.append(f"{prefix}:detected_modes_missing")
 
-    expected_raw = scenario.get("expected_authority_sequence")
-    observed_raw = scenario.get("observed_authority_sequence")
-    expected = _authority_sequence(expected_raw)
-    observed = _authority_sequence(observed_raw)
+    expected = _authority_sequence(scenario.get("expected_authority_sequence"))
+    observed = _authority_sequence(scenario.get("observed_authority_sequence"))
     if expected is None:
         failures.append(f"{prefix}:expected_authority_sequence_invalid")
         expected = []
@@ -164,16 +254,7 @@ def _check_scenario(scenario: dict[str, Any], supports_sync: bool, failures: lis
     if scenario_id in TRANSITION_SCENARIOS:
         if not expected or expected[0] != "blocked" or expected[-1] != "allowed":
             failures.append(f"{prefix}:transition_must_block_then_allow")
-        if scenario.get("authority_returned_early") is not False:
-            failures.append(f"{prefix}:authority_returned_early_not_false")
-        try:
-            dwell_ms = int(scenario.get("recovery_dwell_ms", 0))
-        except (TypeError, ValueError):
-            dwell_ms = 0
-        if dwell_ms <= 0:
-            failures.append(f"{prefix}:recovery_dwell_missing")
-        if not _nonempty_text(scenario.get("recovery_dwell_evidence"), 8):
-            failures.append(f"{prefix}:recovery_dwell_evidence_missing")
+        _check_recovery(scenario, prefix, started, ended, failures)
 
     if scenario_id in BLOCKED_SCENARIOS:
         if not expected or any(item != "blocked" for item in expected):
@@ -191,10 +272,8 @@ def _check_scenario(scenario: dict[str, Any], supports_sync: bool, failures: lis
     if scenario_id in {"island", "synchronized"} and expected and expected[-1] != "allowed":
         failures.append(f"{prefix}:stable_carrying_mode_not_allowed")
 
-    if not _meter_complete(scenario.get("grid_meter")):
-        failures.append(f"{prefix}:grid_meter_evidence_incomplete")
-    if not _meter_complete(scenario.get("generator_meter")):
-        failures.append(f"{prefix}:generator_meter_evidence_incomplete")
+    _check_meter(scenario.get("grid_meter"), f"{prefix}:grid", failures)
+    _check_meter(scenario.get("generator_meter"), f"{prefix}:generator", failures)
 
     if scenario_id == "generator_meter_sign":
         proof = scenario.get("meter_sign_proof")
@@ -207,6 +286,10 @@ def _check_scenario(scenario: dict[str, Any], supports_sync: bool, failures: lis
                 failures.append(f"{prefix}:independent_reference_missing")
             if not _finite_number(proof.get("observed_generator_kw")):
                 failures.append(f"{prefix}:observed_generator_kw_invalid")
+            generator_meter = scenario.get("generator_meter")
+            if isinstance(generator_meter, dict) and _finite_number(proof.get("observed_generator_kw")) and _finite_number(generator_meter.get("scaled_kw")):
+                if not math.isclose(float(proof["observed_generator_kw"]), float(generator_meter["scaled_kw"]), rel_tol=1e-9, abs_tol=1e-9):
+                    failures.append(f"{prefix}:generator_meter_sign_value_mismatch")
             if proof.get("sign_matches") is not True:
                 failures.append(f"{prefix}:generator_meter_sign_not_proven")
 
@@ -222,8 +305,15 @@ def _check_scenario(scenario: dict[str, Any], supports_sync: bool, failures: lis
                 failures.append(f"{prefix}:qualified_command_readback_invalid")
             if not _nonempty_text(command_path.get("evidence_ref"), 4):
                 failures.append(f"{prefix}:command_evidence_ref_missing")
-        elif not _nonempty_text(command_path.get("safe_pv_observation"), 8):
-            failures.append(f"{prefix}:safe_pv_observation_missing")
+            if not _digest(command_path.get("evidence_digest")):
+                failures.append(f"{prefix}:command_evidence_digest_invalid")
+        else:
+            if not _nonempty_text(command_path.get("safe_pv_observation"), 8):
+                failures.append(f"{prefix}:safe_pv_observation_missing")
+            if not _nonempty_text(command_path.get("evidence_ref"), 4):
+                failures.append(f"{prefix}:safe_pv_evidence_ref_missing")
+            if not _digest(command_path.get("evidence_digest")):
+                failures.append(f"{prefix}:safe_pv_evidence_digest_invalid")
 
     fatal_counts = scenario.get("fatal_counts")
     if not isinstance(fatal_counts, dict):
@@ -250,26 +340,72 @@ def evaluate(
     record: dict[str, Any],
     expected_firmware_sha: str,
     expected_artifact_digest: str,
+    expected_site_id: str,
+    expected_config_identity: str,
+    expected_topology_digest: str,
+    expected_source_map_digest: str,
+    expected_meter_map_digest: str,
 ) -> GeneratorPhysicalResult:
     failures: list[str] = []
-    firmware_sha = str(record.get("firmware_sha", "")).strip()
-    artifact_digest = str(record.get("artifact_digest", "")).strip().lower()
+    firmware_sha = str(record.get("firmware_sha", "")).strip().lower()
+    artifact_digest = _normalized_digest(record.get("artifact_digest"))
     site_id = str(record.get("site_id", "")).strip()
+    config_identity = str(record.get("config_identity", "")).strip()
+    topology_digest = _normalized_digest(record.get("topology_digest"))
+    source_map_digest = _normalized_digest(record.get("source_map_digest"))
+    meter_map_digest = _normalized_digest(record.get("meter_map_digest"))
 
-    if firmware_sha != expected_firmware_sha:
+    identity = {
+        "firmware_sha": firmware_sha,
+        "artifact_digest": artifact_digest,
+        "site_id": site_id,
+        "config_identity": config_identity,
+        "topology_digest": topology_digest,
+        "source_map_digest": source_map_digest,
+        "meter_map_digest": meter_map_digest,
+    }
+
+    if record.get("evidence_state") != EVIDENCE_STATE:
+        failures.append("evidence_state_not_executed")
+    if not _sha40(firmware_sha):
+        failures.append("firmware_sha_invalid")
+    if firmware_sha != str(expected_firmware_sha).strip().lower():
         failures.append("firmware_sha_mismatch")
-    if artifact_digest != expected_artifact_digest.strip().lower():
+    if not _digest(record.get("artifact_digest")):
+        failures.append("artifact_digest_invalid")
+    if artifact_digest != _normalized_digest(expected_artifact_digest):
         failures.append("artifact_digest_mismatch")
     if not _nonempty_text(site_id, 2):
         failures.append("site_id_missing")
-    if not _nonempty_text(record.get("config_identity"), 4):
+    if site_id != str(expected_site_id).strip():
+        failures.append("site_id_mismatch")
+    if not _nonempty_text(config_identity, 4):
         failures.append("config_identity_missing")
+    if config_identity != str(expected_config_identity).strip():
+        failures.append("config_identity_mismatch")
+
+    for field, actual, expected in (
+        ("topology", record.get("topology_digest"), expected_topology_digest),
+        ("source_map", record.get("source_map_digest"), expected_source_map_digest),
+        ("meter_map", record.get("meter_map_digest"), expected_meter_map_digest),
+    ):
+        if not _digest(actual):
+            failures.append(f"{field}_digest_invalid")
+        if _normalized_digest(actual) != _normalized_digest(expected):
+            failures.append(f"{field}_digest_mismatch")
+
+    for key in ("source_map_ref", "meter_map_ref", "evidence_package_ref"):
+        if not _nonempty_text(record.get(key), 4):
+            failures.append(f"{key}_missing")
+    if not _digest(record.get("evidence_package_digest")):
+        failures.append("evidence_package_digest_invalid")
 
     topology = record.get("topology")
     if not isinstance(topology, dict):
         topology = {}
         failures.append("topology_missing")
-    if not _nonempty_text(topology.get("topology_ref"), 4):
+    topology_ref = str(topology.get("topology_ref", "")).strip()
+    if not _nonempty_text(topology_ref, 4):
         failures.append("topology_ref_missing")
     supports_sync = topology.get("supports_sync")
     if not isinstance(supports_sync, bool):
@@ -279,21 +415,15 @@ def evaluate(
         failures.append("power_sign_source_authority_not_forbidden")
 
     source_refs = record.get("source_signal_refs")
-    if not isinstance(source_refs, list) or len(source_refs) < 2 or not all(
-        _nonempty_text(item, 4) for item in source_refs
-    ):
+    if not isinstance(source_refs, list) or len(source_refs) < 2 or not all(_nonempty_text(item, 4) for item in source_refs):
         failures.append("source_signal_refs_incomplete")
 
     meter_refs = record.get("meter_refs")
-    if not isinstance(meter_refs, list) or len(meter_refs) < 2 or not all(
-        _nonempty_text(item, 4) for item in meter_refs
-    ):
+    if not isinstance(meter_refs, list) or len(meter_refs) < 2 or not all(_nonempty_text(item, 4) for item in meter_refs):
         failures.append("meter_refs_incomplete")
 
     manual_refs = record.get("manual_wiring_refs")
-    if not isinstance(manual_refs, list) or not manual_refs or not all(
-        _nonempty_text(item, 4) for item in manual_refs
-    ):
+    if not isinstance(manual_refs, list) or not manual_refs or not all(_nonempty_text(item, 4) for item in manual_refs):
         failures.append("manual_wiring_refs_incomplete")
 
     scenarios_raw = record.get("scenarios")
@@ -318,27 +448,50 @@ def evaluate(
 
     for scenario_id in REQUIRED_SCENARIOS:
         if scenario_id in seen:
-            _check_scenario(seen[scenario_id], bool(supports_sync), failures)
+            _check_scenario(seen[scenario_id], bool(supports_sync), topology_ref, identity, failures)
 
     return GeneratorPhysicalResult(
         passed=not failures,
         firmware_sha=firmware_sha,
         artifact_digest=artifact_digest,
         site_id=site_id,
+        config_identity=config_identity,
+        topology_digest=topology_digest,
+        source_map_digest=source_map_digest,
+        meter_map_digest=meter_map_digest,
         scenarios_seen=sorted(seen),
         failures=failures,
     )
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Validate generator/source-transition physical qualification evidence"
-    )
+    parser = argparse.ArgumentParser(description="Validate generator/source-transition physical qualification evidence")
     parser.add_argument("evidence_json", type=Path)
     parser.add_argument("--expected-firmware-sha", required=True)
     parser.add_argument("--expected-artifact-digest", required=True)
+    parser.add_argument("--expected-site-id", required=True)
+    parser.add_argument("--expected-config-identity", required=True)
+    parser.add_argument("--expected-topology-digest", required=True)
+    parser.add_argument("--expected-source-map-digest", required=True)
+    parser.add_argument("--expected-meter-map-digest", required=True)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
+
+    if not _sha40(args.expected_firmware_sha):
+        print("GENERATOR PHYSICAL EVIDENCE FAIL: expected firmware SHA invalid", file=sys.stderr)
+        return 2
+    for label, value in (
+        ("artifact", args.expected_artifact_digest),
+        ("topology", args.expected_topology_digest),
+        ("source-map", args.expected_source_map_digest),
+        ("meter-map", args.expected_meter_map_digest),
+    ):
+        if not _digest(value):
+            print(f"GENERATOR PHYSICAL EVIDENCE FAIL: expected {label} digest invalid", file=sys.stderr)
+            return 2
+    if not _nonempty_text(args.expected_site_id, 2) or not _nonempty_text(args.expected_config_identity, 4):
+        print("GENERATOR PHYSICAL EVIDENCE FAIL: expected site/config identity invalid", file=sys.stderr)
+        return 2
 
     try:
         record = json.loads(args.evidence_json.read_text(encoding="utf-8"))
@@ -351,8 +504,13 @@ def main() -> int:
 
     result = evaluate(
         record,
-        expected_firmware_sha=args.expected_firmware_sha,
-        expected_artifact_digest=args.expected_artifact_digest,
+        args.expected_firmware_sha,
+        args.expected_artifact_digest,
+        args.expected_site_id,
+        args.expected_config_identity,
+        args.expected_topology_digest,
+        args.expected_source_map_digest,
+        args.expected_meter_map_digest,
     )
     if args.json:
         print(json.dumps(asdict(result), indent=2, sort_keys=True))
