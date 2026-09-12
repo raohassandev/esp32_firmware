@@ -1,9 +1,15 @@
 {
-  "schema": 1,
+  "schema": 2,
+  "evidence_state": "UNEXECUTED_TEMPLATE_NOT_A_PHYSICAL_PASS",
   "site_id": "SITE-TO-BE-ACCEPTED",
   "firmware_sha": "REPLACE_WITH_EXACT_40_HEX_RELEASE_SHA",
+  "firmware_tree_sha": "REPLACE_WITH_EXACT_40_HEX_RELEASE_TREE_SHA",
   "artifact_digest": "sha256:REPLACE_WITH_EXACT_64_HEX_RELEASE_DIGEST",
   "config_identity": "UNQUALIFIED",
+  "site_map_digest": "sha256:REPLACE_WITH_EXACT_64_HEX_SITE_MAP_DIGEST",
+  "profile_manifest_digest": "sha256:REPLACE_WITH_EXACT_64_HEX_PROFILE_MANIFEST_DIGEST",
+  "approved_profiles_ref": "",
+  "approved_profiles": [],
   "all_evidence_same_release_identity": false,
   "simulator_or_ci_used_as_physical_substitute": false,
   "prerequisites": {},
@@ -17,10 +23,41 @@
   "endurance_summary": {
     "passed": false,
     "duration_seconds": 0,
-    "sample_count": 0
+    "sample_count": 0,
+    "min_heap_free": null,
+    "min_largest_block": null,
+    "min_dma_free": null,
+    "resource_trend_ref": "",
+    "socket_lwip_resource_ref": "",
+    "multi_device_load_ref": "",
+    "unrelated_control_web_responsive": null,
+    "fatal_counts": {
+      "wdt": null,
+      "panic": null,
+      "no_mem": null,
+      "unexpected_reset": null,
+      "resource_collapse": null
+    }
   },
   "sat": {
-    "accepted": false
+    "accepted": false,
+    "site_representative": "",
+    "role": "",
+    "signed_at": "",
+    "signed_record_ref": "",
+    "signed_record_digest": "",
+    "firmware_sha": "",
+    "firmware_tree_sha": "",
+    "artifact_digest": "",
+    "config_identity": "",
+    "site_id": "",
+    "site_map_digest": "",
+    "site_source_mapping_ref": "",
+    "profile_manifest_digest": "",
+    "approved_profiles_ref": "",
+    "no_behavior_change_after_evidence": null,
+    "physical_executor_attestation": null,
+    "site_acceptance_signature_present": null
   },
   "release_ready": false,
   "release_verdict_reason": "UNQUALIFIED - physical FAT, endurance and signed SAT are still required"
