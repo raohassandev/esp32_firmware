@@ -1,6 +1,6 @@
-version: 5
-updated_at: 2026-09-12T16:22:00+05:00
-reconciliation_parent_before_this_revision: 8016c005be8d548e9388026a89592b70b92ec1a3
+version: 6
+updated_at: 2026-09-12T16:48:00+05:00
+reconciliation_parent_before_this_revision: f924726db9c24ab55ebe4f43fe28caf75a9b2c3d
 truth_rule: live_repository_over_stale_docs
 
 defaults:
@@ -16,9 +16,14 @@ defaults:
     require: [exact_source_artifact_config_profile_identity, start_end_timestamps, raw_and_scaled_observations, expected_vs_observed_state, serial_runtime_references, explicit_pass_fail_reason, deterministic_validator_when_available]
     forbid: [validator_pass_claimed_as_physical_pass, example_record_claimed_as_evidence, cross_identity_pass_reuse_without_explicit_permission, acceptance_threshold_lowering]
 
-  historical_waveshare_acceptance:
-    require: [exact_87841ece_candidate, one_uninterrupted_4h_run, at_least_240_samples, lcd_touch_wifi_backend_active, dma_floor_at_least_20kb, no_wdt_panic_no_mem_unexpected_reset_or_material_resource_collapse, human_visual_touch_observation, capture_tooling]
-    forbid: [partial_soaks_combined, rebuild_or_config_substitution_silently_inheriting_pass, pass_transferred_to_industrial_ui_candidate]
+  retired_historical_waveshare_evidence:
+    candidate_sha: 87841ecee727fe1d814d4186be8c8c26e4afafb4
+    issues_closed_not_planned: [87, 24, 25, 26, 27]
+    prs_closed_unmerged: [20, 57, 67]
+    historical_truth: SHORT_PASS_AND_INTERRUPTED_APPROX_2H_121_SAMPLE_RUN_FINAL_4H_NOT_PASSED
+    release_dependency: false
+    require: [preserve_historical_identity_and_observations, preserve_incomplete_final_gate_truth]
+    forbid: [historical_pass_transferred_to_current_release, closure_relabelled_as_final_physical_pass, partial_soaks_combined]
 
   industrial_ui_software_candidate:
     exact_source_sha: 72a1a82a8fc5ad4406b5bd51fba1f80f9c182884
@@ -94,14 +99,14 @@ defaults:
     forbid: [simulator_or_CI_substituted_for_FAT_or_SAT, unsigned_or_cross_identity_SAT]
 
   reva_hardware:
-    require_before_new_H2: [authoritative_component_evidence_for_footprint_exceptions, authoritative_fabricator_capability_for_manufacturing_exceptions, approved_rules_committed_before_checkpoint]
+    require_before_new_H2: [authoritative_component_evidence_for_footprint_exceptions, authoritative_intended_fabricator_capability_for_manufacturing_exceptions, approved_rules_committed_before_checkpoint]
     require_before_provider_package: [ERC_zero, DRC_zero, UNCONNECTED_zero, L2_ground_gate, critical_route_SI_geometry_gate, STEP_export, mechanical_handoff, manufacturing_exports, controlled_provider_manifest]
     require_after_fabrication: [12V_24V_startup, reverse_polarity, USB_backfeed_and_programming, rail_measurements, ethernet_endurance, RS485_A_B_and_simultaneous, HMI_serial, relay_default_off_and_contact_tests, enclosure_fit, thermal_and_required_environmental_EMC_validation]
     forbid: [historical_nonreproducible_H2_as_fabrication_authority, post_checkpoint_DRC_rule_relaxation_silently_inheriting_pass]
 
   governance:
-    require: [live_dev_refetched_each_cycle, reconciliation_parent_semantics_not_future_merge_claim, eight_authoritative_files_consistent_with_issue_graph]
-    forbid: [reconciliation_file_claiming_its_unknown_future_merge_sha_as_current, stale_issue_text_overriding_live_repository]
+    require: [live_dev_refetched_each_cycle, reconciliation_parent_semantics_not_future_merge_claim, eight_authoritative_files_consistent_with_issue_graph, superseded_release_graphs_retired_from_active_queue]
+    forbid: [reconciliation_file_claiming_its_unknown_future_merge_sha_as_current, stale_issue_text_overriding_live_repository, duplicate_active_release_path_for_same_hardware_target]
 
   release:
-    require: [all_release_software_merge_gates, all_required_physical_acceptance_gates, authoritative_site_source_evidence, production_approved_inverter_profiles, accepted_industrial_ui_exact_image, integrated_FAT_and_endurance, signed_SAT, exact_release_traceability, no_open_critical_blockers]
+    require: [all_release_software_merge_gates, all_required_current_release_physical_acceptance_gates, authoritative_site_source_evidence, production_approved_inverter_profiles, accepted_industrial_ui_exact_image, integrated_FAT_and_endurance, signed_SAT, exact_release_traceability, no_open_critical_blockers]

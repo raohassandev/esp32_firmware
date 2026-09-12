@@ -1,6 +1,6 @@
-# AISH-OS Requirements Closure Matrix v5
+# AISH-OS Requirements Closure Matrix v6
 
-Master program: #79. Live source/evidence overrides this matrix. **Reconciliation parent:** `dev` `8016c005be8d548e9388026a89592b70b92ec1a3` (PR #182 merge); live `dev` must be re-fetched before every action and is intentionally not represented here as an unknowable future post-reconciliation merge SHA.
+Master program: #79. Live source/evidence overrides this matrix. **Reconciliation parent:** `dev` `f924726db9c24ab55ebe4f43fe28caf75a9b2c3d` (PR #183 merge); live `dev` must be re-fetched before every action and is intentionally not represented here as an unknowable future post-reconciliation merge SHA.
 
 | ID | Requirement group | Current state | Tracking / done gate |
 |---|---|---|---|
@@ -31,12 +31,12 @@ Master program: #79. Live source/evidence overrides this matrix. **Reconciliatio
 | R-UI-05B | synchronized Grid+Generator optional evidence | SOFTWARE COMPLETE / EXPLICIT PHYSICAL APPLICABILITY PENDING | #174 / PR #183; configured=>roundtrip PASS, unsupported=>false + reason |
 | R-UI-06 | native alarm All/Active/Unack filters + Priority/State/ID sorts + role-gated ACK | SOFTWARE COMPLETE / PHYSICAL PENDING | PR #179 / #174 |
 | R-UI-07 | board↔bench-simulator Modbus real counter/value evidence | PHYSICAL PENDING | #174 / PR #181/#183 |
-| R-UI-08 | complete #174 fail-closed evidence validator and identity-bound starter | TOOLING COMPLETE, V3 CI/PROMOTION PENDING | PR #181 baseline / PR #183 v3 |
+| R-UI-08 | complete #174 fail-closed evidence validator and identity-bound starter | TOOLING COMPLETE / MERGED | PR #181 baseline / PR #183 v3 |
 | R-UI-09 | native 800x480 visual/touch/role/browser acceptance | PHYSICAL PENDING | #164/#174 |
 | R-UI-10 | uninterrupted >=4 h / >=240 sample exact-image endurance | PHYSICAL PENDING | #174 |
-| R-WAVE-01 | historical `87841ece...` short display/touch acceptance | SHORT PHYSICAL PASS | #87/#27 exact identity only |
-| R-WAVE-02 | historical uninterrupted >=4 h / >=240 sample soak | PENDING | #87/#27 |
-| R-WAVE-03 | historical backend parity + persistence/ARM | PENDING AFTER SOAK | #25/#26 |
+| R-WAVE-01 | historical `87841ece...` short display/touch acceptance | HISTORICAL SHORT PASS / RETIRED | closed #87/#24/#27; exact identity only |
+| R-WAVE-02 | historical uninterrupted >=4 h / >=240 sample soak | NOT COMPLETED / RETIRED SUPERSEDED | closed #87/#27 `not_planned`; current release is #174 |
+| R-WAVE-03 | historical backend parity + persistence/ARM | NOT COMPLETED / RETIRED SUPERSEDED | closed #25/#26 `not_planned` |
 | R-OTA-01 | rollback-safe secure OTA software | COMPLETE/MERGED | PR #145/#148 |
 | R-OTA-02 | real interruption/power-loss/rollback matrix | PHYSICAL PENDING | #86 / PR #152 |
 | R-SITE-01 | exact breaker/run/ATS/sync mapping/polarity + meter scaling | PHYSICAL SITE PENDING | #81 / PR #156 |
@@ -45,7 +45,8 @@ Master program: #79. Live source/evidence overrides this matrix. **Reconciliatio
 | R-SAT-01 | signed SAT tied to exact release identity | PENDING | #83/#91 |
 | R-GOV-01 | live governance + exact-head/zero-behind promotion | ACTIVE | #79/#84/#93 |
 | R-GOV-02 | exact evidence traceability/no cross-identity PASS | ACTIVE | #91 |
-| R-GOV-03 | reconciliation documents use known-parent semantics and re-fetch live target | IMPLEMENTED IN CURRENT REVISION / CI PENDING | #84 / PR #183 |
+| R-GOV-03 | reconciliation documents use known-parent semantics and re-fetch live target | COMPLETE/MERGED | #84 / PR #183 |
+| R-GOV-04 | superseded historical release graphs are retired from active work without rewriting evidence | IMPLEMENTED IN CURRENT REVISION / CI PENDING | #84/#93 |
 | R-HW-01 | Rev-A reproducible controlled H2/H3 package | NEW CONTROLLED H2 REQUIRED | #178/#85 / PR #19 |
 | R-HW-02 | approved fabrication-rule context from authoritative evidence | PENDING | #178/#85 |
 | R-HW-03 | fabricated prototype bring-up/validation | PHYSICAL PENDING AFTER NEW H2/H3 | #162 |
@@ -64,8 +65,8 @@ Master program: #79. Live source/evidence overrides this matrix. **Reconciliatio
 
 1. Software/tooling complete does not equal physical acceptance.
 2. PR #179 stays frozen/Draft until genuine #174 PASS; do not churn its candidate identity.
-3. Historical `87841ece...` evidence and the PR #179 candidate are never combined.
+3. Historical `87841ece...` evidence and the PR #179 candidate are never combined; closure of the superseded old graph is not a physical PASS.
 4. Optional Transfer/ATS or Sync evidence cannot be guessed or silently skipped: applicability must be explicit, configured channels must pass round-trip, and unconfigured/unsupported channels require a factual non-empty reason with roundtrip false.
 5. No external mapping/manual/hardware-rule gap may be filled by guesswork.
 6. Every physical PASS binds exact source/tree/artifact/config/profile/site identity.
-7. Project 100% requires every remaining physical gate, signed SAT and zero critical blockers.
+7. Project 100% requires every remaining current release physical gate, signed SAT and zero critical blockers.

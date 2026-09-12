@@ -1,6 +1,6 @@
-# AISH-OS Blocker Ledger v6
+# AISH-OS Blocker Ledger v7
 
-Master program: #79. **Reconciliation parent:** `dev` `8016c005be8d548e9388026a89592b70b92ec1a3` after PR #182. Live repository state overrides this ledger. Known current release software gaps are closed; remaining blockers are genuine physical/site/manufacturer/fabricator execution or governed post-PASS promotion. PR #183 corrects the #174 optional-topology evidence contract without touching frozen firmware.
+Master program: #79. **Reconciliation parent:** `dev` `f924726db9c24ab55ebe4f43fe28caf75a9b2c3d` after PR #183. Live repository state overrides this ledger. Known release software gaps are closed; remaining blockers are genuine physical/site/manufacturer/fabricator execution or governed post-PASS promotion.
 
 ## B-001 — Industrial UI exact-image Waveshare physical acceptance
 
@@ -11,7 +11,7 @@ Master program: #79. **Reconciliation parent:** `dev` `8016c005be8d548e9388026a8
 **State:** SOFTWARE COMPLETE / PHYSICAL PANEL EXECUTION PENDING  
 **Evidence lineage:** PR #181 baseline + PR #183 topology-correct v3; identity-bound starter `evidence/candidates/industrial_ui_72a1a82_physical_observations.json`
 
-Physically prove native 800x480 layout/touch/roles; Network scan/select/manual/connect/restart; Grid and Gen1..3 source mappings; alarm filters/sorts and Engineering-only acknowledgement; real board↔bench-simulator Modbus counter/value activity; browser/API/resource health; and one uninterrupted >=4 h / >=240-sample run. Transfer/ATS and Sync require explicit applicability: configured => genuine round-trip PASS; absent/unsupported => roundtrip false plus non-empty factual reason. Missing applicability or invented optional PASS is failure. PR #179 remains Draft/frozen until genuine PASS. Historical Waveshare evidence cannot transfer.
+Physically prove native 800x480 layout/touch/roles; Network scan/select/manual/connect/restart; Grid and Gen1..3 source mappings; alarm filters/sorts and Engineering-only acknowledgement; real board↔bench-simulator Modbus counter/value activity; browser/API/resource health; and one uninterrupted >=4 h / >=240-sample run. Transfer/ATS and Sync require explicit applicability: configured => genuine round-trip PASS; absent/unsupported => roundtrip false plus non-empty factual reason. Missing applicability or invented optional PASS is failure. PR #179 remains Draft/frozen until genuine PASS.
 
 ## B-002 — Generator transition physical bench
 
@@ -36,7 +36,13 @@ Need exact breaker/run/ATS/sync provenance, manual/wiring reference, terminal/re
 **State:** EXACT OFFICIAL MODEL/FIRMWARE/MANUAL + BENCH + SIGNED APPROVAL PENDING  
 **Automation:** PR #158
 
-Current catalogue entries `huawei.sun2000.pending`, `goodwe.commercial.pending`, `solis.commercial.pending` and `foxess.commercial.pending` are intentionally fail-closed. Each deployed model requires exact official manual applicability, physical identity/telemetry/status, controlled write/readback/failure/rollback/safe-zero and signed production approval. Wrong-family or guessed maps remain forbidden.
+Pending profiles remain fail-closed. Current provenance audit narrows known gaps:
+- GoodWe GW100K-HT: exact official HT-series production control protocol still required;
+- Huawei SUN2000-115KTL-M2: exact official applicable ME-family Modbus definitions still required;
+- Solis `S6-EH3P(80-125)K10-NV-YD-H`: exact family known, but available compiled register reference is explicitly non-authoritative for production writes;
+- Growatt/Knox/FoxESS: exact installed manufacturer/model/protocol identity not yet established.
+
+Every deployed model still requires physical identity/telemetry/status plus controlled write/readback/failure/rollback/safe-zero and signed production approval. Wrong-family or guessed maps remain forbidden.
 
 ## B-005 — Secure OTA physical qualification
 
@@ -61,21 +67,20 @@ Final execution requires complete Grid, Generator and mixed-source FAT; all thre
 **Historical provider artifact:** `9909976209` — evidence only, not fabrication authority  
 **Reproducibility run:** `33884657384` — DRC FAIL, 20 violations / 0 unconnected
 
-Before new H2, obtain authoritative component/fabricator evidence for any footprint/manufacturing exception and commit approved narrowly scoped rules. Then rerun ERC/DRC/unconnected/SI/STEP/provider packaging to a new exact H2 identity. H4 fabrication and electrical/comms/relay/enclosure/thermal/environmental qualification follow only from that new accepted package.
+Exact affected identities are U1 Espressif ESP32-S3-WROOM-1-N8, J2 GCT USB4105-GF-A-120 and J3 CETUS J1B1211CCD. Manufacturer drawings are available, but intended-fabricator capability/DFM evidence and exact dimensional justification remain mandatory before any narrowly scoped exception. Then rerun ERC/DRC/unconnected/SI/STEP/provider packaging to a new exact H2 identity. H4 fabrication and electrical/comms/relay/enclosure/thermal/environmental qualification follow only from that new accepted package.
 
-## B-008 — Historical Waveshare final acceptance (separate legacy lane)
+## RETIRED — Historical Waveshare acceptance graph
 
-**Lane:** L3 / #87/#27/#25/#26  
-**Exact candidate:** `87841ecee727fe1d814d4186be8c8c26e4afafb4`  
-**State:** SHORT PASS / >=4 H CONTINUOUS SOAK PENDING  
-**Automation:** existing capture/final/post-soak tooling
+**Former lane:** L3 / #87/#24/#25/#26/#27; PRs #20/#57/#67  
+**Exact historical candidate:** `87841ecee727fe1d814d4186be8c8c26e4afafb4`  
+**Disposition:** SUPERSEDED / CLOSED NOT_PLANNED / PRs CLOSED UNMERGED  
 
-Prior run reached ~2 h / 121 samples before bench power-path interruption; partial runs are not additive. After one genuine >=4 h / >=240-sample PASS, complete backend parity/recovery and persistence/ARM on the same old identity. This lane does not qualify PR #179.
+The old identity keeps its short physical PASS and interrupted ~2 h / 121-sample record. The uninterrupted >=4 h gate, backend parity and persistence/ARM matrices were never completed. These are not open release blockers because the active release path is PR #179/#174, and no old-image evidence transfers to it.
 
 ## Final closure blocker
 
-**#91 / #79:** after all required physical gates pass, bind exact release SHA/tree/artifact/config/site maps/approved inverter profiles/UI/OTA/FAT/SAT evidence and require zero critical blockers before release closure.
+**#91 / #79:** after all required current release physical gates pass, bind exact release SHA/tree/artifact/config/site maps/approved inverter profiles/UI/OTA/FAT/SAT evidence and require zero critical blockers before release closure.
 
 ## Resolved software/tooling blockers
 
-Current release software and physical-evidence automation are complete for known scope. PR #183 exists because a real evidence-contract defect was found: the v2 #174 validator contradicted the issue by making optional Transfer/Sync unconditional. It does not reduce thresholds or create a physical PASS. Future code is justified only by an observed defect, missing capability, failed evidence contract or governed integration defect—not as a substitute for real physical execution.
+Current release software and physical-evidence automation are complete for known scope. PR #183 corrected the #174 optional-topology evidence contract and governance known-parent semantics without changing frozen firmware. Historical Waveshare duplicate-release graph has now been retired rather than left open as a misleading second completion path. Future code is justified only by an observed defect, missing capability, failed evidence contract or governed integration defect—not as a substitute for real physical execution.

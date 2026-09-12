@@ -1,7 +1,7 @@
-version: 5
-updated_at: 2026-09-12T16:23:00+05:00
+version: 6
+updated_at: 2026-09-12T16:47:00+05:00
 master_issue: 79
-reconciliation_parent_before_this_revision: 8016c005be8d548e9388026a89592b70b92ec1a3
+reconciliation_parent_before_this_revision: f924726db9c24ab55ebe4f43fe28caf75a9b2c3d
 truth_rule: live_repository_over_stale_docs
 
 wip_policy:
@@ -22,6 +22,7 @@ agents:
       - enforce_exact_head_zero_behind_expected_head_merge_gates
       - reconcile_governance_after_every_state_change
       - preserve_frozen_physical_candidate_identity
+      - retire_superseded_release_graphs_without_converting_incomplete_evidence_into_pass
       - record_reconciliation_parent_not_unknown_future_merge_sha
 
   runtime_software_team:
@@ -47,7 +48,7 @@ agents:
     status: SOFTWARE_COMPLETE_EXACT_IMAGE_FROZEN_PHYSICAL_HMI_PENDING
     rules:
       - do_not_modify_PR179_candidate_before_physical_disposition
-      - historical_87841ece_physical_pass_does_not_transfer
+      - historical_87841ece_evidence_does_not_transfer
       - validator_or_CI_pass_does_not_equal_physical_HMI_pass
       - operator_and_engineering_auth_boundaries_remain_fail_closed
       - transfer_and_sync_applicability_must_be_explicit_in_physical_record
@@ -59,13 +60,13 @@ agents:
     status: COMPLETE_FOR_CURRENT_RELEASE_PHYSICAL_GATES_AFTER_V3_MERGE
     evidence_prs: [142, 150, 151, 152, 156, 158, 159, 160, 175, 181, 183]
     coverage:
-      - historical_waveshare_final_acceptance_and_post_soak
-      - industrial_ui_exact_image_network_source_alarm_modbus_and_endurance_acceptance
+      - current_industrial_ui_exact_image_network_source_alarm_modbus_and_endurance_acceptance
       - generator_source_transition
       - secure_ota_real_controller
       - site_source_commissioning
       - inverter_model_physical_qualification
       - integrated_fat_modbus_endurance_and_signed_sat
+      - retired_historical_waveshare_evidence_validation_preserved_for_traceability_only
     rules:
       - validator_pass_does_not_equal_physical_pass
       - exact_identity_required
@@ -89,6 +90,16 @@ agents:
       - real_alarm_role_filter_sort_ack_observations
       - real_board_modbus_counter_and_decoded_value_evidence
       - uninterrupted_4h_240_sample_soak
+
+  historical_waveshare_lane:
+    role: RETIRED_EVIDENCE_ONLY
+    owner: none_active
+    issues: [87, 24, 25, 26, 27]
+    prs: [20, 57, 67]
+    candidate_sha: 87841ecee727fe1d814d4186be8c8c26e4afafb4
+    status: SUPERSEDED_CLOSED_NOT_PLANNED_NO_ACTIVE_EXECUTOR
+    historical_truth: SHORT_PASS_FINAL_4H_AND_POST_SOAK_MATRICES_INCOMPLETE
+    release_dependency: false
 
   source_transition_physical_team:
     role: PHYSICAL_EXECUTOR_QA_L2
@@ -131,12 +142,13 @@ agents:
     owner: ChatGPT_orchestrator_plus_hardware_engineer
     issue: 85
     h2_requalification_issue: 178
+    planning_pr: 18
     implementation_pr: 19
     h4_issue: 162
     status: NEW_CONTROLLED_H2_REQUIRED_THEN_H4_PHYSICAL
     rules:
       - historical_provider_package_is_not_final_fabrication_authority
-      - no_DRC_rule_exception_without_authoritative_component_or_fabricator_evidence
+      - no_DRC_rule_exception_without_authoritative_component_and_intended_fabricator_evidence
       - approved_rules_before_checkpoint
 
   qa_ci:
@@ -167,3 +179,4 @@ separation_rules:
   - no_guessed_registers_polarity_timing_topology_protocol_or_hardware_rules
   - physical_pass_does_not_transfer_to_changed_identity_without_explicit_equivalence_gate
   - non_reproducible_hardware_checkpoint_cannot_authorize_fabrication
+  - superseded_historical_lane_closure_does_not_convert_incomplete_evidence_into_pass
