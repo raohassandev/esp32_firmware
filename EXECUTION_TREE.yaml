@@ -1,10 +1,10 @@
-version: 6
-updated_at: 2026-09-12T16:46:00+05:00
+version: 7
+updated_at: 2026-09-12T23:18:00+05:00
 repo: raohassandev/esp32_firmware
 master_issue: 79
 integration_branch: dev
-reconciliation_parent_before_this_revision: f924726db9c24ab55ebe4f43fe28caf75a9b2c3d
-reconciliation_parent_source: PR_183_merge
+reconciliation_parent_before_this_revision: c333db0752be89bdcb9bfbda01e2f19a1f05709f
+reconciliation_parent_source: PR_188_merge
 snapshot_semantics: parent_is_known_pre_revision_baseline_live_dev_must_be_refetched_every_cycle
 truth_rule: live_repository_over_stale_docs
 wip_limit_ci_active_software_prs: 3
@@ -84,21 +84,30 @@ lanes:
     planning_pr: 18
     implementation_pr: 19
     h4_issue: 162
-    historical_routed_checkpoint: 324e0db1600c2fd883d83f923a0c442669b237f0
-    historical_provider_artifact_id: 9909976209
-    reproducibility_run: 33884657384
-    reproducibility_drc_violations: 20
-    affected_parts:
-      U1: Espressif_ESP32-S3-WROOM-1-N8
-      J2: GCT_USB4105-GF-A-120
-      J3: CETUS_J1B1211CCD
-    status: NEW_CONTROLLED_H2_REQUIRED_BEFORE_H4
+    h2_repair_pr: 185
+    h4_evidence_tooling_pr: 187
+    controlled_h2_input_sha: 15219f62ab354a75d4a24e8a8f85b6163ae05aa8
+    h2_freeze_sha: a877e5d844af114a6e4386f6294f514288ca5df6
+    h2_tree_sha: 782189312aec046338d472858d65d8cb397bd473
+    h2_workflow_run: 34702074827
+    engineering_artifact_id: 10300950516
+    engineering_artifact_digest: sha256:771ae830fa908b444d0fbce74da6fc35596bee4debaf7004447436df9eba0501
+    provider_rfq_artifact_id: 10300571374
+    provider_rfq_artifact_digest: sha256:27b1709537715f08e928e65137262553791a95f957c19703da8dc3a104db0d30
+    provider_rfq_zip: Automatrix_PVDG_RevA_PROVIDER_RFQ_a877e5d844.zip
+    declared_prototype_minima:
+      drill_mm: 0.20
+      hole_clearance_mm: 0.18
+      copper_edge_mm: 0.25
+    status: H2_CAD_REQUALIFIED_INTENDED_FABRICATOR_DFM_PENDING_H4_PENDING
+    h4_validator: tools/reva_h4_physical_acceptance_verify.py
+    h4_unexecuted_template: evidence/templates/reva_h4_physical_observations.json
     rules:
-      - historical_provider_package_is_evidence_only_not_fabrication_authority
-      - authoritative_component_and_intended_fabricator_evidence_required_before_rule_exceptions
-      - approved_rules_must_precede_new_H2_checkpoint
-      - new_H2_must_rerun_ERC_DRC_UNCONNECTED_SI_STEP_and_provider_package
+      - current_H2_is_clean_CAD_Routing_and_RFD_DFM_candidate_not_fabrication_approval
+      - intended_fabricator_written_DFM_capability_required_before_fabrication_authority
+      - no_DRC_rule_weakening_to_create_pass
       - H4_physical_validation_required_after_fabrication
+      - CI_or_validator_never_substitutes_for_H4_physical_pass
 
   L10_browser_final_audit:
     issue: 90
@@ -106,7 +115,16 @@ lanes:
 
   L11_evidence_traceability:
     issue: 91
-    status: CONTINUOUS
+    tooling_pr: 188
+    validator: tools/release_traceability_verify.py
+    unexecuted_starter: evidence/candidates/final_release_traceability_observations.json
+    status: TOOLING_COMPLETE_FINAL_PHYSICAL_EVIDENCE_AND_SIGNED_RELEASE_BINDING_PENDING
+    rules:
+      - generator_site_ota_and_fat_sat_must_bind_exact_final_release_identity
+      - industrial_ui_may_use_governed_replay_only_with_no_behavior_affecting_change_and_explicit_approval
+      - production_inverter_profiles_require_exact_identity_bench_rollback_and_signed_approval
+      - rev_a_hardware_is_not_firmware_release_blocker_unless_explicitly_coupled
+      - zero_critical_blockers_and_signed_sat_required
 
   L12_requirements_closure_matrix:
     issue: 92
@@ -158,6 +176,9 @@ known_governed_merges_before_this_revision:
   pr_181: 7cb824a2341cb9072b1a3176afbd3685dec1a32a
   pr_182: 8016c005be8d548e9388026a89592b70b92ec1a3
   pr_183: f924726db9c24ab55ebe4f43fe28caf75a9b2c3d
+  pr_184: 2433d15b47777e038a1a34a5287ea412202761b5
+  pr_187: 1e7e75039ebf839ca0bc298beead03cc7fcb6e8c
+  pr_188: c333db0752be89bdcb9bfbda01e2f19a1f05709f
 
 release_done_definition:
   - all_release_target_software_merged_with_exact_head_zero_behind_gates
@@ -166,6 +187,7 @@ release_done_definition:
   - secure_ota_physical_rollback_interruption_matrix_complete
   - grid_dg_mixed_source_fat_and_modbus_network_endurance_complete
   - signed_sat_complete
+  - final_release_traceability_manifest_passes_against_exact_final_identity
   - final_evidence_traceable_to_release_sha_tree_config_profiles_ui_and_artifacts
   - no_acceptance_threshold_weakened_to_manufacture_pass
   - no_open_critical_blockers
