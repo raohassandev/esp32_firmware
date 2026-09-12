@@ -1,0 +1,38 @@
+name: Final release traceability evidence
+
+on:
+  pull_request:
+    paths:
+      - 'tools/release_traceability_verify.py'
+      - 'tools/test_release_traceability_verify.py'
+      - 'evidence/candidates/final_release_traceability_observations.json'
+      - '.github/workflows/release-traceability-evidence.yml'
+  push:
+    branches:
+      - dev
+    paths:
+      - 'tools/release_traceability_verify.py'
+      - 'tools/test_release_traceability_verify.py'
+      - 'evidence/candidates/final_release_traceability_observations.json'
+      - '.github/workflows/release-traceability-evidence.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile validator
+        run: python3 -m py_compile tools/release_traceability_verify.py tools/test_release_traceability_verify.py
+      - name: Run release traceability regression tests
+        working-directory: tools
+        run: python3 test_release_traceability_verify.py
+      - name: Prove unexecuted starter fails closed
+        run: |
+          if python3 tools/release_traceability_verify.py evidence/candidates/final_release_traceability_observations.json; then
+            echo 'ERROR: unexecuted final-release starter unexpectedly passed' >&2
+            exit 1
+          fi
+          echo 'Unexecuted final-release starter correctly fails closed.'

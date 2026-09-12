@@ -1,0 +1,111 @@
+{
+  "record_status": "UNEXECUTED_TEMPLATE_NOT_A_RELEASE_PASS",
+  "release": {
+    "source_sha": "1e7e75039ebf839ca0bc298beead03cc7fcb6e8c",
+    "tree_sha": "a438d921071f42e28ed54c64c88de128a0e618af",
+    "artifact_name": "",
+    "artifact_digest": "",
+    "application_digest": "",
+    "config_digest": "",
+    "site_map_digest": "",
+    "profile_manifest_digest": "",
+    "build_container": "",
+    "rollback_enabled": null,
+    "compiled_sta_credentials_absent": null,
+    "compiled_engineering_prefill_absent": null,
+    "bench_auth_bypasses_disabled": null
+  },
+  "scope": {
+    "industrial_ui": true,
+    "generator_transition": true,
+    "site_commissioning": true,
+    "inverter_profiles": true,
+    "ota": true,
+    "fat_sat": true,
+    "rev_a_hardware_coupled": false
+  },
+  "site": {
+    "site_id": "",
+    "configuration_identity": "",
+    "site_map_digest": "",
+    "config_digest": "",
+    "power_sign_used_as_source_authority": false
+  },
+  "evidence": {
+    "industrial_ui": {
+      "status": "NOT_RUN",
+      "source_sha": "72a1a82a8fc5ad4406b5bd51fba1f80f9c182884",
+      "evidence_ref": "",
+      "evidence_digest": "",
+      "physical_or_authorized_evidence": false,
+      "validator_only": true,
+      "final_release_binding": {
+        "mode": "governed_replay",
+        "behavior_affecting_changes": null,
+        "replay_ref": "",
+        "approval_ref": "",
+        "final_release_checks_passed": null
+      }
+    },
+    "generator_transition": {
+      "status": "NOT_RUN",
+      "source_sha": "",
+      "evidence_ref": "",
+      "evidence_digest": "",
+      "physical_or_authorized_evidence": false,
+      "validator_only": true,
+      "final_release_binding": {"mode": "exact", "artifact_digest": ""}
+    },
+    "site_commissioning": {
+      "status": "NOT_RUN",
+      "source_sha": "",
+      "evidence_ref": "",
+      "evidence_digest": "",
+      "physical_or_authorized_evidence": false,
+      "validator_only": true,
+      "final_release_binding": {"mode": "exact", "artifact_digest": ""}
+    },
+    "inverter_profiles": {
+      "status": "NOT_RUN",
+      "source_sha": "",
+      "evidence_ref": "",
+      "evidence_digest": "",
+      "physical_or_authorized_evidence": false,
+      "validator_only": true,
+      "profile_manifest_digest": "",
+      "profiles": [],
+      "final_release_binding": {"mode": "exact", "artifact_digest": ""}
+    },
+    "ota": {
+      "status": "NOT_RUN",
+      "source_sha": "",
+      "evidence_ref": "",
+      "evidence_digest": "",
+      "physical_or_authorized_evidence": false,
+      "validator_only": true,
+      "final_release_binding": {"mode": "exact", "artifact_digest": ""}
+    },
+    "fat_sat": {
+      "status": "NOT_RUN",
+      "source_sha": "",
+      "evidence_ref": "",
+      "evidence_digest": "",
+      "physical_or_authorized_evidence": false,
+      "validator_only": true,
+      "final_release_binding": {"mode": "exact", "artifact_digest": ""}
+    }
+  },
+  "rev_a_hardware": {
+    "status": "NOT_COUPLED_TO_THIS_RELEASE"
+  },
+  "release_signoff": {
+    "zero_critical_blockers": false,
+    "fat_sat_signed": false,
+    "authorized_representative": "",
+    "signed_sat_ref": "",
+    "signed_sat_digest": "",
+    "release_evidence_package_ref": "",
+    "release_evidence_package_digest": "",
+    "unexecuted_template": true
+  }
+}
