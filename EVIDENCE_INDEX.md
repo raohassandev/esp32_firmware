@@ -4,7 +4,7 @@ Master program: #79. Evidence is valid only for the exact source/head/tree/artif
 
 ## Integration reconciliation parent
 
-Known parent before this revision: `dev` `c333db0752be89bdcb9bfbda01e2f19a1f05709f` after governed PR #188. The post-revision live `dev` head is deliberately not hard-coded here because a PR cannot know its own future merge SHA; fetch live repository state before every execution decision.
+Known **reconciliation parent** before this revision: live `dev` `c333db0752be89bdcb9bfbda01e2f19a1f05709f` after governed PR #188. The post-revision live `dev` head is deliberately not hard-coded here because a PR cannot know its own future merge SHA; fetch live repository state before every execution decision.
 
 ## Current software/evidence chain
 
