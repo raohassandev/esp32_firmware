@@ -16,6 +16,8 @@ H2 = "a" * 40
 PROVIDER = "sha256:" + "b" * 64
 FIRMWARE = "c" * 40
 FIRMWARE_DIGEST = "sha256:" + "d" * 64
+DFM_DIGEST = "sha256:" + "e" * 64
+PACKAGE_DIGEST = "sha256:" + "f" * 64
 
 
 def pass_test(test_id: str) -> dict:
@@ -24,6 +26,7 @@ def pass_test(test_id: str) -> dict:
         "status": "PASS",
         "started_at": "2026-09-12T10:00:00+05:00",
         "ended_at": "2026-09-12T10:01:00+05:00",
+        "stimulus": "Apply the documented test stimulus for this H4 check.",
         "expected": "Expected safe physical behavior is explicitly defined.",
         "observed": "Observed safe physical behavior matched the expectation.",
         "measurements": {"sample": 1.0},
@@ -42,6 +45,8 @@ def valid_record() -> dict:
                     "populated_features": [],
                     "not_populated_features": ["DI", "RTC", "microSD", "RS232"],
                     "status_reason": "Optional features are not populated on this assembly variant.",
+                    "started_at": "2026-09-12T10:02:00+05:00",
+                    "ended_at": "2026-09-12T10:03:00+05:00",
                     "evidence_refs": ["evidence/assembly-population-photo.jpg"],
                 }
             )
@@ -66,6 +71,7 @@ def valid_record() -> dict:
             "name": "Example PCB Fabricator",
             "dfm_accepted": True,
             "dfm_acceptance_ref": "DFM-ACCEPT-001",
+            "dfm_acceptance_digest": DFM_DIGEST,
             "dfm_accepted_at": "2026-09-12T09:00:00+05:00",
             "accepted_minima_mm": {
                 "drill": 0.20,
@@ -111,18 +117,20 @@ def valid_record() -> dict:
             "authorized_by": "Hardware Acceptance Authority",
             "accepted_at": "2026-09-12T14:00:00+05:00",
             "evidence_package_ref": "H4-EVIDENCE-PKG-001",
+            "evidence_package_digest": PACKAGE_DIGEST,
         },
     }
 
 
 class H4PhysicalEvidenceTests(unittest.TestCase):
-    def evaluate(self, record: dict):
-        return h4.evaluate(record, H2, PROVIDER, FIRMWARE)
+    def evaluate(self, record: dict, firmware_digest: str = FIRMWARE_DIGEST):
+        return h4.evaluate(record, H2, PROVIDER, FIRMWARE, firmware_digest)
 
     def test_complete_evidence_passes(self):
         result = self.evaluate(valid_record())
         self.assertTrue(result.passed, result.failures)
         self.assertEqual(result.tests_seen, sorted(h4.H4_TEST_IDS))
+        self.assertEqual(result.firmware_artifact_digest, FIRMWARE_DIGEST)
 
     def test_unexecuted_template_fails_closed(self):
         record = valid_record()
@@ -142,12 +150,24 @@ class H4PhysicalEvidenceTests(unittest.TestCase):
         self.assertIn("provider_artifact_digest_mismatch", result.failures)
         self.assertIn("firmware_sha_mismatch", result.failures)
 
+    def test_firmware_binary_digest_mismatch_fails(self):
+        result = self.evaluate(valid_record(), "sha256:" + "0" * 64)
+        self.assertFalse(result.passed)
+        self.assertIn("firmware_artifact_digest_mismatch", result.failures)
+
     def test_fabricator_dfm_is_mandatory(self):
         record = valid_record()
         record["fabricator"]["dfm_accepted"] = False
         result = self.evaluate(record)
         self.assertFalse(result.passed)
         self.assertIn("fabricator_dfm_not_accepted", result.failures)
+
+    def test_fabricator_dfm_document_digest_is_mandatory(self):
+        record = valid_record()
+        record["fabricator"]["dfm_acceptance_digest"] = ""
+        result = self.evaluate(record)
+        self.assertFalse(result.passed)
+        self.assertIn("fabricator_dfm_acceptance_digest_invalid", result.failures)
 
     def test_fabricator_minimum_must_cover_h2_geometry(self):
         record = valid_record()
@@ -156,6 +176,13 @@ class H4PhysicalEvidenceTests(unittest.TestCase):
         self.assertFalse(result.passed)
         self.assertIn("fabricator_minimum_does_not_accept_h2:drill", result.failures)
 
+    def test_dfm_must_precede_bench_execution(self):
+        record = valid_record()
+        record["fabricator"]["dfm_accepted_at"] = "2026-09-12T10:30:00+05:00"
+        result = self.evaluate(record)
+        self.assertFalse(result.passed)
+        self.assertIn("fabricator_dfm_accepted_after_bench_started", result.failures)
+
     def test_mandatory_test_cannot_be_skipped(self):
         record = valid_record()
         target = next(item for item in record["tests"] if item["id"] == "power_12v")
@@ -163,6 +190,30 @@ class H4PhysicalEvidenceTests(unittest.TestCase):
         result = self.evaluate(record)
         self.assertFalse(result.passed)
         self.assertIn("test:power_12v:mandatory_not_pass", result.failures)
+
+    def test_pass_test_requires_stimulus(self):
+        record = valid_record()
+        target = next(item for item in record["tests"] if item["id"] == "power_12v")
+        target["stimulus"] = ""
+        result = self.evaluate(record)
+        self.assertFalse(result.passed)
+        self.assertIn("test:power_12v:stimulus_missing", result.failures)
+
+    def test_pass_test_requires_nonempty_measurements(self):
+        record = valid_record()
+        target = next(item for item in record["tests"] if item["id"] == "power_12v")
+        target["measurements"] = {}
+        result = self.evaluate(record)
+        self.assertFalse(result.passed)
+        self.assertIn("test:power_12v:measurements_empty", result.failures)
+
+    def test_bench_test_must_stay_inside_bench_window(self):
+        record = valid_record()
+        target = next(item for item in record["tests"] if item["id"] == "power_12v")
+        target["started_at"] = "2026-09-12T09:00:00+05:00"
+        result = self.evaluate(record)
+        self.assertFalse(result.passed)
+        self.assertIn("test:power_12v:started_before_bench", result.failures)
 
     def test_optional_skip_cannot_hide_populated_feature(self):
         record = valid_record()
@@ -180,12 +231,38 @@ class H4PhysicalEvidenceTests(unittest.TestCase):
         self.assertFalse(result.passed)
         self.assertIn("test:industrial_environmental_emc:deferred_plan_ref_missing", result.failures)
 
+    def test_external_lab_pass_requires_report_digest(self):
+        record = valid_record()
+        target = next(item for item in record["tests"] if item["id"] == h4.EXTERNAL_LAB_TEST)
+        target.clear()
+        target.update(pass_test(h4.EXTERNAL_LAB_TEST))
+        target["lab_name"] = "Accredited Lab"
+        target["report_ref"] = "REPORT-001"
+        target["report_digest"] = ""
+        result = self.evaluate(record)
+        self.assertFalse(result.passed)
+        self.assertIn("test:industrial_environmental_emc:report_digest_invalid", result.failures)
+
     def test_nonzero_runtime_fatal_counter_fails(self):
         record = valid_record()
         record["runtime"]["fatal_counts"]["panic"] = 1
         result = self.evaluate(record)
         self.assertFalse(result.passed)
         self.assertIn("runtime_fatal_count_nonzero_or_missing:panic", result.failures)
+
+    def test_signoff_must_follow_testing(self):
+        record = valid_record()
+        record["signoff"]["accepted_at"] = "2026-09-12T13:00:00+05:00"
+        result = self.evaluate(record)
+        self.assertFalse(result.passed)
+        self.assertIn("signoff_before_testing_completed", result.failures)
+
+    def test_signoff_package_digest_is_mandatory(self):
+        record = valid_record()
+        record["signoff"]["evidence_package_digest"] = ""
+        result = self.evaluate(record)
+        self.assertFalse(result.passed)
+        self.assertIn("signoff_evidence_package_digest_invalid", result.failures)
 
     def test_missing_test_fails(self):
         record = valid_record()
