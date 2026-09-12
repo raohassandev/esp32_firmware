@@ -1,10 +1,10 @@
-version: 5
-updated_at: 2026-09-12T16:20:00+05:00
+version: 6
+updated_at: 2026-09-12T16:46:00+05:00
 repo: raohassandev/esp32_firmware
 master_issue: 79
 integration_branch: dev
-reconciliation_parent_before_this_revision: 8016c005be8d548e9388026a89592b70b92ec1a3
-reconciliation_parent_source: PR_182_merge
+reconciliation_parent_before_this_revision: f924726db9c24ab55ebe4f43fe28caf75a9b2c3d
+reconciliation_parent_source: PR_183_merge
 snapshot_semantics: parent_is_known_pre_revision_baseline_live_dev_must_be_refetched_every_cycle
 truth_rule: live_repository_over_stale_docs
 wip_limit_ci_active_software_prs: 3
@@ -26,17 +26,18 @@ lanes:
     post_pass_rule: replay_identical_validated_runtime_slice_onto_then_current_dev_then_fresh_exact_head_ci
 
   L3_historical_waveshare_release:
-    issue: 87
-    detailed_issues: [24, 25, 26, 27]
-    implementation_pr: 57
+    issues: [87, 24, 25, 26, 27]
+    implementation_prs: [20, 57, 67]
     candidate_sha: 87841ecee727fe1d814d4186be8c8c26e4afafb4
     candidate_tree: 6ddd7900f9b4ece0fba9349b905e1c078fc3401e
     artifact_id: 9843536218
     artifact_digest: sha256:89e621034d4c91096fc5d38dd57ac40eeeab34275e4af1fc0461b48575039096
     app_sha256: 8be2a2aad5f223d8b9bca498db2e12c04f7f205feaa9908b7922c37421c46593
-    tooling_prs: [142, 150, 159]
-    status: SHORT_PASS_FINAL_CONTINUOUS_SOAK_INCOMPLETE
-    remaining: [one_uninterrupted_4h_240_sample_soak, issue_25_backend_parity_recovery, issue_26_persistence_arm]
+    status: RETIRED_SUPERSEDED_HISTORICAL_EVIDENCE_ONLY
+    issue_disposition: CLOSED_NOT_PLANNED
+    pr_disposition: CLOSED_UNMERGED
+    historical_truth: SHORT_PASS_FINAL_4H_BACKEND_PARITY_AND_PERSISTENCE_NOT_COMPLETED
+    active_release_dependency: false
     evidence_transfer_to_L16_forbidden: true
 
   L4_secure_ota:
@@ -57,7 +58,11 @@ lanes:
     generic_core_prs: [102, 108, 112, 113, 117, 119, 136]
     evidence_tooling_pr: 158
     status: TOOLING_COMPLETE_EXACT_MANUAL_MODEL_FIRMWARE_AND_PHYSICAL_QUALIFICATION_PENDING
-    pending_catalogue_entries: [huawei.sun2000.pending, goodwe.commercial.pending, solis.commercial.pending, foxess.commercial.pending]
+    known_target_gaps:
+      goodwe_GW100K_HT: exact_official_HT_control_protocol_required
+      huawei_SUN2000_115KTL_M2: exact_official_applicable_ME_modbus_definition_required
+      solis_S6_EH3P_80_125_K10_NV_YD_H: exact_family_known_but_available_compiled_map_non_authoritative_for_writes
+      growatt_knox_foxess: exact_installed_model_and_protocol_identity_unresolved
     rule: no_production_write_without_exact_official_manual_identity_status_readback_rollback_and_signed_approval
 
   L7_integrated_fat_sat_endurance:
@@ -83,10 +88,14 @@ lanes:
     historical_provider_artifact_id: 9909976209
     reproducibility_run: 33884657384
     reproducibility_drc_violations: 20
+    affected_parts:
+      U1: Espressif_ESP32-S3-WROOM-1-N8
+      J2: GCT_USB4105-GF-A-120
+      J3: CETUS_J1B1211CCD
     status: NEW_CONTROLLED_H2_REQUIRED_BEFORE_H4
     rules:
       - historical_provider_package_is_evidence_only_not_fabrication_authority
-      - authoritative_component_and_fabricator_evidence_required_before_rule_exceptions
+      - authoritative_component_and_intended_fabricator_evidence_required_before_rule_exceptions
       - approved_rules_must_precede_new_H2_checkpoint
       - new_H2_must_rerun_ERC_DRC_UNCONNECTED_SI_STEP_and_provider_package
       - H4_physical_validation_required_after_fabrication
@@ -148,10 +157,11 @@ known_governed_merges_before_this_revision:
   pr_177: 150118a8425462e1756b115ddf3d463a022b395f
   pr_181: 7cb824a2341cb9072b1a3176afbd3685dec1a32a
   pr_182: 8016c005be8d548e9388026a89592b70b92ec1a3
+  pr_183: f924726db9c24ab55ebe4f43fe28caf75a9b2c3d
 
 release_done_definition:
   - all_release_target_software_merged_with_exact_head_zero_behind_gates
-  - all_required_physical_acceptance_passed_against_exact_source_artifact_config_profile_identity
+  - all_required_current_release_physical_acceptance_passed_against_exact_source_artifact_config_profile_identity
   - site_source_and_inverter_mappings_documentation_backed_and_physically_qualified
   - secure_ota_physical_rollback_interruption_matrix_complete
   - grid_dg_mixed_source_fat_and_modbus_network_endurance_complete
