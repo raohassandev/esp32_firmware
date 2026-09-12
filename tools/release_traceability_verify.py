@@ -3,8 +3,8 @@
 
 This tool does not create release evidence and never promotes partial/CI-only
 results into a physical PASS. It validates one immutable release identity and
-its required evidence bindings. Missing, stale, contradictory, or cross-image
-evidence fails closed.
+its required evidence bindings. Missing, stale, contradictory, cross-image, or
+externally mismatched evidence fails closed.
 """
 
 from __future__ import annotations
@@ -37,6 +37,7 @@ FINAL_EXACT_LANES = {
 }
 
 VALID_BINDING_MODES = {"exact", "governed_replay"}
+EXECUTED_RECORD_STATUS = "EXECUTED_FINAL_RELEASE_EVIDENCE"
 
 
 @dataclass
@@ -98,6 +99,35 @@ def _check_identity(record: dict[str, Any], failures: list[str]) -> tuple[str, s
     if release.get("bench_auth_bypasses_disabled") is not True:
         failures.append("release:bench_auth_bypasses_not_disabled")
     return release_sha, release_tree, artifact_digest
+
+
+def _check_expected_identity(
+    release_sha: str,
+    release_tree: str,
+    artifact_digest: str,
+    expected_release_sha: str,
+    expected_release_tree: str,
+    expected_artifact_digest: str,
+    failures: list[str],
+) -> None:
+    expected_sha = str(expected_release_sha or "").strip().lower()
+    expected_tree = str(expected_release_tree or "").strip().lower()
+    expected_artifact = str(expected_artifact_digest or "").strip().lower()
+
+    if not _sha40(expected_sha):
+        failures.append("expected:release_sha_invalid")
+    elif release_sha != expected_sha:
+        failures.append("release:source_sha_expected_mismatch")
+
+    if not _sha40(expected_tree):
+        failures.append("expected:release_tree_invalid")
+    elif release_tree != expected_tree:
+        failures.append("release:tree_sha_expected_mismatch")
+
+    if not _sha256(expected_artifact):
+        failures.append("expected:artifact_digest_invalid")
+    elif artifact_digest != expected_artifact:
+        failures.append("release:artifact_digest_expected_mismatch")
 
 
 def _check_lane(
@@ -240,9 +270,27 @@ def _check_optional_reva(record: dict[str, Any], failures: list[str]) -> None:
         failures.append("rev_a_hardware:h4_evidence_digest_invalid")
 
 
-def evaluate(record: dict[str, Any]) -> ReleaseTraceabilityResult:
+def evaluate(
+    record: dict[str, Any],
+    expected_release_sha: str,
+    expected_release_tree: str,
+    expected_artifact_digest: str,
+) -> ReleaseTraceabilityResult:
     failures: list[str] = []
+
+    if record.get("record_status") != EXECUTED_RECORD_STATUS:
+        failures.append("record_status_not_executed")
+
     release_sha, release_tree, artifact_digest = _check_identity(record, failures)
+    _check_expected_identity(
+        release_sha,
+        release_tree,
+        artifact_digest,
+        expected_release_sha,
+        expected_release_tree,
+        expected_artifact_digest,
+        failures,
+    )
     _check_site_binding(record, failures)
 
     scope = _dict(record.get("scope"))
@@ -297,6 +345,9 @@ def evaluate(record: dict[str, Any]) -> ReleaseTraceabilityResult:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate final release traceability evidence")
     parser.add_argument("manifest", type=Path)
+    parser.add_argument("--expected-release-sha", required=True)
+    parser.add_argument("--expected-release-tree", required=True)
+    parser.add_argument("--expected-artifact-digest", required=True)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
@@ -309,7 +360,12 @@ def main() -> int:
         print("RELEASE TRACEABILITY FAIL: JSON must be an object", file=sys.stderr)
         return 2
 
-    result = evaluate(record)
+    result = evaluate(
+        record,
+        expected_release_sha=args.expected_release_sha,
+        expected_release_tree=args.expected_release_tree,
+        expected_artifact_digest=args.expected_artifact_digest,
+    )
     if args.json:
         print(json.dumps(asdict(result), indent=2, sort_keys=True))
     else:
@@ -318,6 +374,7 @@ def main() -> int:
             print(f"- {failure}")
         print(f"- release_sha={result.release_sha}")
         print(f"- release_tree={result.release_tree}")
+        print(f"- artifact_digest={result.artifact_digest}")
         print(f"- required_lanes={','.join(result.required_lanes)}")
     return 0 if result.passed else 1
 

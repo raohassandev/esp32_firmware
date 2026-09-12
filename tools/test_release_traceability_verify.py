@@ -37,6 +37,7 @@ def lane(source=SHA, mode="exact"):
 
 def valid_record():
     rec = {
+        "record_status": "EXECUTED_FINAL_RELEASE_EVIDENCE",
         "release": {
             "source_sha": SHA,
             "tree_sha": TREE,
@@ -105,17 +106,40 @@ def valid_record():
     return rec
 
 
-def assert_fail(mutator, expected):
+def evaluate_valid(rec):
+    return evaluate(
+        rec,
+        expected_release_sha=SHA,
+        expected_release_tree=TREE,
+        expected_artifact_digest=DIGEST,
+    )
+
+
+def assert_fail(mutator, expected, *, expected_sha=SHA, expected_tree=TREE, expected_digest=DIGEST):
     rec = valid_record()
     mutator(rec)
-    result = evaluate(rec)
+    result = evaluate(
+        rec,
+        expected_release_sha=expected_sha,
+        expected_release_tree=expected_tree,
+        expected_artifact_digest=expected_digest,
+    )
     assert not result.passed
     assert expected in result.failures, result.failures
 
 
 def main():
-    assert evaluate(valid_record()).passed
+    assert evaluate_valid(valid_record()).passed
 
+    assert_fail(lambda r: r.update({"record_status": "UNEXECUTED_TEMPLATE_NOT_A_RELEASE_PASS"}),
+                "record_status_not_executed")
+    assert_fail(lambda r: None,
+                "release:source_sha_expected_mismatch", expected_sha="9" * 40)
+    assert_fail(lambda r: None,
+                "release:tree_sha_expected_mismatch", expected_tree="8" * 40)
+    assert_fail(lambda r: None,
+                "release:artifact_digest_expected_mismatch",
+                expected_digest="sha256:" + "7" * 64)
     assert_fail(lambda r: r["evidence"]["ota"].update({"source_sha": "4" * 40}),
                 "lane:ota:exact_source_sha_mismatch")
     assert_fail(lambda r: r["evidence"]["fat_sat"].update({"status": "NOT_RUN"}),
