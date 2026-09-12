@@ -18,13 +18,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Compile validator and tests
+        run: python3 -m py_compile tools/integrated_fat_sat_evidence_verify.py tests/integrated_fat_sat_evidence_test.py
       - name: Run integrated FAT SAT evidence tests
         run: python3 tests/integrated_fat_sat_evidence_test.py
-      - name: Prove template fails closed
+      - name: Prove template fails closed under external release identity lock
         run: |
           set -euo pipefail
-          if python3 tools/integrated_fat_sat_evidence_verify.py tools/integrated_fat_sat_evidence.example.json; then
+          EXPECTED_SHA="$(git rev-parse HEAD)"
+          EXPECTED_TREE="$(git show -s --format=%T HEAD)"
+          DUMMY_DIGEST="sha256:0000000000000000000000000000000000000000000000000000000000000000"
+          if python3 tools/integrated_fat_sat_evidence_verify.py \
+            tools/integrated_fat_sat_evidence.example.json \
+            --expected-firmware-sha "$EXPECTED_SHA" \
+            --expected-firmware-tree-sha "$EXPECTED_TREE" \
+            --expected-artifact-digest "$DUMMY_DIGEST" \
+            --expected-config-identity "CI-UNQUALIFIED-CONFIG" \
+            --expected-site-id "CI-UNQUALIFIED-SITE" \
+            --expected-site-map-digest "$DUMMY_DIGEST" \
+            --expected-profile-manifest-digest "$DUMMY_DIGEST"; then
             echo 'ERROR: unqualified FAT/SAT template unexpectedly passed'
             exit 1
           fi
-          echo 'Unqualified FAT/SAT template correctly fails closed'
+          echo 'Unqualified FAT/SAT template correctly fails closed under the external identity lock'
