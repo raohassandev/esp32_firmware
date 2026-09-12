@@ -17,7 +17,14 @@ import build_reva_pcb as b
 
 MECH_CLEARANCE = 0.15
 RF_BODY_MARGIN = 2.0
+# Edge connectors are permitted to mechanically overhang, but their pads must
+# still remain on the PCB. The ESP32 module is different: its antenna may sit at
+# the RF edge while its copper pads must satisfy the same 0.50 mm copper-edge
+# clearance enforced by the reproducible KiCad-10 DRC. Keeping this as a
+# placement constraint fixes geometry instead of weakening the manufacturing
+# rule.
 PAD_EDGE_MARGIN = 0.15
+RF_PAD_EDGE_MARGIN = 0.50
 MOUNTING_KEEP_OUTS = ((5.0,5.0,4.3),(140.0,5.0,4.3),(5.0,90.0,4.3),(140.0,90.0,4.3))
 EDGE_OVERHANG = {'J_ETH','J_USB'}
 RF_EDGE = {'U1'}
@@ -35,7 +42,11 @@ b.FIXED.clear()
 b.FIXED.update({
     'J_PWR':(14.0,87.5,0), 'J_RS485A':(37.0,87.5,0), 'J_RS485B':(59.0,87.5,0),
     'J_HMI':(83.0,89.5,0), 'J_RS232':(101.0,89.5,0), 'J_DI':(119.5,79.5,0),
-    'J_ETH':(132.5,65.0,90), 'J_USB':(142.5,42.0,90), 'J_SD':(119.5,42.5,90),
+    # Move the MagJack 0.30 mm inward. The frozen H2 replay measured only
+    # 0.320 mm copper-to-edge at LED pads 9/11 against the 0.500 mm rule.
+    # This conservative placement repair gives routing margin without changing
+    # the footprint, board rule, connector pinout or enclosure-facing rotation.
+    'J_ETH':(132.2,65.0,90), 'J_USB':(142.5,42.0,90), 'J_SD':(119.5,42.5,90),
     'J_RLY1':(20.0,15.5,180), 'J_RLY2':(52.0,7.5,180),
     'J_RLY3':(84.0,7.5,180), 'J_RLY4':(116.0,7.5,180),
     'K1':(20.0,24.0,0), 'K2':(52.0,18.0,0), 'K3':(84.0,18.0,0), 'K4':(116.0,18.0,0),
@@ -112,7 +123,10 @@ def _try_position(fp,x,y,placed):
     fp.SetPosition(b.mm(x,y))
     old=b.INV_REF.get(fp.GetReference(),fp.GetReference())
     box=_collision_box(fp,old)
-    if old in EDGE_OVERHANG or old in RF_EDGE:
+    if old in RF_EDGE:
+        pbox=_merge_pad_boxes(fp)
+        if pbox is None or not _inside_board(pbox,RF_PAD_EDGE_MARGIN): return False
+    elif old in EDGE_OVERHANG:
         pbox=_merge_pad_boxes(fp)
         if pbox is None or not _inside_board(pbox,PAD_EDGE_MARGIN): return False
     elif not _inside_board(box,b.EDGE_MARGIN): return False
@@ -165,7 +179,7 @@ def _autofit_esp32_rf_edge():
     for _,x,y,rot in candidates:
         fp.SetOrientationDegrees(rot); fp.SetPosition(b.mm(x,y))
         pbox=_merge_pad_boxes(fp)
-        if pbox is None or not _inside_board(pbox,PAD_EDGE_MARGIN): continue
+        if pbox is None or not _inside_board(pbox,RF_PAD_EDGE_MARGIN): continue
         body=_rf_body_box(fp)
         if _hits_mount_keepout(body): continue
         if any(body.Intersects(ob) for _,ob in obstacles): continue
