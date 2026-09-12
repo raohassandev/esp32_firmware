@@ -9,17 +9,6 @@
 #include "esp_log.h"
 #include "screen_widgets.h"
 
-/* PRAGMA MARK: BENCH CREDENTIAL PREFILL — REMOVE BEFORE PRODUCTION RELEASE
- *
- * Prefills the Engineering credential field so a bench operator does not retype
- * it on every unlock. Empty unless CONFIG_WAVESHARE_BENCH_ENGINEERING_CREDENTIAL
- * is set, and that option defaults to empty, so a normal build is unaffected.
- *
- * A value here is compiled into the image. It is therefore identical on every
- * unit built from this source and must be treated as public knowledge, exactly
- * like the recovery access point's build default passphrase. It must not ship.
- *
- * Search the tree for "BENCH CREDENTIAL PREFILL" to find every instance. */
 #if defined(CONFIG_WAVESHARE_BENCH_ENGINEERING_CREDENTIAL)
 #define WAVESHARE_BENCH_CREDENTIAL CONFIG_WAVESHARE_BENCH_ENGINEERING_CREDENTIAL
 #else
@@ -28,6 +17,9 @@
 
 #define SOURCE_FORM_CONTROL_WIDTH 330
 #define SOURCE_KEYBOARD_HEIGHT 190
+#define SOURCE_SIGNAL_PAGE_COUNT 10U
+#define SOURCE_TIMING_PAGE 10U
+#define SOURCE_PAGE_COUNT 11U
 
 typedef struct {
     lv_obj_t *root;
@@ -35,25 +27,26 @@ typedef struct {
     lv_obj_t *message;
     lv_obj_t *keyboard;
     lv_obj_t *credential;
-    lv_obj_t *enabled;
-    lv_obj_t *ga_meter;
-    lv_obj_t *ga_function;
-    lv_obj_t *ga_address;
-    lv_obj_t *ga_mask;
-    lv_obj_t *ga_active;
-    lv_obj_t *gb_meter;
-    lv_obj_t *gb_function;
-    lv_obj_t *gb_address;
-    lv_obj_t *gb_mask;
-    lv_obj_t *gb_active;
+
+    lv_obj_t *signal_meter;
+    lv_obj_t *signal_function;
+    lv_obj_t *signal_address;
+    lv_obj_t *signal_mask;
+    lv_obj_t *signal_active;
+
+    lv_obj_t *enable_grid;
+    lv_obj_t *enable_generators[SOURCE_COMMISSIONING_MAX_GENERATORS];
+    lv_obj_t *enable_transfer;
+    lv_obj_t *enable_sync;
     lv_obj_t *poll_ms;
     lv_obj_t *stale_ms;
     lv_obj_t *loss_ms;
     lv_obj_t *recovery_ms;
+
     source_commission_backend_t backend;
     source_commission_config_t config;
     bool backend_set;
-    uint8_t page; /* 0 grid available, 1 breaker closed, 2 timing/enable */
+    uint8_t page;
 } source_ui_t;
 
 static source_ui_t s_ui;
@@ -76,6 +69,26 @@ static void make_fixed(lv_obj_t *obj)
     if (!obj) return;
     lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scrollbar_mode(obj, LV_SCROLLBAR_MODE_OFF);
+}
+
+static void clear_form_refs(void)
+{
+    s_ui.credential = NULL;
+    s_ui.signal_meter = NULL;
+    s_ui.signal_function = NULL;
+    s_ui.signal_address = NULL;
+    s_ui.signal_mask = NULL;
+    s_ui.signal_active = NULL;
+    s_ui.enable_grid = NULL;
+    for (uint8_t i = 0U; i < SOURCE_COMMISSIONING_MAX_GENERATORS; ++i) {
+        s_ui.enable_generators[i] = NULL;
+    }
+    s_ui.enable_transfer = NULL;
+    s_ui.enable_sync = NULL;
+    s_ui.poll_ms = NULL;
+    s_ui.stale_ms = NULL;
+    s_ui.loss_ms = NULL;
+    s_ui.recovery_ms = NULL;
 }
 
 static void set_message(const char *text, bool good)
@@ -143,6 +156,7 @@ static lv_obj_t *field(lv_obj_t *parent, const char *label, const char *value, b
     lv_textarea_set_password_mode(input, password);
     lv_textarea_set_text(input, value ? value : "");
     lv_obj_set_width(input, SOURCE_FORM_CONTROL_WIDTH);
+    lv_obj_set_height(input, 44);
     lv_obj_add_event_cb(input, textarea_focus, LV_EVENT_FOCUSED, NULL);
     return input;
 }
@@ -167,7 +181,7 @@ static lv_obj_t *checkbox_field(lv_obj_t *parent, const char *label, bool value)
     lv_obj_t *box = lv_checkbox_create(item);
     lv_checkbox_set_text(box, "");
     if (value) lv_obj_add_state(box, LV_STATE_CHECKED);
-    lv_obj_set_width(box, SOURCE_FORM_CONTROL_WIDTH);
+    lv_obj_set_size(box, SOURCE_FORM_CONTROL_WIDTH, 44);
     return box;
 }
 
@@ -178,7 +192,7 @@ static lv_obj_t *dropdown_field(lv_obj_t *parent, const char *label,
     lv_obj_t *drop = lv_dropdown_create(item);
     lv_dropdown_set_options(drop, options);
     lv_dropdown_set_selected(drop, selected);
-    lv_obj_set_width(drop, SOURCE_FORM_CONTROL_WIDTH);
+    lv_obj_set_size(drop, SOURCE_FORM_CONTROL_WIDTH, 44);
     return drop;
 }
 
@@ -186,7 +200,7 @@ static lv_obj_t *button(lv_obj_t *parent, const char *text, lv_event_cb_t callba
 {
     lv_obj_t *obj = lv_button_create(parent);
     make_fixed(obj);
-    lv_obj_set_height(obj, 38);
+    lv_obj_set_height(obj, 44);
     lv_obj_add_event_cb(obj, callback, LV_EVENT_CLICKED, NULL);
     lv_obj_t *label = lv_label_create(obj);
     lv_label_set_text(label, text);
@@ -243,6 +257,52 @@ static lv_obj_t *form_container(void)
     return form;
 }
 
+static source_commission_signal_t *signal_for_page(source_commission_config_t *config,
+                                                    uint8_t page)
+{
+    if (!config) return NULL;
+    switch (page) {
+        case 0U: return &config->grid_available;
+        case 1U: return &config->grid_breaker_closed;
+        case 2U: return &config->generator_running[0];
+        case 3U: return &config->generator_breaker_closed[0];
+        case 4U: return &config->generator_running[1];
+        case 5U: return &config->generator_breaker_closed[1];
+        case 6U: return &config->generator_running[2];
+        case 7U: return &config->generator_breaker_closed[2];
+        case 8U: return &config->transfer_active;
+        case 9U: return &config->grid_generator_synchronized;
+        default: return NULL;
+    }
+}
+
+static const char *page_name(uint8_t page)
+{
+    static const char *const names[SOURCE_PAGE_COUNT] = {
+        "Grid available",
+        "Grid breaker",
+        "Gen 1 running",
+        "Gen 1 breaker",
+        "Gen 2 running",
+        "Gen 2 breaker",
+        "Gen 3 running",
+        "Gen 3 breaker",
+        "Transfer active",
+        "Grid + Gen sync",
+        "Enable + timing",
+    };
+    return page < SOURCE_PAGE_COUNT ? names[page] : "Source evidence";
+}
+
+static const char *page_detail(uint8_t page)
+{
+    if (page <= 1U) return "Authoritative grid contact/register evidence only. Do not infer breaker state from kW sign.";
+    if (page >= 2U && page <= 7U) return "Generator run and breaker channels are commissioned independently per generator and enabled only as a complete pair.";
+    if (page == 8U) return "Optional plant transfer/ATS evidence. Configure only from the real commissioned contact/register and polarity.";
+    if (page == 9U) return "Optional synchronism evidence for topologies that genuinely support simultaneous Grid + Generator operation.";
+    return "Enable only channels backed by authoritative site/manual evidence. Unknown, stale or conflicting evidence remains fail-closed.";
+}
+
 static void unlock_clicked(lv_event_t *event)
 {
     (void)event;
@@ -295,66 +355,88 @@ static void page_next_clicked(lv_event_t *event)
 {
     (void)event;
     keyboard_hide();
-    if (s_ui.page < 2U) s_ui.page++;
+    if (s_ui.page + 1U < SOURCE_PAGE_COUNT) s_ui.page++;
     queue_render();
 }
 
-static bool read_signal(source_commission_signal_t *signal,
-                        lv_obj_t *meter, lv_obj_t *function_code,
-                        lv_obj_t *address, lv_obj_t *mask, lv_obj_t *active)
+static bool read_signal(source_commission_signal_t *signal)
 {
-    if (!signal) return false;
-    if (meter) signal->meter_index = (uint8_t)lv_dropdown_get_selected(meter);
-    if (function_code) {
-        signal->function_code = lv_dropdown_get_selected(function_code) == 0U ? 3U : 4U;
-    }
+    if (!signal || !s_ui.signal_meter || !s_ui.signal_function ||
+        !s_ui.signal_address || !s_ui.signal_mask || !s_ui.signal_active) return false;
+
+    signal->meter_index = (uint8_t)lv_dropdown_get_selected(s_ui.signal_meter);
+    signal->function_code = lv_dropdown_get_selected(s_ui.signal_function) == 0U ? 3U : 4U;
+
     unsigned long value = 0U;
-    if (address) {
-        if (!parse_unsigned(address, 0, 0U, 65535U, &value)) return false;
-        signal->address = (uint16_t)value;
-    }
-    if (mask) {
-        if (!parse_unsigned(mask, 0, 0U, 65535U, &value)) return false;
-        signal->mask = (uint16_t)value;
-    }
-    if (active) {
-        if (!parse_unsigned(active, 0, 0U, 65535U, &value)) return false;
-        signal->active_value = (uint16_t)value;
-    }
+    if (!parse_unsigned(s_ui.signal_address, 0, 0U, 65535U, &value)) return false;
+    signal->address = (uint16_t)value;
+    if (!parse_unsigned(s_ui.signal_mask, 0, 0U, 65535U, &value)) return false;
+    signal->mask = (uint16_t)value;
+    if (!parse_unsigned(s_ui.signal_active, 0, 0U, 65535U, &value)) return false;
+    signal->active_value = (uint16_t)value;
     return true;
+}
+
+static bool signal_ready_when_enabled(bool enabled, const source_commission_signal_t *signal)
+{
+    return !enabled || (signal && signal->mask != 0U &&
+                        (signal->function_code == 3U || signal->function_code == 4U) &&
+                        signal->meter_index < SOURCE_COMMISSIONING_MAX_METERS);
+}
+
+static bool enabled_channels_valid(const source_commission_config_t *config)
+{
+    if (!config) return false;
+    if (!signal_ready_when_enabled(config->grid_evidence_enabled, &config->grid_available) ||
+        !signal_ready_when_enabled(config->grid_evidence_enabled, &config->grid_breaker_closed)) {
+        return false;
+    }
+    for (uint8_t i = 0U; i < SOURCE_COMMISSIONING_MAX_GENERATORS; ++i) {
+        if (!signal_ready_when_enabled(config->generator_evidence_enabled[i],
+                                       &config->generator_running[i]) ||
+            !signal_ready_when_enabled(config->generator_evidence_enabled[i],
+                                       &config->generator_breaker_closed[i])) {
+            return false;
+        }
+    }
+    return signal_ready_when_enabled(config->transfer_evidence_enabled, &config->transfer_active) &&
+           signal_ready_when_enabled(config->synchronism_evidence_enabled,
+                                     &config->grid_generator_synchronized);
+}
+
+static bool read_timing_form(source_commission_config_t *config)
+{
+    if (!config || !s_ui.enable_grid || !s_ui.enable_transfer || !s_ui.enable_sync) return false;
+
+    config->grid_evidence_enabled = checked(s_ui.enable_grid);
+    for (uint8_t i = 0U; i < SOURCE_COMMISSIONING_MAX_GENERATORS; ++i) {
+        if (!s_ui.enable_generators[i]) return false;
+        config->generator_evidence_enabled[i] = checked(s_ui.enable_generators[i]);
+    }
+    config->transfer_evidence_enabled = checked(s_ui.enable_transfer);
+    config->synchronism_evidence_enabled = checked(s_ui.enable_sync);
+
+    unsigned long value = 0U;
+    if (!parse_unsigned(s_ui.poll_ms, 10, 100U, 60000U, &value)) return false;
+    config->evidence_poll_interval_ms = (uint32_t)value;
+    if (!parse_unsigned(s_ui.stale_ms, 10, config->evidence_poll_interval_ms, 600000U, &value)) return false;
+    config->evidence_stale_timeout_ms = (uint32_t)value;
+    if (!parse_unsigned(s_ui.loss_ms, 10, 0U, 60000U, &value)) return false;
+    config->grid_loss_trip_ms = (uint32_t)value;
+    if (!parse_unsigned(s_ui.recovery_ms, 10, 0U, 600000U, &value)) return false;
+    config->grid_recovery_stable_ms = (uint32_t)value;
+
+    return enabled_channels_valid(config);
 }
 
 static bool read_form(source_commission_config_t *config)
 {
     if (!config) return false;
-    if (s_ui.enabled) config->evidence_enabled = checked(s_ui.enabled);
-    if (!read_signal(&config->grid_available, s_ui.ga_meter, s_ui.ga_function,
-                     s_ui.ga_address, s_ui.ga_mask, s_ui.ga_active) ||
-        !read_signal(&config->grid_breaker_closed, s_ui.gb_meter, s_ui.gb_function,
-                     s_ui.gb_address, s_ui.gb_mask, s_ui.gb_active)) return false;
-
-    unsigned long value = 0U;
-    if (s_ui.poll_ms) {
-        if (!parse_unsigned(s_ui.poll_ms, 10, 100U, 60000U, &value)) return false;
-        config->evidence_poll_interval_ms = (uint32_t)value;
+    if (s_ui.page < SOURCE_SIGNAL_PAGE_COUNT) {
+        source_commission_signal_t *signal = signal_for_page(config, s_ui.page);
+        return read_signal(signal);
     }
-    if (s_ui.stale_ms) {
-        if (!parse_unsigned(s_ui.stale_ms, 10, config->evidence_poll_interval_ms, 600000U, &value)) return false;
-        config->evidence_stale_timeout_ms = (uint32_t)value;
-    }
-    if (s_ui.loss_ms) {
-        if (!parse_unsigned(s_ui.loss_ms, 10, 0U, 60000U, &value)) return false;
-        config->grid_loss_trip_ms = (uint32_t)value;
-    }
-    if (s_ui.recovery_ms) {
-        if (!parse_unsigned(s_ui.recovery_ms, 10, 0U, 600000U, &value)) return false;
-        config->grid_recovery_stable_ms = (uint32_t)value;
-    }
-    if (config->evidence_enabled &&
-        (config->grid_available.mask == 0U || config->grid_breaker_closed.mask == 0U)) {
-        return false;
-    }
-    return true;
+    return read_timing_form(config);
 }
 
 static void save_clicked(lv_event_t *event)
@@ -363,7 +445,7 @@ static void save_clicked(lv_event_t *event)
     if (!s_ui.backend.save_config) return;
     source_commission_config_t next = s_ui.config;
     if (!read_form(&next)) {
-        set_message("Source evidence fields are invalid. Enabled signals require a non-zero mask.", false);
+        set_message("Source evidence is invalid. Enabled channels need a valid meter, FC03/FC04 and non-zero mask; timing must remain in Core bounds.", false);
         return;
     }
     source_commission_action_result_t result = {0};
@@ -399,77 +481,78 @@ static void render_locked(void)
 {
     lv_obj_t *form = form_container();
     heading(form, "Source evidence · Engineering locked",
-            "Use the same Engineering password as the protected web workspace. This page configures the two source-evidence registers used by Core source detection; it never infers a source locally.");
-    /* BENCH CREDENTIAL PREFILL — see the pragma mark at the top of this file. */
+            "Use the same Engineering password as the protected web workspace. This page commissions Grid, Generator 1..3, Transfer and Synchronism evidence directly into the authoritative Core model; it never infers source authority from measured power.");
     s_ui.credential = field(form, "Engineering credential", WAVESHARE_BENCH_CREDENTIAL, true);
     if (WAVESHARE_BENCH_CREDENTIAL[0] != '\0') {
         ESP_LOGW("source_commissioning_screen",
-                 "BENCH BUILD: an Engineering credential is compiled into this image and "
-                 "prefilled on the unlock form. This build must not be shipped.");
+                 "BENCH BUILD: an Engineering credential is compiled into this image. This build must not ship.");
     }
     button(form, "Unlock source commissioning", unlock_clicked);
 }
 
-static void signal_fields(lv_obj_t *form, const char *title,
-                          const source_commission_signal_t *signal,
-                          lv_obj_t **meter, lv_obj_t **function_code,
-                          lv_obj_t **address, lv_obj_t **mask, lv_obj_t **active)
+static void signal_fields(lv_obj_t *form, const source_commission_signal_t *signal)
 {
-    heading(form, title, "Read-only Modbus evidence. Meter numbering below is 1-based for the operator; Core stores the selected slot and performs acquisition in its normal background path.");
-    *meter = dropdown_field(form, "Meter slot", "Meter 1\nMeter 2\nMeter 3\nMeter 4",
-                            signal->meter_index < SOURCE_COMMISSIONING_MAX_METERS ? signal->meter_index : 0U);
-    *function_code = dropdown_field(form, "Read function", "FC03\nFC04",
-                                    signal->function_code == 4U ? 1U : 0U);
-    *address = hex_field(form, "PDU address (dec or 0xHEX)", signal->address);
-    *mask = hex_field(form, "Mask (dec or 0xHEX)", signal->mask);
-    *active = hex_field(form, "Active value (dec or 0xHEX)", signal->active_value);
+    if (!signal) return;
+    s_ui.signal_meter = dropdown_field(form, "Meter slot", "Meter 1\nMeter 2\nMeter 3\nMeter 4",
+                                       signal->meter_index < SOURCE_COMMISSIONING_MAX_METERS
+                                           ? signal->meter_index : 0U);
+    s_ui.signal_function = dropdown_field(form, "Read function", "FC03\nFC04",
+                                          signal->function_code == 4U ? 1U : 0U);
+    s_ui.signal_address = hex_field(form, "PDU address (dec or 0xHEX)", signal->address);
+    s_ui.signal_mask = hex_field(form, "Mask (dec or 0xHEX)", signal->mask);
+    s_ui.signal_active = hex_field(form, "Active value (dec or 0xHEX)", signal->active_value);
+}
+
+static void render_signal_page(lv_obj_t *form)
+{
+    source_commission_signal_t *signal = signal_for_page(&s_ui.config, s_ui.page);
+    heading(form, page_name(s_ui.page), page_detail(s_ui.page));
+    signal_fields(form, signal);
+    button(form, "Save this evidence channel", save_clicked);
+}
+
+static void render_timing_page(lv_obj_t *form)
+{
+    heading(form, "Enable source evidence + timing", page_detail(SOURCE_TIMING_PAGE));
+    s_ui.enable_grid = checkbox_field(form, "Enable Grid pair", s_ui.config.grid_evidence_enabled);
+    s_ui.enable_generators[0] = checkbox_field(form, "Enable Generator 1 pair", s_ui.config.generator_evidence_enabled[0]);
+    s_ui.enable_generators[1] = checkbox_field(form, "Enable Generator 2 pair", s_ui.config.generator_evidence_enabled[1]);
+    s_ui.enable_generators[2] = checkbox_field(form, "Enable Generator 3 pair", s_ui.config.generator_evidence_enabled[2]);
+    s_ui.enable_transfer = checkbox_field(form, "Enable Transfer/ATS evidence", s_ui.config.transfer_evidence_enabled);
+    s_ui.enable_sync = checkbox_field(form, "Enable Grid + Generator sync", s_ui.config.synchronism_evidence_enabled);
+    s_ui.poll_ms = integer_field(form, "Evidence poll interval (ms)", s_ui.config.evidence_poll_interval_ms);
+    s_ui.stale_ms = integer_field(form, "Evidence stale timeout (ms)", s_ui.config.evidence_stale_timeout_ms);
+    s_ui.loss_ms = integer_field(form, "Grid loss trip (ms)", s_ui.config.grid_loss_trip_ms);
+    s_ui.recovery_ms = integer_field(form, "Grid recovery stable (ms)", s_ui.config.grid_recovery_stable_ms);
+    button(form, "Save enable / timing model", save_clicked);
+    button(form, "Refresh from Core", refresh_clicked);
+    if (s_ui.config.restart_required) button(form, "Restart controller", restart_clicked);
 }
 
 static void render_unlocked(void)
 {
     lv_obj_t *form = form_container();
-    static const char *const page_names[] = { "Grid available", "Breaker closed", "Timing + enable" };
-    heading(form, "Grid source evidence",
-            "Source commissioning is split into lightweight sections for exact-board DRAM headroom. Configure and save both register sections first; enable the pair only on the final section.");
+    heading(form, "Plant source evidence",
+            "Commission exact contact/register evidence channel by channel. The final section enables only complete Grid/Generator pairs and optional Transfer/Sync channels backed by real site evidence.");
 
     lv_obj_t *nav = lv_obj_create(form);
     lv_obj_remove_style_all(nav);
     lv_obj_set_width(nav, LV_PCT(100));
-    lv_obj_set_height(nav, 40);
+    lv_obj_set_height(nav, 44);
     lv_obj_set_layout(nav, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(nav, LV_FLEX_FLOW_ROW);
     button(nav, "< Section", page_prev_clicked);
-    char page_text[64];
-    snprintf(page_text, sizeof(page_text), "%s %u/3", page_names[s_ui.page],
-             (unsigned)(s_ui.page + 1U));
+    char page_text[80];
+    snprintf(page_text, sizeof(page_text), "%s %u/%u", page_name(s_ui.page),
+             (unsigned)(s_ui.page + 1U), (unsigned)SOURCE_PAGE_COUNT);
     lv_obj_t *page_label = lv_label_create(nav);
     lv_label_set_text(page_label, page_text);
-    lv_obj_set_width(page_label, 260);
+    lv_obj_set_width(page_label, 300);
     lv_obj_set_style_text_align(page_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     button(nav, "Section >", page_next_clicked);
 
-    if (s_ui.page == 0U) {
-        signal_fields(form, "Grid available evidence", &s_ui.config.grid_available,
-                      &s_ui.ga_meter, &s_ui.ga_function, &s_ui.ga_address,
-                      &s_ui.ga_mask, &s_ui.ga_active);
-        button(form, "Save grid-available section", save_clicked);
-    } else if (s_ui.page == 1U) {
-        signal_fields(form, "Grid breaker closed evidence", &s_ui.config.grid_breaker_closed,
-                      &s_ui.gb_meter, &s_ui.gb_function, &s_ui.gb_address,
-                      &s_ui.gb_mask, &s_ui.gb_active);
-        button(form, "Save breaker section", save_clicked);
-    } else {
-        heading(form, "Evidence timing",
-                "Enable only after both real evidence registers have been configured. Core requires the two signals as one complete pair; unknown or stale evidence remains fail-closed.");
-        s_ui.enabled = checkbox_field(form, "Enable source evidence", s_ui.config.evidence_enabled);
-        s_ui.poll_ms = integer_field(form, "Evidence poll interval (ms)", s_ui.config.evidence_poll_interval_ms);
-        s_ui.stale_ms = integer_field(form, "Evidence stale timeout (ms)", s_ui.config.evidence_stale_timeout_ms);
-        s_ui.loss_ms = integer_field(form, "Grid loss trip (ms)", s_ui.config.grid_loss_trip_ms);
-        s_ui.recovery_ms = integer_field(form, "Grid recovery stable (ms)", s_ui.config.grid_recovery_stable_ms);
-        button(form, "Save timing / enable pair", save_clicked);
-        button(form, "Refresh from Core", refresh_clicked);
-        if (s_ui.config.restart_required) button(form, "Restart controller", restart_clicked);
-    }
+    if (s_ui.page < SOURCE_SIGNAL_PAGE_COUNT) render_signal_page(form);
+    else render_timing_page(form);
 }
 
 static void render(void)
@@ -477,7 +560,7 @@ static void render(void)
     if (!s_ui.root || !s_ui.body) return;
     keyboard_hide();
     lv_obj_clean(s_ui.body);
-    s_ui.credential = NULL;
+    clear_form_refs();
     if (!s_ui.backend_set || !s_ui.config.unlocked) render_locked();
     else render_unlocked();
 }
@@ -500,7 +583,7 @@ lv_obj_t *source_commissioning_screen_create(lv_obj_t *parent)
     lv_obj_remove_style_all(top);
     make_fixed(top);
     lv_obj_set_width(top, LV_PCT(100));
-    lv_obj_set_height(top, 38);
+    lv_obj_set_height(top, 44);
     lv_obj_set_layout(top, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(top, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(top, LV_FLEX_ALIGN_SPACE_BETWEEN,
