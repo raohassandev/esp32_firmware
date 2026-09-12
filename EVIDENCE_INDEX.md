@@ -1,10 +1,10 @@
-# AISH-OS Evidence Index v5
+# AISH-OS Evidence Index v6
 
-Master program: #79. Evidence is valid only for the exact source/head/artifact/config/profile/site identity named. Software CI and validators never substitute for physical acceptance.
+Master program: #79. Evidence is valid only for the exact source/head/tree/artifact/config/profile/site identity named. Software CI and validators never substitute for physical acceptance.
 
-## Live integration baseline
+## Integration reconciliation parent
 
-Current `dev`: `7cb824a2341cb9072b1a3176afbd3685dec1a32a` after governed PR #181.
+Known parent before this revision: `dev` `8016c005be8d548e9388026a89592b70b92ec1a3` after governed PR #182. The post-revision live `dev` head is deliberately not hard-coded here because a PR cannot know its own future merge SHA; fetch live repository state before every execution decision.
 
 ## Current software/evidence chain
 
@@ -18,10 +18,12 @@ Current `dev`: `7cb824a2341cb9072b1a3176afbd3685dec1a32a` after governed PR #181
 | Governance through Industrial UI v1 | PR #177 -> `150118a8425462e1756b115ddf3d463a022b395f` | MERGED |
 | Exact current Industrial UI Waveshare integration | PR #179 head `72a1a82a8fc5ad4406b5bd51fba1f80f9c182884` | SOFTWARE GREEN / DRAFT PHYSICAL-GATED |
 | Industrial UI physical evidence authority v2 | PR #181 -> `7cb824a2341cb9072b1a3176afbd3685dec1a32a` | MERGED TOOLING ONLY |
+| Eight-file governance reconciliation | PR #182 -> `8016c005be8d548e9388026a89592b70b92ec1a3` | MERGED |
+| Industrial UI physical evidence v3 topology correction | PR #183 | CI/PROMOTION GATED; NO FIRMWARE CHANGE |
 
 ## Exact Industrial UI v1 physical candidate — #164/#174
 
-The immutable candidate is now selected and fully identified:
+The immutable candidate remains:
 
 - PR: #179 (intentionally Draft until genuine #174 physical PASS)
 - source: `72a1a82a8fc5ad4406b5bd51fba1f80f9c182884`
@@ -42,12 +44,16 @@ The immutable candidate is now selected and fully identified:
 
 The exact PR #179 candidate earned current root firmware/web checks, exact Waveshare ESP-IDF build/package, immutable dependency-lock/config checks, UF2 generation and independent diagnostic build. These are software/build prerequisites, not a panel PASS.
 
-PR #181 provides the current physical evidence contract and exact starter `evidence/candidates/industrial_ui_72a1a82_physical_observations.json`. The starter is explicitly `UNEXECUTED_TEMPLATE_NOT_A_PHYSICAL_PASS` and all physical observation flags are false by default.
+PR #181 established the full Network/source/alarm/Modbus physical evidence contract and exact starter `evidence/candidates/industrial_ui_72a1a82_physical_observations.json`. The starter is explicitly `UNEXECUTED_TEMPLATE_NOT_A_PHYSICAL_PASS`.
+
+PR #183 corrects the only discovered v2 contract mismatch: #174 says Transfer/ATS and synchronism are optional when configured, while v2 required both roundtrip flags unconditionally. V3 requires explicit boolean applicability for each optional channel. If configured, real round-trip PASS is mandatory and a skip reason is contradictory. If not configured/supported, roundtrip must remain false and a non-empty factual reason is mandatory. Applicability left `null` in the unexecuted starter prevents accidental PASS.
 
 A genuine #174 PASS must physically prove on this exact image:
 - native 800x480 visual hierarchy, touch behavior and Operator/Engineering role boundaries;
 - Network layout/scan/select/manual SSID/password/connect/restart/Wi-Fi indicator/Engineering lock and observed connected RSSI;
-- Grid + Generator 1..3 run/breaker + optional Transfer/ATS + optional synchronism source mapping round trips, save disabling current automatic control and no kW-sign source inference;
+- Grid + Generator 1..3 source mapping round trips;
+- explicit Transfer/ATS and Sync applicability with configured=>real roundtrip or absent=>false+reason;
+- save disabling current automatic control and no kW-sign source inference;
 - alarm All/Active/Unack filters, Priority/State/ID sorts, Engineering acknowledgement and operator acknowledgement refusal;
 - real board↔bench-simulator Modbus connection, request/success counters that increase, at least 3 decoded samples and decoded values following simulator changes;
 - browser/API/history responsiveness, resource stability, no fatal/reset/wedge; and one uninterrupted >=4 h / >=240-sample run.
@@ -86,7 +92,7 @@ PR #160 is the final evidence contract: genuine prerequisite physical references
 
 ## Rev-A H2/H3/H4 evidence
 
-Historical provider artifact `9909976209` is evidence only. Reproducibility run `33884657384` could not reproduce historical `DRC=0` and returned 20 DRC violations / 0 unconnected. #85 therefore requires authoritative component/fabricator evidence for any exceptions, rules committed before a new checkpoint, and fresh ERC/DRC/SI/STEP/provider-package acceptance to a new H2 identity. #162 H4 physical qualification follows only from the new accepted package.
+Historical provider artifact `9909976209` is evidence only. Reproducibility run `33884657384` could not reproduce historical `DRC=0` and returned 20 DRC violations / 0 unconnected. #178/#85 therefore require authoritative component/fabricator evidence for any exceptions, rules committed before a new checkpoint, and fresh ERC/DRC/SI/STEP/provider-package acceptance to a new H2 identity. #162 H4 physical qualification follows only from the new accepted package.
 
 ## Final release evidence outputs still required
 
@@ -98,4 +104,4 @@ Historical provider artifact `9909976209` is evidence only. Reproducibility run 
 6. #83 integrated FAT/endurance and authorized signed SAT.
 7. #91 final identity index with zero critical blockers.
 
-Historical #87/#27/#25/#26 and Rev-A #85/#162 remain separate tracked hardware lanes and must not be silently used as evidence for a changed release identity. Partial physical intervals cannot be combined, thresholds cannot be lowered, and no validator manufactures a physical PASS.
+Historical #87/#27/#25/#26 and Rev-A #178/#85/#162 remain separate tracked hardware lanes and must not be silently used as evidence for a changed release identity. Partial physical intervals cannot be combined, thresholds cannot be lowered, optional topology cannot be invented, and no validator manufactures a physical PASS.
