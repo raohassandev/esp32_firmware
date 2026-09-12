@@ -1,6 +1,6 @@
-version: 6
-updated_at: 2026-09-12T16:48:00+05:00
-reconciliation_parent_before_this_revision: f924726db9c24ab55ebe4f43fe28caf75a9b2c3d
+version: 7
+updated_at: 2026-09-12T23:22:00+05:00
+reconciliation_parent_before_this_revision: c333db0752be89bdcb9bfbda01e2f19a1f05709f
 truth_rule: live_repository_over_stale_docs
 
 defaults:
@@ -40,43 +40,8 @@ defaults:
     issue: 174
     validator_lineage: [175, 181, 183]
     identity_bound_starter: evidence/candidates/industrial_ui_72a1a82_physical_observations.json
-    require:
-      - exact_industrial_ui_candidate_identity
-      - native_800x480_overview_grid_solar_alarms_readiness_layout
-      - engineering_commission_configure_service_touch_use
-      - light_and_dark_readability
-      - operator_and_engineering_role_observation
-      - network_scan_select_manual_ssid_password_connect_restart_wifi_indicator_and_engineering_lock
-      - grid_gen1_gen2_gen3_source_mapping_roundtrips
-      - transfer_ATS_applicability_explicit_boolean
-      - transfer_ATS_if_configured_roundtrip_must_pass
-      - transfer_ATS_if_not_configured_roundtrip_false_and_nonempty_reason
-      - sync_applicability_explicit_boolean
-      - sync_if_configured_roundtrip_must_pass
-      - sync_if_not_configured_roundtrip_false_and_nonempty_reason
-      - source_save_forces_automatic_control_disabled
-      - no_source_authority_inferred_from_kw_sign
-      - alarm_all_active_unack_filters
-      - alarm_priority_state_id_sorts
-      - engineering_ack_allowed_and_operator_ack_refused
-      - real_board_to_bench_simulator_modbus_connection
-      - modbus_request_and_success_counters_increase
-      - at_least_3_decoded_modbus_samples
-      - decoded_values_follow_simulator_changes
-      - browser_api_history_responsiveness_and_no_socket_lockout
-      - one_uninterrupted_4h_run
-      - at_least_240_samples
-      - resource_trends_and_dma_floor
-      - no_wdt_panic_no_mem_unexpected_reset_lvgl_or_browser_wedge
-      - explicit_human_visual_touch_observation
-    forbid:
-      - historical_87841ece_pass_reused
-      - partial_soaks_combined
-      - rebuild_or_config_substitution_mid_run
-      - validator_only_pass
-      - threshold_lowering
-      - optional_mapping_fake_pass_when_not_configured
-      - optional_mapping_omitted_without_applicability_or_reason
+    require: [exact_industrial_ui_candidate_identity, native_800x480_overview_grid_solar_alarms_readiness_layout, engineering_commission_configure_service_touch_use, light_and_dark_readability, operator_and_engineering_role_observation, network_scan_select_manual_ssid_password_connect_restart_wifi_indicator_and_engineering_lock, grid_gen1_gen2_gen3_source_mapping_roundtrips, transfer_ATS_applicability_explicit_boolean, sync_applicability_explicit_boolean, source_save_forces_automatic_control_disabled, no_source_authority_inferred_from_kw_sign, alarm_all_active_unack_filters, alarm_priority_state_id_sorts, engineering_ack_allowed_and_operator_ack_refused, real_board_to_bench_simulator_modbus_connection, modbus_request_and_success_counters_increase, at_least_3_decoded_modbus_samples, decoded_values_follow_simulator_changes, browser_api_history_responsiveness_and_no_socket_lockout, one_uninterrupted_4h_run, at_least_240_samples, resource_trends_and_dma_floor, no_wdt_panic_no_mem_unexpected_reset_lvgl_or_browser_wedge, explicit_human_visual_touch_observation]
+    forbid: [historical_87841ece_pass_reused, partial_soaks_combined, rebuild_or_config_substitution_mid_run, validator_only_pass, threshold_lowering, optional_mapping_fake_pass_when_not_configured, optional_mapping_omitted_without_applicability_or_reason]
 
   generator_transition:
     require: [authoritative_breaker_run_ATS_sync_topology_evidence, meter_sign_scaling_proof, grid_transfer_generator, generator_transfer_grid, island, supported_sync_or_authoritative_not_supported, stale_conflict_source_loss_fail_closed, fresh_recovery_dwell, PR151_validator]
@@ -98,15 +63,36 @@ defaults:
     require: [all_prerequisite_physical_gates_passed, exact_release_identity_frozen, complete_grid_FAT, complete_generator_FAT, complete_mixed_source_FAT, all_three_modbus_modes_endurance, degraded_peer_and_network_recovery_tests, accepted_industrial_ui_physical_reference, zero_fatal_reset_resource_collapse_counters, exact_OTA_physical_reference, authorized_signed_SAT, PR160_validator]
     forbid: [simulator_or_CI_substituted_for_FAT_or_SAT, unsigned_or_cross_identity_SAT]
 
-  reva_hardware:
-    require_before_new_H2: [authoritative_component_evidence_for_footprint_exceptions, authoritative_intended_fabricator_capability_for_manufacturing_exceptions, approved_rules_committed_before_checkpoint]
-    require_before_provider_package: [ERC_zero, DRC_zero, UNCONNECTED_zero, L2_ground_gate, critical_route_SI_geometry_gate, STEP_export, mechanical_handoff, manufacturing_exports, controlled_provider_manifest]
-    require_after_fabrication: [12V_24V_startup, reverse_polarity, USB_backfeed_and_programming, rail_measurements, ethernet_endurance, RS485_A_B_and_simultaneous, HMI_serial, relay_default_off_and_contact_tests, enclosure_fit, thermal_and_required_environmental_EMC_validation]
-    forbid: [historical_nonreproducible_H2_as_fabrication_authority, post_checkpoint_DRC_rule_relaxation_silently_inheriting_pass]
+  reva_hardware_H2:
+    h2_freeze_sha: a877e5d844af114a6e4386f6294f514288ca5df6
+    h2_tree_sha: 782189312aec046338d472858d65d8cb397bd473
+    provider_rfq_artifact_id: 10300571374
+    provider_rfq_digest: sha256:27b1709537715f08e928e65137262553791a95f957c19703da8dc3a104db0d30
+    declared_prototype_minima: [drill_0.20mm, hole_clearance_0.18mm, copper_edge_0.25mm]
+    status: CAD_ROUTING_REQUALIFIED_NOT_FABRICATION_APPROVED
+    require_before_fabrication_authority: [intended_fabricator_named, intended_fabricator_written_DFM_capability_acceptance_for_committed_geometry_or_exact_DFM_changes, DFM_changes_if_any_committed_and_revalidated_before_fabrication]
+    forbid: [clean_CAD_checkpoint_claimed_as_fabricator_acceptance, historical_nonreproducible_H2_as_fabrication_authority, post_checkpoint_DRC_rule_relaxation_silently_inheriting_pass]
+
+  reva_hardware_H4:
+    issue: 162
+    tooling_pr: 187
+    validator: tools/reva_h4_physical_acceptance_verify.py
+    starter: evidence/templates/reva_h4_physical_observations.json
+    require: [accepted_fabrication_identity, exact_PCB_PCBA_lot_and_board_serial, exact_BOM_assembly_variant, exact_firmware_identity, power_protection_USB_Ethernet_dual_RS485_HMI_relay_mechanical_thermal_matrix, zero_runtime_fatal_counts, explicit_optional_population_semantics, authorized_signoff]
+    forbid: [unexecuted_template_claimed_as_pass, validator_or_CI_claimed_as_H4_physical_pass, fabricated_board_identity_substitution]
+
+  final_release_traceability:
+    issue: 91
+    tooling_pr: 188
+    validator: tools/release_traceability_verify.py
+    starter: evidence/candidates/final_release_traceability_observations.json
+    require: [exact_final_release_SHA_tree_artifact_application_config_site_map_profile_manifest, industrial_ui_physical_evidence_or_governed_no_behavior_change_replay, exact_final_generator_transition_evidence, exact_final_site_commissioning_evidence, exact_production_inverter_profile_approvals, exact_final_OTA_physical_evidence, exact_final_FAT_SAT_evidence, zero_critical_blockers, authorized_signed_SAT, release_evidence_package_digest]
+    conditional: [rev_A_H4_required_only_if_rev_a_hardware_coupled_true]
+    forbid: [unexecuted_starter_claimed_as_release_pass, cross_identity_pass_without_governed_replay, validator_only_release_pass, unsigned_SAT]
 
   governance:
     require: [live_dev_refetched_each_cycle, reconciliation_parent_semantics_not_future_merge_claim, eight_authoritative_files_consistent_with_issue_graph, superseded_release_graphs_retired_from_active_queue]
     forbid: [reconciliation_file_claiming_its_unknown_future_merge_sha_as_current, stale_issue_text_overriding_live_repository, duplicate_active_release_path_for_same_hardware_target]
 
   release:
-    require: [all_release_software_merge_gates, all_required_current_release_physical_acceptance_gates, authoritative_site_source_evidence, production_approved_inverter_profiles, accepted_industrial_ui_exact_image, integrated_FAT_and_endurance, signed_SAT, exact_release_traceability, no_open_critical_blockers]
+    require: [all_release_software_merge_gates, all_required_current_release_physical_acceptance_gates, authoritative_site_source_evidence, production_approved_inverter_profiles, accepted_industrial_ui_exact_image, integrated_FAT_and_endurance, signed_SAT, exact_release_traceability_manifest_pass, no_open_critical_blockers]
