@@ -1,10 +1,10 @@
-version: 7
-updated_at: 2026-09-12T23:18:00+05:00
+version: 8
+updated_at: 2026-09-13T07:55:00+05:00
 repo: raohassandev/esp32_firmware
 master_issue: 79
 integration_branch: dev
-reconciliation_parent_before_this_revision: c333db0752be89bdcb9bfbda01e2f19a1f05709f
-reconciliation_parent_source: PR_188_merge
+reconciliation_parent_before_this_revision: 26e9d103462ead5dbc09ff47c30aff3346f7d5a8
+reconciliation_parent_source: PR_196_merge
 snapshot_semantics: parent_is_known_pre_revision_baseline_live_dev_must_be_refetched_every_cycle
 truth_rule: live_repository_over_stale_docs
 wip_limit_ci_active_software_prs: 3
@@ -49,15 +49,17 @@ lanes:
 
   L5_site_source_commissioning:
     issue: 81
-    evidence_tooling_pr: 156
-    status: TOOLING_COMPLETE_PHYSICAL_SITE_EVIDENCE_PENDING
+    evidence_tooling_prs: [156, 194]
+    identity_lock_merge: d15e98c845da031442e16385c20a5c6ac53adf7c
+    status: TOOLING_COMPLETE_FULL_SITE_IDENTITY_LOCKED_PHYSICAL_SITE_EVIDENCE_PENDING
     rule: no_guessed_register_mask_polarity_timing_topology_or_kw_sign_source_authority
 
   L6_inverter_profile_qualification:
     issue: 82
     generic_core_prs: [102, 108, 112, 113, 117, 119, 136]
-    evidence_tooling_pr: 158
-    status: TOOLING_COMPLETE_EXACT_MANUAL_MODEL_FIRMWARE_AND_PHYSICAL_QUALIFICATION_PENDING
+    evidence_tooling_prs: [158, 193]
+    identity_lock_merge: d2e1045a9bca6e5ecfe1b7b6c2af32deb9dabb58
+    status: TOOLING_COMPLETE_FULL_DEVICE_MANUAL_CONTROLLER_IDENTITY_LOCKED_PHYSICAL_QUALIFICATION_PENDING
     known_target_gaps:
       goodwe_GW100K_HT: exact_official_HT_control_protocol_required
       huawei_SUN2000_115KTL_M2: exact_official_applicable_ME_modbus_definition_required
@@ -67,8 +69,9 @@ lanes:
 
   L7_integrated_fat_sat_endurance:
     issue: 83
-    evidence_tooling_pr: 160
-    status: PHYSICAL_FAT_ENDURANCE_AND_SIGNED_SAT_PENDING
+    evidence_tooling_prs: [160, 192]
+    release_identity_lock_merge: 82e389ac719120d3ac03909684c0e29a962fcf34
+    status: FULL_FINAL_RELEASE_IDENTITY_TOOLING_COMPLETE_PHYSICAL_FAT_ENDURANCE_AND_SIGNED_SAT_PENDING
     depends_on: [L2_generator_source_transition, L4_secure_ota, L5_site_source_commissioning, L6_inverter_profile_qualification, L16_industrial_ui_release]
 
   L8_governance_service:
@@ -100,10 +103,7 @@ lanes:
       hole_clearance_mm: 0.18
       copper_edge_mm: 0.25
     status: H2_CAD_REQUALIFIED_INTENDED_FABRICATOR_DFM_PENDING_H4_PENDING
-    h4_validator: tools/reva_h4_physical_acceptance_verify.py
-    h4_unexecuted_template: evidence/templates/reva_h4_physical_observations.json
     rules:
-      - current_H2_is_clean_CAD_Routing_and_RFD_DFM_candidate_not_fabrication_approval
       - intended_fabricator_written_DFM_capability_required_before_fabrication_authority
       - no_DRC_rule_weakening_to_create_pass
       - H4_physical_validation_required_after_fabrication
@@ -115,15 +115,17 @@ lanes:
 
   L11_evidence_traceability:
     issue: 91
-    tooling_pr: 188
+    tooling_prs: [188, 196]
+    latest_tooling_merge: 26e9d103462ead5dbc09ff47c30aff3346f7d5a8
     validator: tools/release_traceability_verify.py
     unexecuted_starter: evidence/candidates/final_release_traceability_observations.json
-    status: TOOLING_COMPLETE_FINAL_PHYSICAL_EVIDENCE_AND_SIGNED_RELEASE_BINDING_PENDING
+    status: FULL_EXTERNAL_RELEASE_AND_LANE_IDENTITY_TOOLING_COMPLETE_FINAL_PHYSICAL_EVIDENCE_AND_SIGNED_RELEASE_BINDING_PENDING
     rules:
-      - generator_site_ota_and_fat_sat_must_bind_exact_final_release_identity
-      - industrial_ui_may_use_governed_replay_only_with_no_behavior_affecting_change_and_explicit_approval
-      - production_inverter_profiles_require_exact_identity_bench_rollback_and_signed_approval
-      - rev_a_hardware_is_not_firmware_release_blocker_unless_explicitly_coupled
+      - externally_lock_source_tree_artifact_application_config_site_map_profile_manifest_site_and_configuration_identity
+      - externally_lock_all_six_required_lane_evidence_digests_and_signed_sat_digest
+      - generator_site_inverter_ota_and_fat_sat_must_bind_exact_full_final_release_identity
+      - industrial_ui_may_use_governed_replay_only_with_no_behavior_affecting_change_and_full_final_identity
+      - production_inverter_profiles_require_exact_identity_manual_digest_qualification_digest_bench_rollback_and_signed_approval
       - zero_critical_blockers_and_signed_sat_required
 
   L12_requirements_closure_matrix:
@@ -141,7 +143,6 @@ lanes:
   L16_industrial_ui_release:
     parent_issue: 164
     physical_issue: 174
-    software_prs: [165, 167, 169, 172, 173, 176]
     waveshare_integration_pr: 179
     waveshare_integration_head: 72a1a82a8fc5ad4406b5bd51fba1f80f9c182884
     waveshare_candidate_tree: 3069c65b4234fcd2b6418f9bbbe7859f1cd9abce
@@ -151,34 +152,21 @@ lanes:
     waveshare_uf2_sha256: 199feec247563130f800d25e2a7024ebbaf64a65d3d8b6c6c5c9ec4c242b2500
     exact_build_container: espressif/idf:v6.0.1
     rollback_enabled: true
-    bench_engineering_http_auth_bypass: false
-    bench_network_page_auth_bypass: false
     evidence_tooling_prs: [175, 181, 183]
     identity_bound_starter: evidence/candidates/industrial_ui_72a1a82_physical_observations.json
     software_status: COMPLETE_GREEN_EXACT_IMAGE_FROZEN
     status: PHYSICAL_EXECUTION_PENDING
-    physical_requirements:
-      - native_800x480_visual_touch_role_matrix
-      - network_scan_select_manual_connect_restart_and_wifi_indicator
-      - grid_gen1_gen2_gen3_source_commissioning_roundtrips
-      - transfer_ATS_explicit_applicability_configured_requires_roundtrip_unconfigured_requires_reason
-      - sync_explicit_applicability_configured_requires_roundtrip_unconfigured_requires_reason
-      - alarm_all_active_unack_filters_priority_state_id_sorts_and_role_gated_ack
-      - real_board_to_bench_simulator_modbus_counter_growth_and_decoded_value_changes
-      - browser_api_history_responsiveness_and_resource_stability
-      - one_uninterrupted_4h_at_least_240_samples
     historical_L3_pass_transfer_forbidden: true
     pr179_merge_forbidden_until_genuine_174_pass: true
 
 known_governed_merges_before_this_revision:
-  pr_176: 14d13a0d6e5c4b4b95cea35b8cc32f1880ae8134
-  pr_177: 150118a8425462e1756b115ddf3d463a022b395f
-  pr_181: 7cb824a2341cb9072b1a3176afbd3685dec1a32a
-  pr_182: 8016c005be8d548e9388026a89592b70b92ec1a3
-  pr_183: f924726db9c24ab55ebe4f43fe28caf75a9b2c3d
   pr_184: 2433d15b47777e038a1a34a5287ea412202761b5
   pr_187: 1e7e75039ebf839ca0bc298beead03cc7fcb6e8c
   pr_188: c333db0752be89bdcb9bfbda01e2f19a1f05709f
+  pr_192: 82e389ac719120d3ac03909684c0e29a962fcf34
+  pr_193: d2e1045a9bca6e5ecfe1b7b6c2af32deb9dabb58
+  pr_194: d15e98c845da031442e16385c20a5c6ac53adf7c
+  pr_196: 26e9d103462ead5dbc09ff47c30aff3346f7d5a8
 
 release_done_definition:
   - all_release_target_software_merged_with_exact_head_zero_behind_gates
@@ -187,7 +175,6 @@ release_done_definition:
   - secure_ota_physical_rollback_interruption_matrix_complete
   - grid_dg_mixed_source_fat_and_modbus_network_endurance_complete
   - signed_sat_complete
-  - final_release_traceability_manifest_passes_against_exact_final_identity
-  - final_evidence_traceable_to_release_sha_tree_config_profiles_ui_and_artifacts
+  - final_release_traceability_manifest_passes_against_exact_full_final_identity_and_external_lane_digests
   - no_acceptance_threshold_weakened_to_manufacture_pass
   - no_open_critical_blockers
