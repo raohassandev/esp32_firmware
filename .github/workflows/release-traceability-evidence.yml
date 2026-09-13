@@ -29,17 +29,39 @@ jobs:
       - name: Run release traceability regression tests
         working-directory: tools
         run: python3 test_release_traceability_verify.py
-      - name: Prove unexecuted starter fails closed under external identity lock
+      - name: Prove unexecuted starter fails closed under full external identity lock
         run: |
           EXPECTED_SHA="$(git rev-parse HEAD)"
           EXPECTED_TREE="$(git show -s --format=%T HEAD)"
-          EXPECTED_ARTIFACT="sha256:0000000000000000000000000000000000000000000000000000000000000000"
+          D0="sha256:0000000000000000000000000000000000000000000000000000000000000000"
+          D1="sha256:1111111111111111111111111111111111111111111111111111111111111111"
+          D2="sha256:2222222222222222222222222222222222222222222222222222222222222222"
+          D3="sha256:3333333333333333333333333333333333333333333333333333333333333333"
+          D4="sha256:4444444444444444444444444444444444444444444444444444444444444444"
+          D5="sha256:5555555555555555555555555555555555555555555555555555555555555555"
+          D6="sha256:6666666666666666666666666666666666666666666666666666666666666666"
+          D7="sha256:7777777777777777777777777777777777777777777777777777777777777777"
+          D8="sha256:8888888888888888888888888888888888888888888888888888888888888888"
+          D9="sha256:9999999999999999999999999999999999999999999999999999999999999999"
           if python3 tools/release_traceability_verify.py \
             evidence/candidates/final_release_traceability_observations.json \
             --expected-release-sha "$EXPECTED_SHA" \
             --expected-release-tree "$EXPECTED_TREE" \
-            --expected-artifact-digest "$EXPECTED_ARTIFACT"; then
+            --expected-artifact-digest "$D0" \
+            --expected-application-digest "$D1" \
+            --expected-config-digest "$D2" \
+            --expected-site-map-digest "$D3" \
+            --expected-profile-manifest-digest "$D4" \
+            --expected-site-id "UNEXECUTED-SITE" \
+            --expected-configuration-identity "UNEXECUTED-CONFIG" \
+            --expected-industrial-ui-evidence-digest "$D5" \
+            --expected-generator-transition-evidence-digest "$D6" \
+            --expected-site-commissioning-evidence-digest "$D7" \
+            --expected-inverter-profiles-evidence-digest "$D8" \
+            --expected-ota-evidence-digest "$D9" \
+            --expected-fat-sat-evidence-digest "$D0" \
+            --expected-signed-sat-digest "$D1"; then
             echo 'ERROR: unexecuted final-release starter unexpectedly passed' >&2
             exit 1
           fi
-          echo 'Unexecuted final-release starter correctly fails closed under the external identity lock.'
+          echo 'Unexecuted final-release starter correctly fails closed under the full external identity lock.'
