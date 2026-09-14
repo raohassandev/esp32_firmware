@@ -81,18 +81,27 @@ require_before(WIFI_GUARD, "control_engine_force_disable();",
                "config_manager_save(guarded);",
                "Wi-Fi configuration may persist before live command authority is removed")
 
-# Profile assignment uses a source-local guarded bridge to avoid a component cycle.
+# Profile assignment uses explicit source-local guarded bridges to avoid a
+# component cycle. Both single assignment and manifest import must cross the
+# runtime-disable boundary before persistent profile state can change.
 require('"inverter_profile_store_guard.c"' in CMAKE,
         "profile runtime-disable guard is not compiled")
-require("inverter_profile_store_set=inverter_profile_store_set_guarded" in CMAKE,
-        "profile assignment is not routed through the runtime-disable guard")
 require("control_engine_force_disable();" in PROFILE_GUARD,
         "profile assignment guard does not latch the live controller disabled")
 require_before(PROFILE_GUARD, "control_engine_force_disable();",
                "inverter_profile_store_set(inverter_index, profile_id);",
-               "profile assignment may persist before runtime command authority is removed")
-require("inverter_profile_store_set(inverter_index, profile->id);" in PROFILE_API,
-        "profile API shape changed; review guarded assignment contract")
+               "single profile assignment may persist before runtime command authority is removed")
+require_before(PROFILE_GUARD, "control_engine_force_disable();",
+               "inverter_profile_store_set_all(manifest);",
+               "profile manifest import may persist before runtime command authority is removed")
+require("inverter_profile_store_set_guarded(inverter_index, profile->id);" in PROFILE_API,
+        "single profile API does not explicitly use the runtime-disable guard")
+require("inverter_profile_store_set_all_guarded(&manifest);" in PROFILE_API,
+        "profile manifest API does not explicitly use the runtime-disable guard")
+require("inverter_profile_store_set(inverter_index, profile->id);" not in PROFILE_API,
+        "single profile API bypasses the runtime-disable guard")
+require("inverter_profile_store_set_all(&manifest);" not in PROFILE_API,
+        "profile manifest API bypasses the runtime-disable guard")
 
 # Source-detection topology/register/threshold changes alter source evidence that
 # the control engine consumes when strong commissioned contacts are unavailable.
