@@ -1,14 +1,15 @@
 # Multi-brand inverter profile implementation TODO
 
-Status: software framework, commissioning UI, periodic telemetry engine and SolTrix simulator qualification implemented on `feature/multibrand-inverter-profiles`; exact manufacturer manuals and physical production qualification remain gated.
+Status: software framework, commissioning UI, periodic telemetry engine and SolTrix simulator qualification implemented. The current SolTrix inverter-manual vault is now inventoried with immutable source SHAs in `docs/INVERTER_MANUAL_INVENTORY.md`; exact deployment applicability and physical production qualification remain gated.
 
 ## 1. Manual inventory and evidence
 
-- [ ] Inventory exact solar inverter manuals from `raohassandev/SolTrix/Manuals`.
-- [ ] Record manufacturer, exact model family, protocol, connection path and document revision.
-- [ ] Extract only documented read/write registers; never infer unsupported commands.
-- [ ] Record PDU addressing, function code, data type, word order, scale and units.
-- [ ] Record enable/unlock sequence, timing limits and command readback requirements.
+- [x] Inventory the current `raohassandev/SolTrix/Manuals/Inverter` tree and record immutable manual/protocol source SHAs. See `docs/INVERTER_MANUAL_INVENTORY.md`.
+- [x] Recheck current official public manufacturer discovery sources for Huawei, GoodWe, Solis and Growatt without promoting non-authoritative register maps.
+- [ ] For each actual deployment, record manufacturer, exact model, inverter firmware, protocol, connection path and accepted official document revision/digest.
+- [ ] Extract only documented read/write registers from the accepted exact applicable manual; never infer unsupported commands.
+- [ ] Record PDU addressing, function code, data type, word order, scale and units for each accepted exact profile.
+- [ ] Record enable/unlock sequence, timing limits, legal raw/engineering ranges and command readback requirements.
 - [x] Define qualification states from documented through production approved.
 - [x] Extract the SolTrix proof-simulator contract from commit `fe84696e1280788f144d170d21bd8aa6834f604d`.
 
@@ -25,7 +26,7 @@ Status: software framework, commissioning UI, periodic telemetry engine and SolT
 - [x] Generic command/readback tolerance comparator.
 - [x] Explicit simulator-only profile classification that can never pass the production write gate.
 - [x] SolTrix simulator profiles for Huawei, GoodWe and Solis synthetic contracts.
-- [ ] Replace pending real manufacturer family entries with exact manual-backed profiles.
+- [ ] Replace pending real manufacturer family entries only after an exact model/firmware/manual identity is selected and its register map is accepted.
 
 ## 3. Configuration and user interface
 
@@ -59,7 +60,7 @@ Status: software framework, commissioning UI, periodic telemetry engine and SolT
 - [x] Command readback execution and tolerance-based mismatch tracking.
 - [x] Remove stale/offline/identity-mismatched channels dynamically from commandable capacity.
 - [x] Serialize telemetry, probe and command Modbus traffic with a per-inverter I/O mutex.
-- [ ] Per-profile command interval and ramp enforcement after real manuals define limits.
+- [ ] Per-profile command interval and ramp enforcement after the accepted real manual defines limits.
 
 ## 5. Web API
 
@@ -71,7 +72,7 @@ Status: software framework, commissioning UI, periodic telemetry engine and SolT
 - [x] Manufacturer/model picker and read-only test action.
 - [x] Full inverter configuration editor.
 - [x] Decoded telemetry, identity, freshness, readback and mismatch fields for simulator/read-qualified profiles.
-- [ ] Profile import/export bundled with exact manual-backed profile metadata.
+- [ ] Profile import/export bundled with the accepted exact manual/profile identity and digest.
 
 ## 6. Simulator tests and release gates
 
@@ -89,14 +90,17 @@ Status: software framework, commissioning UI, periodic telemetry engine and SolT
 - [x] Normal, rollback, timeout and communication-loss scenarios.
 - [x] Firmware stale-data age gate and dynamic capacity-removal contract.
 - [x] ESP-IDF v6.0.1 build gate with zero project warnings.
-- [ ] Bench read qualification for each exact physical model family.
-- [ ] Bench command/readback qualification for each real writable profile.
-- [ ] Explicit production approval before automatic PV-DG control.
+- [x] Fail-closed physical qualification evidence validator, including exact manufacturer/model/firmware/manual/controller/endpoint identity and immutable evidence digests (PR #158 + PR #193).
+- [ ] Bench read qualification for each exact physical model family selected for deployment.
+- [ ] Bench command/readback/failure/rollback qualification for each real writable profile.
+- [ ] Signed production approval before automatic PV-DG control.
 
 ## Release truth
 
-The reusable multi-brand architecture, complete endpoint/rating editor, profile picker, persistent assignments, periodic telemetry, identity verification, active-power decoding, readback/mismatch tracking, stale/offline capacity removal, read-only APIs and SolTrix simulator harness are implemented.
+The reusable multi-brand architecture, complete endpoint/rating editor, profile picker, persistent assignments, periodic telemetry, identity verification, active-power decoding, readback/mismatch tracking, stale/offline capacity removal, read-only APIs, simulator harness and physical-evidence validator are implemented.
 
-The dedicated Modbus simulator is derived from the SolTrix proof contract and is executed in the firmware CI. It is synthetic simulator evidence only, not manufacturer manual evidence and not physical inverter proof. Simulator-only profiles are explicitly excluded from production writes.
+The current SolTrix inverter-manual tree has now been inventoried. That inventory identifies useful Huawei, Growatt, Solis, ASW/Knox, CPS/Chint, SMA, SolarEdge, SolaX, Sungrow and other source documents, but document presence alone does not establish exact installed-model/firmware applicability or production control authority.
 
-Real Huawei, GoodWe, Solis and FoxESS/Knox production control remains locked until the exact manuals are enumerated and each model-specific read/write map is bench and field qualified. Automatic PV-DG control must remain disabled until explicit production approval.
+The dedicated Modbus simulator is synthetic evidence only, not manufacturer manual evidence and not physical inverter proof. Simulator-only profiles are explicitly excluded from production writes.
+
+Real manufacturer production control remains locked until each deployed inverter has an exact accepted manual/profile identity, physical read-only proof, controlled write/readback/failure/rollback evidence and signed production approval. Automatic PV-DG control must remain disabled until explicit production approval.
