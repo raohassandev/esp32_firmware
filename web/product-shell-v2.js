@@ -7,6 +7,7 @@
         inverters: 'Solar production and fleet availability',
         control: 'Automatic-control state and safety interlocks',
         alarms: 'Conditions that require attention',
+        reports: 'Controller-resident trends, alarms and service evidence',
         system: 'Controller identity, service and diagnostics',
         wifi: 'Network commissioning and recovery access',
         engineering: 'Restricted commissioning and service tools',
@@ -132,6 +133,7 @@
                 menu.append(item);
             };
             action('Refresh data', 'Update current readings', () => clickExisting('refreshButton'));
+            action('Operational reports', 'Trends, alarms and exports', () => { location.hash = '#/reports'; });
             action('Display density', document.documentElement.dataset.density === 'compact' ? 'Compact' : 'Comfortable', () => clickExisting('productDensityButton'));
             action('Kiosk display', document.documentElement.classList.contains('kiosk-mode') ? 'On' : 'Off', () => clickExisting('productKioskButton'));
             action('Theme', document.documentElement.dataset.theme || 'System', () => clickExisting('themeToggle'));
