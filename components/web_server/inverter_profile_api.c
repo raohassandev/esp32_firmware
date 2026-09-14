@@ -25,9 +25,11 @@
 #define FNV1A64_OFFSET UINT64_C(14695981039346656037)
 #define FNV1A64_PRIME UINT64_C(1099511628211)
 
-/* Implemented in inverter_profile_store_guard.c. The guard stops the running
+/* Implemented in inverter_profile_store_guard.c. The guards stop the running
  * control task before the store disables persisted automatic control and
- * atomically replaces the assignment map. */
+ * atomically replaces either one assignment or the complete assignment map. */
+esp_err_t inverter_profile_store_set_guarded(uint8_t inverter_index,
+                                             const char *profile_id);
 esp_err_t inverter_profile_store_set_all_guarded(
     const inverter_profile_assignment_manifest_t *manifest);
 
@@ -373,7 +375,7 @@ static esp_err_t profile_assignment_post(httpd_req_t *request)
                                    "Unknown inverter profile");
     }
 
-    esp_err_t err = inverter_profile_store_set(inverter_index, profile->id);
+    esp_err_t err = inverter_profile_store_set_guarded(inverter_index, profile->id);
     cJSON_Delete(json);
     if (err != ESP_OK) {
         return httpd_resp_send_err(request, HTTPD_500_INTERNAL_SERVER_ERROR,
