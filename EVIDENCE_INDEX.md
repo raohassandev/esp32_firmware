@@ -1,6 +1,6 @@
-# AISH-OS Evidence Index v9
+# AISH-OS Evidence Index v10
 
-**Reconciliation parent:** `dev` `3129f7a17550ae5262e4d51c381dda12dedacc16`. This records the known parent before this revision; live `dev` is authoritative and must be re-fetched before execution or promotion.
+**Reconciliation parent:** `dev` `a86d801cc952ce9ab6032821d41b531d2df343ef`. This records the known parent before this revision; live `dev` is authoritative and must be re-fetched before execution or promotion.
 
 ## Current software/evidence authority chain
 
@@ -11,6 +11,8 @@
 | Generator transition evidence | PR #151 + #195 | Exact physical identity, meter scaling/sign, chronology and fail-closed validator | #80 bench PASS |
 | Site commissioning evidence | PR #156 + #194 | Exact site/config/SLD/channel identity and physical-toggle/stale/recovery validation | #81 site PASS |
 | Inverter profile evidence | PR #158 + #193 | Exact manufacturer/model/firmware/manual/controller identity, measured write/readback/rollback and signed-approval contract | #82 manufacturer/bench approval |
+| Inverter manual-source inventory | PR #198 | Immutable SolTrix manual/protocol source SHAs plus public manufacturer discovery boundary | Installed-model applicability, accepted register map or production write authority |
+| Inverter assignment manifest | PR #199 | Exact compiled-profile assignment backup/restore, fingerprint match, atomic persistence, live+persistent control disable and restart enforcement | Dynamic register import, qualification transfer, production approval or physical proof |
 | Secure OTA evidence | PR #152 | Fail-closed OTA physical evidence validator | #86 real-controller PASS |
 | Integrated FAT/SAT evidence | PR #160 + #192 | Exact final-release identity and physical-scenario/signed-SAT evidence contract | #83 FAT/SAT PASS |
 | Rev-A H4 evidence | PR #187 + #191 | Exact H2/provider/firmware binary/lot chronology and fail-closed H4 validator | Fabricated-board #162 PASS |
@@ -29,8 +31,17 @@
 ### Generator transition / #80
 - Draft PR #106 source: `a1620789235d21b515f9f245f2329fab88b50558`
 - software verdict: GREEN / deliberately physical-gated
-- evidence tooling: PR #151 + merged PR #195
+- evidence tooling: PR #151 + PR #195
 - physical verdict: **PENDING**
+
+### Inverter software support / #82
+- manual inventory authority: PR #198
+- SolTrix inverter-manual tree identity recorded in `docs/INVERTER_MANUAL_INVENTORY.md`
+- assignment manifest authority: PR #199 merge `a86d801cc952ce9ab6032821d41b531d2df343ef`
+- generic software verdict: **COMPLETE FOR KNOWN SCOPE**
+- exact deployed manual applicability: **PENDING**
+- physical read/write qualification: **PENDING**
+- signed production approval: **PENDING**
 
 ### Rev-A H2 / H4
 - H2 freeze: `a877e5d844af114a6e4386f6294f514288ca5df6`
@@ -46,7 +57,7 @@
 1. #174 exact PR #179 Waveshare physical PASS including uninterrupted >=4 h / >=240 samples.
 2. #80 generator transition physical PASS, then governed runtime replay/promotion to current `dev`.
 3. #81 exact real-site source/meter commissioning PASS.
-4. #82 signed production qualification for every deployed inverter model/profile.
+4. #82 exact official manual applicability plus signed production qualification for every deployed inverter model/profile.
 5. #86 exact-release Secure OTA physical PASS.
 6. #83 integrated Grid/DG/Modbus endurance PASS plus authorized signed SAT.
 7. #91 executed final traceability record binding all exact identities/evidence digests with zero critical blockers.
@@ -68,4 +79,4 @@ Historical exact source: `87841ecee727fe1d814d4186be8c8c26e4afafb4`.
 
 ## Evidence rules
 
-Evidence is valid only for its exact firmware/tree/artifact/application/config/site/profile/manufacturer identity as required by its lane. Partial physical intervals are not additive where continuity is required. A validator PASS means the supplied record satisfies the schema and acceptance contract; it is never permission to invent observations or infer a physical PASS.
+Evidence is valid only for its exact firmware/tree/artifact/application/config/site/profile/manufacturer identity as required by its lane. Partial physical intervals are not additive where continuity is required. A validator PASS means the supplied record satisfies the schema and acceptance contract; it is never permission to invent observations or infer a physical PASS. Manual-source inventory and profile assignment backups are engineering support evidence only and cannot establish installed-model applicability, physical qualification or production approval.
