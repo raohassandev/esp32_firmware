@@ -1,193 +1,87 @@
-version: 7
-updated_at: 2026-09-12T23:18:00+05:00
-repo: raohassandev/esp32_firmware
-master_issue: 79
-integration_branch: dev
-reconciliation_parent_before_this_revision: c333db0752be89bdcb9bfbda01e2f19a1f05709f
-reconciliation_parent_source: PR_188_merge
-snapshot_semantics: parent_is_known_pre_revision_baseline_live_dev_must_be_refetched_every_cycle
-truth_rule: live_repository_over_stale_docs
-wip_limit_ci_active_software_prs: 3
-preferred_ci_active_software_prs: 2
+version: 9
+updated_at: 2026-09-14T10:15:00+05:00
+reconciliation_parent_before_this_revision: 3129f7a17550ae5262e4d51c381dda12dedacc16
+reconciliation_parent_source: PR_195_merge_after_PR_196
+snapshot_semantics: live_repository_over_stale_docs
+integration_target: dev
+master_program_issue: 79
 
-lanes:
-  L1_modbus_connection_modes:
-    status: COMPLETE_MERGED_PHYSICAL_ENDURANCE_SEPARATE
-    merged_prs: [99, 114]
-    physical_followup_issue: 83
+program_state:
+  software_runtime: COMPLETE_FOR_KNOWN_SCOPE
+  evidence_tooling: COMPLETE_AND_FAIL_CLOSED
+  release_qualification: BLOCKED_ON_REAL_PHYSICAL_SITE_MANUFACTURER_AND_SIGNED_EVIDENCE
+  release_complete: false
+  note: "This revision records the known reconciliation parent. Live dev must be re-fetched before any merge, promotion, or physical verdict."
 
-  L2_generator_source_transition:
+release_lanes:
+  L16_industrial_ui:
+    issue: 174
+    candidate_pr: 179
+    candidate_sha: 72a1a82a8fc5ad4406b5bd51fba1f80f9c182884
+    artifact: 10293685030
+    status: SOFTWARE_GREEN_PHYSICAL_ACCEPTANCE_PENDING
+  L2_generator_transition:
     issue: 80
-    implementation_pr: 106
-    implementation_head: a1620789235d21b515f9f245f2329fab88b50558
-    evidence_tooling_pr: 151
+    runtime_candidate_pr: 106
+    runtime_candidate_sha: a1620789235d21b515f9f245f2329fab88b50558
+    evidence_tooling_prs: [151, 195]
     status: SOFTWARE_GREEN_PHYSICAL_BENCH_PENDING
-    merge_forbidden_until_physical_pass: true
-    post_pass_rule: replay_identical_validated_runtime_slice_onto_then_current_dev_then_fresh_exact_head_ci
-
-  L3_historical_waveshare_release:
-    issues: [87, 24, 25, 26, 27]
-    implementation_prs: [20, 57, 67]
-    candidate_sha: 87841ecee727fe1d814d4186be8c8c26e4afafb4
-    candidate_tree: 6ddd7900f9b4ece0fba9349b905e1c078fc3401e
-    artifact_id: 9843536218
-    artifact_digest: sha256:89e621034d4c91096fc5d38dd57ac40eeeab34275e4af1fc0461b48575039096
-    app_sha256: 8be2a2aad5f223d8b9bca498db2e12c04f7f205feaa9908b7922c37421c46593
-    status: RETIRED_SUPERSEDED_HISTORICAL_EVIDENCE_ONLY
-    issue_disposition: CLOSED_NOT_PLANNED
-    pr_disposition: CLOSED_UNMERGED
-    historical_truth: SHORT_PASS_FINAL_4H_BACKEND_PARITY_AND_PERSISTENCE_NOT_COMPLETED
-    active_release_dependency: false
-    evidence_transfer_to_L16_forbidden: true
-
-  L4_secure_ota:
-    issue: 86
-    implementation_prs: [145, 148]
-    evidence_tooling_pr: 152
-    software_status: COMPLETE_MERGED
-    status: PHYSICAL_ROLLBACK_INTERRUPTION_MATRIX_PENDING_ON_FINAL_RELEASE_IDENTITY
-
   L5_site_source_commissioning:
     issue: 81
-    evidence_tooling_pr: 156
-    status: TOOLING_COMPLETE_PHYSICAL_SITE_EVIDENCE_PENDING
-    rule: no_guessed_register_mask_polarity_timing_topology_or_kw_sign_source_authority
-
-  L6_inverter_profile_qualification:
+    evidence_tooling_prs: [156, 194]
+    status: SITE_EXECUTION_PENDING
+  L6_inverter_profiles:
     issue: 82
-    generic_core_prs: [102, 108, 112, 113, 117, 119, 136]
-    evidence_tooling_pr: 158
-    status: TOOLING_COMPLETE_EXACT_MANUAL_MODEL_FIRMWARE_AND_PHYSICAL_QUALIFICATION_PENDING
-    known_target_gaps:
-      goodwe_GW100K_HT: exact_official_HT_control_protocol_required
-      huawei_SUN2000_115KTL_M2: exact_official_applicable_ME_modbus_definition_required
-      solis_S6_EH3P_80_125_K10_NV_YD_H: exact_family_known_but_available_compiled_map_non_authoritative_for_writes
-      growatt_knox_foxess: exact_installed_model_and_protocol_identity_unresolved
-    rule: no_production_write_without_exact_official_manual_identity_status_readback_rollback_and_signed_approval
-
-  L7_integrated_fat_sat_endurance:
+    evidence_tooling_prs: [158, 193]
+    status: EXACT_MANUFACTURER_EVIDENCE_AND_PHYSICAL_QUALIFICATION_PENDING
+  L4_secure_ota:
+    issue: 86
+    evidence_tooling_prs: [145, 148, 152]
+    status: EXACT_RELEASE_PHYSICAL_OTA_MATRIX_PENDING
+  L7_integrated_fat_sat:
     issue: 83
-    evidence_tooling_pr: 160
-    status: PHYSICAL_FAT_ENDURANCE_AND_SIGNED_SAT_PENDING
-    depends_on: [L2_generator_source_transition, L4_secure_ota, L5_site_source_commissioning, L6_inverter_profile_qualification, L16_industrial_ui_release]
-
-  L8_governance_service:
-    issue: 84
-    owner: ChatGPT
-    qa: GitHub_Actions_and_diff_review
-    status: CONTINUOUS_LIVE_RECONCILIATION
-    rule: reconciliation_documents_record_known_parent_not_future_merge_sha
-
-  L9_reva_product_hardware:
-    issue: 85
-    h2_requalification_issue: 178
-    planning_pr: 18
-    implementation_pr: 19
-    h4_issue: 162
-    h2_repair_pr: 185
-    h4_evidence_tooling_pr: 187
-    controlled_h2_input_sha: 15219f62ab354a75d4a24e8a8f85b6163ae05aa8
-    h2_freeze_sha: a877e5d844af114a6e4386f6294f514288ca5df6
-    h2_tree_sha: 782189312aec046338d472858d65d8cb397bd473
-    h2_workflow_run: 34702074827
-    engineering_artifact_id: 10300950516
-    engineering_artifact_digest: sha256:771ae830fa908b444d0fbce74da6fc35596bee4debaf7004447436df9eba0501
-    provider_rfq_artifact_id: 10300571374
-    provider_rfq_artifact_digest: sha256:27b1709537715f08e928e65137262553791a95f957c19703da8dc3a104db0d30
-    provider_rfq_zip: Automatrix_PVDG_RevA_PROVIDER_RFQ_a877e5d844.zip
-    declared_prototype_minima:
-      drill_mm: 0.20
-      hole_clearance_mm: 0.18
-      copper_edge_mm: 0.25
-    status: H2_CAD_REQUALIFIED_INTENDED_FABRICATOR_DFM_PENDING_H4_PENDING
-    h4_validator: tools/reva_h4_physical_acceptance_verify.py
-    h4_unexecuted_template: evidence/templates/reva_h4_physical_observations.json
-    rules:
-      - current_H2_is_clean_CAD_Routing_and_RFD_DFM_candidate_not_fabrication_approval
-      - intended_fabricator_written_DFM_capability_required_before_fabrication_authority
-      - no_DRC_rule_weakening_to_create_pass
-      - H4_physical_validation_required_after_fabrication
-      - CI_or_validator_never_substitutes_for_H4_physical_pass
-
-  L10_browser_final_audit:
-    issue: 90
-    status: COMPLETE_CLOSED
-
-  L11_evidence_traceability:
+    evidence_tooling_prs: [160, 192]
+    status: BLOCKED_ON_PREREQUISITE_PHYSICAL_GATES_AND_SIGNED_SAT
+  L11_final_traceability:
     issue: 91
-    tooling_pr: 188
-    validator: tools/release_traceability_verify.py
-    unexecuted_starter: evidence/candidates/final_release_traceability_observations.json
-    status: TOOLING_COMPLETE_FINAL_PHYSICAL_EVIDENCE_AND_SIGNED_RELEASE_BINDING_PENDING
-    rules:
-      - generator_site_ota_and_fat_sat_must_bind_exact_final_release_identity
-      - industrial_ui_may_use_governed_replay_only_with_no_behavior_affecting_change_and_explicit_approval
-      - production_inverter_profiles_require_exact_identity_bench_rollback_and_signed_approval
-      - rev_a_hardware_is_not_firmware_release_blocker_unless_explicitly_coupled
-      - zero_critical_blockers_and_signed_sat_required
+    evidence_tooling_prs: [188, 190, 196]
+    status: TOOLING_COMPLETE_GENUINE_FINAL_INPUTS_PENDING
 
-  L12_requirements_closure_matrix:
-    issue: 92
-    status: COMPLETE_CLOSED
+rev_a_hardware:
+  planning_pr: 18
+  implementation_pr: 19
+  h2_freeze_sha: a877e5d844af114a6e4386f6294f514288ca5df6
+  h2_tree: 782189312aec046338d472858d65d8cb397bd473
+  engineering_artifact: 10300950516
+  rfq_dfm_artifact: 10300571374
+  h4_evidence_tooling_prs: [187, 191]
+  status: H2_REQUALIFIED_INTENDED_FABRICATOR_DFM_FABRICATION_AND_H4_PENDING
 
-  L13_promotion_graph_hygiene:
-    issue: 93
-    status: CONTINUOUS
+retired_historical_waveshare:
+  source_sha: 87841ecee727fe1d814d4186be8c8c26e4afafb4
+  status: RETIRED_SUPERSEDED_HISTORICAL_EVIDENCE_ONLY
+  active_release_dependency: false
+  historical_truth: SHORT_PASS_FINAL_4H_BACKEND_PARITY_AND_PERSISTENCE_NOT_COMPLETED
+  issues_closed_not_planned: [87, 24, 25, 26, 27]
+  prs_closed_unmerged: [20, 57, 67]
 
-  L14_live_state_monitoring:
-    issue: 94
-    status: CONTINUOUS
+recent_governed_hardening:
+  - {pr: 190, scope: final_release_external_identity_lock, runtime_changed: false}
+  - {pr: 191, scope: reva_h4_binary_identity_and_chronology, runtime_changed: false}
+  - {pr: 192, scope: integrated_fat_sat_exact_final_identity, runtime_changed: false}
+  - {pr: 193, scope: inverter_qualification_exact_physical_identity, runtime_changed: false}
+  - {pr: 194, scope: site_commissioning_exact_site_identity, runtime_changed: false}
+  - {pr: 195, scope: generator_transition_exact_physical_identity, runtime_changed: false}
+  - {pr: 196, scope: full_release_traceability_identity_and_lane_digests, runtime_changed: false}
 
-  L16_industrial_ui_release:
-    parent_issue: 164
-    physical_issue: 174
-    software_prs: [165, 167, 169, 172, 173, 176]
-    waveshare_integration_pr: 179
-    waveshare_integration_head: 72a1a82a8fc5ad4406b5bd51fba1f80f9c182884
-    waveshare_candidate_tree: 3069c65b4234fcd2b6418f9bbbe7859f1cd9abce
-    waveshare_candidate_artifact_id: 10293685030
-    waveshare_candidate_artifact_digest: sha256:44dc05fe2c6e61d3a8b5fdfc7c936937da948691a2038358d5c0b3c1008de541
-    waveshare_application_sha256: 0bbdb75be4ea7c0337f07e83dbdd3e34736ce8f667a42aa11abeb5c638f60734
-    waveshare_uf2_sha256: 199feec247563130f800d25e2a7024ebbaf64a65d3d8b6c6c5c9ec4c242b2500
-    exact_build_container: espressif/idf:v6.0.1
-    rollback_enabled: true
-    bench_engineering_http_auth_bypass: false
-    bench_network_page_auth_bypass: false
-    evidence_tooling_prs: [175, 181, 183]
-    identity_bound_starter: evidence/candidates/industrial_ui_72a1a82_physical_observations.json
-    software_status: COMPLETE_GREEN_EXACT_IMAGE_FROZEN
-    status: PHYSICAL_EXECUTION_PENDING
-    physical_requirements:
-      - native_800x480_visual_touch_role_matrix
-      - network_scan_select_manual_connect_restart_and_wifi_indicator
-      - grid_gen1_gen2_gen3_source_commissioning_roundtrips
-      - transfer_ATS_explicit_applicability_configured_requires_roundtrip_unconfigured_requires_reason
-      - sync_explicit_applicability_configured_requires_roundtrip_unconfigured_requires_reason
-      - alarm_all_active_unack_filters_priority_state_id_sorts_and_role_gated_ack
-      - real_board_to_bench_simulator_modbus_counter_growth_and_decoded_value_changes
-      - browser_api_history_responsiveness_and_resource_stability
-      - one_uninterrupted_4h_at_least_240_samples
-    historical_L3_pass_transfer_forbidden: true
-    pr179_merge_forbidden_until_genuine_174_pass: true
-
-known_governed_merges_before_this_revision:
-  pr_176: 14d13a0d6e5c4b4b95cea35b8cc32f1880ae8134
-  pr_177: 150118a8425462e1756b115ddf3d463a022b395f
-  pr_181: 7cb824a2341cb9072b1a3176afbd3685dec1a32a
-  pr_182: 8016c005be8d548e9388026a89592b70b92ec1a3
-  pr_183: f924726db9c24ab55ebe4f43fe28caf75a9b2c3d
-  pr_184: 2433d15b47777e038a1a34a5287ea412202761b5
-  pr_187: 1e7e75039ebf839ca0bc298beead03cc7fcb6e8c
-  pr_188: c333db0752be89bdcb9bfbda01e2f19a1f05709f
-
-release_done_definition:
-  - all_release_target_software_merged_with_exact_head_zero_behind_gates
-  - all_required_current_release_physical_acceptance_passed_against_exact_source_artifact_config_profile_identity
-  - site_source_and_inverter_mappings_documentation_backed_and_physically_qualified
-  - secure_ota_physical_rollback_interruption_matrix_complete
-  - grid_dg_mixed_source_fat_and_modbus_network_endurance_complete
-  - signed_sat_complete
-  - final_release_traceability_manifest_passes_against_exact_final_identity
-  - final_evidence_traceable_to_release_sha_tree_config_profiles_ui_and_artifacts
-  - no_acceptance_threshold_weakened_to_manufacture_pass
-  - no_open_critical_blockers
+global_done_gate:
+  required:
+    - issue_174_physical_pass
+    - issue_80_physical_pass_and_governed_runtime_promotion
+    - issue_81_site_commissioning_pass
+    - issue_82_all_deployed_inverter_profiles_physically_qualified_and_signed
+    - issue_86_exact_release_ota_physical_pass
+    - issue_83_integrated_fat_endurance_and_signed_sat
+    - issue_91_final_traceability_manifest_pass
+    - zero_critical_blockers
+  rule: NO_CI_VALIDATOR_OR_SIMULATOR_RESULT_MAY_BE_RELABELED_AS_PHYSICAL_PASS
