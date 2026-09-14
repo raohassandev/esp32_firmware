@@ -1,6 +1,6 @@
-# AISH-OS Requirements Closure Matrix v9
+# AISH-OS Requirements Closure Matrix v10
 
-**Reconciliation parent:** `dev` `3129f7a17550ae5262e4d51c381dda12dedacc16` after PR #195, with PR #196 already merged. This is the known parent before this reconciliation; **live `dev` overrides this document and must be re-fetched before every action.**
+**Reconciliation parent:** `dev` `a86d801cc952ce9ab6032821d41b531d2df343ef` after PR #199 (with PR #198 already merged). This is the known parent before this reconciliation; **live `dev` overrides this document and must be re-fetched before every action.**
 
 | Requirement | Scope | State | Current authority / remaining proof |
 |---|---|---|---|
@@ -8,10 +8,12 @@
 | R-UI-01 | Industrial operator/engineering UI software | COMPLETE | PRs #165/#167/#169/#172/#173/#176; exact Waveshare candidate PR #179 is software-GREEN. |
 | R-UI-02 | Waveshare exact-image physical acceptance | PENDING PHYSICAL | #174 on PR #179 exact image/artifact, including >=4 h / >=240 samples. |
 | R-SRC-01 | Generator source-transition runtime | SOFTWARE GREEN / PHYSICAL PENDING | Draft PR #106; #80 physical matrix required. |
-| R-SRC-02 | Generator physical evidence integrity | COMPLETE TOOLING | PR #151 + merged PR #195 exact firmware/artifact/site/config/topology/source-map/meter-map/chronology locks. |
+| R-SRC-02 | Generator physical evidence integrity | COMPLETE TOOLING | PR #151 + PR #195 exact identity, meter scaling/sign and chronology locks. |
 | R-SITE-01 | Real site source commissioning | PENDING PHYSICAL SITE | PR #156 + #194 validator authority; exact wiring/manual/channel/meter proof required by #81. |
-| R-INV-01 | Generic inverter write/readback protections | COMPLETE | Generic runtime remains fail-closed for unapproved profiles. |
-| R-INV-02 | Production inverter model qualification | PENDING MANUFACTURER + PHYSICAL + SIGNED | PR #158 + #193 evidence authority; #82 per deployed model. |
+| R-INV-01 | Generic inverter framework/write-readback protections | COMPLETE | Static compiled profiles, production write gate, identity/telemetry/readback, stale removal, simulator harness and fail-closed runtime are complete. |
+| R-INV-02 | Inverter manual-source inventory | COMPLETE / NON-AUTHORITATIVE | PR #198 inventories immutable SolTrix manual/protocol source SHAs and public discovery boundary; exact deployment applicability still required. |
+| R-INV-03 | Compiled-profile assignment backup/restore | COMPLETE | PR #199: 12-channel atomic manifest, exact compiled-definition fingerprint, live+persistent control disable, restart required; no register/qualification/approval import. |
+| R-INV-04 | Production inverter model qualification | PENDING EXACT MANUAL + PHYSICAL + SIGNED | PR #158 + #193 evidence authority; #82 per deployed model/firmware. |
 | R-OTA-01 | Secure OTA software | COMPLETE | Merged implementation/regression. |
 | R-OTA-02 | Exact-release OTA rollback/interruption proof | PENDING PHYSICAL | #86 / PR #152 validator; real controller required. |
 | R-FAT-01 | Integrated Grid/DG/Modbus endurance | PENDING PHYSICAL | PR #160 + #192 exact final-release identity validation; #83 after prerequisites. |
@@ -28,6 +30,6 @@
 
 ## Current completion boundary
 
-All known software/runtime and evidence-validator gaps identified through PR #196 are closed. The project is **not 100% release-complete** because #174, #80, #81, #82, #86, #83 and #91 still require genuine physical/site/manufacturer/signed evidence. Rev-A separately requires intended-fabricator DFM, fabrication and #162 H4.
+All known generic software/runtime, inverter manual-source discovery, compiled-profile backup/restore and evidence-validator gaps identified through PR #199 are closed. The project is **not 100% release-complete** because #174, #80, #81, #82, #86, #83 and #91 still require genuine physical/site/manufacturer/signed evidence. Rev-A separately requires intended-fabricator DFM, fabrication and #162 H4.
 
-No CI, source contract, simulator or validator output may be promoted to a physical PASS. A changed firmware/artifact/config/site/profile identity requires the affected evidence to be dispositioned or requalified.
+No CI, source contract, simulator, manual inventory or assignment backup may be promoted to a physical or production PASS. A changed firmware/artifact/config/site/profile identity requires the affected evidence to be dispositioned or requalified.
