@@ -1,0 +1,87 @@
+name: Signed OTA production profile
+
+on:
+  pull_request:
+  push:
+    branches:
+      - dev
+      - 'feature/**'
+      - 'fix/**'
+
+permissions:
+  contents: read
+
+jobs:
+  source-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check signing helper syntax
+        run: python3 -m py_compile tools/sign_ota_release.py
+      - name: Check signed OTA production contract
+        run: python3 tests/signed_ota_production_profile_source_contract.py
+      - name: Re-run secure OTA baseline contract
+        run: python3 tests/ota_current_baseline_source_contract.py
+      - name: Re-run OTA behavior model
+        run: python3 tests/ota_update_behavior_contract.py
+
+  production-profile-build:
+    needs: source-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container: espressif/idf:v6.0.1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build unsigned remote-signing candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$IDF_PATH/export.sh"
+          rm -rf build-signed-ota
+          idf.py \
+            -DSDKCONFIG_DEFAULTS='sdkconfig.defaults;sdkconfig.signed-ota.defaults' \
+            -DSDKCONFIG=build-signed-ota/sdkconfig \
+            -B build-signed-ota \
+            set-target esp32s3 build > /tmp/signed-ota-build.log 2>&1 || {
+              cp /tmp/signed-ota-build.log "$GITHUB_WORKSPACE/signed-ota-build-failure.log"
+              grep -nE "FAILED:|fatal error:|error:|undefined reference|collect2:" /tmp/signed-ota-build.log | tail -n 100 || true
+              tail -n 80 /tmp/signed-ota-build.log
+              exit 1
+            }
+          test -f build-signed-ota/automatrix_pvdg.bin
+          test -f build-signed-ota/sdkconfig
+          grep -q '^CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT=y$' build-signed-ota/sdkconfig
+          grep -q '^CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME=y$' build-signed-ota/sdkconfig
+          grep -q '^CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT=y$' build-signed-ota/sdkconfig
+          grep -q '^# CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES is not set$' build-signed-ota/sdkconfig
+          grep -q '^# CONFIG_SECURE_BOOT is not set$' build-signed-ota/sdkconfig
+          if grep -E 'warning:' /tmp/signed-ota-build.log > /tmp/signed-ota-warnings.log; then
+            cp /tmp/signed-ota-build.log "$GITHUB_WORKSPACE/signed-ota-build-failure.log"
+            echo "Compiler warnings detected in signed OTA production profile:"
+            cat /tmp/signed-ota-warnings.log
+            exit 1
+          fi
+          {
+            echo 'Profile: signed OTA verification without hardware Secure Boot'
+            echo 'Private signing key present in CI: no'
+            stat -c 'Unsigned secure-padded application bytes: %s' build-signed-ota/automatrix_pvdg.bin
+            sha256sum build-signed-ota/automatrix_pvdg.bin | awk '{print "Unsigned candidate SHA-256: "$1}'
+            echo 'Compiler warnings: 0'
+          } | tee build-signed-ota/signed-ota-build-metrics.txt
+      - name: Publish failure log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-ota-production-build-failure
+          path: signed-ota-build-failure.log
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Publish non-secret production-profile metrics
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-ota-production-profile-metrics
+          path: build-signed-ota/signed-ota-build-metrics.txt
+          if-no-files-found: error
+          retention-days: 14
