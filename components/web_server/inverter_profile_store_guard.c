@@ -13,3 +13,10 @@ esp_err_t inverter_profile_store_set_guarded(uint8_t inverter_index,
     control_engine_force_disable();
     return inverter_profile_store_set(inverter_index, profile_id);
 }
+
+esp_err_t inverter_profile_store_set_all_guarded(
+    const inverter_profile_assignment_manifest_t *manifest)
+{
+    control_engine_force_disable();
+    return inverter_profile_store_set_all(manifest);
+}
