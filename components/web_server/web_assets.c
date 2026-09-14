@@ -4,7 +4,8 @@
 /* Literal linker symbols retained for source-contract compatibility:
 _binary_index_html_start _binary_app_css_start _binary_theme_css_start
 _binary_product_mode_css_start _binary_operator_operations_css_start
-_binary_operator_product_suite_css_start _binary_prelab_readiness_css_start
+_binary_operator_product_suite_css_start _binary_reports_css_start
+_binary_prelab_readiness_css_start
 _binary_mobile_prelab_fixes_css_start _binary_product_shell_v2_css_start
 _binary_shell_current_fixes_css_start _binary_product_experience_v2_css_start
 _binary_operator_continuity_verdict_css_start _binary_commissioning_wizard_v2_css_start
@@ -12,7 +13,7 @@ _binary_commissioning_release_v3_css_start _binary_ota_css_start _binary_wifi_cs
 _binary_devices_css_start _binary_em500_css_start _binary_industrial_ui_v1_css_start
 _binary_app_js_start _binary_theme_js_start _binary_product_mode_js_start
 _binary_operator_view_js_start _binary_operator_operations_js_start
-_binary_operator_product_suite_js_start _binary_prelab_readiness_js_start
+_binary_operator_product_suite_js_start _binary_reports_js_start _binary_prelab_readiness_js_start
 _binary_product_shell_v2_js_start _binary_shell_current_fixes_js_start
 _binary_product_experience_v2_js_start _binary_operator_continuity_verdict_js_start
 _binary_commissioning_route_js_start _binary_commissioning_wizard_v2_js_start
@@ -39,6 +40,7 @@ DECLARE_ASSET(theme_css);
 DECLARE_ASSET(product_mode_css);
 DECLARE_ASSET(operator_operations_css);
 DECLARE_ASSET(operator_product_suite_css);
+DECLARE_ASSET(reports_css);
 DECLARE_ASSET(prelab_readiness_css);
 DECLARE_ASSET(mobile_prelab_fixes_css);
 DECLARE_ASSET(product_shell_v2_css);
@@ -58,6 +60,7 @@ DECLARE_ASSET(product_mode_js);
 DECLARE_ASSET(operator_view_js);
 DECLARE_ASSET(operator_operations_js);
 DECLARE_ASSET(operator_product_suite_js);
+DECLARE_ASSET(reports_js);
 DECLARE_ASSET(prelab_readiness_js);
 DECLARE_ASSET(product_shell_v2_js);
 DECLARE_ASSET(shell_current_fixes_js);
@@ -105,6 +108,7 @@ ASSET_GETTER(web_assets_theme_css, theme_css)
 ASSET_GETTER(web_assets_product_mode_css, product_mode_css)
 ASSET_GETTER(web_assets_operator_operations_css, operator_operations_css)
 ASSET_GETTER(web_assets_operator_product_suite_css, operator_product_suite_css)
+ASSET_GETTER(web_assets_reports_css, reports_css)
 ASSET_GETTER(web_assets_prelab_readiness_css, prelab_readiness_css)
 ASSET_GETTER(web_assets_mobile_prelab_fixes_css, mobile_prelab_fixes_css)
 ASSET_GETTER(web_assets_product_shell_v2_css, product_shell_v2_css)
@@ -124,6 +128,7 @@ ASSET_GETTER(web_assets_product_mode_js, product_mode_js)
 ASSET_GETTER(web_assets_operator_view_js, operator_view_js)
 ASSET_GETTER(web_assets_operator_operations_js, operator_operations_js)
 ASSET_GETTER(web_assets_operator_product_suite_js, operator_product_suite_js)
+ASSET_GETTER(web_assets_reports_js, reports_js)
 ASSET_GETTER(web_assets_prelab_readiness_js, prelab_readiness_js)
 ASSET_GETTER(web_assets_product_shell_v2_js, product_shell_v2_js)
 ASSET_GETTER(web_assets_shell_current_fixes_js, shell_current_fixes_js)
