@@ -1,7 +1,7 @@
-version: 9
-updated_at: 2026-09-14T10:15:00+05:00
-reconciliation_parent_before_this_revision: 3129f7a17550ae5262e4d51c381dda12dedacc16
-reconciliation_parent_source: PR_195_merge_after_PR_196
+version: 10
+updated_at: 2026-09-14T14:05:00+05:00
+reconciliation_parent_before_this_revision: a86d801cc952ce9ab6032821d41b531d2df343ef
+reconciliation_parent_source: PR_199_merge_after_PR_198
 snapshot_semantics: live_repository_over_stale_docs
 integration_target: dev
 master_program_issue: 79
@@ -9,9 +9,11 @@ master_program_issue: 79
 program_state:
   software_runtime: COMPLETE_FOR_KNOWN_SCOPE
   evidence_tooling: COMPLETE_AND_FAIL_CLOSED
+  inverter_manual_source_inventory: COMPLETE_NON_AUTHORITATIVE_FOR_PRODUCTION
+  inverter_assignment_manifest: COMPLETE_FAIL_CLOSED
   release_qualification: BLOCKED_ON_REAL_PHYSICAL_SITE_MANUFACTURER_AND_SIGNED_EVIDENCE
   release_complete: false
-  note: "This revision records the known reconciliation parent. Live dev must be re-fetched before any merge, promotion, or physical verdict."
+  note: "PR #198 records immutable inverter manual-source inventory. PR #199 adds fail-closed compiled-profile assignment backup/restore with live+persistent control disable. Neither creates manufacturer or physical approval. Live dev must be re-fetched before any promotion or physical verdict."
 
 release_lanes:
   L16_industrial_ui:
@@ -33,7 +35,8 @@ release_lanes:
   L6_inverter_profiles:
     issue: 82
     evidence_tooling_prs: [158, 193]
-    status: EXACT_MANUFACTURER_EVIDENCE_AND_PHYSICAL_QUALIFICATION_PENDING
+    software_support_prs: [198, 199]
+    status: GENERIC_SOFTWARE_COMPLETE_EXACT_DEPLOYMENT_MANUAL_PHYSICAL_AND_SIGNED_APPROVAL_PENDING
   L4_secure_ota:
     issue: 86
     evidence_tooling_prs: [145, 148, 152]
@@ -73,15 +76,17 @@ recent_governed_hardening:
   - {pr: 194, scope: site_commissioning_exact_site_identity, runtime_changed: false}
   - {pr: 195, scope: generator_transition_exact_physical_identity, runtime_changed: false}
   - {pr: 196, scope: full_release_traceability_identity_and_lane_digests, runtime_changed: false}
+  - {pr: 198, scope: immutable_inverter_manual_source_inventory_and_authority_boundary, runtime_changed: false}
+  - {pr: 199, scope: fail_closed_compiled_profile_assignment_manifest_and_runtime_disable, runtime_changed: true}
 
 global_done_gate:
   required:
     - issue_174_physical_pass
     - issue_80_physical_pass_and_governed_runtime_promotion
     - issue_81_site_commissioning_pass
-    - issue_82_all_deployed_inverter_profiles_physically_qualified_and_signed
+    - issue_82_all_deployed_inverter_profiles_exact_manual_physically_qualified_and_signed
     - issue_86_exact_release_ota_physical_pass
     - issue_83_integrated_fat_endurance_and_signed_sat
     - issue_91_final_traceability_manifest_pass
     - zero_critical_blockers
-  rule: NO_CI_VALIDATOR_OR_SIMULATOR_RESULT_MAY_BE_RELABELED_AS_PHYSICAL_PASS
+  rule: NO_CI_VALIDATOR_SIMULATOR_MANUAL_INVENTORY_OR_BACKUP_MANIFEST_RESULT_MAY_BE_RELABELED_AS_PHYSICAL_OR_PRODUCTION_PASS

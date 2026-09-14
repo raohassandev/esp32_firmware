@@ -1,6 +1,6 @@
-version: 9
-updated_at: 2026-09-14T10:17:00+05:00
-reconciliation_parent_before_this_revision: 3129f7a17550ae5262e4d51c381dda12dedacc16
+version: 10
+updated_at: 2026-09-14T14:07:00+05:00
+reconciliation_parent_before_this_revision: a86d801cc952ce9ab6032821d41b531d2df343ef
 snapshot_semantics: live_repository_over_stale_docs
 integration_target: dev
 
@@ -25,20 +25,26 @@ release_gates:
     runtime_pr: 106
     validators: [PR151_validator, PR195_external_identity_and_chronology_hardening]
     status: PENDING_PHYSICAL_BENCH_PASS
-    required:
-      - exact_firmware_artifact_site_config_topology_source_map_meter_map_identity
-      - grid_to_generator_and_generator_to_grid
-      - transfer_conflict_stale_source_loss
-      - authoritative_sync_supported_or_not_supported_evidence
-      - meter_raw_scale_scaled_kw_sign_proof
-      - fresh_recovery_dwell_no_early_authority
-      - zero_fatal_reset_resource_collapse
   site_source_81:
     validators: [PR156_validator, PR194_exact_site_identity_hardening]
     status: PENDING_REAL_SITE_PASS
   inverter_profiles_82:
     validators: [PR158_validator, PR193_exact_physical_identity_hardening]
-    status: PENDING_PER_MODEL_SIGNED_PRODUCTION_APPROVAL
+    software_support: [PR198_manual_source_inventory, PR199_fail_closed_assignment_manifest]
+    status: PENDING_EXACT_DEPLOYMENT_MANUAL_PHYSICAL_QUALIFICATION_AND_SIGNED_PRODUCTION_APPROVAL
+    pre_physical_completed:
+      - immutable_manual_source_inventory
+      - generic_profile_framework_and_write_gate
+      - read_only_probe_and_periodic_telemetry
+      - atomic_compiled_profile_assignment_backup_restore
+      - live_and_persisted_control_disable_on_profile_change
+    required:
+      - exact_manufacturer_model_firmware_connection_identity
+      - exact_applicable_official_manual_revision_and_digest
+      - documented_identity_telemetry_status_command_readback_map
+      - physical_read_only_identity_and_telemetry_proof
+      - physical_command_readback_failure_rollback_safe_zero_proof
+      - signed_production_approval_bound_to_exact_identity
   secure_ota_86:
     validators: [PR152_validator]
     status: PENDING_EXACT_RELEASE_PHYSICAL_PASS
@@ -77,4 +83,6 @@ hard_rules:
   - no_cross_identity_pass_transfer
   - no_partial_interval_aggregation_for_continuous_soak
   - no_guessed_manufacturer_registers_or_site_mapping
+  - manual_inventory_does_not_equal_profile_applicability
+  - assignment_manifest_does_not_import_register_authority_qualification_or_production_approval
   - no_ci_validator_or_simulator_substitution_for_physical_pass

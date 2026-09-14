@@ -1,6 +1,6 @@
-version: 9
-updated_at: 2026-09-14T10:16:00+05:00
-reconciliation_parent_before_this_revision: 3129f7a17550ae5262e4d51c381dda12dedacc16
+version: 10
+updated_at: 2026-09-14T14:06:00+05:00
+reconciliation_parent_before_this_revision: a86d801cc952ce9ab6032821d41b531d2df343ef
 snapshot_semantics: live_repository_over_stale_docs
 integration_target: dev
 
@@ -13,7 +13,8 @@ orchestration:
     - exact_head_ci_before_merge
     - zero_behind_before_merge
     - expected_head_guard
-    - never_convert_ci_or_validator_output_into_physical_pass
+    - preserve_frozen_physical_candidates
+    - never_convert_ci_validator_manual_inventory_or_simulator_output_into_physical_pass
 
 teams:
   industrial_ui_physical:
@@ -36,9 +37,10 @@ teams:
   inverter_qualification:
     issue: 82
     evidence_prs: [158, 193]
+    software_support_prs: [198, 199]
     manual_provider: owner_or_manufacturer
     physical_executor: authorized_bench_or_site_operator
-    status: EXACT_MANUFACTURER_AND_PHYSICAL_APPROVAL_PENDING
+    status: GENERIC_SOFTWARE_COMPLETE_EXACT_DEPLOYMENT_MANUAL_AND_PHYSICAL_APPROVAL_PENDING
   secure_ota:
     issue: 86
     evidence_prs: [152]
@@ -62,7 +64,8 @@ teams:
 
 release_evidence_team:
   evidence_prs: [142, 150, 151, 152, 156, 158, 159, 160, 175, 181, 183, 187, 188, 190, 191, 192, 193, 194, 195, 196]
-  status: TOOLING_AND_IDENTITY_HARDENING_COMPLETE_NO_PHYSICAL_PASS_INFERRED
+  software_support_prs: [198, 199]
+  status: TOOLING_IDENTITY_HARDENING_AND_GENERIC_INVERTER_SUPPORT_COMPLETE_NO_PHYSICAL_PASS_INFERRED
 
 retired_historical_waveshare:
   role: RETIRED_EVIDENCE_ONLY
