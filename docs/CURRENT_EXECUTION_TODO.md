@@ -9,10 +9,11 @@ This file is retained only so old links do not break. Its former `feature/multib
 - root `REQUIREMENTS_MATRIX.md` — closure matrix;
 - root `BLOCKERS.md` — unresolved blockers;
 - root `EVIDENCE_INDEX.md` — exact evidence;
+- `docs/RELEASE_EXECUTION_RUNBOOK.md` — operator/release-manager procedure for the remaining physical gates;
 - Issue #79 — authoritative program Done definition and dependencies.
 
-Snapshot at conversion: `dev` = `3096f2bfa10e86b3163b99ae7622bffded6791ac` after PR #124.
+Runbook baseline at this update: `dev` = `10d964237a351a5577e19ff023485064a180843f` after PR #200. Live `dev` always overrides this snapshot.
 
-Current remaining release work is physical/external: Waveshare final same-image soak plus parity/persistence, generator source-transition bench evidence, real site source mapping, production inverter manual/bench qualification, secure OTA physical rollback/interruption qualification, and integrated FAT/endurance/signed SAT.
+Current remaining release work is physical/external: exact PR #179 Waveshare acceptance, generator source-transition bench evidence on frozen PR #106, real-site source mapping, exact manufacturer inverter qualification, secure OTA physical rollback/interruption qualification, integrated FAT/endurance/signed SAT, and final traceability. Rev-A fabricator DFM/fabrication/H4 proceeds independently unless explicitly coupled to the firmware release.
 
-Do not reopen an item from the old checklist unless current `dev` is inspected first and a live regression is demonstrated.
+Do not reopen an item from an old checklist unless current `dev` is inspected first and a live regression is demonstrated. Do not mark a physical gate complete from CI, validators, simulators, manual inventory, or guessed evidence.
