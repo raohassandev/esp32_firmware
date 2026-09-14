@@ -1,13 +1,17 @@
 (() => {
     'use strict';
 
-    const state = { profiles: [], loading: false, loaded: false, saving: false, probing: false };
+    const state = {
+        profiles: [], loading: false, loaded: false, saving: false, probing: false,
+        exporting: false, importing: false
+    };
     const byId = (id) => document.getElementById(id);
     const access = () => window.AutomatrixEngineeringAccess;
 
     /* The profile catalogue is the single largest source of operator-side 401s
      * (80 in the 60-run audit). It is Engineering data for the Inverters and
-     * Commissioning routes only. */
+     * Commissioning routes only. Manifest actions reuse the same scope gate and
+     * are additionally protected by the server's Engineering gateway. */
     function catalogueScopeAllowed() {
         return Boolean(access()?.mayRequest('/api/inverter-profiles'));
     }
@@ -24,7 +28,7 @@
     function writeStatus(profile) {
         if (!profile) return { label: 'Unavailable', tone: 'bad' };
         if (profile.write_allowed) return { label: 'Write approved', tone: 'good' };
-        if (profile.capabilities?.power_limit) return { label: 'Write locked', tone: 'warning' };
+        if (profile.power_limit_supported) return { label: 'Write locked', tone: 'warning' };
         return { label: 'Read-only / pending', tone: 'neutral' };
     }
 
@@ -69,6 +73,9 @@
                 <button class="button secondary" id="inverterProfilesReload" type="button">Reload catalogue</button>
                 <button class="button secondary" id="inverterProfileProbe" type="button">Test connection (read-only)</button>
                 <button class="button primary" id="inverterProfileApply" type="button">Apply profile</button>
+                <button class="button secondary" id="inverterProfileManifestExport" type="button">Export assignments</button>
+                <button class="button secondary" id="inverterProfileManifestImport" type="button">Import assignments</button>
+                <input id="inverterProfileManifestFile" type="file" accept="application/json,.json" hidden>
             </div>`;
 
         const notice = page.querySelector('.notice');
@@ -88,6 +95,11 @@
         byId('inverterProfilesReload').addEventListener('click', () => loadProfiles(true));
         byId('inverterProfileProbe').addEventListener('click', probeInverter);
         byId('inverterProfileApply').addEventListener('click', applyProfile);
+        byId('inverterProfileManifestExport').addEventListener('click', exportManifest);
+        byId('inverterProfileManifestImport').addEventListener('click', () => {
+            if (!state.importing && catalogueScopeAllowed()) byId('inverterProfileManifestFile')?.click();
+        });
+        byId('inverterProfileManifestFile').addEventListener('change', importManifestFile);
     }
 
     function refreshModels() {
@@ -109,8 +121,8 @@
         const notice = byId('inverterProfileNotice');
         const apply = byId('inverterProfileApply');
         const probe = byId('inverterProfileProbe');
-        byId('inverterProfileConnection').value = profile?.connection || '';
-        byId('inverterProfileProtocol').value = profile?.protocol || '';
+        if (byId('inverterProfileConnection')) byId('inverterProfileConnection').value = profile?.connection || '';
+        if (byId('inverterProfileProtocol')) byId('inverterProfileProtocol').value = profile?.protocol || '';
 
         if (!profile) {
             if (notice) notice.textContent = 'No profile is available for this manufacturer.';
@@ -126,10 +138,10 @@
         setBadge(profile.qualification || status.label, status.tone);
 
         const capabilities = [];
-        if (profile.capabilities?.identity_probe) capabilities.push('identity probe');
-        if (profile.capabilities?.active_power) capabilities.push('active-power telemetry');
-        if (profile.capabilities?.power_limit) capabilities.push('power-limit command mapping');
-        if (profile.capabilities?.power_limit_readback) capabilities.push('command readback');
+        if (profile.identity_probe_supported) capabilities.push('identity probe');
+        if (profile.active_power_supported) capabilities.push('active-power telemetry');
+        if (profile.power_limit_supported) capabilities.push('power-limit command mapping');
+        if (profile.power_limit_readback_supported) capabilities.push('command readback');
         const summary = capabilities.length ? capabilities.join(', ') : 'no verified register capabilities yet';
         if (notice) notice.textContent = `${profile.manufacturer} ${profile.model_family}: ${summary}. ${profile.write_allowed ? 'Production write permission is approved.' : 'Live writes remain locked.'}`;
     }
@@ -177,6 +189,92 @@
         } finally {
             state.saving = false;
             if (button) button.disabled = !selectedProfile();
+        }
+    }
+
+    async function exportManifest() {
+        const notice = byId('inverterProfileNotice');
+        const button = byId('inverterProfileManifestExport');
+        if (state.exporting || !catalogueScopeAllowed()) return;
+        state.exporting = true;
+        if (button) button.disabled = true;
+        if (notice) notice.textContent = 'Exporting exact compiled profile assignments…';
+        try {
+            const response = await fetch('/api/inverter-profile-manifest', { cache: 'no-store' });
+            if (!response.ok) throw new Error(await response.text() || `HTTP ${response.status}`);
+            const payload = await response.json();
+            if (payload.kind !== 'compiled_profile_assignment_manifest' || !Array.isArray(payload.assignments)) {
+                throw new Error('Controller returned an invalid assignment manifest');
+            }
+            const blob = new Blob([`${JSON.stringify(payload, null, 2)}\n`], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = 'inverter-profile-assignments.json';
+            document.body.append(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(url);
+            if (notice) notice.textContent = 'Profile assignment backup exported. It contains compiled profile identities only; it cannot create or approve a profile.';
+            setBadge('Assignments exported', 'good');
+        } catch (error) {
+            if (notice) notice.textContent = `Profile assignment export failed: ${error.message}`;
+            setBadge('Export failed', 'bad');
+        } finally {
+            state.exporting = false;
+            if (button) button.disabled = false;
+        }
+    }
+
+    async function importManifestFile(event) {
+        const input = event.currentTarget;
+        const file = input?.files?.[0];
+        const notice = byId('inverterProfileNotice');
+        const button = byId('inverterProfileManifestImport');
+        if (!file || state.importing || !catalogueScopeAllowed()) {
+            if (input) input.value = '';
+            return;
+        }
+
+        state.importing = true;
+        if (button) button.disabled = true;
+        try {
+            const text = await file.text();
+            const payload = JSON.parse(text);
+            if (payload?.schema !== 1 || payload?.kind !== 'compiled_profile_assignment_manifest' ||
+                !Array.isArray(payload?.assignments) || payload.assignments.length !== 12) {
+                throw new Error('Unsupported or incomplete assignment manifest');
+            }
+            const confirmed = window.confirm(
+                'Import these 12 compiled profile assignments? Automatic PV-DG control will be disabled and a controller restart will be required. The import cannot add registers, qualifications, or production approvals.'
+            );
+            if (!confirmed) {
+                if (notice) notice.textContent = 'Profile assignment import cancelled; no configuration was changed.';
+                return;
+            }
+
+            if (notice) notice.textContent = 'Validating the complete manifest and disabling automatic control before one atomic save…';
+            const response = await fetch('/api/inverter-profile-manifest', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!response.ok) throw new Error(await response.text() || `HTTP ${response.status}`);
+            const result = await response.json();
+            if (!result.saved || !result.automatic_control_disabled || !result.restart_required ||
+                result.dynamic_profile_definitions_imported || result.qualification_imported ||
+                result.production_approval_imported) {
+                throw new Error('Controller returned an unsafe or incomplete import result');
+            }
+            if (notice) notice.textContent = 'All profile assignments were saved atomically. Automatic control is disabled. Restart the controller before further commissioning.';
+            setBadge('Imported · restart required', 'warning');
+        } catch (error) {
+            if (notice) notice.textContent = `Profile assignment import failed: ${error.message}`;
+            setBadge('Import failed', 'bad');
+        } finally {
+            state.importing = false;
+            if (button) button.disabled = false;
+            if (input) input.value = '';
         }
     }
 
@@ -237,7 +335,5 @@
 
     window.PvdgInverterProfileUtils = { manufacturers, profilesForManufacturer, writeStatus };
     document.addEventListener('DOMContentLoaded', () => { ensureScaffold(); loadProfiles(); });
-    /* Route changes and sign-in both re-evaluate the scope, so the catalogue
-     * loads as soon as Engineering is unlocked on the Inverters page. */
     access()?.onScopeChange(() => loadProfiles());
 })();

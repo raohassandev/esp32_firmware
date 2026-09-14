@@ -1,6 +1,6 @@
 # Multi-brand inverter profile implementation TODO
 
-Status: software framework, commissioning UI, periodic telemetry engine and SolTrix simulator qualification implemented. The current SolTrix inverter-manual vault is now inventoried with immutable source SHAs in `docs/INVERTER_MANUAL_INVENTORY.md`; exact deployment applicability and physical production qualification remain gated.
+Status: software framework, commissioning UI, periodic telemetry engine, SolTrix simulator qualification, manual-source inventory and fail-closed profile-assignment backup/restore are implemented. Exact deployment applicability and physical production qualification remain gated.
 
 ## 1. Manual inventory and evidence
 
@@ -45,6 +45,7 @@ Status: software framework, commissioning UI, periodic telemetry engine and SolT
 - [x] Removed inverter slots cleared on save.
 - [x] Command-register fields excluded from the normal commissioning editor.
 - [x] Live inverter telemetry/readback browser panel.
+- [x] Engineering UI export/import for all 12 compiled profile assignments with explicit restart/control-disable warning.
 
 ## 4. Inverter manager
 
@@ -60,6 +61,7 @@ Status: software framework, commissioning UI, periodic telemetry engine and SolT
 - [x] Command readback execution and tolerance-based mismatch tracking.
 - [x] Remove stale/offline/identity-mismatched channels dynamically from commandable capacity.
 - [x] Serialize telemetry, probe and command Modbus traffic with a per-inverter I/O mutex.
+- [x] Atomic all-channel assignment persistence: validate every compiled profile ID first, disable persisted automatic control, then commit the whole assignment map once.
 - [ ] Per-profile command interval and ramp enforcement after the accepted real manual defines limits.
 
 ## 5. Web API
@@ -72,12 +74,13 @@ Status: software framework, commissioning UI, periodic telemetry engine and SolT
 - [x] Manufacturer/model picker and read-only test action.
 - [x] Full inverter configuration editor.
 - [x] Decoded telemetry, identity, freshness, readback and mismatch fields for simulator/read-qualified profiles.
-- [ ] Profile import/export bundled with the accepted exact manual/profile identity and digest.
+- [x] `GET/POST /api/inverter-profile-manifest` assignment backup/restore. Every imported entry must match the currently compiled profile ID, manufacturer, model family, protocol, connection, qualification, manual reference, simulator classification and definition fingerprint. Dynamic register definitions, qualification and production approval are not importable.
 
 ## 6. Simulator tests and release gates
 
 - [x] Profile catalogue safety contract.
 - [x] Profile API and persistence contract.
+- [x] Profile assignment manifest fail-closed source contract in always-on Firmware/Web CI.
 - [x] Browser picker contract.
 - [x] Full inverter configuration safety contract.
 - [x] Runtime write-gate contract.
@@ -97,9 +100,11 @@ Status: software framework, commissioning UI, periodic telemetry engine and SolT
 
 ## Release truth
 
-The reusable multi-brand architecture, complete endpoint/rating editor, profile picker, persistent assignments, periodic telemetry, identity verification, active-power decoding, readback/mismatch tracking, stale/offline capacity removal, read-only APIs, simulator harness and physical-evidence validator are implemented.
+The reusable multi-brand architecture, endpoint/rating editor, profile picker, persistent assignments, atomic assignment manifest backup/restore, periodic telemetry, identity verification, active-power decoding, readback/mismatch tracking, stale/offline capacity removal, read-only APIs, simulator harness and physical-evidence validator are implemented.
 
-The current SolTrix inverter-manual tree has now been inventoried. That inventory identifies useful Huawei, Growatt, Solis, ASW/Knox, CPS/Chint, SMA, SolarEdge, SolaX, Sungrow and other source documents, but document presence alone does not establish exact installed-model/firmware applicability or production control authority.
+The assignment manifest is deliberately **not** a dynamic profile format. It can only restore choices among profile definitions already compiled into the exact firmware. Import compares descriptive identity plus a definition fingerprint and then disables both the running control task and persisted automatic control before one atomic NVS assignment-map write. It cannot import register maps, qualification state or production approval.
+
+The current SolTrix inverter-manual tree has been inventoried. That inventory identifies useful Huawei, Growatt, Solis, ASW/Knox, CPS/Chint, SMA, SolarEdge, SolaX, Sungrow and other source documents, but document presence alone does not establish exact installed-model/firmware applicability or production control authority.
 
 The dedicated Modbus simulator is synthetic evidence only, not manufacturer manual evidence and not physical inverter proof. Simulator-only profiles are explicitly excluded from production writes.
 
