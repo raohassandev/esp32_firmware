@@ -1,0 +1,22 @@
+# Production OTA integrity profile for ESP32-S3.
+#
+# This profile deliberately enables signed application verification WITHOUT
+# enabling hardware Secure Boot/eFuse changes. It protects network-delivered OTA
+# images against unauthorized substitution while keeping irreversible hardware
+# security provisioning outside normal CI and development builds.
+#
+# Build with:
+#   idf.py -DSDKCONFIG_DEFAULTS='sdkconfig.defaults;sdkconfig.signed-ota.defaults' \
+#          -DSDKCONFIG=build-signed-ota/sdkconfig -B build-signed-ota \
+#          set-target esp32s3 build
+#
+# CONFIG_SECURE_BOOT remains disabled. The output application is intentionally
+# unsigned because the production private key must never be present in this repo
+# or routine GitHub CI. Sign the secure-padded application with the controlled
+# release signing workflow before initial flash or OTA distribution.
+
+CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT=y
+CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME=y
+CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT=y
+# CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES is not set
+# CONFIG_SECURE_BOOT is not set
