@@ -1,0 +1,31 @@
+name: Software product polish checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - dev
+      - 'feature/**'
+      - 'fix/**'
+
+permissions:
+  contents: read
+
+jobs:
+  reports-and-ota:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check browser syntax
+        run: |
+          set -euo pipefail
+          node --check web/reports.js
+          node --check web/ota.js
+          node --check web/product-shell-v2.js
+      - name: Check software product polish contract
+        run: python3 tests/software_product_polish_source_contract.py
+      - name: Re-run secure OTA baseline contract
+        run: python3 tests/ota_current_baseline_source_contract.py
+      - name: Re-run OTA behavior model
+        run: python3 tests/ota_update_behavior_contract.py
