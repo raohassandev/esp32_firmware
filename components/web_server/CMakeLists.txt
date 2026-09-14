@@ -4,6 +4,7 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/theme.css" "${CMAKE_CURRENT_
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/product-mode.css" "${CMAKE_CURRENT_BINARY_DIR}/product-mode.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-operations.css" "${CMAKE_CURRENT_BINARY_DIR}/operator-operations.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-product-suite.css" "${CMAKE_CURRENT_BINARY_DIR}/operator-product-suite.css" COPYONLY)
+configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/reports.css" "${CMAKE_CURRENT_BINARY_DIR}/reports.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/prelab-readiness.css" "${CMAKE_CURRENT_BINARY_DIR}/prelab-readiness.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/mobile-prelab-fixes.css" "${CMAKE_CURRENT_BINARY_DIR}/mobile-prelab-fixes.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/product-shell-v2.css" "${CMAKE_CURRENT_BINARY_DIR}/product-shell-v2.css" COPYONLY)
@@ -23,6 +24,7 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/product-mode.js" "${CMAKE_CU
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-view.js" "${CMAKE_CURRENT_BINARY_DIR}/operator-view.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-operations.js" "${CMAKE_CURRENT_BINARY_DIR}/operator-operations.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-product-suite.js" "${CMAKE_CURRENT_BINARY_DIR}/operator-product-suite.js" COPYONLY)
+configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/reports.js" "${CMAKE_CURRENT_BINARY_DIR}/reports.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/prelab-readiness.js" "${CMAKE_CURRENT_BINARY_DIR}/prelab-readiness.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/product-shell-v2.js" "${CMAKE_CURRENT_BINARY_DIR}/product-shell-v2.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/shell-current-fixes.js" "${CMAKE_CURRENT_BINARY_DIR}/shell-current-fixes.js" COPYONLY)
@@ -96,6 +98,7 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/product-mode.css"
         "${CMAKE_CURRENT_BINARY_DIR}/operator-operations.css"
         "${CMAKE_CURRENT_BINARY_DIR}/operator-product-suite.css"
+        "${CMAKE_CURRENT_BINARY_DIR}/reports.css"
         "${CMAKE_CURRENT_BINARY_DIR}/prelab-readiness.css"
         "${CMAKE_CURRENT_BINARY_DIR}/mobile-prelab-fixes.css"
         "${CMAKE_CURRENT_BINARY_DIR}/product-shell-v2.css"
@@ -115,6 +118,7 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/operator-view.js"
         "${CMAKE_CURRENT_BINARY_DIR}/operator-operations.js"
         "${CMAKE_CURRENT_BINARY_DIR}/operator-product-suite.js"
+        "${CMAKE_CURRENT_BINARY_DIR}/reports.js"
         "${CMAKE_CURRENT_BINARY_DIR}/prelab-readiness.js"
         "${CMAKE_CURRENT_BINARY_DIR}/product-shell-v2.js"
         "${CMAKE_CURRENT_BINARY_DIR}/shell-current-fixes.js"
@@ -141,8 +145,8 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/em500-quality.js"
         "${CMAKE_CURRENT_BINARY_DIR}/em500-profiles.js"
         "${CMAKE_CURRENT_BINARY_DIR}/em500-plan.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/source-detection.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/solar-grid.js"
+        "${CMAKE_CURRENT_BINARY_DIR}/source_detection.js"
+        "${CMAKE_CURRENT_BINARY_DIR}/solar_grid.js"
         "${CMAKE_CURRENT_BINARY_DIR}/industrial-ui-v1.js"
 )
 
