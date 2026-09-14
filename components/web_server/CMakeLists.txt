@@ -145,8 +145,8 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/em500-quality.js"
         "${CMAKE_CURRENT_BINARY_DIR}/em500-profiles.js"
         "${CMAKE_CURRENT_BINARY_DIR}/em500-plan.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/source_detection.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/solar_grid.js"
+        "${CMAKE_CURRENT_BINARY_DIR}/source-detection.js"
+        "${CMAKE_CURRENT_BINARY_DIR}/solar-grid.js"
         "${CMAKE_CURRENT_BINARY_DIR}/industrial-ui-v1.js"
 )
 
