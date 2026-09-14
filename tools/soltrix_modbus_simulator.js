@@ -11,7 +11,17 @@ const SCENARIO = String(scenarioArg ? scenarioArg.split('=')[1] : 'normal').toLo
 const SELF_TEST = args.has('--self-test');
 
 const EM500_SOURCE_ADDRESS = 0x2160;
-const EM500_POWER_ADDRESS = 57;
+// 58, not 57: confirmed on four independent sources -- live hardware probing
+// (docs/METER_COMMISSIONING_2026-07-29.md sign-off), the SolTrix EMS
+// driver-registry (server/runtime/soltrix/driver-registry/drivers/
+// em500-energy-meter.json, "activePowerTotal" @58, "verified live"), and
+// SolTrix's own real-device reference doc
+// (server/docs/planning_docs/EM500_WM15_METER_REFERENCE.md). The firmware's
+// config default is still 57 (components/config_manager/config_manager.c) --
+// meter_manager.c tolerates either value in config, but a real EM500 answers
+// activePowerTotal at 58, so the simulator must emulate the real meter here,
+// not the firmware's uncorrected default. Do not "fix" this back to 57.
+const EM500_POWER_ADDRESS = 58;
 const EM500_TARIFF1_IMPORT_ADDRESS = 0x1B48;
 const EM500_TARIFF2_IMPORT_ADDRESS = 0x1B5C;
 
@@ -24,6 +34,28 @@ const DEVICES = new Map([
 const EM500_DEVICES = new Map([
     [31, { kind: 'em500', name: 'EM500 Grid or Common Bus', role: 'grid' }],
     [32, { kind: 'em500', name: 'EM500 Generator', role: 'generator' }],
+]);
+
+// Carlo Gavazzi WM15 (bench unit WM1596AV53XOSX, fw 1.3) -- register map and
+// quirks per server/docs/planning_docs/EM500_WM15_METER_REFERENCE.md and
+// server/runtime/soltrix/driver-registry/drivers/carlo-gavazzi-wm15.json in
+// the SolTrix repo (both independently verified against the real bench
+// meter). Unlike the EM500 there is NO address-1 offset quirk here -- these
+// are the real wire addresses. INT32 values are LSW-first (CDAB), not the
+// ABCD/MSW-first order the EM500 and the inverters use, and an unmeasured
+// phase answers the 0x7FFFFFFF sentinel rather than zero.
+const WM15_IDENTITY_ADDRESS = 0x000B;
+const WM15_VLN_L1_ADDRESS = 0x00;
+const WM15_VLN_L2_ADDRESS = 0x02;
+const WM15_VLN_L3_ADDRESS = 0x04;
+const WM15_W_L1_ADDRESS = 0x12;
+const WM15_HZ_ADDRESS = 0x33;
+const WM15_KWH_IMPORT_ADDRESS = 0x34;
+const WM15_KWH_EXPORT_ADDRESS = 0x4E;
+const WM15_NA_INT32 = 0x7FFFFFFF;
+
+const WM15_DEVICES = new Map([
+    [41, { kind: 'wm15', name: 'Carlo Gavazzi WM15 Generator', measuringSystem: '1P' }],
 ]);
 
 function writeWords(words, requestAddress, base, values) {
@@ -41,6 +73,21 @@ function signed32Words(value) {
 function unsigned32Words(value) {
     const raw = value >>> 0;
     return [(raw >>> 16) & 0xFFFF, raw & 0xFFFF];
+}
+
+// WM15 word order: LSW-first (CDAB) -- the reverse of signed32Words/
+// unsigned32Words above, which are MSW-first (ABCD) for the EM500 and
+// inverters. Getting this backwards silently produces a plausible-looking
+// but wrong 32-bit value, which is exactly the class of bug this simulator
+// exists to catch before it reaches real hardware.
+function signed32WordsLswFirst(value) {
+    const raw = value | 0;
+    return [raw & 0xFFFF, (raw >>> 16) & 0xFFFF];
+}
+
+function unsigned32WordsLswFirst(value) {
+    const raw = value >>> 0;
+    return [raw & 0xFFFF, (raw >>> 16) & 0xFFFF];
 }
 
 function em500ScenarioValues(device, scenario, context) {
@@ -83,8 +130,45 @@ function em500ScenarioValues(device, scenario, context) {
     };
 }
 
+function wm15ScenarioValues(scenario, context) {
+    let wattsL1 = 3200;
+    switch (scenario) {
+    case 'wm15-zero-output':
+        wattsL1 = 0;
+        break;
+    case 'wm15-fault':
+        wattsL1 = -150;
+        break;
+    default:
+        break;
+    }
+    return {
+        vL1nRaw: 2312,
+        wattsL1Raw: wattsL1 * 10,
+        hzRaw: 501,
+        kwhImportRaw: (context.wm15ImportKwhX10 = (context.wm15ImportKwhX10 || 41200) + 1),
+        kwhExportRaw: 27520,
+    };
+}
+
 function wordsFor(device, address, count, scenario = 'normal', context = {}) {
     const words = new Array(count).fill(0);
+    if (device.kind === 'wm15') {
+        const values = wm15ScenarioValues(scenario, context);
+        writeWords(words, address, WM15_IDENTITY_ADDRESS, [0x0096]);
+        writeWords(words, address, WM15_VLN_L1_ADDRESS, unsigned32WordsLswFirst(values.vL1nRaw));
+        if (device.measuringSystem === '1P') {
+            writeWords(words, address, WM15_VLN_L2_ADDRESS, unsigned32WordsLswFirst(WM15_NA_INT32));
+            writeWords(words, address, WM15_VLN_L3_ADDRESS, unsigned32WordsLswFirst(WM15_NA_INT32));
+        }
+        writeWords(words, address, WM15_W_L1_ADDRESS, signed32WordsLswFirst(values.wattsL1Raw));
+        writeWords(words, address, WM15_HZ_ADDRESS, [values.hzRaw & 0xFFFF]);
+        writeWords(words, address, WM15_KWH_IMPORT_ADDRESS,
+            unsigned32WordsLswFirst(values.kwhImportRaw));
+        writeWords(words, address, WM15_KWH_EXPORT_ADDRESS,
+            unsigned32WordsLswFirst(values.kwhExportRaw));
+        return words;
+    }
     if (device.kind === 'em500') {
         const values = em500ScenarioValues(device, scenario, context);
         writeWords(words, address, EM500_SOURCE_ADDRESS, [values.sourceValue]);
@@ -128,7 +212,7 @@ function handleRequest(socket, frame, scenario, context) {
     const transactionId = frame.readUInt16BE(0);
     const unitId = frame.readUInt8(6);
     const functionCode = frame.readUInt8(7);
-    const device = DEVICES.get(unitId) || EM500_DEVICES.get(unitId);
+    const device = DEVICES.get(unitId) || EM500_DEVICES.get(unitId) || WM15_DEVICES.get(unitId);
 
     if (scenario === 'comm-lost') {
         socket.destroy();
@@ -207,8 +291,19 @@ function handleRequest(socket, frame, scenario, context) {
 
 function createServer(scenario = SCENARIO) {
     const context = { sourceReads: 0, generatorPowerReads: 0 };
-    return net.createServer((socket) => {
+    const server = net.createServer((socket) => {
         let pending = Buffer.alloc(0);
+        // A client dropping its TCP connection (a real ESP32 on a flaky
+        // Wi-Fi link, reset by a modem/router, a killed test client) fires
+        // 'error' on THIS socket. Without a handler here Node treats it as
+        // an unhandled exception and crashes the whole process -- taking
+        // down every other client's connection with it, silently, since
+        // this typically runs backgrounded with nobody watching stdout.
+        // One flaky client must never be able to kill the simulator for
+        // every other device talking to it.
+        socket.on('error', () => {
+            /* swallow: the 'close' event still fires and cleans up normally */
+        });
         socket.on('data', (chunk) => {
             pending = Buffer.concat([pending, chunk]);
             while (pending.length >= 7) {
@@ -221,6 +316,7 @@ function createServer(scenario = SCENARIO) {
             }
         });
     });
+    return server;
 }
 
 function request(port, unitId, functionCode, address, valueOrCount, timeoutMs = 800) {
@@ -280,14 +376,32 @@ async function runSelfTest() {
         const generatorPower = await request(port, 32, 3, EM500_POWER_ADDRESS, 2);
         assert.strictEqual(generatorPower.readInt32BE(9), 200);
 
+        const wm15Voltage = await request(port, 41, 3, WM15_VLN_L1_ADDRESS, 2);
+        // LSW-first: low word first in the wire order, so the 32-bit value
+        // must be reassembled as (hiWordAtOffset2 << 16) | loWordAtOffset0.
+        const wm15VRaw = (wm15Voltage.readUInt16BE(11) << 16) | wm15Voltage.readUInt16BE(9);
+        assert.strictEqual(wm15VRaw, 2312);
+
+        const wm15L2Na = await request(port, 41, 3, WM15_VLN_L2_ADDRESS, 2);
+        const wm15L2Raw = (wm15L2Na.readUInt16BE(11) << 16) | wm15L2Na.readUInt16BE(9);
+        assert.strictEqual(wm15L2Raw, WM15_NA_INT32);
+
+        const wm15Watts = await request(port, 41, 3, WM15_W_L1_ADDRESS, 2);
+        const wm15WRaw = (wm15Watts.readInt16BE(11) << 16) | wm15Watts.readUInt16BE(9);
+        assert.strictEqual(wm15WRaw, 32000);
+
+        const wm15Hz = await request(port, 41, 3, WM15_HZ_ADDRESS, 1);
+        assert.strictEqual(wm15Hz.readUInt16BE(9), 501);
+
         const unknown = await request(port, 99, 3, 40000, 1);
         assert.strictEqual(unknown.readUInt8(7), 0x83);
 
         console.log(JSON.stringify({
             result: 'PASS',
-            simulator: 'SolTrix Modbus inverter and EM500 simulator',
+            simulator: 'SolTrix Modbus inverter, EM500 and WM15 simulator',
             inverterUnits: [...DEVICES.keys()],
             em500Units: [...EM500_DEVICES.keys()],
+            wm15Units: [...WM15_DEVICES.keys()],
             scenarios: [
                 'normal', 'stale', 'comm-lost', 'timeout', 'rollback',
                 'em500-single-grid', 'em500-single-generator', 'em500-single-toggle',
@@ -310,7 +424,7 @@ if (require.main === module) {
     } else {
         const server = createServer();
         server.listen(PORT, '0.0.0.0', () => {
-            console.log(`SolTrix Modbus simulator listening on 0.0.0.0:${PORT} scenario=${SCENARIO} inverter-units=21,22,23 em500-units=31,32`);
+            console.log(`SolTrix Modbus simulator listening on 0.0.0.0:${PORT} scenario=${SCENARIO} inverter-units=21,22,23 em500-units=31,32 wm15-units=41`);
         });
     }
 }
@@ -318,8 +432,14 @@ if (require.main === module) {
 module.exports = {
     DEVICES,
     EM500_DEVICES,
+    WM15_DEVICES,
     EM500_SOURCE_ADDRESS,
     EM500_POWER_ADDRESS,
+    WM15_VLN_L1_ADDRESS,
+    WM15_W_L1_ADDRESS,
+    WM15_HZ_ADDRESS,
+    WM15_KWH_IMPORT_ADDRESS,
+    WM15_NA_INT32,
     createServer,
     request,
     wordsFor,

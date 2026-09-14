@@ -183,15 +183,22 @@ static esp_err_t meters_get(httpd_req_t *request)
         cJSON_AddBoolToObject(runtime, "connection_initialized", health.connection_initialized);
         cJSON_AddBoolToObject(runtime, "initialization_failed", health.initialization_failed);
         cJSON_AddBoolToObject(runtime, "online", health.online);
+        cJSON_AddBoolToObject(runtime, "degraded", runtime_available && data.degraded);
         cJSON_AddBoolToObject(runtime, "has_data", health.has_data);
         cJSON_AddBoolToObject(runtime, "stale", health.stale);
         if (health.has_data) cJSON_AddNumberToObject(runtime, "active_power_kw", data.active_power_kw);
         else cJSON_AddNullToObject(runtime, "active_power_kw");
         add_age(runtime, "data_age_ms", health.has_data, current_ms, data.last_update_ms);
+        add_age(runtime, "age_ms", health.has_data, current_ms, data.last_update_ms);
         add_age(runtime, "last_attempt_age_ms",
                 runtime_available && data.last_attempt_ms != 0,
                 current_ms, data.last_attempt_ms);
+        cJSON_AddNumberToObject(runtime, "last_response_time_ms", data.last_response_time_ms);
+        cJSON_AddNumberToObject(runtime, "current_poll_delay_ms", data.current_poll_delay_ms);
+        cJSON_AddNumberToObject(runtime, "recent_sample_count", data.recent_sample_count);
+        cJSON_AddNumberToObject(runtime, "recent_success_percent", data.recent_success_percent);
         cJSON_AddNumberToObject(runtime, "success_count", data.success_count);
+        cJSON_AddNumberToObject(runtime, "response_errors", data.response_errors);
         cJSON_AddNumberToObject(runtime, "error_count", data.response_errors);
         cJSON_AddNumberToObject(runtime, "consecutive_failures", data.consecutive_failures);
         cJSON_AddNumberToObject(runtime, "last_error", data.last_error);

@@ -17,21 +17,45 @@ def require(condition: bool, message: str) -> None:
 set_start = STORE.index("esp_err_t inverter_profile_store_set")
 set_body = STORE[set_start:]
 for token in (
-    "config_manager_get_snapshot(&config)",
-    "config.control.enabled = false",
-    "config_manager_save(&config)",
+    "config_manager_get_snapshot(config)",
+    "config->control.enabled = false",
+    "config_manager_save(config)",
     "persist(&next)",
 ):
     require(token in set_body, f"profile persistence safety step missing: {token}")
 
-require(set_body.index("config_manager_get_snapshot(&config)") < set_body.index("persist(&next)"),
+# config->control.enabled is only cleared and saved when it was actually set --
+# clearing it unconditionally would call config_manager_save() on every profile
+# assignment even when control was already off, which is not what the current
+# implementation does and not what this check requires. The safety property is
+# that persistence never proceeds while a config snapshot could still show
+# control enabled, which "if (config->control.enabled) { ...=false; save(); }"
+# guarantees exactly as well as an unconditional clear+save would.
+require("if (config->control.enabled) {" in set_body,
+        "control must only be force-saved-disabled when read back enabled, "
+        "or every profile change would pay an unconditional NVS write")
+
+require(set_body.index("config_manager_get_snapshot(config)") < set_body.index("persist(&next)"),
         "configuration must be inspected before profile persistence")
-require(set_body.index("config.control.enabled = false") < set_body.index("persist(&next)"),
+require(set_body.index("config->control.enabled = false") < set_body.index("persist(&next)"),
         "automatic control must be disabled before profile persistence")
-require(set_body.index("config_manager_save(&config)") < set_body.index("persist(&next)"),
+require(set_body.index("config_manager_save(config)") < set_body.index("persist(&next)"),
         "disabled control must be committed before profile persistence")
 require(set_body.index("persist(&next)") < set_body.index("s_store = next"),
         "in-memory assignment must not advance before NVS commit")
+
+# If disabling+saving control fails, the profile assignment must be abandoned,
+# not attempted anyway -- staying disabled is the safe outcome, and persisting
+# a new register map/scale against a control state that failed to commit risks
+# an enabled controller booting against the wrong profile after a reset.
+save_idx = set_body.index("config_manager_save(config)")
+persist_idx = set_body.index("persist(&next)")
+guard_after_save = set_body.find("if (err != ESP_OK) {", save_idx)
+require(
+    0 <= guard_after_save < persist_idx,
+    "a failed control-disable save must abort before profile persistence, "
+    "not fall through to persist(&next) regardless",
+)
 
 for token in (
     "control_engine_force_disable();",

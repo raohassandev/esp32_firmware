@@ -438,12 +438,64 @@ static void clear_login_failures(void)
     portEXIT_CRITICAL(&s_lock);
 }
 
+engineering_local_auth_result_t engineering_auth_verify_local_credential(
+    const char *credential,
+    uint32_t *retry_after_ms,
+    bool *setup_required)
+{
+    if (retry_after_ms) *retry_after_ms = 0U;
+
+    portENTER_CRITICAL(&s_lock);
+    const bool setup = !s_password_configured;
+    char setup_code[sizeof(s_setup_code)];
+    strlcpy(setup_code, s_setup_code, sizeof(setup_code));
+    portEXIT_CRITICAL(&s_lock);
+    if (setup_required) *setup_required = setup;
+
+    uint64_t remaining = 0U;
+    if (login_locked(&remaining)) {
+        memset(setup_code, 0, sizeof(setup_code));
+        if (retry_after_ms) {
+            *retry_after_ms = remaining > UINT32_MAX ? UINT32_MAX : (uint32_t)remaining;
+        }
+        return ENGINEERING_LOCAL_AUTH_LOCKED;
+    }
+
+    if (!credential || strlen(credential) > AUTH_MAX_PASSWORD_LENGTH) {
+        memset(setup_code, 0, sizeof(setup_code));
+        record_login_failure();
+        return ENGINEERING_LOCAL_AUTH_DENIED;
+    }
+
+    const bool valid = setup
+        ? constant_time_string_equal(credential, setup_code)
+        : verify_password(credential);
+    memset(setup_code, 0, sizeof(setup_code));
+    if (!valid) {
+        record_login_failure();
+        return ENGINEERING_LOCAL_AUTH_DENIED;
+    }
+
+    clear_login_failures();
+    return ENGINEERING_LOCAL_AUTH_OK;
+}
+
 bool engineering_auth_is_authorized(httpd_req_t *request)
 {
+#if defined(CONFIG_PVDG_BENCH_ENGINEERING_AUTH_BYPASS) && CONFIG_PVDG_BENCH_ENGINEERING_AUTH_BYPASS
+    /* BENCH BUILD -- see the "Automatrix PV-DG Controller" Kconfig menu.
+     * Every Engineering-gated HTTP endpoint answers as authorized, no
+     * password or session cookie checked at all. Logged on every call so
+     * it cannot pass unnoticed in a build's own logs. */
+    ESP_LOGW(TAG, "BENCH BUILD: Engineering HTTP authentication is BYPASSED "
+                  "(CONFIG_PVDG_BENCH_ENGINEERING_AUTH_BYPASS=y). This must not ship.");
+    return true;
+#else
     portENTER_CRITICAL(&s_lock);
     bool configured = s_password_configured;
     portEXIT_CRITICAL(&s_lock);
     return configured && session_cookie_valid(request, true);
+#endif
 }
 
 esp_err_t engineering_auth_require(httpd_req_t *request)
@@ -614,6 +666,11 @@ static esp_err_t password_post(httpd_req_t *request)
 
 esp_err_t engineering_auth_init(void)
 {
+#if defined(CONFIG_PVDG_BENCH_ENGINEERING_AUTH_BYPASS) && CONFIG_PVDG_BENCH_ENGINEERING_AUTH_BYPASS
+    ESP_LOGW(TAG, "BENCH BUILD: this image was built with "
+                  "CONFIG_PVDG_BENCH_ENGINEERING_AUTH_BYPASS=y -- every Engineering-gated "
+                  "HTTP endpoint answers as authorized with no password check. This must not ship.");
+#endif
     auth_record_t record = {0};
     esp_err_t err = load_record(&record);
     portENTER_CRITICAL(&s_lock);
@@ -650,6 +707,61 @@ esp_err_t engineering_auth_init(void)
     return ESP_OK;
 }
 
+#if defined(CONFIG_PVDG_BENCH_ENGINEERING_PASSWORD_RESET) && CONFIG_PVDG_BENCH_ENGINEERING_PASSWORD_RESET
+/* BENCH BUILD -- see the "Automatrix PV-DG Controller" Kconfig menu.
+ * Erases the persisted password and returns to the one-time-setup-code
+ * state, without requiring the old password. The new code goes to the
+ * serial log only, exactly like a fresh-from-factory boot's setup code --
+ * this endpoint never returns a credential over the network. */
+static void bench_reset_password(void)
+{
+    nvs_handle_t handle = 0;
+    esp_err_t err = nvs_open(AUTH_NAMESPACE, NVS_READWRITE, &handle);
+    if (err == ESP_OK) {
+        err = nvs_erase_key(handle, AUTH_RECORD_KEY);
+        if (err == ESP_OK || err == ESP_ERR_NVS_NOT_FOUND) err = nvs_commit(handle);
+    }
+    if (handle != 0) nvs_close(handle);
+    if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGE(TAG, "BENCH BUILD: password reset failed to erase NVS: %s", esp_err_to_name(err));
+        return;
+    }
+
+    uint32_t random_value = 0;
+    esp_fill_random(&random_value, sizeof(random_value));
+    char setup_code[sizeof(s_setup_code)];
+    snprintf(setup_code, sizeof(setup_code), "SETUP-%06lu",
+             (unsigned long)(100000u + random_value % 900000u));
+
+    portENTER_CRITICAL(&s_lock);
+    memset(&s_record, 0, sizeof(s_record));
+    s_password_configured = false;
+    s_session_active = false;
+    s_failed_attempts = 0;
+    s_lockout_until_ms = 0;
+    strlcpy(s_setup_code, setup_code, sizeof(s_setup_code));
+    portEXIT_CRITICAL(&s_lock);
+
+    ESP_LOGW(TAG, "BENCH BUILD: Engineering password erased via "
+                  "CONFIG_PVDG_BENCH_ENGINEERING_PASSWORD_RESET. This must not ship.");
+    ESP_LOGW(TAG, "One-time Engineering setup code: %s", setup_code);
+    ESP_LOGW(TAG, "Sign in with this serial-console code and immediately set a permanent password");
+    memset(setup_code, 0, sizeof(setup_code));
+}
+
+static esp_err_t bench_reset_post(httpd_req_t *request)
+{
+    bench_reset_password();
+    cJSON *root = cJSON_CreateObject();
+    if (!root) return httpd_resp_send_500(request);
+    cJSON_AddBoolToObject(root, "reset", true);
+    cJSON_AddStringToObject(root, "message",
+        "Engineering password erased. Read the new one-time setup code from the "
+        "device's serial console, then sign in with it and set a permanent password.");
+    return send_json(request, "200 OK", root);
+}
+#endif
+
 esp_err_t engineering_auth_register(httpd_handle_t server)
 {
     if (!server) return ESP_ERR_INVALID_ARG;
@@ -663,5 +775,12 @@ esp_err_t engineering_auth_register(httpd_handle_t server)
         esp_err_t err = httpd_register_uri_handler(server, &handlers[index]);
         if (err != ESP_OK) return err;
     }
+#if defined(CONFIG_PVDG_BENCH_ENGINEERING_PASSWORD_RESET) && CONFIG_PVDG_BENCH_ENGINEERING_PASSWORD_RESET
+    const httpd_uri_t bench_reset = {
+        .uri = "/api/engineering/bench-reset", .method = HTTP_POST, .handler = bench_reset_post,
+    };
+    esp_err_t err = httpd_register_uri_handler(server, &bench_reset);
+    if (err != ESP_OK) return err;
+#endif
     return ESP_OK;
 }

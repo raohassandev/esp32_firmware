@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('assert');
+const net = require('net');
 const {
     DEVICES,
     EM500_SOURCE_ADDRESS,
@@ -94,6 +95,32 @@ async function main() {
         assert.strictEqual(await readI32(port, 32, EM500_POWER_ADDRESS), 900);
         assert.strictEqual(await readI32(port, 32, EM500_POWER_ADDRESS), 1100);
         assert.strictEqual(await readI32(port, 32, EM500_POWER_ADDRESS), 900);
+    });
+
+    // Regression: found live on the bench 2026-09-07 -- an ESP32 on a weak
+    // Wi-Fi link forced its TCP connection closed with a hard reset, and the
+    // simulator's per-connection socket had no 'error' listener. Node
+    // treated that as an unhandled exception and crashed the ENTIRE
+    // process, silently killing every other device's connection with it
+    // (the board then spent the next several minutes accumulating
+    // connection-refused errors against a simulator that no longer
+    // existed). One flaky client must never be able to take the whole
+    // simulator down.
+    await withServer('normal', async (port) => {
+        const rude = net.createConnection({ host: '127.0.0.1', port }, () => {
+            rude.write(Buffer.from([0, 1, 0, 0, 0, 6, 31, 3, 0, 58, 0, 2]));
+            setTimeout(() => {
+                if (typeof rude.resetAndDestroy === 'function') rude.resetAndDestroy();
+                else rude.destroy();
+            }, 20);
+        });
+        rude.on('error', () => {}); // this test's own client dropping is expected
+
+        await new Promise((resolve) => setTimeout(resolve, 200));
+
+        // If the server crashed, this hangs/rejects instead of resolving.
+        const survived = await readI32(port, 31, EM500_POWER_ADDRESS);
+        assert.strictEqual(survived, 5000);
     });
 
     console.log(JSON.stringify({

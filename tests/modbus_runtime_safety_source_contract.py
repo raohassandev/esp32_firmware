@@ -38,6 +38,31 @@ require("recv_all(c->socket_fd, pdu, body_len, deadline_us)" in MODBUS,
 require("memset(c, 0, sizeof(*c));" in MODBUS and "c->socket_fd = -1;" in MODBUS,
         "connection state must be initialized before endpoint validation exits")
 
+# A TCP-to-RTU gateway may surface a completed stale downstream response before
+# the response to the current request. Recovery is receive-only: the stale ADU
+# must be structurally bounded, fully drained, strictly rejected as current data,
+# and the transport may continue only under the original cumulative deadline.
+for token in [
+    "MODBUS_MAX_MBAP_LENGTH 254U",
+    "MODBUS_MAX_STALE_FRAMES_PER_EXCHANGE 4U",
+    "stale_body[MODBUS_MAX_MBAP_LENGTH - 1U]",
+    "unsigned stale_frames = 0U",
+    "transaction == c->transaction_id",
+    "header[6] == c->endpoint.unit_id",
+    "recv_all(c->socket_fd, stale_body, body_len, deadline_us)",
+    "stale_frames > MODBUS_MAX_STALE_FRAMES_PER_EXCHANGE",
+    "length > MODBUS_MAX_MBAP_LENGTH",
+    "SAME original deadline",
+    "request is sent exactly once",
+]:
+    require(token in MODBUS, f"stale MBAP resynchronization contract missing: {token}")
+require("if (!current_frame)" in MODBUS,
+        "wrong transaction/unit frames are not explicitly rejected as stale")
+require(MODBUS.count("send_all(c->socket_fd, request, request_len, deadline_us)") == 1,
+        "exchange must transmit the request exactly once; receive recovery must never replay")
+require("transaction != c->transaction_id" not in MODBUS,
+        "legacy immediate TID rejection bypasses bounded stale-frame drain")
+
 for token in [
     "last_exception_valid",
     "last_exception_function",

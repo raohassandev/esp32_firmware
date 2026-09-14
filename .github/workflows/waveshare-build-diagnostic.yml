@@ -1,0 +1,75 @@
+name: Waveshare build diagnostic
+
+on:
+  pull_request:
+    paths:
+      - 'boards/waveshare_esp32_s3_touch_lcd_5/**'
+      - 'components/**'
+      - '.github/workflows/waveshare-build-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  capture-build-log:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container: espressif/idf:v6.0.1
+    env:
+      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      PRODUCT_DIR: boards/waveshare_esp32_s3_touch_lcd_5/screen/product_800x480
+    steps:
+      - name: Check out exact candidate head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 0
+
+      - name: Trust checkout path inside IDF container
+        shell: bash
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Build exact candidate and capture complete log
+        shell: bash
+        run: |
+          set -o pipefail
+          {
+            set -euo pipefail
+            source "$IDF_PATH/export.sh"
+            test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+            cd "$PRODUCT_DIR"
+            idf.py --version
+            idf.py set-target esp32s3
+            idf.py build
+          } 2>&1 | tee "$GITHUB_WORKSPACE/waveshare-build.log"
+
+      - name: Extract compiler and linker diagnostics
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          touch waveshare-build.log
+          grep -nE '(^|[[:space:]])(error:|fatal error:|FAILED:|CMake Error|undefined reference|ninja: build stopped|No such file or directory)' \
+            waveshare-build.log > waveshare-build-errors.txt || true
+          {
+            echo '### Waveshare build diagnostics'
+            echo '```text'
+            if test -s waveshare-build-errors.txt; then
+              tail -n 200 waveshare-build-errors.txt
+            else
+              tail -n 200 waveshare-build.log
+            fi
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload diagnostic build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: waveshare-build-diagnostic-${{ env.CANDIDATE_SHA }}
+          path: |
+            waveshare-build.log
+            waveshare-build-errors.txt
+          if-no-files-found: error
+          retention-days: 7
