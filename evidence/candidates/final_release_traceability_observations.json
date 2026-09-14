@@ -1,8 +1,8 @@
 {
   "record_status": "UNEXECUTED_TEMPLATE_NOT_A_RELEASE_PASS",
   "release": {
-    "source_sha": "1e7e75039ebf839ca0bc298beead03cc7fcb6e8c",
-    "tree_sha": "a438d921071f42e28ed54c64c88de128a0e618af",
+    "source_sha": "REPLACE_WITH_EXACT_RELEASE_SOURCE_SHA",
+    "tree_sha": "REPLACE_WITH_EXACT_RELEASE_TREE_SHA",
     "artifact_name": "",
     "artifact_digest": "",
     "application_digest": "",
@@ -44,7 +44,16 @@
         "behavior_affecting_changes": null,
         "replay_ref": "",
         "approval_ref": "",
-        "final_release_checks_passed": null
+        "final_release_checks_passed": null,
+        "final_release_identity": {
+          "source_sha": "",
+          "tree_sha": "",
+          "artifact_digest": "",
+          "application_digest": "",
+          "config_digest": "",
+          "site_map_digest": "",
+          "profile_manifest_digest": ""
+        }
       }
     },
     "generator_transition": {
@@ -54,7 +63,16 @@
       "evidence_digest": "",
       "physical_or_authorized_evidence": false,
       "validator_only": true,
-      "final_release_binding": {"mode": "exact", "artifact_digest": ""}
+      "final_release_binding": {
+        "mode": "exact",
+        "source_sha": "",
+        "tree_sha": "",
+        "artifact_digest": "",
+        "application_digest": "",
+        "config_digest": "",
+        "site_map_digest": "",
+        "profile_manifest_digest": ""
+      }
     },
     "site_commissioning": {
       "status": "NOT_RUN",
@@ -63,7 +81,16 @@
       "evidence_digest": "",
       "physical_or_authorized_evidence": false,
       "validator_only": true,
-      "final_release_binding": {"mode": "exact", "artifact_digest": ""}
+      "final_release_binding": {
+        "mode": "exact",
+        "source_sha": "",
+        "tree_sha": "",
+        "artifact_digest": "",
+        "application_digest": "",
+        "config_digest": "",
+        "site_map_digest": "",
+        "profile_manifest_digest": ""
+      }
     },
     "inverter_profiles": {
       "status": "NOT_RUN",
@@ -74,7 +101,16 @@
       "validator_only": true,
       "profile_manifest_digest": "",
       "profiles": [],
-      "final_release_binding": {"mode": "exact", "artifact_digest": ""}
+      "final_release_binding": {
+        "mode": "exact",
+        "source_sha": "",
+        "tree_sha": "",
+        "artifact_digest": "",
+        "application_digest": "",
+        "config_digest": "",
+        "site_map_digest": "",
+        "profile_manifest_digest": ""
+      }
     },
     "ota": {
       "status": "NOT_RUN",
@@ -83,7 +119,16 @@
       "evidence_digest": "",
       "physical_or_authorized_evidence": false,
       "validator_only": true,
-      "final_release_binding": {"mode": "exact", "artifact_digest": ""}
+      "final_release_binding": {
+        "mode": "exact",
+        "source_sha": "",
+        "tree_sha": "",
+        "artifact_digest": "",
+        "application_digest": "",
+        "config_digest": "",
+        "site_map_digest": "",
+        "profile_manifest_digest": ""
+      }
     },
     "fat_sat": {
       "status": "NOT_RUN",
@@ -92,7 +137,16 @@
       "evidence_digest": "",
       "physical_or_authorized_evidence": false,
       "validator_only": true,
-      "final_release_binding": {"mode": "exact", "artifact_digest": ""}
+      "final_release_binding": {
+        "mode": "exact",
+        "source_sha": "",
+        "tree_sha": "",
+        "artifact_digest": "",
+        "application_digest": "",
+        "config_digest": "",
+        "site_map_digest": "",
+        "profile_manifest_digest": ""
+      }
     }
   },
   "rev_a_hardware": {
@@ -106,6 +160,15 @@
     "signed_sat_digest": "",
     "release_evidence_package_ref": "",
     "release_evidence_package_digest": "",
+    "signed_release_identity": {
+      "source_sha": "",
+      "tree_sha": "",
+      "artifact_digest": "",
+      "application_digest": "",
+      "config_digest": "",
+      "site_map_digest": "",
+      "profile_manifest_digest": ""
+    },
     "unexecuted_template": true
   }
 }
