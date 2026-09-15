@@ -8,7 +8,6 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/reports.css" "${CMAKE_CURREN
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/prelab-readiness.css" "${CMAKE_CURRENT_BINARY_DIR}/prelab-readiness.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/mobile-prelab-fixes.css" "${CMAKE_CURRENT_BINARY_DIR}/mobile-prelab-fixes.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/product-shell-v2.css" "${CMAKE_CURRENT_BINARY_DIR}/product-shell-v2.css" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/shell-current-fixes.css" "${CMAKE_CURRENT_BINARY_DIR}/shell-current-fixes.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/product-experience-v2.css" "${CMAKE_CURRENT_BINARY_DIR}/product-experience-v2.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-continuity-verdict.css" "${CMAKE_CURRENT_BINARY_DIR}/operator-continuity-verdict.css" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/commissioning-wizard-v2.css" "${CMAKE_CURRENT_BINARY_DIR}/commissioning-wizard-v2.css" COPYONLY)
@@ -27,7 +26,6 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-product-suite.js" "
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/reports.js" "${CMAKE_CURRENT_BINARY_DIR}/reports.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/prelab-readiness.js" "${CMAKE_CURRENT_BINARY_DIR}/prelab-readiness.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/product-shell-v2.js" "${CMAKE_CURRENT_BINARY_DIR}/product-shell-v2.js" COPYONLY)
-configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/shell-current-fixes.js" "${CMAKE_CURRENT_BINARY_DIR}/shell-current-fixes.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/product-experience-v2.js" "${CMAKE_CURRENT_BINARY_DIR}/product-experience-v2.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/operator-continuity-verdict.js" "${CMAKE_CURRENT_BINARY_DIR}/operator-continuity-verdict.js" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/../../web/commissioning-route.js" "${CMAKE_CURRENT_BINARY_DIR}/commissioning-route.js" COPYONLY)
@@ -102,7 +100,6 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/prelab-readiness.css"
         "${CMAKE_CURRENT_BINARY_DIR}/mobile-prelab-fixes.css"
         "${CMAKE_CURRENT_BINARY_DIR}/product-shell-v2.css"
-        "${CMAKE_CURRENT_BINARY_DIR}/shell-current-fixes.css"
         "${CMAKE_CURRENT_BINARY_DIR}/product-experience-v2.css"
         "${CMAKE_CURRENT_BINARY_DIR}/operator-continuity-verdict.css"
         "${CMAKE_CURRENT_BINARY_DIR}/commissioning-wizard-v2.css"
@@ -121,7 +118,6 @@ idf_component_register(
         "${CMAKE_CURRENT_BINARY_DIR}/reports.js"
         "${CMAKE_CURRENT_BINARY_DIR}/prelab-readiness.js"
         "${CMAKE_CURRENT_BINARY_DIR}/product-shell-v2.js"
-        "${CMAKE_CURRENT_BINARY_DIR}/shell-current-fixes.js"
         "${CMAKE_CURRENT_BINARY_DIR}/product-experience-v2.js"
         "${CMAKE_CURRENT_BINARY_DIR}/operator-continuity-verdict.js"
         "${CMAKE_CURRENT_BINARY_DIR}/commissioning-route.js"
