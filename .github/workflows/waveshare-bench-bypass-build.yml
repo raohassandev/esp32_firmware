@@ -1,0 +1,119 @@
+name: Waveshare bench Engineering bypass build
+
+on:
+  push:
+    branches:
+      - waveshare/engineering-bypass-dev
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-bench-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container: espressif/idf:v6.0.1
+    env:
+      PRODUCT_DIR: boards/waveshare_esp32_s3_touch_lcd_5/screen/product_800x480
+    steps:
+      - name: Check out bench branch
+        uses: actions/checkout@v4
+
+      - name: Mark checkout safe
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Apply bench-only Engineering bypass
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          product = Path('boards/waveshare_esp32_s3_touch_lcd_5/screen/product_800x480')
+          backend = product / 'main/local_commissioning_backend.c'
+          text = backend.read_text(encoding='utf-8')
+          old = '''static bool unlocked(void)
+          {
+              const uint64_t now = now_ms();
+              if (s_unlocked_until_ms == 0U || now >= s_unlocked_until_ms) {
+                  s_unlocked_until_ms = 0U;
+                  return false;
+              }
+              return true;
+          }
+          '''
+          new = '''static bool unlocked(void)
+          {
+          #if defined(CONFIG_PVDG_BENCH_ENGINEERING_AUTH_BYPASS) && CONFIG_PVDG_BENCH_ENGINEERING_AUTH_BYPASS
+              return true;
+          #else
+              const uint64_t now = now_ms();
+              if (s_unlocked_until_ms == 0U || now >= s_unlocked_until_ms) {
+                  s_unlocked_until_ms = 0U;
+                  return false;
+              }
+              return true;
+          #endif
+          }
+          '''
+          if old not in text:
+              raise SystemExit('expected local unlock implementation not found')
+          backend.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          cfg = product / 'sdkconfig.defaults'
+          data = cfg.read_text(encoding='utf-8')
+          data = '\n'.join(
+              line for line in data.splitlines()
+              if not line.startswith('CONFIG_WAVESHARE_BENCH_ENGINEERING_CREDENTIAL=')
+              and not line.startswith('CONFIG_PVDG_BENCH_ENGINEERING_AUTH_BYPASS=')
+              and not line.startswith('CONFIG_WAVESHARE_BENCH_NETWORK_AUTH_BYPASS=')
+          ) + '\n\n# BENCH DEVELOPMENT ONLY - DO NOT SHIP\nCONFIG_PVDG_BENCH_ENGINEERING_AUTH_BYPASS=y\nCONFIG_WAVESHARE_BENCH_NETWORK_AUTH_BYPASS=y\n'
+          cfg.write_text(data, encoding='utf-8')
+          PY
+
+          grep -qx 'CONFIG_PVDG_BENCH_ENGINEERING_AUTH_BYPASS=y' "$PRODUCT_DIR/sdkconfig.defaults"
+          grep -qx 'CONFIG_WAVESHARE_BENCH_NETWORK_AUTH_BYPASS=y' "$PRODUCT_DIR/sdkconfig.defaults"
+          grep -Fq 'CONFIG_PVDG_BENCH_ENGINEERING_AUTH_BYPASS' "$PRODUCT_DIR/main/local_commissioning_backend.c"
+
+      - name: Build exact Waveshare 800x480 bench image
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$IDF_PATH/export.sh"
+          cd "$PRODUCT_DIR"
+          idf.py --version
+          rm -rf build sdkconfig
+          idf.py set-target esp32s3
+          idf.py build
+          grep -qx 'CONFIG_PVDG_BENCH_ENGINEERING_AUTH_BYPASS=y' sdkconfig
+          grep -qx 'CONFIG_WAVESHARE_BENCH_NETWORK_AUTH_BYPASS=y' sdkconfig
+
+      - name: Package flash files
+        shell: bash
+        run: |
+          set -euo pipefail
+          build="$PRODUCT_DIR/build"
+          out="$GITHUB_WORKSPACE/waveshare-bench-bypass"
+          mkdir -p "$out/bootloader" "$out/partition_table"
+          cp "$build/bootloader/bootloader.bin" "$out/bootloader/"
+          cp "$build/partition_table/partition-table.bin" "$out/partition_table/"
+          cp "$build/ota_data_initial.bin" "$out/"
+          cp "$build/automatrix_pvdg_waveshare_800x480.bin" "$out/"
+          cat > "$out/BENCH_ONLY.txt" <<'EOF'
+          BENCH / DEVELOPMENT IMAGE ONLY.
+          Engineering authentication bypass is compiled ON.
+          Waveshare Network-page authentication bypass is compiled ON.
+          Native Commission/Source pages are auto-authorized by the bench flag.
+          DO NOT SHIP OR USE ON AN UNTRUSTED NETWORK.
+          EOF
+          cd "$out"
+          sha256sum bootloader/bootloader.bin partition_table/partition-table.bin ota_data_initial.bin automatrix_pvdg_waveshare_800x480.bin > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Upload bench artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: waveshare-800x480-engineering-bypass-bench
+          path: waveshare-bench-bypass/
+          retention-days: 7
