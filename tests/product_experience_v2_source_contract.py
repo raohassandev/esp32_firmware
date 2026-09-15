@@ -7,15 +7,22 @@ cmake = (ROOT / 'components/web_server/CMakeLists.txt').read_text(encoding='utf-
 server = (ROOT / 'components/web_server/web_server.c').read_text(encoding='utf-8')
 header = (ROOT / 'components/web_server/include/web_assets.h').read_text(encoding='utf-8')
 assets = (ROOT / 'components/web_server/web_assets.c').read_text(encoding='utf-8')
-for route in ('dashboard','meters','inverters','control','alarms','readiness','engineering','commissioning','wifi','system'):
+for route in ('dashboard','meters','inverters','control','alarms','reports','readiness','engineering','commissioning','wifi','system'):
     assert f'{route}:' in js, f'missing page model for {route}'
 assert 'experience-masthead' in js and 'experience-masthead' in css
 assert 'Operator scope' in js and 'Engineering scope' in js
 assert 'experience-legacy-intro' in js and 'display: none' in css
 assert '@media (max-width: 650px)' in css
 assert 'grid-template-columns: minmax(0, 1fr) !important' in css
+assert "name === 'grid' ? 'meters' : name" in js, 'legacy grid alias must share meters page context'
 
-# Industrial UI now owns sidebar information architecture. Product Experience V2
+# Known dark-only overrides from the original product-polish stack must stay out.
+for forbidden in ('rgba(8,24,39,.55)', 'rgba(16,36,58,.96)', 'rgba(39,65,95,.72)'):
+    assert forbidden not in css, f'dark-only product experience override returned: {forbidden}'
+assert 'color-mix(in srgb, var(--orange)' in css
+assert 'background: var(--panel)' in css
+
+# Industrial UI owns sidebar information architecture. Product Experience V2
 # remains responsible for route context/mastheads only and must not inject a
 # second Operate / Commission & service hierarchy during startup.
 assert 'function groupNavigation' not in js
