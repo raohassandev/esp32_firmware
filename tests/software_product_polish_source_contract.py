@@ -16,6 +16,9 @@ ASSETS_H = (ROOT / "components/web_server/include/web_assets.h").read_text(encod
 ASSETS_C = (ROOT / "components/web_server/web_assets.c").read_text(encoding="utf-8")
 SERVER = (ROOT / "components/web_server/web_server.c").read_text(encoding="utf-8")
 SHELL = (ROOT / "web/product-shell-v2.js").read_text(encoding="utf-8")
+SHELL_CSS = (ROOT / "web/product-shell-v2.css").read_text(encoding="utf-8")
+EXPERIENCE = (ROOT / "web/product-experience-v2.js").read_text(encoding="utf-8")
+EXPERIENCE_CSS = (ROOT / "web/product-experience-v2.css").read_text(encoding="utf-8")
 
 
 def require(condition: bool, message: str) -> None:
@@ -31,14 +34,17 @@ for token in (
     "/api/operator/alarms",
     "controller_resident_window",
     "billing_grade: false",
+    "long_term_historian: false",
+    "sample_timestamps_are_estimates: true",
     "engineering_configuration_included: false",
     "credentials_included: false",
-    "Export CSV",
-    "Export JSON",
-    "Print report",
+    "physical_qualification_claimed: false",
+    "reportsHtml",
     "window.print()",
     "document.hidden",
     "AbortController",
+    "Promise.allSettled",
+    "data_quality",
 ):
     require(token in REPORTS, f"reports contract missing {token}")
 
@@ -59,6 +65,10 @@ require("window.setTimeout(refresh, POLL_MS)" in REPORTS,
         "reports do not use route/visibility-aware scheduled refresh")
 require("fetch('/api/operator/history" not in REPORTS,
         "history request must include an explicit bounded range")
+require("state.quality.history.available" in REPORTS and "state.quality.events.available" in REPORTS,
+        "reports do not preserve partial-data availability")
+require("requestAnimationFrame(placeNav)" in REPORTS,
+        "dynamic Reports route is not placed after the Industrial UI reorder pass")
 
 # Reports assets must be embedded in the existing composite bundle; no URI-handler growth.
 for token in (
@@ -75,8 +85,25 @@ require("reports: 'Controller-resident trends, alarms and service evidence'" in 
         "shell has no Reports route context")
 require("Operational reports" in SHELL,
         "Reports is not reachable from the compact controller menu")
-require("@media print" in REPORTS_CSS,
-        "reports lack print-ready layout")
+require("@media print" in REPORTS_CSS and "@page" in REPORTS_CSS,
+        "reports lack print-ready paged layout")
+require(".reports-meta" in REPORTS_CSS,
+        "reports lack visible generation/range/freshness metadata")
+
+# Legacy shell repair assets were absorbed by their owner and must stay retired.
+for retired in ("shell-current-fixes.js", "shell-current-fixes.css", "shell_current_fixes"):
+    require(retired not in CMAKE and retired not in ASSETS_H and retired not in ASSETS_C and retired not in SERVER,
+            f"retired shell repair layer is still embedded: {retired}")
+require(not (ROOT / "web/shell-current-fixes.js").exists(), "retired shell-current-fixes.js still exists")
+require(not (ROOT / "web/shell-current-fixes.css").exists(), "retired shell-current-fixes.css still exists")
+require("themeToggleButton" in SHELL and "Open controller actions" in SHELL,
+        "product shell did not absorb the retired repair behavior")
+require("name === 'grid' ? 'meters' : name" in EXPERIENCE or "rawRoute() === 'grid'" in SHELL,
+        "legacy #/grid route is not canonicalized")
+require("rgba(8,24,39,.55)" not in EXPERIENCE_CSS and "rgba(16,36,58,.96)" not in EXPERIENCE_CSS,
+        "product experience still contains known dark-only presentation patches")
+require("max-width: 900px) and (max-height: 600px" in SHELL_CSS,
+        "800x480 HMI duplicate-health reduction is missing")
 
 # Guided OTA must preserve the mature backend safety boundary while closing UX gaps.
 for token in (
