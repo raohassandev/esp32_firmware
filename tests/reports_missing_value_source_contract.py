@@ -5,6 +5,7 @@ Missing controller evidence must stay missing. JavaScript Number(null) == 0 must
 never turn an absent power/count/boolean field into an apparent measured zero.
 """
 from pathlib import Path
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORTS = (ROOT / "web/reports.js").read_text(encoding="utf-8")
@@ -34,10 +35,10 @@ for token in (
 
 require("const value = Number(sample?.[key]);" not in REPORTS,
         "chart path can still coerce null measurements to zero")
-require("Boolean(sample.meter_online)" not in REPORTS,
-        "CSV path can still coerce missing meter state to false")
-require("Boolean(sample.control_enabled)" not in REPORTS,
-        "CSV path can still coerce missing control state to false")
+require(re.search(r"(?<![A-Za-z0-9_$])Boolean\(sample\.meter_online\)", REPORTS) is None,
+        "CSV path can still directly coerce missing meter state to false")
+require(re.search(r"(?<![A-Za-z0-9_$])Boolean\(sample\.control_enabled\)", REPORTS) is None,
+        "CSV path can still directly coerce missing control state to false")
 require("Number.isFinite(Number(history.sample_interval_ms))" not in REPORTS,
         "missing sample interval can still be rendered as zero seconds")
 
