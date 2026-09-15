@@ -35,19 +35,37 @@
     };
     const statusText = (id, fallback = '--') => (byId(id)?.textContent || fallback).trim();
 
-    function formatPower(value) {
+    function finiteValue(value) {
+        if (value === null || value === undefined || value === '') return null;
         const number = Number(value);
-        return Number.isFinite(number) ? `${number.toFixed(1)} kW` : '--';
+        return Number.isFinite(number) ? number : null;
+    }
+
+    function formatPower(value) {
+        const number = finiteValue(value);
+        return number === null ? '--' : `${number.toFixed(1)} kW`;
     }
 
     function formatCount(value) {
-        const number = Number(value);
-        return Number.isFinite(number) ? String(Math.max(0, Math.round(number))) : '0';
+        const number = finiteValue(value);
+        return number === null ? '--' : String(Math.max(0, Math.round(number)));
+    }
+
+    function formatBoolean(value, yes, no) {
+        if (value === true) return yes;
+        if (value === false) return no;
+        return '--';
+    }
+
+    function formatFlags(value) {
+        const number = finiteValue(value);
+        if (number === null) return '--';
+        return `0x${Math.max(0, Math.trunc(number)).toString(16).toUpperCase()}`;
     }
 
     function formatAge(ageMs) {
-        const age = Number(ageMs);
-        if (!Number.isFinite(age) || age < 0) return '--';
+        const age = finiteValue(ageMs);
+        if (age === null || age < 0) return '--';
         if (age < 1000) return 'now';
         if (age < 60000) return `${Math.round(age / 1000)} s ago`;
         if (age < 3600000) return `${Math.round(age / 60000)} min ago`;
@@ -56,8 +74,8 @@
 
     function estimatedTimestamp(ageMs) {
         if (!state.refreshedAt) return '--';
-        const age = Number(ageMs);
-        if (!Number.isFinite(age) || age < 0) return '--';
+        const age = finiteValue(ageMs);
+        if (age === null || age < 0) return '--';
         return new Date(state.refreshedAt.getTime() - age).toLocaleString();
     }
 
@@ -128,9 +146,6 @@
         const nav = document.querySelector('.nav-list');
         const link = nav?.querySelector('[data-route="reports"]');
         if (!nav || !link) return;
-        /* Industrial UI v1 owns the primary grouping/reorder pass. Reports is a
-           dynamic route, so place its own link after that pass at the end of the
-           operator group rather than creating another global nav owner. */
         const control = nav.querySelector('[data-route="control"]');
         if (control && link.nextElementSibling !== control) nav.insertBefore(link, control);
         const span = link.querySelector(':scope > span:last-child');
@@ -241,7 +256,7 @@
         const samples = Array.isArray(state.history?.samples) ? state.history.samples : [];
         const anyData = ['history', 'events', 'alarms'].some((key) => state.quality[key].available);
         const csv = byId('reportsCsv');
-        if (csv) csv.disabled = samples.length === 0;
+        if (csv) csv.disabled = !state.quality.history.available || samples.length === 0;
         ['reportsJson', 'reportsHtml', 'reportsPrint'].forEach((id) => {
             const button = byId(id);
             if (button) button.disabled = !anyData;
@@ -250,8 +265,8 @@
 
     function chartSeries(samples, key) {
         return samples.map((sample, index) => {
-            const value = Number(sample?.[key]);
-            return Number.isFinite(value) ? { index, value } : null;
+            const value = finiteValue(sample?.[key]);
+            return value === null ? null : { index, value };
         }).filter(Boolean);
     }
 
@@ -315,14 +330,16 @@
         }
         const summary = payload?.summary || {};
         const entries = [
-            ['Active alarms', summary.active ?? summary.active_count ?? 0],
-            ['Primary active', summary.primary_active ?? 0],
-            ['Unacknowledged', summary.unacknowledged ?? summary.unacknowledged_count ?? 0],
-            ['Suppressed transitions', summary.suppressed_transitions ?? summary.suppressed_total ?? 0]
+            ['Active alarms', summary.active ?? summary.active_count],
+            ['Primary active', summary.primary_active],
+            ['Unacknowledged', summary.unacknowledged ?? summary.unacknowledged_count],
+            ['Suppressed transitions', summary.suppressed_transitions ?? summary.suppressed_total]
         ];
         entries.forEach(([label, value]) => {
+            const count = finiteValue(value);
+            const tone = count === null ? 'muted-text' : count > 0 ? 'warning-text' : 'good-text';
             const row = node('div', 'reports-condition-row');
-            row.append(node('span', '', label), node('strong', Number(value) > 0 ? 'warning-text' : 'good-text', formatCount(value)));
+            row.append(node('span', '', label), node('strong', tone, formatCount(value)));
             target.append(row);
         });
     }
@@ -370,15 +387,17 @@
         }
         samples.slice(-20).reverse().forEach((sample) => {
             const row = document.createElement('tr');
+            const online = formatCount(sample.inverter_online);
+            const enabled = formatCount(sample.inverter_enabled);
             const values = [
                 estimatedTimestamp(sample.age_ms),
                 formatAge(sample.age_ms),
                 formatPower(sample.grid_kw),
                 formatPower(sample.solar_kw),
-                sample.meter_online ? 'Online' : 'Unavailable',
-                `${formatCount(sample.inverter_online)} / ${formatCount(sample.inverter_enabled)}`,
-                sample.control_enabled ? 'Enabled' : 'Disabled',
-                `0x${Math.max(0, Number(sample.alarms) || 0).toString(16).toUpperCase()}`
+                formatBoolean(sample.meter_online, 'Online', 'Unavailable'),
+                `${online} / ${enabled}`,
+                formatBoolean(sample.control_enabled, 'Enabled', 'Disabled'),
+                formatFlags(sample.alarms)
             ];
             values.forEach((value) => row.append(node('td', '', value)));
             body.append(row);
@@ -411,10 +430,11 @@
         const history = historyAvailable ? (state.history || {}) : {};
         const samples = Array.isArray(history.samples) ? history.samples : [];
         const summary = history.summary || {};
+        const intervalMs = finiteValue(history.sample_interval_ms);
 
         byId('reportsSamples').textContent = historyAvailable ? formatCount(samples.length) : '--';
         byId('reportsCoverage').textContent = historyAvailable && samples.length
-            ? `${history.range || state.range} · ${Number.isFinite(Number(history.sample_interval_ms)) ? `${(Number(history.sample_interval_ms) / 1000).toFixed(0)} s sample interval` : 'controller interval'}`
+            ? `${history.range || state.range} · ${intervalMs === null ? 'controller interval' : `${(intervalMs / 1000).toFixed(0)} s sample interval`}`
             : historyAvailable ? 'No valid samples' : 'History unavailable';
         byId('reportsGridAverage').textContent = historyAvailable ? formatPower(summary.grid_average_kw) : '--';
         byId('reportsGridRange').textContent = historyAvailable ? `Min ${formatPower(summary.grid_min_kw)} · Max ${formatPower(summary.grid_max_kw)}` : 'History unavailable';
@@ -422,7 +442,9 @@
         byId('reportsSolarRange').textContent = historyAvailable ? `Min ${formatPower(summary.solar_min_kw)} · Max ${formatPower(summary.solar_max_kw)}` : 'History unavailable';
 
         const eventSummary = eventsAvailable ? (state.events?.summary || {}) : {};
-        const attention = Number(eventSummary.active_critical || 0) + Number(eventSummary.active_warning || 0);
+        const critical = finiteValue(eventSummary.active_critical);
+        const warning = finiteValue(eventSummary.active_warning);
+        const attention = critical === null || warning === null ? null : critical + warning;
         byId('reportsAttention').textContent = eventsAvailable ? formatCount(attention) : '--';
         byId('reportsEventsCount').textContent = eventsAvailable ? `${formatCount(eventSummary.stored_events)} stored events` : 'Events unavailable';
 
@@ -507,18 +529,26 @@
         return `"${text.replaceAll('"', '""')}"`;
     }
 
+    function exportValue(value) {
+        return value === null || value === undefined ? '' : value;
+    }
+
+    function exportBoolean(value) {
+        return typeof value === 'boolean' ? value : '';
+    }
+
     function exportCsv() {
         const samples = Array.isArray(state.history?.samples) ? state.history.samples : [];
         if (!state.quality.history.available || !samples.length) return;
         const generatedAt = state.refreshedAt?.getTime() || Date.now();
         const rows = [['timestamp_estimate', 'age_ms', 'grid_kw', 'solar_kw', 'meter_online', 'inverter_online', 'inverter_enabled', 'control_enabled', 'alarm_flags']];
         samples.forEach((sample) => {
-            const age = Math.max(0, Number(sample.age_ms) || 0);
+            const age = finiteValue(sample.age_ms);
             rows.push([
-                new Date(generatedAt - age).toISOString(), age,
-                sample.grid_kw ?? '', sample.solar_kw ?? '',
-                Boolean(sample.meter_online), sample.inverter_online ?? 0,
-                sample.inverter_enabled ?? 0, Boolean(sample.control_enabled), sample.alarms ?? 0
+                age === null || age < 0 ? '' : new Date(generatedAt - age).toISOString(),
+                exportValue(age), exportValue(sample.grid_kw), exportValue(sample.solar_kw),
+                exportBoolean(sample.meter_online), exportValue(sample.inverter_online),
+                exportValue(sample.inverter_enabled), exportBoolean(sample.control_enabled), exportValue(sample.alarms)
             ]);
         });
         const csv = rows.map((row) => row.map(csvCell).join(',')).join('\r\n');
@@ -563,7 +593,7 @@
         const historySummary = bundle.history?.summary || {};
         const qualityRows = Object.entries(bundle.data_quality).map(([name, value]) =>
             `<tr><td>${escapeHtml(name)}</td><td>${value.available ? 'Available' : 'Unavailable'}</td><td>${escapeHtml(value.error || '')}</td></tr>`).join('');
-        const sampleRows = samples.map((sample) => `<tr><td>${escapeHtml(estimatedTimestamp(sample.age_ms))}</td><td>${escapeHtml(formatPower(sample.grid_kw))}</td><td>${escapeHtml(formatPower(sample.solar_kw))}</td><td>${sample.meter_online ? 'Online' : 'Unavailable'}</td><td>${sample.control_enabled ? 'Enabled' : 'Disabled'}</td></tr>`).join('') || '<tr><td colspan="5">No sample rows available.</td></tr>';
+        const sampleRows = samples.map((sample) => `<tr><td>${escapeHtml(estimatedTimestamp(sample.age_ms))}</td><td>${escapeHtml(formatPower(sample.grid_kw))}</td><td>${escapeHtml(formatPower(sample.solar_kw))}</td><td>${escapeHtml(formatBoolean(sample.meter_online, 'Online', 'Unavailable'))}</td><td>${escapeHtml(formatBoolean(sample.control_enabled, 'Enabled', 'Disabled'))}</td></tr>`).join('') || '<tr><td colspan="5">No sample rows available.</td></tr>';
         const eventRows = events.map((event) => `<tr><td>${escapeHtml(formatAge(event.age_ms))}</td><td>${escapeHtml(event.severity || 'information')}</td><td>${escapeHtml(event.title || 'Controller event')}</td><td>${escapeHtml(event.detail || '')}</td></tr>`).join('') || '<tr><td colspan="4">No event rows available.</td></tr>';
         const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Automatrix operational report</title><style>body{font-family:Arial,sans-serif;margin:32px;color:#15202b}h1{margin-bottom:4px}p{line-height:1.45}.meta{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:20px 0}.meta div{border:1px solid #ccd4dc;padding:10px}.meta span{display:block;font-size:11px;color:#5a6875}.meta strong{display:block;margin-top:4px}table{width:100%;border-collapse:collapse;margin:12px 0 24px;font-size:12px}th,td{border:1px solid #ccd4dc;padding:7px;text-align:left}th{background:#f1f4f7}.notice{border-left:4px solid #376f9f;padding:10px;background:#f4f8fb}@media print{@page{size:A4 landscape;margin:12mm}body{margin:0}table{break-inside:auto}tr{break-inside:avoid}}</style></head><body><h1>Automatrix PV-DG operational report</h1><p>Controller-resident service and operations evidence.</p><div class="notice"><strong>Limitations:</strong> not billing-grade, not a long-term historian, estimated sample timestamps, no physical qualification claim.</div><div class="meta"><div><span>Generated</span><strong>${escapeHtml(bundle.generated_at)}</strong></div><div><span>Window</span><strong>${escapeHtml(rangeLabel())}</strong></div><div><span>Controller</span><strong>${escapeHtml(bundle.controller_state)}</strong></div><div><span>Freshness</span><strong>${escapeHtml(bundle.controller_data_freshness)}</strong></div></div><h2>Data quality</h2><table><thead><tr><th>Source</th><th>Status</th><th>Detail</th></tr></thead><tbody>${qualityRows}</tbody></table><h2>Power summary</h2><table><tbody><tr><th>Grid average</th><td>${escapeHtml(formatPower(historySummary.grid_average_kw))}</td><th>Solar average</th><td>${escapeHtml(formatPower(historySummary.solar_average_kw))}</td></tr><tr><th>Grid min / max</th><td>${escapeHtml(formatPower(historySummary.grid_min_kw))} / ${escapeHtml(formatPower(historySummary.grid_max_kw))}</td><th>Solar min / max</th><td>${escapeHtml(formatPower(historySummary.solar_min_kw))} / ${escapeHtml(formatPower(historySummary.solar_max_kw))}</td></tr></tbody></table><h2>Recent events</h2><table><thead><tr><th>Age</th><th>Severity</th><th>Event</th><th>Detail</th></tr></thead><tbody>${eventRows}</tbody></table><h2>Recent samples</h2><table><thead><tr><th>Estimated time</th><th>Grid</th><th>Solar</th><th>Meter</th><th>Control</th></tr></thead><tbody>${sampleRows}</tbody></table></body></html>`;
         download(`automatrix-report-${state.range}-${new Date().toISOString().replaceAll(':', '-')}.html`, 'text/html;charset=utf-8', html);
@@ -571,9 +601,6 @@
 
     function activateReportsRoute() {
         if (route() !== 'reports') return false;
-        /* The base router has a static route table. This narrow bridge only
-           activates the dynamically supplied read-only Reports page; it does
-           not own or mutate any other route's hierarchy. */
         document.querySelectorAll('.page').forEach((page) => page.classList.toggle('active', page.dataset.page === 'reports'));
         document.querySelectorAll('.nav-link').forEach((link) => link.classList.toggle('active', link.dataset.route === 'reports'));
         const title = byId('pageTitle');
@@ -592,8 +619,6 @@
     function start() {
         installNav();
         installPage();
-        /* Run after all DOMContentLoaded installers so the authoritative
-           Industrial UI reorder pass has completed before Reports is placed. */
         requestAnimationFrame(placeNav);
         if (activateReportsRoute()) refresh();
         window.addEventListener('hashchange', () => {
