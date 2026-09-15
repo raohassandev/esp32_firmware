@@ -5,8 +5,12 @@ on:
     paths:
       - 'web/operator-continuity-verdict.js'
       - 'web/operator-continuity-verdict.css'
-      - 'web/shell-current-fixes.js'
-      - 'web/shell-current-fixes.css'
+      - 'web/product-shell-v2.js'
+      - 'web/product-shell-v2.css'
+      - 'web/product-experience-v2.js'
+      - 'web/product-experience-v2.css'
+      - 'web/industrial-ui-v1.js'
+      - 'web/industrial-ui-v1.css'
       - 'web/app.js'
       - 'web/operator-view.js'
       - 'components/web_server/CMakeLists.txt'
@@ -29,7 +33,9 @@ jobs:
       - name: Check presentation module syntax
         run: |
           node --check web/operator-continuity-verdict.js
-          node --check web/shell-current-fixes.js
+          node --check web/product-shell-v2.js
+          node --check web/product-experience-v2.js
+          node --check web/industrial-ui-v1.js
       - name: Verify current-dev continuity/verdict contract
         run: python3 tests/operator_continuity_verdict_dev_contract.py
       - name: Verify complete browser modules remain syntactically valid
