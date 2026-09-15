@@ -1,6 +1,6 @@
 # AISH-OS Live TODO v11
 
-Master program: #79. **Software-product reconciliation baseline:** `dev` `ac436b18f1f5e0437a2ad523c352ac8fac0591c6` after PR #202. The `feature/software-product-consolidation` follow-up closes remote UI/reporting ownership and resilience gaps. **Live `dev` always overrides this snapshot and must be fetched before acting.**
+Master program: #79. **Known reconciliation parent before this revision:** `dev` `ac436b18f1f5e0437a2ad523c352ac8fac0591c6` after PR #202. The `feature/software-product-consolidation` follow-up closes remote UI/reporting ownership and resilience gaps. This parent is historical identity for the reconciliation only; **live `dev` always overrides this document and must be fetched before acting.**
 
 ## RELEASE-CRITICAL EXECUTION QUEUE
 
