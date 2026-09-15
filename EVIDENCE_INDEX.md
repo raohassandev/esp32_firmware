@@ -4,6 +4,8 @@
 
 ## Current software/evidence authority chain
 
+Local ESP32-S3 DevKitC diagnostic (2026-09-15): [`docs/LOCAL_PHYSICAL_VALIDATION_2026-09-15.md`](docs/LOCAL_PHYSICAL_VALIDATION_2026-09-15.md) and its retained flash/runtime logs. It proves the exact `dev` image `ac436b18f1f5e0437a2ad523c352ac8fac0591c6` built, flashed and booted for a 55-second observation; STA, ZLAN, Rozwel values and all frozen release-candidate gates remain unqualified.
+
 | Area | Authority | What it proves | What it does NOT prove |
 |---|---|---|---|
 | Industrial UI software | PRs #165/#167/#169/#172/#173/#176 + frozen PR #179 | Software/build/package readiness | Physical #174 PASS |
