@@ -27,6 +27,8 @@ jobs:
           node --check web/industrial-ui-v1.js
       - name: Check software product polish contract
         run: python3 tests/software_product_polish_source_contract.py
+      - name: Check Reports missing-value contract
+        run: python3 tests/reports_missing_value_source_contract.py
       - name: Check product shell ownership contract
         run: python3 tests/product_shell_v2_source_contract.py
       - name: Check product experience ownership contract
