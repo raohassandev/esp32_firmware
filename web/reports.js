@@ -4,6 +4,11 @@
     const POLL_MS = 30000;
     const REQUEST_TIMEOUT_MS = 7000;
     const VALID_RANGES = new Set(['15m', '1h', '24h']);
+    const ENDPOINTS = {
+        history: (range) => `/api/operator/history?range=${encodeURIComponent(range)}`,
+        events: () => '/api/operator/events',
+        alarms: () => '/api/operator/alarms'
+    };
     const state = {
         range: '1h',
         timer: null,
@@ -12,7 +17,12 @@
         history: null,
         events: null,
         alarms: null,
-        refreshedAt: null
+        refreshedAt: null,
+        quality: {
+            history: { available: false, error: 'Not loaded' },
+            events: { available: false, error: 'Not loaded' },
+            alarms: { available: false, error: 'Not loaded' }
+        }
     };
 
     const byId = (id) => document.getElementById(id);
@@ -23,24 +33,50 @@
         if (text) item.textContent = text;
         return item;
     };
+    const statusText = (id, fallback = '--') => (byId(id)?.textContent || fallback).trim();
+
+    function finiteValue(value) {
+        if (value === null || value === undefined || value === '') return null;
+        const number = Number(value);
+        return Number.isFinite(number) ? number : null;
+    }
 
     function formatPower(value) {
-        const number = Number(value);
-        return Number.isFinite(number) ? `${number.toFixed(1)} kW` : '--';
+        const number = finiteValue(value);
+        return number === null ? '--' : `${number.toFixed(1)} kW`;
     }
 
     function formatCount(value) {
-        const number = Number(value);
-        return Number.isFinite(number) ? String(Math.max(0, Math.round(number))) : '0';
+        const number = finiteValue(value);
+        return number === null ? '--' : String(Math.max(0, Math.round(number)));
+    }
+
+    function formatBoolean(value, yes, no) {
+        if (value === true) return yes;
+        if (value === false) return no;
+        return '--';
+    }
+
+    function formatFlags(value) {
+        const number = finiteValue(value);
+        if (number === null) return '--';
+        return `0x${Math.max(0, Math.trunc(number)).toString(16).toUpperCase()}`;
     }
 
     function formatAge(ageMs) {
-        const age = Number(ageMs);
-        if (!Number.isFinite(age) || age < 0) return '--';
+        const age = finiteValue(ageMs);
+        if (age === null || age < 0) return '--';
         if (age < 1000) return 'now';
         if (age < 60000) return `${Math.round(age / 1000)} s ago`;
         if (age < 3600000) return `${Math.round(age / 60000)} min ago`;
         return `${(age / 3600000).toFixed(1)} h ago`;
+    }
+
+    function estimatedTimestamp(ageMs) {
+        if (!state.refreshedAt) return '--';
+        const age = finiteValue(ageMs);
+        if (age === null || age < 0) return '--';
+        return new Date(state.refreshedAt.getTime() - age).toLocaleString();
     }
 
     function toneClass(value) {
@@ -51,7 +87,20 @@
         return 'neutral';
     }
 
-    async function request(path, controller) {
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#039;');
+    }
+
+    async function request(path, parentSignal) {
+        const controller = new AbortController();
+        const abortFromParent = () => controller.abort();
+        if (parentSignal?.aborted) controller.abort();
+        else parentSignal?.addEventListener('abort', abortFromParent, { once: true });
         const timer = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
         try {
             const response = await fetch(path, {
@@ -67,24 +116,41 @@
             }
             if (!response.ok) throw new Error(payload?.error || `${response.status} ${response.statusText}`);
             return payload || {};
+        } catch (error) {
+            if (error?.name === 'AbortError' && !parentSignal?.aborted) {
+                throw new Error(`Timed out after ${REQUEST_TIMEOUT_MS / 1000} s`);
+            }
+            throw error;
         } finally {
             window.clearTimeout(timer);
+            parentSignal?.removeEventListener('abort', abortFromParent);
         }
     }
 
     function installNav() {
         const nav = document.querySelector('.nav-list');
-        if (!nav || nav.querySelector('[data-route="reports"]')) return;
-        const link = node('a', 'nav-link');
-        link.href = '#/reports';
-        link.dataset.route = 'reports';
+        if (!nav) return;
+        let link = nav.querySelector('[data-route="reports"]');
+        if (!link) {
+            link = node('a', 'nav-link');
+            link.href = '#/reports';
+            link.dataset.route = 'reports';
+            link.setAttribute('aria-label', 'Reports');
+            link.innerHTML = '<span aria-hidden="true">▤</span><span>Reports</span>';
+            nav.append(link);
+        }
+        placeNav();
+    }
+
+    function placeNav() {
+        const nav = document.querySelector('.nav-list');
+        const link = nav?.querySelector('[data-route="reports"]');
+        if (!nav || !link) return;
+        const control = nav.querySelector('[data-route="control"]');
+        if (control && link.nextElementSibling !== control) nav.insertBefore(link, control);
+        const span = link.querySelector(':scope > span:last-child');
+        if (span) span.textContent = 'Reports';
         link.setAttribute('aria-label', 'Reports');
-        link.innerHTML = '<span aria-hidden="true">▤</span><span>Reports</span>';
-        const alarms = nav.querySelector('[data-route="alarms"]');
-        const readiness = nav.querySelector('[data-route="readiness"]');
-        if (readiness) nav.insertBefore(link, readiness);
-        else if (alarms?.nextSibling) nav.insertBefore(link, alarms.nextSibling);
-        else nav.append(link);
     }
 
     function installPage() {
@@ -100,27 +166,34 @@
                 <div>
                     <p class="eyebrow">Operational reporting</p>
                     <h2 id="reportsTitle">Plant reports</h2>
-                    <p>Review controller-resident operating history, alarm activity and event chronology. Export evidence without exposing Engineering configuration or credentials.</p>
+                    <p>Review controller-resident operating history, alarm activity and event chronology. Export service evidence without exposing Engineering configuration or credentials.</p>
                 </div>
                 <div class="reports-freshness" id="reportsFreshness">Not loaded</div>
             </div>
             <section class="reports-toolbar" aria-label="Report controls">
                 <div class="reports-range" role="group" aria-label="Report time range">
-                    <button class="op-range-button" type="button" data-report-range="15m">15 min</button>
-                    <button class="op-range-button active" type="button" data-report-range="1h">1 hour</button>
-                    <button class="op-range-button" type="button" data-report-range="24h">24 hours</button>
+                    <button class="op-range-button" type="button" data-report-range="15m" aria-pressed="false">15 min</button>
+                    <button class="op-range-button active" type="button" data-report-range="1h" aria-pressed="true">1 hour</button>
+                    <button class="op-range-button" type="button" data-report-range="24h" aria-pressed="false">24 hours</button>
                 </div>
                 <div class="reports-actions">
                     <button class="button secondary" id="reportsRefresh" type="button">Refresh</button>
-                    <button class="button secondary" id="reportsCsv" type="button" disabled>Export CSV</button>
-                    <button class="button secondary" id="reportsJson" type="button" disabled>Export JSON</button>
-                    <button class="button primary" id="reportsPrint" type="button" disabled>Print report</button>
+                    <button class="button secondary" id="reportsCsv" type="button" disabled>CSV</button>
+                    <button class="button secondary" id="reportsJson" type="button" disabled>JSON</button>
+                    <button class="button secondary" id="reportsHtml" type="button" disabled>HTML</button>
+                    <button class="button primary" id="reportsPrint" type="button" disabled>Print</button>
                 </div>
             </section>
             <div class="reports-boundary" role="note">
                 <strong>Controller-resident operational record</strong>
-                <span>This is a rolling service/operations window, not billing-grade or long-term historian data.</span>
+                <span>This is a rolling service/operations window, not billing-grade or long-term historian data. Sample timestamps are estimates reconstructed from controller-reported age.</span>
             </div>
+            <section class="reports-meta" aria-label="Report metadata">
+                <div><span>Generated</span><strong id="reportsMetaGenerated">--</strong></div>
+                <div><span>Window</span><strong id="reportsMetaWindow">1 hour</strong></div>
+                <div><span>Controller</span><strong id="reportsMetaController">--</strong></div>
+                <div><span>Data freshness</span><strong id="reportsMetaFreshness">--</strong></div>
+            </section>
             <div class="reports-state" id="reportsState" role="status">Choose a range or refresh to load the report.</div>
             <section class="reports-kpis" aria-label="Report summary">
                 <article class="reports-kpi"><span>Samples</span><strong id="reportsSamples">--</strong><small id="reportsCoverage">No data</small></article>
@@ -146,8 +219,8 @@
                 <div class="panel-header"><div><p class="eyebrow">Evidence</p><h3>Recent samples</h3></div><span class="subtle-badge" id="reportsSampleBadge">0 samples</span></div>
                 <div class="reports-table-scroll">
                     <table class="reports-table">
-                        <thead><tr><th>Age</th><th>Grid kW</th><th>Solar kW</th><th>Meter</th><th>Inverters</th><th>Control</th><th>Alarm flags</th></tr></thead>
-                        <tbody id="reportsSampleRows"><tr><td colspan="7">No samples loaded.</td></tr></tbody>
+                        <thead><tr><th>Estimated time</th><th>Age</th><th>Grid kW</th><th>Solar kW</th><th>Meter</th><th>Inverters</th><th>Control</th><th>Alarm flags</th></tr></thead>
+                        <tbody id="reportsSampleRows"><tr><td colspan="8">No samples loaded.</td></tr></tbody>
                     </table>
                 </div>
             </section>`;
@@ -168,6 +241,7 @@
         byId('reportsRefresh')?.addEventListener('click', refresh);
         byId('reportsCsv')?.addEventListener('click', exportCsv);
         byId('reportsJson')?.addEventListener('click', exportJson);
+        byId('reportsHtml')?.addEventListener('click', exportHtml);
         byId('reportsPrint')?.addEventListener('click', () => window.print());
     }
 
@@ -178,24 +252,32 @@
         target.className = `reports-state${tone ? ` ${tone}` : ''}`;
     }
 
-    function setButtonState(enabled) {
-        ['reportsCsv', 'reportsJson', 'reportsPrint'].forEach((id) => {
+    function setButtonState() {
+        const samples = Array.isArray(state.history?.samples) ? state.history.samples : [];
+        const anyData = ['history', 'events', 'alarms'].some((key) => state.quality[key].available);
+        const csv = byId('reportsCsv');
+        if (csv) csv.disabled = !state.quality.history.available || samples.length === 0;
+        ['reportsJson', 'reportsHtml', 'reportsPrint'].forEach((id) => {
             const button = byId(id);
-            if (button) button.disabled = !enabled;
+            if (button) button.disabled = !anyData;
         });
     }
 
     function chartSeries(samples, key) {
         return samples.map((sample, index) => {
-            const value = Number(sample?.[key]);
-            return Number.isFinite(value) ? { index, value } : null;
+            const value = finiteValue(sample?.[key]);
+            return value === null ? null : { index, value };
         }).filter(Boolean);
     }
 
-    function renderChart(samples) {
+    function renderChart(samples, available = true) {
         const target = byId('reportsChart');
         if (!target) return;
         target.replaceChildren();
+        if (!available) {
+            target.append(node('div', 'reports-empty bad-text', 'History endpoint unavailable for this refresh.'));
+            return;
+        }
         const grid = chartSeries(samples, 'grid_kw');
         const solar = chartSeries(samples, 'solar_kw');
         const all = [...grid, ...solar];
@@ -234,34 +316,45 @@
         addLine(solar, 'reports-solar-line');
         target.append(svg);
         const scale = node('div', 'reports-chart-scale');
-        scale.append(node('span', '', formatPower(max)), node('span', '', `0 kW`), node('span', '', formatPower(min)));
+        scale.append(node('span', '', formatPower(max)), node('span', '', '0 kW'), node('span', '', formatPower(min)));
         target.append(scale);
     }
 
-    function renderAlarmSummary(payload) {
+    function renderAlarmSummary(payload, available = true) {
         const target = byId('reportsAlarmSummary');
         if (!target) return;
         target.replaceChildren();
+        if (!available) {
+            target.append(node('p', 'reports-empty bad-text', 'Alarm summary unavailable for this refresh.'));
+            return;
+        }
         const summary = payload?.summary || {};
         const entries = [
-            ['Active alarms', summary.active ?? summary.active_count ?? 0],
-            ['Primary active', summary.primary_active ?? 0],
-            ['Unacknowledged', summary.unacknowledged ?? summary.unacknowledged_count ?? 0],
-            ['Suppressed transitions', summary.suppressed_transitions ?? summary.suppressed_total ?? 0]
+            ['Active alarms', summary.active ?? summary.active_count],
+            ['Primary active', summary.primary_active],
+            ['Unacknowledged', summary.unacknowledged ?? summary.unacknowledged_count],
+            ['Suppressed transitions', summary.suppressed_transitions ?? summary.suppressed_total]
         ];
         entries.forEach(([label, value]) => {
+            const count = finiteValue(value);
+            const tone = count === null ? 'muted-text' : count > 0 ? 'warning-text' : 'good-text';
             const row = node('div', 'reports-condition-row');
-            row.append(node('span', '', label), node('strong', Number(value) > 0 ? 'warning-text' : 'good-text', formatCount(value)));
+            row.append(node('span', '', label), node('strong', tone, formatCount(value)));
             target.append(row);
         });
     }
 
-    function renderEvents(payload) {
+    function renderEvents(payload, available = true) {
         const target = byId('reportsEventList');
         if (!target) return;
         target.replaceChildren();
-        const events = Array.isArray(payload?.events) ? payload.events : [];
         const badge = byId('reportsEventBadge');
+        if (!available) {
+            if (badge) badge.textContent = 'Unavailable';
+            target.append(node('p', 'reports-empty bad-text', 'Event chronology unavailable for this refresh.'));
+            return;
+        }
+        const events = Array.isArray(payload?.events) ? payload.events : [];
         if (badge) badge.textContent = `${events.length} record${events.length === 1 ? '' : 's'}`;
         if (!events.length) {
             target.append(node('p', 'reports-empty', 'No operational events are stored in the current controller window.'));
@@ -279,58 +372,90 @@
         });
     }
 
-    function renderSamples(samples) {
+    function renderSamples(samples, available = true) {
         const body = byId('reportsSampleRows');
         const badge = byId('reportsSampleBadge');
-        if (badge) badge.textContent = `${samples.length} sample${samples.length === 1 ? '' : 's'}`;
+        if (badge) badge.textContent = available ? `${samples.length} sample${samples.length === 1 ? '' : 's'}` : 'Unavailable';
         if (!body) return;
         body.replaceChildren();
-        if (!samples.length) {
+        if (!available || !samples.length) {
             const row = document.createElement('tr');
             const cell = document.createElement('td');
-            cell.colSpan = 7;
-            cell.textContent = 'No controller-resident samples are available for this range.';
+            cell.colSpan = 8;
+            cell.textContent = available ? 'No controller-resident samples are available for this range.' : 'History endpoint unavailable for this refresh.';
             row.append(cell); body.append(row); return;
         }
         samples.slice(-20).reverse().forEach((sample) => {
             const row = document.createElement('tr');
+            const online = formatCount(sample.inverter_online);
+            const enabled = formatCount(sample.inverter_enabled);
             const values = [
+                estimatedTimestamp(sample.age_ms),
                 formatAge(sample.age_ms),
                 formatPower(sample.grid_kw),
                 formatPower(sample.solar_kw),
-                sample.meter_online ? 'Online' : 'Unavailable',
-                `${formatCount(sample.inverter_online)} / ${formatCount(sample.inverter_enabled)}`,
-                sample.control_enabled ? 'Enabled' : 'Disabled',
-                `0x${Math.max(0, Number(sample.alarms) || 0).toString(16).toUpperCase()}`
+                formatBoolean(sample.meter_online, 'Online', 'Unavailable'),
+                `${online} / ${enabled}`,
+                formatBoolean(sample.control_enabled, 'Enabled', 'Disabled'),
+                formatFlags(sample.alarms)
             ];
             values.forEach((value) => row.append(node('td', '', value)));
             body.append(row);
         });
     }
 
+    function rangeLabel(value = state.range) {
+        return value === '15m' ? '15 minutes' : value === '24h' ? '24 hours' : '1 hour';
+    }
+
+    function qualitySummary() {
+        const failed = Object.entries(state.quality).filter(([, value]) => !value.available);
+        if (!failed.length) return { tone: 'good', message: 'Report ready · all controller data sources responded.' };
+        if (failed.length === 3) return { tone: 'bad', message: `Report unavailable · ${failed.map(([key]) => key).join(', ')} data sources failed.` };
+        return { tone: 'warning', message: `Partial report · unavailable: ${failed.map(([key]) => key).join(', ')}. Available sections remain usable.` };
+    }
+
+    function renderMetadata() {
+        byId('reportsMetaGenerated').textContent = state.refreshedAt ? state.refreshedAt.toLocaleString() : '--';
+        byId('reportsMetaWindow').textContent = rangeLabel();
+        byId('reportsMetaController').textContent = statusText('statusController', 'Unknown');
+        byId('reportsMetaFreshness').textContent = statusText('statusUpdated', 'Unknown');
+        byId('reportsFreshness').textContent = state.refreshedAt ? `Updated ${state.refreshedAt.toLocaleTimeString()}` : 'Not loaded';
+    }
+
     function render() {
-        const history = state.history || {};
+        const historyAvailable = state.quality.history.available;
+        const eventsAvailable = state.quality.events.available;
+        const alarmsAvailable = state.quality.alarms.available;
+        const history = historyAvailable ? (state.history || {}) : {};
         const samples = Array.isArray(history.samples) ? history.samples : [];
         const summary = history.summary || {};
-        byId('reportsSamples').textContent = formatCount(samples.length);
-        byId('reportsCoverage').textContent = samples.length
-            ? `${history.range || state.range} · ${(Number(history.sample_interval_ms) / 1000).toFixed(0)} s sample interval`
-            : 'No valid samples';
-        byId('reportsGridAverage').textContent = formatPower(summary.grid_average_kw);
-        byId('reportsGridRange').textContent = `Min ${formatPower(summary.grid_min_kw)} · Max ${formatPower(summary.grid_max_kw)}`;
-        byId('reportsSolarAverage').textContent = formatPower(summary.solar_average_kw);
-        byId('reportsSolarRange').textContent = `Min ${formatPower(summary.solar_min_kw)} · Max ${formatPower(summary.solar_max_kw)}`;
-        const eventSummary = state.events?.summary || {};
-        const attention = Number(eventSummary.active_critical || 0) + Number(eventSummary.active_warning || 0);
-        byId('reportsAttention').textContent = formatCount(attention);
-        byId('reportsEventsCount').textContent = `${formatCount(eventSummary.stored_events)} stored events`;
-        byId('reportsFreshness').textContent = state.refreshedAt ? `Updated ${state.refreshedAt.toLocaleTimeString()}` : 'Not loaded';
-        renderChart(samples);
-        renderAlarmSummary(state.alarms);
-        renderEvents(state.events);
-        renderSamples(samples);
-        setButtonState(samples.length > 0 || Array.isArray(state.events?.events));
-        setState(samples.length ? `Report ready · ${samples.length} samples in the ${history.range || state.range} controller window.` : 'Report loaded, but this controller window contains no samples.', samples.length ? 'good' : 'warning');
+        const intervalMs = finiteValue(history.sample_interval_ms);
+
+        byId('reportsSamples').textContent = historyAvailable ? formatCount(samples.length) : '--';
+        byId('reportsCoverage').textContent = historyAvailable && samples.length
+            ? `${history.range || state.range} · ${intervalMs === null ? 'controller interval' : `${(intervalMs / 1000).toFixed(0)} s sample interval`}`
+            : historyAvailable ? 'No valid samples' : 'History unavailable';
+        byId('reportsGridAverage').textContent = historyAvailable ? formatPower(summary.grid_average_kw) : '--';
+        byId('reportsGridRange').textContent = historyAvailable ? `Min ${formatPower(summary.grid_min_kw)} · Max ${formatPower(summary.grid_max_kw)}` : 'History unavailable';
+        byId('reportsSolarAverage').textContent = historyAvailable ? formatPower(summary.solar_average_kw) : '--';
+        byId('reportsSolarRange').textContent = historyAvailable ? `Min ${formatPower(summary.solar_min_kw)} · Max ${formatPower(summary.solar_max_kw)}` : 'History unavailable';
+
+        const eventSummary = eventsAvailable ? (state.events?.summary || {}) : {};
+        const critical = finiteValue(eventSummary.active_critical);
+        const warning = finiteValue(eventSummary.active_warning);
+        const attention = critical === null || warning === null ? null : critical + warning;
+        byId('reportsAttention').textContent = eventsAvailable ? formatCount(attention) : '--';
+        byId('reportsEventsCount').textContent = eventsAvailable ? `${formatCount(eventSummary.stored_events)} stored events` : 'Events unavailable';
+
+        renderMetadata();
+        renderChart(samples, historyAvailable);
+        renderAlarmSummary(state.alarms, alarmsAvailable);
+        renderEvents(state.events, eventsAvailable);
+        renderSamples(samples, historyAvailable);
+        setButtonState();
+        const quality = qualitySummary();
+        setState(quality.message, quality.tone);
     }
 
     function stop() {
@@ -347,28 +472,38 @@
         state.timer = window.setTimeout(refresh, POLL_MS);
     }
 
+    function applySettled(key, result) {
+        if (result.status === 'fulfilled') {
+            state[key] = result.value;
+            state.quality[key] = { available: true, error: null };
+            return;
+        }
+        state[key] = null;
+        const reason = result.reason?.name === 'AbortError' ? 'Request cancelled' : (result.reason?.message || 'Unavailable');
+        state.quality[key] = { available: false, error: reason };
+    }
+
     async function refresh() {
         if (route() !== 'reports' || document.hidden || state.loading) return;
         stop();
         state.loading = true;
         const refreshButton = byId('reportsRefresh');
         if (refreshButton) refreshButton.disabled = true;
-        setState('Loading controller-resident history…', 'loading');
-        setButtonState(false);
+        setState('Loading report data sources…', 'loading');
         const controller = new AbortController();
         state.controller = controller;
         try {
-            state.history = await request(`/api/operator/history?range=${encodeURIComponent(state.range)}`, controller);
+            const results = await Promise.allSettled([
+                request(ENDPOINTS.history(state.range), controller.signal),
+                request(ENDPOINTS.events(), controller.signal),
+                request(ENDPOINTS.alarms(), controller.signal)
+            ]);
             if (controller.signal.aborted) return;
-            setState('History loaded. Loading event chronology…', 'loading');
-            state.events = await request('/api/operator/events', controller);
-            if (controller.signal.aborted) return;
-            setState('Events loaded. Loading alarm condition table…', 'loading');
-            state.alarms = await request('/api/operator/alarms', controller);
+            applySettled('history', results[0]);
+            applySettled('events', results[1]);
+            applySettled('alarms', results[2]);
             state.refreshedAt = new Date();
             render();
-        } catch (error) {
-            if (error?.name !== 'AbortError') setState(`Report unavailable: ${error.message}`, 'bad');
         } finally {
             if (state.controller === controller) state.controller = null;
             state.loading = false;
@@ -394,43 +529,74 @@
         return `"${text.replaceAll('"', '""')}"`;
     }
 
+    function exportValue(value) {
+        return value === null || value === undefined ? '' : value;
+    }
+
+    function exportBoolean(value) {
+        return typeof value === 'boolean' ? value : '';
+    }
+
     function exportCsv() {
         const samples = Array.isArray(state.history?.samples) ? state.history.samples : [];
-        if (!samples.length) return;
-        const generatedAt = Date.now();
+        if (!state.quality.history.available || !samples.length) return;
+        const generatedAt = state.refreshedAt?.getTime() || Date.now();
         const rows = [['timestamp_estimate', 'age_ms', 'grid_kw', 'solar_kw', 'meter_online', 'inverter_online', 'inverter_enabled', 'control_enabled', 'alarm_flags']];
         samples.forEach((sample) => {
-            const age = Number(sample.age_ms) || 0;
+            const age = finiteValue(sample.age_ms);
             rows.push([
-                new Date(generatedAt - age).toISOString(), age,
-                sample.grid_kw ?? '', sample.solar_kw ?? '',
-                Boolean(sample.meter_online), sample.inverter_online ?? 0,
-                sample.inverter_enabled ?? 0, Boolean(sample.control_enabled), sample.alarms ?? 0
+                age === null || age < 0 ? '' : new Date(generatedAt - age).toISOString(),
+                exportValue(age), exportValue(sample.grid_kw), exportValue(sample.solar_kw),
+                exportBoolean(sample.meter_online), exportValue(sample.inverter_online),
+                exportValue(sample.inverter_enabled), exportBoolean(sample.control_enabled), exportValue(sample.alarms)
             ]);
         });
         const csv = rows.map((row) => row.map(csvCell).join(',')).join('\r\n');
         download(`automatrix-report-${state.range}-${new Date().toISOString().replaceAll(':', '-')}.csv`, 'text/csv;charset=utf-8', csv);
     }
 
-    function exportJson() {
-        if (!state.history && !state.events && !state.alarms) return;
-        const bundle = {
-            schema: 1,
+    function reportBundle() {
+        return {
+            schema: 2,
             kind: 'automatrix_controller_resident_operational_report',
-            generated_at: new Date().toISOString(),
+            generated_at: (state.refreshedAt || new Date()).toISOString(),
             requested_range: state.range,
+            controller_state: statusText('statusController', 'Unknown'),
+            controller_data_freshness: statusText('statusUpdated', 'Unknown'),
+            data_quality: structuredClone(state.quality),
             limitations: {
                 controller_resident_window: true,
                 billing_grade: false,
                 long_term_historian: false,
+                sample_timestamps_are_estimates: true,
                 engineering_configuration_included: false,
-                credentials_included: false
+                credentials_included: false,
+                physical_qualification_claimed: false
             },
-            history: state.history,
-            events: state.events,
-            alarms: state.alarms
+            history: state.quality.history.available ? state.history : null,
+            events: state.quality.events.available ? state.events : null,
+            alarms: state.quality.alarms.available ? state.alarms : null
         };
+    }
+
+    function exportJson() {
+        if (!['history', 'events', 'alarms'].some((key) => state.quality[key].available)) return;
+        const bundle = reportBundle();
         download(`automatrix-report-${state.range}-${new Date().toISOString().replaceAll(':', '-')}.json`, 'application/json;charset=utf-8', JSON.stringify(bundle, null, 2));
+    }
+
+    function exportHtml() {
+        if (!['history', 'events', 'alarms'].some((key) => state.quality[key].available)) return;
+        const bundle = reportBundle();
+        const samples = Array.isArray(bundle.history?.samples) ? bundle.history.samples.slice(-40).reverse() : [];
+        const events = Array.isArray(bundle.events?.events) ? bundle.events.events.slice(0, 20) : [];
+        const historySummary = bundle.history?.summary || {};
+        const qualityRows = Object.entries(bundle.data_quality).map(([name, value]) =>
+            `<tr><td>${escapeHtml(name)}</td><td>${value.available ? 'Available' : 'Unavailable'}</td><td>${escapeHtml(value.error || '')}</td></tr>`).join('');
+        const sampleRows = samples.map((sample) => `<tr><td>${escapeHtml(estimatedTimestamp(sample.age_ms))}</td><td>${escapeHtml(formatPower(sample.grid_kw))}</td><td>${escapeHtml(formatPower(sample.solar_kw))}</td><td>${escapeHtml(formatBoolean(sample.meter_online, 'Online', 'Unavailable'))}</td><td>${escapeHtml(formatBoolean(sample.control_enabled, 'Enabled', 'Disabled'))}</td></tr>`).join('') || '<tr><td colspan="5">No sample rows available.</td></tr>';
+        const eventRows = events.map((event) => `<tr><td>${escapeHtml(formatAge(event.age_ms))}</td><td>${escapeHtml(event.severity || 'information')}</td><td>${escapeHtml(event.title || 'Controller event')}</td><td>${escapeHtml(event.detail || '')}</td></tr>`).join('') || '<tr><td colspan="4">No event rows available.</td></tr>';
+        const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Automatrix operational report</title><style>body{font-family:Arial,sans-serif;margin:32px;color:#15202b}h1{margin-bottom:4px}p{line-height:1.45}.meta{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:20px 0}.meta div{border:1px solid #ccd4dc;padding:10px}.meta span{display:block;font-size:11px;color:#5a6875}.meta strong{display:block;margin-top:4px}table{width:100%;border-collapse:collapse;margin:12px 0 24px;font-size:12px}th,td{border:1px solid #ccd4dc;padding:7px;text-align:left}th{background:#f1f4f7}.notice{border-left:4px solid #376f9f;padding:10px;background:#f4f8fb}@media print{@page{size:A4 landscape;margin:12mm}body{margin:0}table{break-inside:auto}tr{break-inside:avoid}}</style></head><body><h1>Automatrix PV-DG operational report</h1><p>Controller-resident service and operations evidence.</p><div class="notice"><strong>Limitations:</strong> not billing-grade, not a long-term historian, estimated sample timestamps, no physical qualification claim.</div><div class="meta"><div><span>Generated</span><strong>${escapeHtml(bundle.generated_at)}</strong></div><div><span>Window</span><strong>${escapeHtml(rangeLabel())}</strong></div><div><span>Controller</span><strong>${escapeHtml(bundle.controller_state)}</strong></div><div><span>Freshness</span><strong>${escapeHtml(bundle.controller_data_freshness)}</strong></div></div><h2>Data quality</h2><table><thead><tr><th>Source</th><th>Status</th><th>Detail</th></tr></thead><tbody>${qualityRows}</tbody></table><h2>Power summary</h2><table><tbody><tr><th>Grid average</th><td>${escapeHtml(formatPower(historySummary.grid_average_kw))}</td><th>Solar average</th><td>${escapeHtml(formatPower(historySummary.solar_average_kw))}</td></tr><tr><th>Grid min / max</th><td>${escapeHtml(formatPower(historySummary.grid_min_kw))} / ${escapeHtml(formatPower(historySummary.grid_max_kw))}</td><th>Solar min / max</th><td>${escapeHtml(formatPower(historySummary.solar_min_kw))} / ${escapeHtml(formatPower(historySummary.solar_max_kw))}</td></tr></tbody></table><h2>Recent events</h2><table><thead><tr><th>Age</th><th>Severity</th><th>Event</th><th>Detail</th></tr></thead><tbody>${eventRows}</tbody></table><h2>Recent samples</h2><table><thead><tr><th>Estimated time</th><th>Grid</th><th>Solar</th><th>Meter</th><th>Control</th></tr></thead><tbody>${sampleRows}</tbody></table></body></html>`;
+        download(`automatrix-report-${state.range}-${new Date().toISOString().replaceAll(':', '-')}.html`, 'text/html;charset=utf-8', html);
     }
 
     function activateReportsRoute() {
@@ -453,11 +619,14 @@
     function start() {
         installNav();
         installPage();
+        requestAnimationFrame(placeNav);
         if (activateReportsRoute()) refresh();
         window.addEventListener('hashchange', () => {
+            placeNav();
             if (activateReportsRoute()) refresh();
             else stop();
         });
+        window.addEventListener('amx-access-change', () => requestAnimationFrame(placeNav));
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) stop();
             else if (route() === 'reports') refresh();

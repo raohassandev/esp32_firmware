@@ -28,7 +28,7 @@
 }
 .reports-range,
 .reports-actions { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
-.reports-range .op-range-button { min-width: 86px; }
+.reports-range .op-range-button { min-width: 86px; min-height: 44px; }
 .reports-range .op-range-button.active,
 .reports-range .op-range-button[aria-pressed="true"] {
     color: var(--action-solid-text);
@@ -50,6 +50,20 @@
     line-height: 1.45;
 }
 .reports-boundary strong { color: var(--text); white-space: nowrap; }
+
+.reports-meta {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1px;
+    margin-bottom: 10px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: var(--industrial-radius, 9px);
+    background: var(--line);
+}
+.reports-meta > div { min-width: 0; padding: 9px 11px; background: var(--surface-sunken); }
+.reports-meta span { display: block; color: var(--muted-2); font-size: 8px; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; }
+.reports-meta strong { display: block; margin-top: 4px; overflow: hidden; color: var(--text); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 
 .reports-state {
     min-height: 36px;
@@ -185,16 +199,20 @@
 .reports-event-meta { display: flex; align-items: flex-end; flex-direction: column; gap: 4px; color: var(--muted-2); font-size: 8px; text-transform: capitalize; }
 
 .reports-table-scroll { width: 100%; overflow-x: auto; border: 1px solid var(--line-soft); border-radius: var(--industrial-radius-sm, 6px); }
-.reports-table { width: 100%; min-width: 760px; border-collapse: collapse; font-size: 10px; }
+.reports-table { width: 100%; min-width: 900px; border-collapse: collapse; font-size: 10px; }
 .reports-table th,
 .reports-table td { padding: 9px 10px; border-bottom: 1px solid var(--line-soft); color: var(--text); text-align: left; white-space: nowrap; }
 .reports-table th { color: var(--muted-2); background: var(--surface-sunken); font-size: 8px; letter-spacing: .08em; text-transform: uppercase; }
 .reports-table tbody tr:last-child td { border-bottom: 0; }
 .reports-table tbody tr:hover td { background: var(--panel-strong); }
 
-@media (max-width: 900px) {
+@media (max-width: 1100px) {
     .reports-toolbar { align-items: stretch; flex-direction: column; }
     .reports-actions .button { flex: 1 1 auto; }
+    .reports-meta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 900px) {
     .reports-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .reports-grid { grid-template-columns: 1fr; }
     .reports-chart-wrap { min-height: 220px; }
@@ -207,7 +225,8 @@
     .reports-range { display: grid; grid-template-columns: repeat(3, 1fr); width: 100%; }
     .reports-range .op-range-button { min-width: 0; }
     .reports-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
-    .reports-actions .button { width: 100%; }
+    .reports-actions .button { width: 100%; min-height: 44px; }
+    .reports-meta { grid-template-columns: 1fr 1fr; }
     .reports-kpis { grid-template-columns: 1fr 1fr; gap: 7px; }
     .reports-kpi { padding: 11px; }
     .reports-event { grid-template-columns: 1fr; }
@@ -215,6 +234,7 @@
 }
 
 @media print {
+    @page { size: A4 landscape; margin: 12mm; }
     body { background: #fff !important; color: #111 !important; }
     .sidebar,
     .topbar,
@@ -224,12 +244,20 @@
     .workspace { margin: 0 !important; }
     .content { max-width: none !important; padding: 0 !important; }
     .page { display: none !important; }
-    .reports-page { display: block !important; }
+    .reports-page { display: block !important; max-width: none !important; }
+    .reports-page::before { content: 'Automatrix PV-DG · Controller-resident operational report'; display: block; margin-bottom: 8px; font-size: 11pt; font-weight: 700; }
     .reports-page .panel,
     .reports-kpi,
-    .reports-boundary { break-inside: avoid; box-shadow: none !important; border-color: #bbb !important; background: #fff !important; color: #111 !important; }
+    .reports-boundary,
+    .reports-meta { break-inside: avoid; box-shadow: none !important; border-color: #bbb !important; background: #fff !important; color: #111 !important; }
+    .reports-events-panel,
+    .reports-table-panel { break-before: auto; }
+    .reports-event,
+    .reports-table tr { break-inside: avoid; }
     .reports-page * { color: #111 !important; }
     .reports-grid-line { stroke: #1d5f91 !important; }
     .reports-solar-line { stroke: #227246 !important; }
     .reports-chart-wrap { background: #fff !important; border-color: #bbb !important; }
+    .reports-table-scroll { overflow: visible; }
+    .reports-table { min-width: 0; font-size: 8pt; }
 }

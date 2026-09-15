@@ -12,6 +12,7 @@ server = (ROOT / "components/web_server/web_server.c").read_text(encoding="utf-8
 for token in (
     "shell-health-button", "shell-overflow-button", "shell-page-context",
     "System health", "Controller menu", "Refresh data", "Engineering workspace",
+    "Open controller actions", "Operational reports", "themeToggleButton",
 ):
     assert token in js or token in css, f"missing product shell behavior: {token}"
 
@@ -19,6 +20,8 @@ assert ".status-strip { display: none; }" in css, "legacy global status strip mu
 assert "#controllerPill { display: none; }" in css, "legacy controller pill must not compete with health control"
 assert ".product-tool-button" in css and "display: none" in css, "secondary display tools must leave the permanent header"
 assert "max-width: 650px" in css and "place-items: end stretch" in css, "mobile overflow sheet is required"
+assert "max-width: 900px) and (max-height: 600px" in css, "800x480 duplicate health summary must be removed"
+assert "rawRoute() === 'grid'" in js and "#/meters" in js, "legacy #/grid route must canonicalize to meters"
 
 # Industrial UI is now the sole navigation-order/group owner. Product Shell V2
 # must retain health/menu/context behavior without mutating sidebar order.
@@ -37,6 +40,11 @@ assert "product_shell_v2_css" in assets_c
 assert "product_shell_v2_js" in assets_c
 assert "web_assets_product_shell_v2_css" in server
 assert "web_assets_product_shell_v2_js" in server
+
+for retired in ("shell-current-fixes.css", "shell-current-fixes.js", "shell_current_fixes"):
+    assert retired not in cmake and retired not in assets_h and retired not in assets_c and retired not in server, f"retired shell repair asset still embedded: {retired}"
+assert not (ROOT / "web/shell-current-fixes.css").exists()
+assert not (ROOT / "web/shell-current-fixes.js").exists()
 
 for forbidden in ("/api/control", "/api/inverter-command", "method: 'POST'", 'method: "POST"'):
     assert forbidden not in js, f"product shell must remain navigation/presentation only: {forbidden}"

@@ -16,13 +16,18 @@
     };
 
     const byId = (id) => document.getElementById(id);
-    const route = () => location.hash.replace(/^#\/?/, '') || 'dashboard';
+    const rawRoute = () => location.hash.replace(/^#\/?/, '') || 'dashboard';
+    const route = () => rawRoute() === 'grid' ? 'meters' : rawRoute();
     const node = (tag, className = '', text = '') => {
         const item = document.createElement(tag);
         if (className) item.className = className;
         if (text) item.textContent = text;
         return item;
     };
+
+    function canonicalizeLegacyRoute() {
+        if (rawRoute() === 'grid') location.hash = '#/meters';
+    }
 
     function installPageContext() {
         const heading = document.querySelector('.page-heading');
@@ -118,10 +123,10 @@
         if (!actions || byId('shellOverflowButton')) return;
         const popover = createPopover('Controller menu');
         popover.backdrop.id = 'shellMenuPopover';
-        const button = node('button', 'shell-overflow-button', '⋮');
+        const button = node('button', 'shell-overflow-button', 'More');
         button.id = 'shellOverflowButton';
         button.type = 'button';
-        button.setAttribute('aria-label', 'Open controller menu');
+        button.setAttribute('aria-label', 'Open controller actions');
         button.addEventListener('click', () => {
             popover.body.replaceChildren();
             const menu = node('div', 'shell-menu');
@@ -136,7 +141,7 @@
             action('Operational reports', 'Trends, alarms and exports', () => { location.hash = '#/reports'; });
             action('Display density', document.documentElement.dataset.density === 'compact' ? 'Compact' : 'Comfortable', () => clickExisting('productDensityButton'));
             action('Kiosk display', document.documentElement.classList.contains('kiosk-mode') ? 'On' : 'Off', () => clickExisting('productKioskButton'));
-            action('Theme', document.documentElement.dataset.theme || 'System', () => clickExisting('themeToggle'));
+            action('Theme', document.documentElement.dataset.theme || 'System', () => clickExisting('themeToggleButton'));
             action('Controller information', 'Identity and service state', () => { location.hash = '#/system'; });
             action('Engineering workspace', document.documentElement.dataset.access === 'engineering' ? 'Development access' : 'Restricted', () => {
                 const engineering = byId('engineeringNav') || byId('productEngineeringEntry');
@@ -157,6 +162,7 @@
 
     function start() {
         document.body.classList.add('product-shell-v2');
+        canonicalizeLegacyRoute();
         installPageContext();
         installHealthControl();
         installOverflowMenu();
@@ -165,6 +171,7 @@
            cleanup only; a second nav owner caused startup reorder/flicker. */
         removeDuplicateIntros();
         window.addEventListener('hashchange', () => {
+            canonicalizeLegacyRoute();
             updatePageContext();
             removeDuplicateIntros();
         });
