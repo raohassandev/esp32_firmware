@@ -7,6 +7,7 @@
     inverters: { eyebrow: 'Solar', title: 'Solar fleet', question: 'How much solar is available and which equipment needs attention?', action: 'Review fleet availability, production and equipment state.' },
     control: { eyebrow: 'Control', title: 'PV-DG control', question: 'Is automatic control available, safe and intentionally enabled?', action: 'Resolve blockers before enabling any automatic command path.' },
     alarms: { eyebrow: 'Attention', title: 'Alarms and events', question: 'What changed, what is affected and what should be done next?', action: 'Work from highest severity to lowest and confirm each condition clears.' },
+    reports: { eyebrow: 'Operations · Evidence', title: 'Operational reports', question: 'What happened during the selected controller-resident window?', action: 'Review freshness and partial-data warnings before exporting or printing this non-billing operational evidence.' },
     readiness: { eyebrow: 'Validation', title: 'Pre-lab readiness', question: 'What still blocks controlled hardware testing?', action: 'Clear software and configuration blockers before connecting field equipment.' },
     engineering: { eyebrow: 'Restricted workspace', title: 'Engineering', question: 'Which commissioning task are you performing?', action: 'Use only the relevant workflow and keep automatic control locked.' },
     commissioning: { eyebrow: 'Guided workflow', title: 'Commissioning', question: 'Has each site-readiness gate been verified in order?', action: 'Complete the sequence and retain the exported evidence.' },
@@ -14,7 +15,10 @@
     system: { eyebrow: 'Engineering · Service', title: 'Controller service', question: 'What maintenance action is required?', action: 'Export configuration before making service changes.' }
   };
 
-  const route = () => location.hash.replace(/^#\/?/, '') || 'dashboard';
+  const route = () => {
+    const name = location.hash.replace(/^#\/?/, '') || 'dashboard';
+    return name === 'grid' ? 'meters' : name;
+  };
   const isEngineering = () => document.documentElement.dataset.access === 'engineering';
   const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
   let composeQueued = false;
