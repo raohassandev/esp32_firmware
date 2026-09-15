@@ -9,13 +9,15 @@ This directory contains the framework-free browser application embedded directly
 Operator pages remain usable without Engineering authentication:
 
 - `#/dashboard` — plant overview
-- `#/grid` / `#/meters` — grid measurement and operational meter view
+- `#/grid` / `#/meters` — grid measurement and operational meter view (`#/grid` is canonicalized to `#/meters`)
 - `#/inverters` — solar fleet operational view
 - `#/alarms` — active alarms and event history
-- `#/reports` — controller-resident trends, alarm/event chronology, CSV/JSON export and print-ready operational reports
+- `#/reports` — controller-resident trends, alarm/event chronology, CSV/JSON/self-contained HTML export and print-ready operational reports
 - `#/readiness` — controlled-test readiness
 
-Operator pages use sanitized, read-only APIs only. They must never expose Wi-Fi credentials, Modbus endpoint details, raw register maps, setup registers, or command actions. Reports are explicitly controller-resident service/operations records; they are not represented as billing-grade or long-term historian data.
+Operator pages use sanitized, read-only APIs only. They must never expose Wi-Fi credentials, Modbus endpoint details, raw register maps, setup registers, or command actions. Reports are explicitly controller-resident service/operations records; they are not represented as billing-grade or long-term historian data. Sample timestamps exported by Reports are estimates reconstructed from controller-reported sample age.
+
+Reports treats history, events and alarms as independent data sources. A failure or timeout in one source must not erase usable evidence from the others. JSON and HTML exports expose source-availability/data-quality state and explicitly do not claim physical qualification.
 
 ### Engineering workspace
 
@@ -72,19 +74,20 @@ Development auto-unlock is disabled in production candidates. A `401` may redire
 
 The embedded bundle is modular, but responsibilities must remain singular:
 
-- `app.js` — base router and shared application state
-- `product-mode.js` — single owner of Engineering authentication state and protected-route enforcement
-- `product-shell-v2.js` / `product-experience-v2.js` — product shell, navigation and page composition
-- `operator-operations.js` / `operator-product-suite.js` — operator dashboards, history and alarms
-- `reports.js` / `reports.css` — read-only operational reporting, export and print composition
-- `ota.js` / `ota.css` — Engineering OTA maintenance workflow and browser-side post-reboot verification
-- `commissioning-release-v3.js` — active seven-step commissioning workflow
-- `network-commissioning-fix.js` — resilient Wi-Fi save/restart/reconnect flow
-- `em500-core.js` and related EM500 modules — Engineering-only detailed meter diagnostics
-- inverter modules — Engineering configuration plus read-only operational telemetry
-- `industrial-ui-v1.css` — authoritative final presentation layer for the embedded industrial HMI
+- `app.js` — base static router and shared application state.
+- `product-mode.js` — single owner of Engineering authentication state and protected-route enforcement.
+- `product-shell-v2.js` / `product-shell-v2.css` — header health, overflow/service actions, route context, responsive shell and duplicate-intro cleanup. It does **not** reorder the global navigation.
+- `product-experience-v2.js` / `product-experience-v2.css` — route-aware page mastheads, operator/Engineering scope and page composition. It does **not** inject a second navigation hierarchy.
+- `industrial-ui-v1.js` / `industrial-ui-v1.css` — authoritative final navigation grouping/order, role/status presentation and industrial HMI visual layer.
+- `operator-operations.js` / `operator-product-suite.js` — operator dashboards, history and alarms.
+- `reports.js` / `reports.css` — read-only operational reporting, partial-source resilience, export and print composition. Because the base router is static, Reports owns only a narrow activation bridge and placement of its own dynamic navigation link after the authoritative Industrial UI reorder pass.
+- `ota.js` / `ota.css` — Engineering OTA maintenance workflow and browser-side post-reboot verification.
+- `commissioning-release-v3.js` — active seven-step commissioning workflow.
+- `network-commissioning-fix.js` — resilient Wi-Fi save/restart/reconnect flow.
+- `em500-core.js` and related EM500 modules — Engineering-only detailed meter diagnostics.
+- inverter modules — Engineering configuration plus read-only operational telemetry.
 
-Older compatibility modules may remain embedded only while required by active routes or source contracts. New behavior must not be added to multiple generations of the same responsibility.
+The former `shell-current-fixes.js` / `shell-current-fixes.css` compatibility repair layer was retired after its valid behavior was absorbed into Product Shell V2. Older compatibility modules may remain embedded only while required by active routes or source contracts. New behavior must not be added to multiple generations of the same responsibility.
 
 ## Commissioning sequence
 
@@ -102,8 +105,8 @@ RTU devices cannot receive a Ready verdict until the real RS-485/Modbus RTU runt
 
 Every release candidate must pass:
 
-- browser syntax checks, including Reports and OTA modules
-- software product-polish source contract
+- browser syntax checks, including Reports, OTA, Product Shell, Product Experience and Industrial UI modules
+- software product-polish/source-ownership contracts
 - secure OTA baseline and behavior contracts
 - production access-policy contract
 - Engineering auth-loop prevention contract
