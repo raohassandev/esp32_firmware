@@ -1,0 +1,143 @@
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x15 (USB_UART_CHIP_RESET),boot:0x8 (SPI_FAST_FLASH_BOOT)
+Saved PC:0x4037b722
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fce2820,len:0x14f0
+load:0x403c8700,len:0xda0
+load:0x403cb700,len:0x2fa0
+entry 0x403c8908
+I (24) boot: ESP-IDF v6.0.1 2nd stage bootloader
+I (24) boot: compile time Sep 15 2026 10:05:56
+I (25) boot: Multicore bootloader
+I (25) boot: chip revision: v0.2
+I (27) boot: efuse block revision: v1.3
+I (31) boot.esp32s3: Boot SPI Speed : 80MHz
+I (35) boot.esp32s3: SPI Mode       : DIO
+I (39) boot.esp32s3: SPI Flash Size : 16MB
+I (43) boot: Enabling RNG early entropy source...
+I (47) boot: Partition Table:
+I (50) boot: ## Label            Usage          Type ST Offset   Length
+I (56) boot:  0 nvs              WiFi data        01 02 00009000 00006000
+I (62) boot:  1 otadata          OTA data         01 00 0000f000 00002000
+I (69) boot:  2 phy_init         RF data          01 01 00011000 00001000
+I (75) boot:  3 ota_0            OTA app          00 10 00020000 00300000
+I (82) boot:  4 ota_1            OTA app          00 11 00320000 00300000
+I (89) boot:  5 storage          Unknown data     01 82 00620000 001e0000
+I (95) boot: End of partition table
+I (98) esp_image: segment 0: paddr=00020020 vaddr=3c0c0020 size=db5c0h (898496) map
+I (267) esp_image: segment 1: paddr=000fb5e8 vaddr=3fc99200 size=04a30h ( 18992) load
+I (271) esp_image: segment 2: paddr=00100020 vaddr=42000020 size=b6f7ch (749436) map
+I (406) esp_image: segment 3: paddr=001b6fa4 vaddr=3fc9dc30 size=00bf0h (  3056) load
+I (407) esp_image: segment 4: paddr=001b7b9c vaddr=40374000 size=151e0h ( 86496) load
+I (429) esp_image: segment 5: paddr=001ccd84 vaddr=50000000 size=00024h (    36) load
+I (438) boot: Loaded app from partition at offset 0x20000
+I (439) boot: Disabling RNG early entropy source...
+I (449) octal_psram: vendor id    : 0x0d (AP)
+I (449) octal_psram: dev id       : 0x02 (generation 3)
+I (449) octal_psram: density      : 0x03 (64 Mbit)
+I (451) octal_psram: good-die     : 0x01 (Pass)
+I (456) octal_psram: Latency      : 0x01 (Fixed)
+I (460) octal_psram: VCC          : 0x01 (3V)
+I (464) octal_psram: SRF          : 0x01 (Fast Refresh)
+I (469) octal_psram: BurstType    : 0x01 (Hybrid Wrap)
+I (474) octal_psram: BurstLen     : 0x01 (32 Byte)
+I (478) octal_psram: Readlatency  : 0x02 (10 cycles@Fixed)
+I (484) octal_psram: DriveStrength: 0x00 (1/1)
+I (488) MSPI Timing: Enter psram timing tuning
+I (493) esp_psram: Found 8MB PSRAM device
+I (496) esp_psram: Speed: 80MHz
+I (499) cpu_start: Multicore app
+I (934) esp_psram: SPI SRAM memory test OK
+I (942) cpu_start: GPIO 44 and 43 are used as console UART I/O pins
+I (943) cpu_start: Pro cpu start user code
+I (943) cpu_start: cpu freq: 240000000 Hz
+I (945) app_init: Application information:
+I (949) app_init: Project name:     automatrix_pvdg
+I (953) app_init: App version:      ac436b1
+I (957) app_init: Compile time:     Sep 15 2026 10:05:48
+I (962) app_init: ELF file SHA256:  539cb91ea...
+I (966) app_init: ESP-IDF:          v6.0.1
+I (970) efuse_init: Min chip rev:     v0.0
+I (974) efuse_init: Max chip rev:     v0.99
+I (978) efuse_init: Chip rev:         v0.2
+I (982) heap_init: Initializing. RAM available for dynamic allocation:
+I (988) heap_init: At 3FCB0EB0 len 00038860 (226 KiB): RAM
+I (993) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM
+I (998) heap_init: At 3FCF0000 len 00008000 (32 KiB): DRAM
+I (1004) heap_init: At 600FE000 len 00001FE8 (7 KiB): RTCRAM
+I (1009) esp_psram: Adding pool of 8192K of PSRAM memory to heap allocator
+I (1016) spi_flash: detected chip: generic
+I (1019) spi_flash: flash io: dio
+I (1023) sleep_gpio: Configure to isolate all GPIO pins in sleep state
+I (1029) sleep_gpio: Enable automatic switching of GPIO sleep configuration
+I (1036) main_task: Started on CPU0
+I (1046) esp_psram: Reserving pool of 32K of internal memory for DMA/internal allocations
+I (1046) main_task: Calling app_main()
+I (1046) app_core: Initializing configuration
+I (1076) solar_grid_cfg: Loaded persisted Solar-Grid policy 'minimum_import'; grid evidence not configured; generator 1 evidence not configured
+I (1076) ota_manager: OTA slots ready: running=ota_0 boot=ota_0 next=ota_1 rollback=enabled pending_verify=no
+I (1086) app_core: Initializing network
+I (1086) wifi_manager: Profiles: primary 'Rao', fallback '' (disabled), recovery AP 'Automatrix-PVDG-Setup'
+I (1096) pp: pp rom version: e7ae62f
+I (1096) net80211: net80211 rom version: e7ae62f
+I (1106) main_task: Returned from app_main()
+I (1116) wifi:wifi driver task: 3fcc0718, prio:23, stack:6656, core=0
+I (1116) wifi:wifi firmware version: b37c951
+I (1116) wifi:wifi certification version: v7.0
+I (1126) wifi:config NVS flash: enabled
+I (1126) wifi:config nano formatting: disabled
+I (1126) wifi:Init data frame dynamic rx buffer num: 32
+I (1136) wifi:Init static rx mgmt buffer num: 5
+I (1136) wifi:Init management short buffer num: 32
+I (1146) wifi:Init static tx buffer num: 16
+I (1146) wifi:Init tx cache buffer num: 32
+I (1156) wifi:Init static tx FG buffer num: 2
+I (1156) wifi:Init static rx buffer size: 1600
+I (1156) wifi:Init static rx buffer num: 16
+I (1166) wifi:Init dynamic rx buffer num: 32
+I (1166) wifi_init: rx ba win: 16
+I (1176) wifi_init: accept mbox: 6
+I (1176) wifi_init: tcpip mbox: 32
+I (1176) wifi_init: udp mbox: 6
+I (1176) wifi_init: tcp mbox: 6
+I (1186) wifi_init: tcp tx win: 5760
+I (1186) wifi_init: tcp rx win: 5760
+I (1186) wifi_init: tcp mss: 1440
+I (1196) wifi_init: WiFi/LWIP prefer SPIRAM
+I (1196) wifi_init: WiFi IRAM OP enabled
+I (1196) wifi_init: WiFi RX IRAM OP enabled
+I (1206) phy_init: phy_version 711,97bcf0a2,Aug 25 2025,19:04:10
+I (1246) wifi:mode : sta (9c:13:9e:af:c3:b0)
+I (1246) wifi:enable tsf
+W (1256) source_config: Source detection is not commissioned; safe disabled defaults loaded
+W (1256) control: Automatic Solar-Grid control remains fail-closed: explicit grid availability and breaker evidence are not configured
+I (1266) source_detect: Source detection stack headroom: 3052 bytes of 4096
+I (1266) engineering_auth: Engineering password authentication enabled
+I (1276) em500_cache: background acquisition cache started
+I (1286) meter_read_jobs: bounded background read-job queue started
+I (1296) app_main: Bootstrap stack headroom: 10196 bytes of 12288; free heap 8411792 bytes (min 8411712)
+I (1296) app_main: PV-DG controller started
+I (5756) wifi_manager: Scan found 4 APs; primary 'Rao' not visible, fallback '(disabled)' not visible
+W (5756) wifi_manager: Primary SSID 'Rao' not visible in scan; attempting it anyway
+W (5756) wifi:Password length matches WPA2 standards, authmode threshold changes from OPEN to WPA2
+I (5766) wifi_manager: Connecting to primary SSID 'Rao' using DHCP
+W (6256) meters: GEN-2: network unavailable or no route to host (ESP_ERR_INVALID_STATE) reading 192.168.0.102:1502 [failure 1]
+W (6256) meters: GEN-1: network unavailable or no route to host (ESP_ERR_INVALID_STATE) reading 192.168.0.102:1502 [failure 1]
+W (6266) meters: Grid Meter: network unavailable or no route to host (ESP_ERR_INVALID_STATE) reading 192.168.0.102:1502 [failure 1]
+W (8186) wifi_manager: Disconnected from primary profile, reason=201; retry 1/5
+W (10596) wifi_manager: Disconnected from primary profile, reason=201; retry 2/5
+W (13016) wifi_manager: Disconnected from primary profile, reason=201; retry 3/5
+W (15426) wifi_manager: Disconnected from primary profile, reason=201; retry 4/5
+W (17836) wifi_manager: Disconnected from primary profile, reason=201; retry 5/5
+W (20256) wifi_manager: All configured STA profiles exhausted (last reason=201); enabling recovery AP
+I (20256) wifi:mode : sta (9c:13:9e:af:c3:b0) + softAP (9c:13:9e:af:c3:b1)
+I (20256) wifi:Total power save buffer number: 8
+I (20266) wifi:Init max length of beacon: 752/752
+I (20266) wifi:Init max length of beacon: 752/752
+I (20336) wifi:Total power save buffer number: 8
+W (20346) wifi_manager: No configured STA available; setup AP 'Automatrix-PVDG-Setup' is active
+I (20346) esp_netif_lwip: DHCP server started on interface WIFI_AP_DEF with IP: 192.168.4.1
+I (20356) esp_netif_lwip: DHCP server started on interface WIFI_AP_DEF with IP: 192.168.4.1
+I (53246) wifi_manager: Scan found 4 APs; primary 'Rao' not visible, fallback '(disabled)' not visible
