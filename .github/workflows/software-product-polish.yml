@@ -23,8 +23,14 @@ jobs:
           node --check web/reports.js
           node --check web/ota.js
           node --check web/product-shell-v2.js
+          node --check web/product-experience-v2.js
+          node --check web/industrial-ui-v1.js
       - name: Check software product polish contract
         run: python3 tests/software_product_polish_source_contract.py
+      - name: Check product shell ownership contract
+        run: python3 tests/product_shell_v2_source_contract.py
+      - name: Check product experience ownership contract
+        run: python3 tests/product_experience_v2_source_contract.py
       - name: Re-run secure OTA baseline contract
         run: python3 tests/ota_current_baseline_source_contract.py
       - name: Re-run OTA behavior model
