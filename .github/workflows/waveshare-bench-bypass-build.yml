@@ -31,6 +31,9 @@ jobs:
           from pathlib import Path
 
           product = Path('boards/waveshare_esp32_s3_touch_lcd_5/screen/product_800x480')
+          board = Path('boards/waveshare_esp32_s3_touch_lcd_5/screen')
+
+          # Commissioning backend: authorization is always open in bench mode.
           backend = product / 'main/local_commissioning_backend.c'
           text = backend.read_text(encoding='utf-8')
           old = '''static bool unlocked(void)
@@ -58,8 +61,77 @@ jobs:
           }
           '''
           if old not in text:
-              raise SystemExit('expected local unlock implementation not found')
+              raise SystemExit('expected commissioning unlocked() implementation not found')
           backend.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          # Source commissioning has its own independent local authorization state.
+          source_backend = product / 'main/local_source_commissioning_backend.c'
+          text = source_backend.read_text(encoding='utf-8')
+          old = '''static bool unlocked(void)
+          {
+              const uint64_t current = now_ms();
+              if (s_unlocked_until_ms == 0U || current >= s_unlocked_until_ms) {
+                  s_unlocked_until_ms = 0U;
+                  return false;
+              }
+              return true;
+          }
+          '''
+          new = '''static bool unlocked(void)
+          {
+          #if defined(CONFIG_PVDG_BENCH_ENGINEERING_AUTH_BYPASS) && CONFIG_PVDG_BENCH_ENGINEERING_AUTH_BYPASS
+              return true;
+          #else
+              const uint64_t current = now_ms();
+              if (s_unlocked_until_ms == 0U || current >= s_unlocked_until_ms) {
+                  s_unlocked_until_ms = 0U;
+                  return false;
+              }
+              return true;
+          #endif
+          }
+          '''
+          if old not in text:
+              raise SystemExit('expected source unlocked() implementation not found')
+          source_backend.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          # Commissioning UI must load its config automatically or it will keep
+          # rendering the password screen even though its backend is authorized.
+          page = board / 'pages/commissioning_screen.c'
+          text = page.read_text(encoding='utf-8')
+          old = '''    s_ui.credential = NULL;
+
+              if (!s_ui.backend_set || !s_ui.config.unlocked) {
+          '''
+          new = '''    s_ui.credential = NULL;
+
+          #if defined(CONFIG_PVDG_BENCH_ENGINEERING_AUTH_BYPASS) && CONFIG_PVDG_BENCH_ENGINEERING_AUTH_BYPASS
+              if (s_ui.backend_set && !s_ui.config.unlocked) (void)load_config();
+          #endif
+
+              if (!s_ui.backend_set || !s_ui.config.unlocked) {
+          '''
+          if old not in text:
+              raise SystemExit('expected commissioning render lock gate not found')
+          page.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          # Source page has the same UI-level lock gate and needs the same auto-load.
+          page = board / 'pages/source_commissioning_screen.c'
+          text = page.read_text(encoding='utf-8')
+          old = '''    clear_form_refs();
+              if (!s_ui.backend_set || !s_ui.config.unlocked) render_locked();
+              else render_unlocked();
+          '''
+          new = '''    clear_form_refs();
+          #if defined(CONFIG_PVDG_BENCH_ENGINEERING_AUTH_BYPASS) && CONFIG_PVDG_BENCH_ENGINEERING_AUTH_BYPASS
+              if (s_ui.backend_set && !s_ui.config.unlocked) (void)load_config();
+          #endif
+              if (!s_ui.backend_set || !s_ui.config.unlocked) render_locked();
+              else render_unlocked();
+          '''
+          if old not in text:
+              raise SystemExit('expected source render lock gate not found')
+          page.write_text(text.replace(old, new, 1), encoding='utf-8')
 
           cfg = product / 'sdkconfig.defaults'
           data = cfg.read_text(encoding='utf-8')
@@ -75,6 +147,9 @@ jobs:
           grep -qx 'CONFIG_PVDG_BENCH_ENGINEERING_AUTH_BYPASS=y' "$PRODUCT_DIR/sdkconfig.defaults"
           grep -qx 'CONFIG_WAVESHARE_BENCH_NETWORK_AUTH_BYPASS=y' "$PRODUCT_DIR/sdkconfig.defaults"
           grep -Fq 'CONFIG_PVDG_BENCH_ENGINEERING_AUTH_BYPASS' "$PRODUCT_DIR/main/local_commissioning_backend.c"
+          grep -Fq 'CONFIG_PVDG_BENCH_ENGINEERING_AUTH_BYPASS' "$PRODUCT_DIR/main/local_source_commissioning_backend.c"
+          grep -Fq 'if (s_ui.backend_set && !s_ui.config.unlocked) (void)load_config();' boards/waveshare_esp32_s3_touch_lcd_5/screen/pages/commissioning_screen.c
+          grep -Fq 'if (s_ui.backend_set && !s_ui.config.unlocked) (void)load_config();' boards/waveshare_esp32_s3_touch_lcd_5/screen/pages/source_commissioning_screen.c
 
       - name: Build exact Waveshare 800x480 bench image
         shell: bash
@@ -102,9 +177,10 @@ jobs:
           cp "$build/automatrix_pvdg_waveshare_800x480.bin" "$out/"
           cat > "$out/BENCH_ONLY.txt" <<'EOF'
           BENCH / DEVELOPMENT IMAGE ONLY.
-          Engineering authentication bypass is compiled ON.
+          Engineering HTTP authentication bypass is compiled ON.
           Waveshare Network-page authentication bypass is compiled ON.
-          Native Commission/Source pages are auto-authorized by the bench flag.
+          Native Commissioning page auto-unlocks without a password.
+          Native Source Evidence Commissioning page auto-unlocks without a password.
           DO NOT SHIP OR USE ON AN UNTRUSTED NETWORK.
           EOF
           cd "$out"
