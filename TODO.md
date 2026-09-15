@@ -6,6 +6,7 @@ Master program: #79. **Known reconciliation parent before this revision:** `dev`
 
 The remaining release-critical queue is physical/external. Software CI, validators, simulations and browser evidence do not satisfy these gates.
 
+- [ ] **NETWORK / SITE WAIT — repeat local DevKitC meter diagnostic.** The 2026-09-15 `dev` image built, flashed and booted on ESP32-S3, but commissioned STA SSID `Rao` was absent; the recovery AP came up and no ZLAN/EM-500 Modbus response was observed. Restore an approved reachable network and verify the real gateway endpoint, unit ID and read-only meter values. See `docs/LOCAL_PHYSICAL_VALIDATION_2026-09-15.md`. This diagnostic does not satisfy any frozen release-candidate gate below.
 - [ ] **P0 / L16 / #174 — execute frozen Industrial UI Waveshare candidate.** Exact PR #179 head `72a1a82a8fc5ad4406b5bd51fba1f80f9c182884`, artifact `10293685030`. Physically prove native 800x480/touch/roles, Network workflow, Grid+Gen1..3 source mapping, topology-correct Transfer/ATS and Sync applicability, alarms/ACK, real board↔bench Modbus evidence and one uninterrupted >=4 h / >=240-sample run.
 - [ ] **P0 / L2 / #80 — execute Generator source-transition physical bench.** Draft PR #106 remains the frozen runtime candidate. PR #195 hardens exact firmware/artifact/site/config/topology/source-map/meter-map identity, meter scaling/sign evidence and recovery chronology. Genuine bench PASS is required before governed current-`dev` replay/promotion.
 - [ ] **P0 / L5 / #81 — execute real site source commissioning.** PR #194 evidence hardening is merged; collect exact wiring/manual/channel-map/SLD identity, physical toggles, stale/recovery and meter CT/PT/type/word-order/scale/sign proof.
@@ -26,7 +27,7 @@ The remaining release-critical queue is physical/external. Software CI, validato
 
 ## ACTIVE MANAGEMENT / GOVERNANCE
 
-- [ ] **L8 / #84 — governance reconciliation service.** Keep `EXECUTION_TREE.yaml`, `AGENT_REGISTRY.yaml`, `GATES.yaml`, `REQUIREMENTS_MATRIX.md`, `TODO.md`, `BLOCKERS.md`, `PROGRAM_BOARD.md`, and `EVIDENCE_INDEX.md` synchronized after every genuine state change. This v11 reconciliation records the software-product completion work after PR #202 without changing any physical evidence state.
+- [ ] **L8 / #84 — governance reconciliation service.** Keep `EXECUTION_TREE.yaml`, `AGENT_REGISTRY.yaml`, `GATES.yaml`, `REQUIREMENTS_MATRIX.md`, `TODO.md`, `BLOCKERS.md`, `PROGRAM_BOARD.md`, and `EVIDENCE_INDEX.md` synchronized after every genuine state change. This v11 reconciliation records the software-product completion work after PR #202 and the 2026-09-15 local DevKitC diagnostic without changing any frozen physical release-gate state.
 - [ ] **L13 / #93 — promotion graph hygiene.** Require exact-head CI, zero-behind, expected-head merge guard, frozen-candidate preservation and explicit evidence equivalence on post-PASS replay.
 - [ ] **L14 / #94 — orchestration cycle.** Physical waits do not justify fake software churn; continue only genuinely independent work.
 
@@ -41,6 +42,7 @@ The remaining release-critical queue is physical/external. Software CI, validato
 - [x] PR #201 — release physical-execution runbook for the remaining genuine hardware/site gates.
 - [x] PR #202 — professional controller-resident Reports workspace and guided rollback-safe OTA maintenance UX; browser evidence explicitly remains non-authoritative for physical OTA qualification.
 - [x] Software product consolidation/deep audit — route alias repair, singular shell/navigation ownership, retirement of `shell-current-fixes`, theme-safe Product Experience, HMI header de-duplication, partial-source Reports resilience, visible/exported data-quality metadata, self-contained HTML evidence export and stronger exact-source regression contracts. See `docs/SOFTWARE_PRODUCT_DEEP_AUDIT_2026-09-15.md`.
+- [x] 2026-09-15 local DevKitC diagnostic — exact `dev` image built, flashed and booted for 55 seconds with schema 6 configuration loaded; station network and ZLAN/EM-500 remained unqualified because the commissioned SSID was unavailable. This is diagnostic evidence only, not a release-gate PASS.
 - [x] Current `sdkconfig.defaults` already enables N16R8 octal PSRAM and leaves socket headroom (`CONFIG_LWIP_MAX_SOCKETS=16`); no speculative hardware-setting churn was introduced by this audit.
 - [x] Historical duplicate Waveshare graph retired without rewriting its incomplete evidence.
 
