@@ -7,12 +7,18 @@
 #include "pvdg_ui_theme.h"
 
 /* Optional product-host hooks. The reusable runtime UI keeps no direct
- * dependency on network_manager; a product may provide these symbols. */
+ * dependency on Product Core; the Waveshare product supplies these symbols. */
 extern void pvdg_ui_wifi_host_refresh(pvdg_ui_model_t *model,
                                       pvdg_ui_wifi_scan_t *scan)
     __attribute__((weak));
 extern void pvdg_ui_wifi_host_request_scan(void *user) __attribute__((weak));
 extern void pvdg_ui_wifi_host_request_reconnect(void *user) __attribute__((weak));
+extern bool pvdg_ui_wifi_host_load_config(pvdg_ui_wifi_config_t *config)
+    __attribute__((weak));
+extern void pvdg_ui_wifi_host_submit_config(const pvdg_ui_wifi_config_t *config,
+                                            bool primary_changed,
+                                            void *user)
+    __attribute__((weak));
 
 typedef struct {
     lv_obj_t *root;
@@ -26,6 +32,7 @@ typedef struct {
     lv_obj_t *password;
     lv_obj_t *save;
     lv_obj_t *msg;
+    lv_obj_t *keyboard;
     lv_obj_t *rows[PVDG_UI_WIFI_MAX_NETWORKS];
     lv_obj_t *row_name[PVDG_UI_WIFI_MAX_NETWORKS];
     lv_obj_t *row_meta[PVDG_UI_WIFI_MAX_NETWORKS];
@@ -60,13 +67,32 @@ static lv_obj_t *button(lv_obj_t *parent, const char *text, lv_event_cb_t callba
     return obj;
 }
 
+static void keyboard_hide(void)
+{
+    if (!s.keyboard) return;
+    lv_keyboard_set_textarea(s.keyboard, NULL);
+    lv_obj_add_flag(s.keyboard, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void keyboard_event(lv_event_t *event)
+{
+    const lv_event_code_t code = lv_event_get_code(event);
+    if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL) keyboard_hide();
+}
+
+static void password_event(lv_event_t *event)
+{
+    (void)event;
+    if (!s.keyboard) return;
+    lv_keyboard_set_textarea(s.keyboard, s.password);
+    lv_obj_remove_flag(s.keyboard, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(s.keyboard);
+}
+
 static void request_scan_from_host(void)
 {
-    if (s.cb.request_scan) {
-        s.cb.request_scan(s.cb.user);
-    } else if (pvdg_ui_wifi_host_request_scan) {
-        pvdg_ui_wifi_host_request_scan(NULL);
-    }
+    if (s.cb.request_scan) s.cb.request_scan(s.cb.user);
+    else if (pvdg_ui_wifi_host_request_scan) pvdg_ui_wifi_host_request_scan(NULL);
 }
 
 static void scan_event(lv_event_t *event)
@@ -81,16 +107,24 @@ static void reconnect_event(lv_event_t *event)
 {
     (void)event;
     if (s.busy) return;
-    if (s.cb.request_reconnect) {
-        s.cb.request_reconnect(s.cb.user);
-    } else if (pvdg_ui_wifi_host_request_reconnect) {
-        pvdg_ui_wifi_host_request_reconnect(NULL);
+    if (s.cb.request_reconnect) s.cb.request_reconnect(s.cb.user);
+    else if (pvdg_ui_wifi_host_request_reconnect) pvdg_ui_wifi_host_request_reconnect(NULL);
+}
+
+static void update_save_state(void)
+{
+    if (!s.save) return;
+    const bool can_submit = s.cb.submit_config || pvdg_ui_wifi_host_submit_config;
+    if (!s.busy && s.config_available && s.selected_ssid[0] && can_submit) {
+        lv_obj_remove_state(s.save, LV_STATE_DISABLED);
+    } else {
+        lv_obj_add_state(s.save, LV_STATE_DISABLED);
     }
 }
 
 static void row_event(lv_event_t *event)
 {
-    intptr_t index = (intptr_t)lv_event_get_user_data(event);
+    const intptr_t index = (intptr_t)lv_event_get_user_data(event);
     if (index < 0 || index >= PVDG_UI_WIFI_MAX_NETWORKS || !s.supported[index]) return;
 
     const char *name = lv_label_get_text(s.row_name[index]);
@@ -98,37 +132,49 @@ static void row_event(lv_event_t *event)
     s.selected_secure = s.secure[index];
     pvdg_ui_label_set_if_changed(s.selected, s.selected_ssid);
     lv_textarea_set_text(s.password, "");
+    update_save_state();
+    if (s.selected_secure) password_event(NULL);
 }
 
 static void save_event(lv_event_t *event)
 {
     (void)event;
-    if (s.busy || !s.cb.submit_config || !s.config_available || !s.selected_ssid[0]) return;
+    const bool host_submit = pvdg_ui_wifi_host_submit_config != NULL;
+    if (s.busy || (!s.cb.submit_config && !host_submit) ||
+        !s.config_available || !s.selected_ssid[0]) return;
 
     pvdg_ui_wifi_config_t next;
     bool changed = false;
     char error[160] = {0};
     const char *password = lv_textarea_get_text(s.password);
-    pvdg_ui_wifi_config_result_t result = pvdg_ui_wifi_prepare_primary(
-        &s.config,
-        s.selected_ssid,
-        password ? password : "",
-        s.selected_secure,
-        &next,
-        &changed,
-        error,
-        sizeof(error));
+    const pvdg_ui_wifi_config_result_t result = pvdg_ui_wifi_prepare_primary(
+        &s.config, s.selected_ssid, password ? password : "", s.selected_secure,
+        &next, &changed, error, sizeof(error));
 
     if (result != PVDG_UI_WIFI_CONFIG_OK) {
         pvdg_ui_label_set_if_changed(s.msg,
                                      error[0] ? error : "Wi-Fi validation failed.");
+        if (result == PVDG_UI_WIFI_CONFIG_PASSWORD_REQUIRED ||
+            result == PVDG_UI_WIFI_CONFIG_INVALID_PASSWORD) {
+            password_event(NULL);
+        }
         return;
     }
 
-    s.cb.submit_config(&next, changed, s.cb.user);
+    keyboard_hide();
+    if (s.cb.submit_config) s.cb.submit_config(&next, changed, s.cb.user);
+    else pvdg_ui_wifi_host_submit_config(&next, changed, NULL);
     lv_textarea_set_text(s.password, "");
-    pvdg_ui_label_set_if_changed(s.msg,
-                                 "Wi-Fi configuration submitted; restart may be required.");
+}
+
+static void create_keyboard(void)
+{
+    s.keyboard = lv_keyboard_create(lv_layer_top());
+    lv_obj_set_size(s.keyboard, 718, 190);
+    lv_obj_align(s.keyboard, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+    lv_obj_add_event_cb(s.keyboard, keyboard_event, LV_EVENT_READY, NULL);
+    lv_obj_add_event_cb(s.keyboard, keyboard_event, LV_EVENT_CANCEL, NULL);
+    lv_obj_add_flag(s.keyboard, LV_OBJ_FLAG_HIDDEN);
 }
 
 lv_obj_t *pvdg_ui_wifi_create(lv_obj_t *parent,
@@ -142,46 +188,108 @@ lv_obj_t *pvdg_ui_wifi_create(lv_obj_t *parent,
     lv_obj_set_size(s.root, LV_PCT(100), LV_PCT(100));
     lv_obj_set_layout(s.root, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(s.root, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_all(s.root, PVDG_UI_GAP_MD, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(s.root, PVDG_UI_GAP_SM, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(s.root, PVDG_UI_GAP_XS, LV_PART_MAIN);
 
-    pvdg_ui_make_title(s.root, "Wi-Fi Manager");
-    s.badge = pvdg_ui_make_badge(s.root, "Offline", lv_color_hex(PVDG_UI_COLOR_DANGER));
-    pvdg_ui_make_metric_row(s.root, "SSID", &s.ssid);
-    pvdg_ui_make_metric_row(s.root, "IP", &s.ip);
-    pvdg_ui_make_metric_row(s.root, "Signal", &s.rssi);
+    lv_obj_t *header = lv_obj_create(s.root);
+    pvdg_ui_style_root(header);
+    lv_obj_set_width(header, LV_PCT(100));
+    lv_obj_set_height(header, 34);
+    lv_obj_set_layout(header, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(header, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(header, LV_FLEX_ALIGN_SPACE_BETWEEN,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    pvdg_ui_make_title(header, "Wi-Fi Manager");
+    s.badge = pvdg_ui_make_badge(header, "Offline", lv_color_hex(PVDG_UI_COLOR_DANGER));
 
-    lv_obj_t *actions = lv_obj_create(s.root);
+    lv_obj_t *body = lv_obj_create(s.root);
+    pvdg_ui_style_root(body);
+    lv_obj_set_width(body, LV_PCT(100));
+    lv_obj_set_flex_grow(body, 1);
+    lv_obj_set_layout(body, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(body, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(body, PVDG_UI_GAP_SM, LV_PART_MAIN);
+
+    lv_obj_t *left = pvdg_ui_make_card(body);
+    lv_obj_set_width(left, 300);
+    lv_obj_set_height(left, LV_PCT(100));
+    lv_obj_set_layout(left, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(left, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(left, 8, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(left, 3, LV_PART_MAIN);
+
+    pvdg_ui_make_metric_row(left, "SSID", &s.ssid);
+    pvdg_ui_make_metric_row(left, "IP", &s.ip);
+    pvdg_ui_make_metric_row(left, "Signal", &s.rssi);
+
+    lv_obj_t *actions = lv_obj_create(left);
     pvdg_ui_style_root(actions);
     lv_obj_set_width(actions, LV_PCT(100));
-    lv_obj_set_height(actions, 52);
+    lv_obj_set_height(actions, 46);
     lv_obj_set_layout(actions, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(actions, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(actions, 4, LV_PART_MAIN);
     s.scan = button(actions, "Scan", scan_event);
     s.reconnect = button(actions, "Reconnect", reconnect_event);
+    lv_obj_set_flex_grow(s.scan, 1);
+    lv_obj_set_flex_grow(s.reconnect, 1);
 
-    s.selected = label(s.root, "Select a network", PVDG_UI_COLOR_TEXT);
-    s.password = lv_textarea_create(s.root);
+    pvdg_ui_make_muted(left, "Selected network");
+    s.selected = label(left, "Select a network", PVDG_UI_COLOR_TEXT);
+    lv_obj_set_width(s.selected, LV_PCT(100));
+    lv_label_set_long_mode(s.selected, LV_LABEL_LONG_DOT);
+
+    s.password = lv_textarea_create(left);
     lv_textarea_set_one_line(s.password, true);
     lv_textarea_set_password_mode(s.password, true);
-    lv_textarea_set_placeholder_text(s.password, "Password (never prefilled)");
+    lv_textarea_set_placeholder_text(s.password, "Wi-Fi password");
     lv_obj_set_width(s.password, LV_PCT(100));
+    lv_obj_set_height(s.password, 40);
+    lv_obj_add_event_cb(s.password, password_event, LV_EVENT_FOCUSED, NULL);
+    lv_obj_add_event_cb(s.password, password_event, LV_EVENT_CLICKED, NULL);
 
-    s.save = button(s.root, "Save Primary Wi-Fi", save_event);
+    s.save = button(left, "Save Primary Wi-Fi", save_event);
     lv_obj_set_width(s.save, LV_PCT(100));
-    s.msg = pvdg_ui_make_muted(s.root, "Tap Scan to find nearby Wi-Fi networks.");
+    lv_obj_add_state(s.save, LV_STATE_DISABLED);
+    s.msg = pvdg_ui_make_muted(left, "Tap Scan to find nearby Wi-Fi networks.");
+    lv_obj_set_width(s.msg, LV_PCT(100));
+    lv_label_set_long_mode(s.msg, LV_LABEL_LONG_WRAP);
+
+    lv_obj_t *right = pvdg_ui_make_card(body);
+    lv_obj_set_flex_grow(right, 1);
+    lv_obj_set_height(right, LV_PCT(100));
+    lv_obj_set_layout(right, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(right, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(right, 6, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(right, 2, LV_PART_MAIN);
+    pvdg_ui_make_muted(right, "Nearby Networks · strongest 8");
 
     for (uint8_t i = 0; i < PVDG_UI_WIFI_MAX_NETWORKS; ++i) {
-        s.rows[i] = lv_button_create(s.root);
+        s.rows[i] = lv_button_create(right);
         lv_obj_set_width(s.rows[i], LV_PCT(100));
-        lv_obj_set_height(s.rows[i], 34);
+        lv_obj_set_height(s.rows[i], 40);
         lv_obj_set_layout(s.rows[i], LV_LAYOUT_FLEX);
         lv_obj_set_flex_flow(s.rows[i], LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(s.rows[i], LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         s.row_name[i] = label(s.rows[i], "--", PVDG_UI_COLOR_TEXT);
-        lv_obj_set_flex_grow(s.row_name[i], 1);
+        lv_obj_set_width(s.row_name[i], 125);
+        lv_label_set_long_mode(s.row_name[i], LV_LABEL_LONG_DOT);
         s.row_meta[i] = label(s.rows[i], "", PVDG_UI_COLOR_MUTED);
+        lv_obj_set_flex_grow(s.row_meta[i], 1);
+        lv_obj_set_style_text_align(s.row_meta[i], LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
         lv_obj_add_event_cb(s.rows[i], row_event, LV_EVENT_CLICKED,
                             (void *)(intptr_t)i);
         lv_obj_add_flag(s.rows[i], LV_OBJ_FLAG_HIDDEN);
+    }
+
+    create_keyboard();
+
+    pvdg_ui_wifi_config_t current;
+    if (pvdg_ui_wifi_host_load_config && pvdg_ui_wifi_host_load_config(&current)) {
+        pvdg_ui_wifi_set_config_snapshot(&current, true);
+    } else {
+        pvdg_ui_wifi_set_config_snapshot(NULL, false);
     }
 
     return s.root;
@@ -198,7 +306,6 @@ void pvdg_ui_wifi_apply(const pvdg_ui_model_t *model,
         if (model) host_model = *model;
         else memset(&host_model, 0, sizeof(host_model));
         memset(&host_scan, 0, sizeof(host_scan));
-
         pvdg_ui_wifi_host_refresh(&host_model, &host_scan);
         model = &host_model;
         scan = &host_scan;
@@ -233,18 +340,17 @@ void pvdg_ui_wifi_apply(const pvdg_ui_model_t *model,
 
     if (!scan) return;
 
-    uint8_t count = scan->count > PVDG_UI_WIFI_MAX_NETWORKS
-                        ? PVDG_UI_WIFI_MAX_NETWORKS
-                        : scan->count;
+    const uint8_t count = scan->count > PVDG_UI_WIFI_MAX_NETWORKS
+                              ? PVDG_UI_WIFI_MAX_NETWORKS : scan->count;
     for (uint8_t i = 0; i < count; ++i) {
         const pvdg_ui_wifi_network_t *network = &scan->networks[i];
         pvdg_ui_label_set_if_changed(s.row_name[i],
                                      network->ssid[0] ? network->ssid : "<hidden>");
         char meta[96];
-        snprintf(meta, sizeof(meta), "%d dBm  Ch %u  %s",
-                 network->rssi,
-                 (unsigned)network->channel,
-                 network->security[0] ? network->security : "Unknown");
+        snprintf(meta, sizeof(meta), "%d dBm · Ch %u · %s%s",
+                 network->rssi, (unsigned)network->channel,
+                 network->security[0] ? network->security : "Unknown",
+                 network->connected ? " · Connected" : "");
         pvdg_ui_label_set_if_changed(s.row_meta[i], meta);
         s.secure[i] = network->secure;
         s.supported[i] = network->supported;
@@ -255,6 +361,7 @@ void pvdg_ui_wifi_apply(const pvdg_ui_model_t *model,
 
     if (scan->scan_running) lv_obj_add_state(s.scan, LV_STATE_DISABLED);
     else if (!s.busy) lv_obj_remove_state(s.scan, LV_STATE_DISABLED);
+    update_save_state();
 }
 
 void pvdg_ui_wifi_set_config_snapshot(const pvdg_ui_wifi_config_t *config,
@@ -267,12 +374,14 @@ void pvdg_ui_wifi_set_config_snapshot(const pvdg_ui_wifi_config_t *config,
                          pvdg_ui_wifi_config_valid(config, error, sizeof(error));
     if (s.config_available) {
         s.config = *config;
-        pvdg_ui_label_set_if_changed(s.msg, "Wi-Fi baseline loaded.");
+        pvdg_ui_label_set_if_changed(s.msg,
+            "Wi-Fi config loaded. Saving requires Engineering authentication.");
     } else {
         memset(&s.config, 0, sizeof(s.config));
         pvdg_ui_label_set_if_changed(s.msg,
                                      error[0] ? error : "Wi-Fi baseline unavailable.");
     }
+    update_save_state();
 }
 
 void pvdg_ui_wifi_set_action_state(bool busy, const char *message)
@@ -283,16 +392,10 @@ void pvdg_ui_wifi_set_action_state(bool busy, const char *message)
     if (busy) {
         lv_obj_add_state(s.scan, LV_STATE_DISABLED);
         lv_obj_add_state(s.reconnect, LV_STATE_DISABLED);
-        lv_obj_add_state(s.save, LV_STATE_DISABLED);
     } else {
         lv_obj_remove_state(s.scan, LV_STATE_DISABLED);
         lv_obj_remove_state(s.reconnect, LV_STATE_DISABLED);
-        if (s.config_available && s.selected_ssid[0]) {
-            lv_obj_remove_state(s.save, LV_STATE_DISABLED);
-        } else {
-            lv_obj_add_state(s.save, LV_STATE_DISABLED);
-        }
     }
-
+    update_save_state();
     if (message) pvdg_ui_label_set_if_changed(s.msg, message);
 }
