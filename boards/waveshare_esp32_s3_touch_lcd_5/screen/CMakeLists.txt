@@ -22,6 +22,8 @@ idf_component_register(
         "screen_runtime.c"
         "wifi_runtime_bridge.c"
         "engineering_runtime_bridge.c"
+        "engineering_config_bridge.c"
+        "engineering_sections.c"
     INCLUDE_DIRS
         "."
         "api"
@@ -35,9 +37,13 @@ idf_component_register(
         network_manager
         config_manager
         control_engine
+        solar_grid_config
         web_server
         nvs_flash
         mbedtls
+        esp_system
+        spi_flash
+        esp_timer
         esp_lvgl_adapter
         esp_lcd_touch_gt911
         esp_lcd
