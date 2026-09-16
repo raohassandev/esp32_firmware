@@ -11,7 +11,10 @@ extern "C" {
 #define PVDG_UI_TEXT_SMALL 32U
 #define PVDG_UI_TEXT_MEDIUM 64U
 #define PVDG_UI_MAX_INVERTERS 32U
-#define PVDG_UI_MAX_METERS 16U
+/* Runtime/telemetry capacity. Keep this distinct from the commissioning
+ * meter-config limit (PVDG_UI_MAX_METERS == 4) so headers can be composed
+ * without redefining the same public macro to different values. */
+#define PVDG_UI_MAX_RUNTIME_METERS 16U
 #define PVDG_UI_MAX_ALARMS 8U
 
 typedef enum {
