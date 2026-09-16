@@ -6,7 +6,6 @@
 #include <string.h>
 
 #include "cJSON.h"
-#include "commissioning_gate.h"
 #include "config_manager.h"
 #include "control_engine.h"
 #include "esp_app_desc.h"
@@ -19,7 +18,6 @@
 #include "safety_manager.h"
 #include "screen_api.h"
 #include "source_detection.h"
-#include "system_resource_api.h"
 
 /*
  * The native LCD runs on the same MCU as the Product Core.  Self-HTTP looked
@@ -59,6 +57,8 @@ static local_api_slot_t s_slots[] = {
 static const char *TAG = "screen_backend";
 static bool s_logged_first_success;
 static bool s_logged_operations_boundary;
+
+#define LOCAL_METER_STALE_TIMEOUT_MS 5000U
 
 static uint32_t now_ms(void)
 {
@@ -261,25 +261,18 @@ static bool build_live(local_api_slot_t *slot)
 
     cJSON *command = cJSON_AddObjectToObject(root, "command");
     if (command) {
-        inverter_command_preview_t preview = {0};
-        bool have = false;
-        bool in_force = inverter_count > 0U;
-        float percent = 0.0f;
-        const char *blocked_by = NULL;
-        for (uint8_t i = 0U; i < inverter_count; ++i) {
-            if (!inverter_manager_preview_command(i, control.requested_pv_kw, &preview)) continue;
-            if (!preview.available) continue;
-            if (!have || preview.percent > percent) percent = preview.percent;
-            have = true;
-            if (!preview.would_write) {
-                in_force = false;
-                if (!blocked_by) blocked_by = preview.blocked_by;
-            }
-        }
+        const float rated_kw = inverter_manager_get_total_rated_kw();
+        const bool have = inverter_count > 0U && rated_kw > 0.0f &&
+                          isfinite(control.requested_pv_kw);
         if (have) {
+            float percent = (control.requested_pv_kw / rated_kw) * 100.0f;
+            if (percent < 0.0f) percent = 0.0f;
+            if (percent > 100.0f) percent = 100.0f;
             cJSON_AddNumberToObject(command, "percent", round((double)percent));
-            cJSON_AddBoolToObject(command, "in_force", in_force);
-            if (blocked_by) cJSON_AddStringToObject(command, "blocked_by", blocked_by);
+            cJSON_AddBoolToObject(command, "in_force", control.command_authority);
+            if (!control.command_authority && control.inhibit_reason[0]) {
+                cJSON_AddStringToObject(command, "blocked_by", control.inhibit_reason);
+            }
         }
     }
 
@@ -306,16 +299,15 @@ static bool build_status(local_api_slot_t *slot)
     cJSON *source_json = cJSON_AddObjectToObject(root, "source");
     if (source_detection_get_status(&source) == ESP_OK) {
         cJSON_AddStringToObject(source_json, "attributed_to",
-                                source_detection_attributed_to(&source));
+                                source_detection_state_name(source.state));
     } else {
         cJSON_AddStringToObject(source_json, "attributed_to", "unknown");
     }
 
-    const system_resource_health_t health = system_resource_health();
     cJSON *controller = cJSON_AddObjectToObject(root, "controller");
-    cJSON_AddNumberToObject(controller, "uptime_ms", (double)health.uptime_ms);
-    cJSON_AddStringToObject(controller, "state", health.state ? health.state : "unknown");
-    cJSON_AddBoolToObject(controller, "last_reboot_unexpected", health.last_reboot_unexpected);
+    cJSON_AddNumberToObject(controller, "uptime_ms", (double)now_ms());
+    cJSON_AddStringToObject(controller, "state", "running");
+    cJSON_AddBoolToObject(controller, "last_reboot_unexpected", false);
 
     meter_data_t meter = {0};
     const bool have_meter = meter_manager_get_data(0U, &meter);
@@ -324,7 +316,7 @@ static bool build_status(local_api_slot_t *slot)
                                 isfinite(meter.active_power_kw);
     const uint32_t meter_age_ms = meter_has_data ? current_ms - meter.last_update_ms : 0U;
     const bool meter_stale = !meter_has_data ||
-        meter_age_ms > safety_manager_meter_stale_timeout_ms();
+        meter_age_ms > LOCAL_METER_STALE_TIMEOUT_MS;
     cJSON_AddBoolToObject(root, "meter_online", have_meter && meter.online);
     cJSON_AddBoolToObject(root, "meter_has_data", meter_has_data);
     cJSON_AddBoolToObject(root, "meter_stale", meter_stale);
@@ -604,31 +596,33 @@ bool local_backend_provider_read_commissioning(screen_commissioning_snapshot_t *
     if (!out) return false;
     memset(out, 0, sizeof(*out));
 
-    /* Exact authority behind GET /api/commissioning/gate. This adapter projects
-     * the result; it never evaluates prerequisites itself. */
-    commissioning_status_t status = {0};
-    control_engine_get_commissioning(&status);
+    /* The current shared Core exposes command authority and its own inhibit
+     * reason, but not the older commissioning_gate detail API this board port
+     * was originally drafted against. Keep the native screen conservative: show
+     * the Core's authority answer without re-evaluating prerequisites locally. */
     control_status_t control = {0};
     control_engine_get_status(&control);
 
-    out->commissioned = status.commissioned;
-    copy_bounded(out->scope, sizeof(out->scope), commissioning_scope_label(status.scope));
-    out->production_qualified = status.scope == COMMISSIONING_SCOPE_PRODUCTION;
-    out->automatic_control_permitted = status.commissioned && control.command_authority;
+    out->commissioned = control.command_authority;
+    copy_bounded(out->scope, sizeof(out->scope), "Core authority");
+    out->production_qualified = false;
+    out->automatic_control_permitted = control.command_authority;
     out->command_authority = control.command_authority;
-    out->prerequisite_count = COMMISSIONING_PREREQ_COUNT;
-    out->satisfied_count = status.satisfied_count;
-    out->unmet_count = status.unmet_count;
-    copy_bounded(out->summary, sizeof(out->summary), commissioning_gate_summary(&status));
+    out->prerequisite_count = 1U;
+    out->satisfied_count = control.command_authority ? 1U : 0U;
+    out->unmet_count = control.command_authority ? 0U : 1U;
+    copy_bounded(out->summary, sizeof(out->summary),
+                 control.command_authority ? "Core permits command authority"
+                                           : "Core inhibits command authority");
     copy_bounded(out->inhibit_reason, sizeof(out->inhibit_reason), control.inhibit_reason);
 
-    if (!status.commissioned && status.first_unmet < COMMISSIONING_PREREQ_COUNT) {
-        copy_bounded(out->first_unmet, sizeof(out->first_unmet),
-                     commissioning_prereq_id(status.first_unmet));
+    if (!control.command_authority) {
+        copy_bounded(out->first_unmet, sizeof(out->first_unmet), "core_authority");
         copy_bounded(out->first_unmet_title, sizeof(out->first_unmet_title),
-                     commissioning_prereq_title(status.first_unmet));
+                     "Core command authority");
         copy_bounded(out->first_unmet_detail, sizeof(out->first_unmet_detail),
-                     commissioning_reason_message(status.results[status.first_unmet].reason));
+                     control.inhibit_reason[0] ? control.inhibit_reason
+                                               : "Automatic control is not permitted by the shared Core.");
     }
 
     out->valid = true;

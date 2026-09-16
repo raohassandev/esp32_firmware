@@ -28,3 +28,10 @@ CONFIG_HTTPD_MAX_URI_LEN=256
 # Production/dev defaults intentionally contain no STA SSID/password. A fresh
 # controller enters its setup AP and commissioned credentials stay in NVS.
 CONFIG_PVDG_DEFAULT_ZLAN_HOST="192.168.100.200"
+
+# Native runtime UI typography. The pvdg_runtime_ui component references
+# Montserrat 14/20/24 and should stay within this qualified font footprint.
+CONFIG_LV_FONT_MONTSERRAT_14=y
+CONFIG_LV_FONT_MONTSERRAT_20=y
+CONFIG_LV_FONT_MONTSERRAT_24=y
+CONFIG_LV_BUILD_EXAMPLES=n

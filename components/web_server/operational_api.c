@@ -23,6 +23,7 @@
 #define SAMPLE_INTERVAL_MS 5000U
 #define MINUTE_INTERVAL_MS 60000U
 #define METER_FRESH_MS 5000U
+#define OPERATIONAL_TASK_CORE_ID 0
 
 /* --- A4: nuisance-alarm suppression -------------------------------------
  * ISA-18.2 and EEMUA 191 both require time delays on alarm conditions so a
@@ -1027,7 +1028,13 @@ static esp_err_t alarms_ack_post(httpd_req_t *request)
 esp_err_t operational_api_register(httpd_handle_t server)
 {
     if (!s_task) {
-        BaseType_t created = xTaskCreate(operational_task, "op_history", 5120, NULL, 4, &s_task);
+        BaseType_t created = xTaskCreatePinnedToCore(operational_task,
+                                                     "op_history",
+                                                     5120,
+                                                     NULL,
+                                                     4,
+                                                     &s_task,
+                                                     OPERATIONAL_TASK_CORE_ID);
         if (created != pdPASS) return ESP_ERR_NO_MEM;
     }
     const httpd_uri_t handlers[] = {
