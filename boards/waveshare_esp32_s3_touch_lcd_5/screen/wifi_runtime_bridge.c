@@ -153,3 +153,21 @@ void wifi_runtime_bridge_request_reconnect(void *user)
         pvdg_ui_wifi_set_action_state(false, "Unable to start Wi-Fi reconnect.");
     }
 }
+
+/* Optional hooks consumed by pvdg_runtime_ui. Keeping these in the product host
+ * preserves the runtime UI component's independence from network_manager. */
+void pvdg_ui_wifi_host_refresh(pvdg_ui_model_t *model,
+                               pvdg_ui_wifi_scan_t *scan)
+{
+    wifi_runtime_bridge_refresh(model, scan);
+}
+
+void pvdg_ui_wifi_host_request_scan(void *user)
+{
+    wifi_runtime_bridge_request_scan(user);
+}
+
+void pvdg_ui_wifi_host_request_reconnect(void *user)
+{
+    wifi_runtime_bridge_request_reconnect(user);
+}
