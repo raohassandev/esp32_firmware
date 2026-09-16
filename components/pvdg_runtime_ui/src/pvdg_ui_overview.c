@@ -221,24 +221,28 @@ lv_obj_t *pvdg_ui_overview_create(lv_obj_t *parent)
     lv_obj_align(legend, LV_ALIGN_TOP_RIGHT, -3, 2);
 
     lv_obj_t *controller = pvdg_ui_make_card(flow_card);
-    lv_obj_set_pos(controller, 160, 28);
-    lv_obj_set_size(controller, 170, 42);
+    lv_obj_set_pos(controller, 145, 26);
+    lv_obj_set_size(controller, 200, 46);
     lv_obj_set_layout(controller, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(controller, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(controller, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_all(controller, 3, LV_PART_MAIN);
     lv_obj_set_style_pad_row(controller, 0, LV_PART_MAIN);
-    make_label(controller, "PV-DG Energy Controller", lv_color_hex(PVDG_UI_COLOR_TEXT), PVDG_UI_FONT_BODY);
-    make_label(controller, "Monitoring / Control", lv_color_hex(PVDG_UI_COLOR_COMM), PVDG_UI_FONT_BODY);
+    lv_obj_t *controller_title = make_label(controller, "PV-DG Energy Controller", lv_color_hex(PVDG_UI_COLOR_TEXT), PVDG_UI_FONT_BODY);
+    lv_obj_set_width(controller_title, LV_PCT(100));
+    lv_obj_set_style_text_align(controller_title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_t *controller_subtitle = make_label(controller, "Monitoring / Control", lv_color_hex(PVDG_UI_COLOR_COMM), PVDG_UI_FONT_BODY);
+    lv_obj_set_width(controller_subtitle, LV_PCT(100));
+    lv_obj_set_style_text_align(controller_subtitle, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
 
     make_flow_source(flow_card, 12, 82, 140, "Solar", lv_color_hex(PVDG_UI_COLOR_SOLAR), &s_ui.flow_solar_value, &s_ui.flow_solar_state);
     make_flow_source(flow_card, 176, 82, 140, "Generator", lv_color_hex(PVDG_UI_COLOR_GENERATOR), &s_ui.flow_generator_value, &s_ui.flow_generator_state);
     make_flow_source(flow_card, 340, 82, 140, "Grid / PCC", lv_color_hex(PVDG_UI_COLOR_GRID), &s_ui.flow_grid_value, &s_ui.flow_grid_state);
 
-    make_dashed_h(flow_card, 82, 67, 78, lv_color_hex(PVDG_UI_COLOR_COMM));
+    make_dashed_h(flow_card, 82, 67, 63, lv_color_hex(PVDG_UI_COLOR_COMM));
     make_dashed_v(flow_card, 82, 67, 15, lv_color_hex(PVDG_UI_COLOR_COMM));
-    make_dashed_v(flow_card, 246, 70, 12, lv_color_hex(PVDG_UI_COLOR_COMM));
-    make_dashed_h(flow_card, 330, 67, 81, lv_color_hex(PVDG_UI_COLOR_COMM));
+    make_dashed_v(flow_card, 246, 72, 10, lv_color_hex(PVDG_UI_COLOR_COMM));
+    make_dashed_h(flow_card, 345, 67, 66, lv_color_hex(PVDG_UI_COLOR_COMM));
     make_dashed_v(flow_card, 410, 67, 15, lv_color_hex(PVDG_UI_COLOR_COMM));
 
     s_ui.solar_power_path = make_segment(flow_card, 81, 134, 3, 38, lv_color_hex(PVDG_UI_COLOR_SOLAR));
@@ -283,21 +287,31 @@ lv_obj_t *pvdg_ui_overview_create(lv_obj_t *parent)
     lv_obj_t *status = pvdg_ui_make_card(right);
     lv_obj_set_width(status, LV_PCT(100));
     lv_obj_set_flex_grow(status, 1);
+    lv_obj_set_layout(status, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(status, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(status, 6, LV_PART_MAIN);
-    make_label(status, "System Status", lv_color_hex(PVDG_UI_COLOR_TEXT), PVDG_UI_FONT_TITLE);
+    lv_obj_set_style_pad_row(status, 5, LV_PART_MAIN);
+    lv_obj_t *status_title = make_label(status, "System Status", lv_color_hex(PVDG_UI_COLOR_TEXT), PVDG_UI_FONT_TITLE);
+    lv_obj_set_width(status_title, LV_PCT(100));
     s_ui.alarm_summary = make_label(status, "No live model", lv_color_hex(PVDG_UI_COLOR_MUTED), PVDG_UI_FONT_BODY);
     lv_obj_set_width(s_ui.alarm_summary, LV_PCT(100));
+    lv_obj_set_flex_grow(s_ui.alarm_summary, 1);
     lv_label_set_long_mode(s_ui.alarm_summary, LV_LABEL_LONG_WRAP);
 
     lv_obj_t *note = pvdg_ui_make_card(right);
     lv_obj_set_width(note, LV_PCT(100));
     lv_obj_set_flex_grow(note, 1);
+    lv_obj_set_layout(note, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(note, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(note, 6, LV_PART_MAIN);
-    make_label(note, "Data Rules", lv_color_hex(PVDG_UI_COLOR_TEXT), PVDG_UI_FONT_BODY);
+    lv_obj_set_style_pad_row(note, 4, LV_PART_MAIN);
+    lv_obj_t *rules_title = make_label(note, "Data Rules", lv_color_hex(PVDG_UI_COLOR_TEXT), PVDG_UI_FONT_BODY);
+    lv_obj_set_width(rules_title, LV_PCT(100));
     lv_obj_t *rules = make_label(note,
         "Measured values only. Unknown is not zero. Derived load is labelled.",
         lv_color_hex(PVDG_UI_COLOR_MUTED), PVDG_UI_FONT_BODY);
     lv_obj_set_width(rules, LV_PCT(100));
+    lv_obj_set_flex_grow(rules, 1);
     lv_label_set_long_mode(rules, LV_LABEL_LONG_WRAP);
 
     lv_obj_t *bottom = lv_obj_create(s_ui.root);
