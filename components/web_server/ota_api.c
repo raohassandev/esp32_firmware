@@ -28,6 +28,42 @@ static uint64_t now_ms(void)
     return (uint64_t)esp_timer_get_time() / 1000ULL;
 }
 
+static bool signed_app_required(void)
+{
+#if defined(CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT) || defined(CONFIG_SECURE_BOOT)
+    return true;
+#else
+    return false;
+#endif
+}
+
+static bool signed_ota_verification_enabled(void)
+{
+#if defined(CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT) || defined(CONFIG_SECURE_BOOT)
+    return true;
+#else
+    return false;
+#endif
+}
+
+static bool hardware_secure_boot_enabled(void)
+{
+#if defined(CONFIG_SECURE_BOOT)
+    return true;
+#else
+    return false;
+#endif
+}
+
+static const char *app_signature_scheme(void)
+{
+#if defined(CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME) || defined(CONFIG_SECURE_BOOT_V2_ENABLED)
+    return "rsa-v2";
+#else
+    return "none";
+#endif
+}
+
 static esp_err_t send_json(httpd_req_t *request, cJSON *root, const char *status)
 {
     char *json = cJSON_PrintUnformatted(root);
@@ -100,6 +136,12 @@ static cJSON *status_json(void)
                             CONFIG_IDF_FIRMWARE_CHIP_ID);
     cJSON_AddNumberToObject(root, "max_image_bytes",
                             update ? (double)update->size : 0.0);
+    cJSON_AddBoolToObject(root, "signed_app_required", signed_app_required());
+    cJSON_AddBoolToObject(root, "signed_ota_verification",
+                         signed_ota_verification_enabled());
+    cJSON_AddBoolToObject(root, "hardware_secure_boot",
+                         hardware_secure_boot_enabled());
+    cJSON_AddStringToObject(root, "app_signature_scheme", app_signature_scheme());
     cJSON_AddBoolToObject(root, "nvs_erase_required", false);
     cJSON_AddBoolToObject(root, "automatic_reboot", false);
     cJSON_AddStringToObject(root, "upload_endpoint", "/api/ota/upload");
@@ -255,7 +297,9 @@ static esp_err_t upload_handler(httpd_req_t *request)
     if (error != ESP_OK) {
         if (session.active) ota_manager_abort(&session, error);
         return send_error(request, "400 Bad Request",
-                          "ESP-IDF rejected the completed firmware image before boot selection changed",
+                          signed_ota_verification_enabled()
+                              ? "ESP-IDF rejected the completed firmware image before boot selection changed; the production profile also requires a valid cryptographic app signature"
+                              : "ESP-IDF rejected the completed firmware image before boot selection changed",
                           error);
     }
 
@@ -264,7 +308,9 @@ static esp_err_t upload_handler(httpd_req_t *request)
     cJSON_AddBoolToObject(root, "accepted", true);
     cJSON_AddBoolToObject(root, "reboot_required", true);
     cJSON_AddStringToObject(root, "message",
-                            "Firmware identity and complete image validated before staging. Reboot explicitly to test the new slot with rollback protection.");
+                            signed_ota_verification_enabled()
+                                ? "Firmware identity, cryptographic signature, and complete image validated before staging. Reboot explicitly to test the new slot with rollback protection."
+                                : "Firmware identity and complete image validated before staging. Reboot explicitly to test the new slot with rollback protection.");
     return send_json(request, root, NULL);
 }
 
@@ -295,6 +341,8 @@ static esp_err_t reboot_handler(httpd_req_t *request)
     if (!root) return httpd_resp_send_500(request);
     cJSON_AddBoolToObject(root, "restarting", true);
     cJSON_AddBoolToObject(root, "rollback_protected", status.rollback_enabled);
+    cJSON_AddBoolToObject(root, "signed_ota_verification",
+                         signed_ota_verification_enabled());
     cJSON_AddStringToObject(root, "message",
                             "Controller will restart into the staged image. NVS is preserved.");
     ESP_LOGW(TAG, "Authenticated OTA reboot requested");
