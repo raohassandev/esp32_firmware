@@ -5,8 +5,16 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "config_manager.h"
+#include "control_engine.h"
+#include "engineering_runtime_bridge.h"
 #include "esp_err.h"
+#include "esp_system.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "network_manager.h"
+
+#define MASKED_PASSWORD "********"
 
 static void copy_text(char *target, size_t capacity, const char *source)
 {
@@ -24,55 +32,150 @@ static void security_info(uint8_t auth_mode,
     bool is_supported = false;
 
     switch (auth_mode) {
-    case 0:
-        name = "Open";
-        is_secure = false;
-        is_supported = true;
-        break;
-    case 1:
-        name = "WEP";
-        break;
-    case 2:
-        name = "WPA-PSK";
-        is_supported = true;
-        break;
-    case 3:
-        name = "WPA2-PSK";
-        is_supported = true;
-        break;
-    case 4:
-        name = "WPA/WPA2-PSK";
-        is_supported = true;
-        break;
-    case 5:
-        name = "WPA2-Enterprise";
-        break;
-    case 6:
-        name = "WPA3-PSK";
-        is_supported = true;
-        break;
-    case 7:
-        name = "WPA2/WPA3-PSK";
-        is_supported = true;
-        break;
-    case 8:
-        name = "WAPI-PSK";
-        break;
-    case 9:
-        name = "OWE";
-        is_secure = false;
-        is_supported = true;
-        break;
-    case 10:
-        name = "WPA3-Enterprise";
-        break;
-    default:
-        break;
+    case 0: name = "Open"; is_secure = false; is_supported = true; break;
+    case 1: name = "WEP"; break;
+    case 2: name = "WPA-PSK"; is_supported = true; break;
+    case 3: name = "WPA2-PSK"; is_supported = true; break;
+    case 4: name = "WPA/WPA2-PSK"; is_supported = true; break;
+    case 5: name = "WPA2-Enterprise"; break;
+    case 6: name = "WPA3-PSK"; is_supported = true; break;
+    case 7: name = "WPA2/WPA3-PSK"; is_supported = true; break;
+    case 8: name = "WAPI-PSK"; break;
+    case 9: name = "OWE"; is_secure = false; is_supported = true; break;
+    case 10: name = "WPA3-Enterprise"; break;
+    default: break;
     }
 
     if (label) *label = name;
     if (secure) *secure = is_secure;
     if (supported) *supported = is_supported;
+}
+
+static void profile_to_ui(const app_wifi_sta_profile_t *source,
+                          pvdg_ui_wifi_profile_config_t *target)
+{
+    memset(target, 0, sizeof(*target));
+    target->enabled = source->enabled;
+    copy_text(target->ssid, sizeof(target->ssid), source->ssid);
+    if (source->password[0]) copy_text(target->password, sizeof(target->password), MASKED_PASSWORD);
+    target->ip_mode = source->ip_mode == APP_WIFI_IP_STATIC
+                          ? PVDG_UI_WIFI_IP_STATIC : PVDG_UI_WIFI_IP_DHCP;
+    copy_text(target->static_ip, sizeof(target->static_ip), source->static_ip);
+    copy_text(target->gateway, sizeof(target->gateway), source->gateway);
+    copy_text(target->netmask, sizeof(target->netmask), source->netmask);
+    copy_text(target->dns1, sizeof(target->dns1), source->dns1);
+    copy_text(target->dns2, sizeof(target->dns2), source->dns2);
+}
+
+static void ui_to_profile(const pvdg_ui_wifi_profile_config_t *source,
+                          const app_wifi_sta_profile_t *current,
+                          app_wifi_sta_profile_t *target)
+{
+    *target = *current;
+    target->enabled = source->enabled;
+    copy_text(target->ssid, sizeof(target->ssid), source->ssid);
+    target->ip_mode = source->ip_mode == PVDG_UI_WIFI_IP_STATIC
+                          ? APP_WIFI_IP_STATIC : APP_WIFI_IP_DHCP;
+    copy_text(target->static_ip, sizeof(target->static_ip), source->static_ip);
+    copy_text(target->gateway, sizeof(target->gateway), source->gateway);
+    copy_text(target->netmask, sizeof(target->netmask), source->netmask);
+    copy_text(target->dns1, sizeof(target->dns1), source->dns1);
+    copy_text(target->dns2, sizeof(target->dns2), source->dns2);
+
+    if (source->clear_password) {
+        target->password[0] = '\0';
+    } else if (strcmp(source->password, MASKED_PASSWORD) != 0 && source->password[0]) {
+        copy_text(target->password, sizeof(target->password), source->password);
+    }
+}
+
+bool wifi_runtime_bridge_load_config(pvdg_ui_wifi_config_t *out)
+{
+    if (!out) return false;
+    app_config_t config = {0};
+    if (config_manager_get_snapshot(&config) != ESP_OK) return false;
+
+    memset(out, 0, sizeof(*out));
+    profile_to_ui(&config.wifi.primary, &out->primary);
+    profile_to_ui(&config.wifi.fallback, &out->fallback);
+    out->scan_before_connect = config.wifi.scan_before_connect;
+    out->fallback_ap_enabled = config.wifi.fallback_ap_enabled;
+    copy_text(out->fallback_ap_ssid, sizeof(out->fallback_ap_ssid),
+              config.wifi.fallback_ap_ssid);
+    if (config.wifi.fallback_ap_password[0]) {
+        copy_text(out->fallback_ap_password, sizeof(out->fallback_ap_password), MASKED_PASSWORD);
+    }
+    out->max_retries_per_profile = config.wifi.max_retries_per_profile;
+    out->reconnect_backoff_ms = config.wifi.reconnect_backoff_ms;
+    return true;
+}
+
+static void restart_task(void *argument)
+{
+    (void)argument;
+    vTaskDelay(pdMS_TO_TICKS(1500));
+    esp_restart();
+}
+
+void wifi_runtime_bridge_submit_config(const pvdg_ui_wifi_config_t *config,
+                                       bool primary_changed,
+                                       void *user)
+{
+    (void)primary_changed;
+    (void)user;
+    if (!config) return;
+
+    if (!engineering_runtime_bridge_is_authorized()) {
+        pvdg_ui_wifi_set_action_state(false,
+            "Engineering authentication required. Open the gear icon and sign in first.");
+        return;
+    }
+
+    char validation_error[160] = {0};
+    if (!pvdg_ui_wifi_config_valid(config, validation_error, sizeof(validation_error))) {
+        pvdg_ui_wifi_set_action_state(false,
+            validation_error[0] ? validation_error : "Wi-Fi configuration is invalid.");
+        return;
+    }
+
+    app_config_t next = {0};
+    if (config_manager_get_snapshot(&next) != ESP_OK) {
+        pvdg_ui_wifi_set_action_state(false, "Current controller configuration is unavailable.");
+        return;
+    }
+
+    ui_to_profile(&config->primary, &next.wifi.primary, &next.wifi.primary);
+    ui_to_profile(&config->fallback, &next.wifi.fallback, &next.wifi.fallback);
+    next.wifi.scan_before_connect = config->scan_before_connect;
+    next.wifi.fallback_ap_enabled = config->fallback_ap_enabled;
+    copy_text(next.wifi.fallback_ap_ssid, sizeof(next.wifi.fallback_ap_ssid),
+              config->fallback_ap_ssid);
+    if (config->fallback_ap_password[0] &&
+        strcmp(config->fallback_ap_password, MASKED_PASSWORD) != 0) {
+        copy_text(next.wifi.fallback_ap_password,
+                  sizeof(next.wifi.fallback_ap_password),
+                  config->fallback_ap_password);
+    }
+    next.wifi.max_retries_per_profile = config->max_retries_per_profile;
+    next.wifi.reconnect_backoff_ms = config->reconnect_backoff_ms;
+
+    /* A network change can invalidate every meter/inverter transport. Match the
+     * web commissioning safety contract: remove command authority first, then
+     * persist control.enabled=false together with the new network settings. */
+    next.control.enabled = false;
+    control_engine_force_disable();
+    if (config_manager_save(&next) != ESP_OK) {
+        pvdg_ui_wifi_set_action_state(false,
+            "Wi-Fi configuration could not be persisted. Control remains disabled.");
+        return;
+    }
+
+    pvdg_ui_wifi_set_action_state(true,
+        "Wi-Fi saved safely. Control disabled; restarting to apply the new network...");
+    if (xTaskCreate(restart_task, "wifi_restart", 2048, NULL, 4, NULL) != pdPASS) {
+        pvdg_ui_wifi_set_action_state(false,
+            "Wi-Fi saved. Restart controller manually to apply it; control is disabled.");
+    }
 }
 
 void wifi_runtime_bridge_refresh(pvdg_ui_model_t *model,
@@ -89,7 +192,6 @@ void wifi_runtime_bridge_refresh(pvdg_ui_model_t *model,
 
     network_scan_snapshot_t snapshot = {0};
     network_manager_get_scan_snapshot(&snapshot);
-
     memset(scan, 0, sizeof(*scan));
     scan->scan_running = snapshot.state == NETWORK_SCAN_RUNNING;
 
@@ -137,7 +239,7 @@ void wifi_runtime_bridge_request_scan(void *user)
         pvdg_ui_wifi_set_action_state(true, "Scanning for Wi-Fi networks...");
     } else if (err == ESP_ERR_INVALID_STATE) {
         pvdg_ui_wifi_set_action_state(false,
-                                      "Scan unavailable while Wi-Fi is reconnecting. Retry shortly.");
+                                      "Wi-Fi radio is busy connecting. Retry Scan shortly.");
     } else {
         pvdg_ui_wifi_set_action_state(false, "Unable to start Wi-Fi scan.");
     }
@@ -155,7 +257,7 @@ void wifi_runtime_bridge_request_reconnect(void *user)
 }
 
 /* Optional hooks consumed by pvdg_runtime_ui. Keeping these in the product host
- * preserves the runtime UI component's independence from network_manager. */
+ * preserves the runtime UI component's independence from Product Core APIs. */
 void pvdg_ui_wifi_host_refresh(pvdg_ui_model_t *model,
                                pvdg_ui_wifi_scan_t *scan)
 {
@@ -170,4 +272,16 @@ void pvdg_ui_wifi_host_request_scan(void *user)
 void pvdg_ui_wifi_host_request_reconnect(void *user)
 {
     wifi_runtime_bridge_request_reconnect(user);
+}
+
+bool pvdg_ui_wifi_host_load_config(pvdg_ui_wifi_config_t *config)
+{
+    return wifi_runtime_bridge_load_config(config);
+}
+
+void pvdg_ui_wifi_host_submit_config(const pvdg_ui_wifi_config_t *config,
+                                     bool primary_changed,
+                                     void *user)
+{
+    wifi_runtime_bridge_submit_config(config, primary_changed, user);
 }
