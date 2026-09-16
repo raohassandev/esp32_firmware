@@ -134,6 +134,22 @@ After this signature, try at most a read-only `chip-id` probe. If that also
 cannot open `COM8`, stop and require a physical USB replug or board power-cycle
 before another flash attempt.
 
+If the screen is black after a failed/interrupted flash, run `idf.py -p COM8
+monitor` before changing display code. This bootloader loop means the app image
+is incomplete or corrupt, not that LVGL/backlight reached a black-screen state:
+
+```text
+E (...) esp_image: invalid segment length 0xffffffff
+E (...) boot: OTA app partition slot 0 is not bootable
+E (...) esp_image: image at 0x320000 has invalid magic byte (nothing flashed here?)
+E (...) boot: No bootable app partitions in the partition table
+```
+
+In that state, close every `idf.py monitor`, `idf_monitor.py`, and
+`esp_idf_monitor` process holding the port, physically replug/power-cycle the
+board if Windows reports error 31 or 995, then reflash at 115200 and verify the
+app hash completes.
+
 ### Safety Rule
 
 Do not use `erase-flash` as a black-screen troubleshooting step unless the user
