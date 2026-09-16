@@ -183,9 +183,10 @@ esp_err_t network_manager_request_scan(void)
 
     network_status_t status = {0};
     network_manager_get_status(&status);
-    if (!status.network_ready && !status.fallback_ap_active) {
-        return ESP_ERR_INVALID_STATE;
-    }
+    /* User scans are valid while connected, on the recovery AP, idle, or fully
+     * disconnected. Only reject states where the manager itself owns the radio
+     * for a scan/connect attempt. This is essential for first-time local-panel
+     * commissioning: an offline controller must still be able to discover APs. */
     if (status.state == NETWORK_WIFI_SCANNING ||
         status.state == NETWORK_WIFI_CONNECTING_PRIMARY ||
         status.state == NETWORK_WIFI_CONNECTING_FALLBACK) {
@@ -225,8 +226,7 @@ void network_scan_service_execute(void)
 
     network_status_t status = {0};
     network_manager_get_status(&status);
-    if ((!status.network_ready && !status.fallback_ap_active) ||
-        status.state == NETWORK_WIFI_SCANNING ||
+    if (status.state == NETWORK_WIFI_SCANNING ||
         status.state == NETWORK_WIFI_CONNECTING_PRIMARY ||
         status.state == NETWORK_WIFI_CONNECTING_FALLBACK) {
         complete_failure(generation, ESP_ERR_INVALID_STATE);
