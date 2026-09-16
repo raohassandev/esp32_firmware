@@ -1,0 +1,30 @@
+name: Waveshare runtime UI build
+
+on:
+  push:
+    branches:
+      - work/waveshare-runtime-ui-v1
+  pull_request:
+    paths:
+      - 'boards/waveshare_esp32_s3_touch_lcd_5/screen/**'
+      - '.github/workflows/waveshare-runtime-ui-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  product-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container: espressif/idf:v6.0.1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build isolated Waveshare 800x480 target
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$IDF_PATH/export.sh"
+          cd boards/waveshare_esp32_s3_touch_lcd_5/screen/product_800x480
+          idf.py set-target esp32s3
+          idf.py build
