@@ -1,0 +1,125 @@
+name: Waveshare native UI integration
+
+on:
+  push:
+    branches:
+      - 'integration/waveshare-native-ui-v1'
+  pull_request:
+    paths:
+      - 'boards/waveshare_esp32_s3_touch_lcd_5/**'
+      - 'components/pvdg_ui_native/**'
+      - '.github/workflows/waveshare-native-ui-integration.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify exact qualified hardware driver blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object boards/waveshare_esp32_s3_touch_lcd_5/screen/drivers/waveshare_display_port.c)" = "ff24e19d446476a77db3c2397839c7640c04e479"
+          test "$(git hash-object boards/waveshare_esp32_s3_touch_lcd_5/screen/drivers/waveshare_display_port.h)" = "236bba015dccb7404c0b2982adf26f31107fe3cf"
+          test "$(git hash-object boards/waveshare_esp32_s3_touch_lcd_5/screen/drivers/waveshare_display_profile.c)" = "90e6643dd538b7326a74aac60ce863edd69f824a"
+          test "$(git hash-object boards/waveshare_esp32_s3_touch_lcd_5/screen/drivers/waveshare_display_profile.h)" = "9ff52b91a7fc11d90cbad01d66ec6870bbfa8b74"
+      - name: Enforce isolated product boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          target=boards/waveshare_esp32_s3_touch_lcd_5/screen/product_800x480
+          test -s "$target/CMakeLists.txt"
+          test -s "$target/main/main.c"
+          test -s "$target/sdkconfig.defaults"
+          ! grep -Eq 'CONFIG_PVDG_(PRIMARY|FALLBACK)_WIFI_(SSID|PASSWORD)=' "$target/sdkconfig.defaults"
+          ! find boards/waveshare_esp32_s3_touch_lcd_5/screen -maxdepth 2 -type f \
+             \( -name 'local_backend_provider.*' -o -name 'local_commissioning_backend.*' -o -name 'local_source_commissioning_backend.*' \) | grep -q .
+          grep -q 'app_core_init' "$target/main/main.c"
+          grep -q 'Product Core continues headless' "$target/main/main.c"
+      - name: Run power/source safety unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -Wall -Wextra -Werror \
+            -Icomponents/control_engine/include \
+            tests/source_mode_unit_test.c components/control_engine/source_mode.c \
+            -lm -o /tmp/source_mode_unit_test
+          /tmp/source_mode_unit_test
+          gcc -std=c11 -Wall -Wextra -Werror \
+            -Icomponents/control_engine/include \
+            tests/solar_grid_integration_test.c \
+            components/control_engine/source_mode.c \
+            components/control_engine/grid_control_gate.c \
+            components/control_engine/power_control_policy.c \
+            -lm -o /tmp/solar_grid_integration_test
+          /tmp/solar_grid_integration_test
+      - name: Run firmware source-contract safety gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tests/telemetry_source_contract.py
+          python3 tests/generator_power_policy_source_contract.py
+          python3 tests/solar_grid_control_source_contract.py
+          python3 tests/inverter_runtime_write_gate_source_contract.py
+          python3 tests/power_flow_model_source_contract.py
+
+  build-product:
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container: espressif/idf:v6.0.1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build isolated Waveshare 800x480 product
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$IDF_PATH/export.sh"
+          target="$GITHUB_WORKSPACE/boards/waveshare_esp32_s3_touch_lcd_5/screen/product_800x480"
+          cd "$target"
+          idf.py --version
+          idf.py set-target esp32s3 > /tmp/waveshare-target.log 2>&1 || {
+            cat /tmp/waveshare-target.log
+            exit 1
+          }
+          idf.py build > /tmp/waveshare-build.log 2>&1 || {
+            echo "ESP-IDF compiler diagnostics:"
+            grep -nE 'FAILED:|fatal error:|error:|undefined reference|collect2:' /tmp/waveshare-build.log | tail -n 120 || true
+            echo "Final build context:"
+            tail -n 100 /tmp/waveshare-build.log
+            cp /tmp/waveshare-build.log "$GITHUB_WORKSPACE/waveshare-build-failure.log"
+            exit 1
+          }
+          test -f build/automatrix_pvdg_waveshare_800x480.bin
+          if grep -E 'warning:' /tmp/waveshare-build.log > /tmp/waveshare-warnings.log; then
+            echo "Compiler warnings detected:"
+            cat /tmp/waveshare-warnings.log
+            cp /tmp/waveshare-build.log "$GITHUB_WORKSPACE/waveshare-build-failure.log"
+            exit 1
+          fi
+          {
+            grep -E 'Project build complete|binary size|Smallest app partition|free' /tmp/waveshare-build.log || true
+            stat -c 'Application binary bytes: %s' build/automatrix_pvdg_waveshare_800x480.bin
+            echo 'Compiler warnings: 0'
+          } | tee "$GITHUB_WORKSPACE/waveshare-build-metrics.txt"
+      - name: Publish build failure log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: waveshare-product-build-failure
+          path: waveshare-build-failure.log
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Publish non-secret build metrics
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: waveshare-product-build-metrics
+          path: waveshare-build-metrics.txt
+          if-no-files-found: error
+          retention-days: 14
