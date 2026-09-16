@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "auth_hmac_compat.h"
+#include "engineering_sections.h"
 #include "esp_err.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -228,6 +229,7 @@ void engineering_runtime_bridge_logout(void *user)
     s_expires_ms = 0U;
     snprintf(s_message, sizeof(s_message), "Engineering session closed");
     portEXIT_CRITICAL(&s_lock);
+    engineering_sections_hide();
 }
 
 void engineering_runtime_bridge_refresh(pvdg_ui_engineering_state_t *state)
@@ -253,4 +255,31 @@ void engineering_runtime_bridge_refresh(pvdg_ui_engineering_state_t *state)
                             state->authenticated ? "Authenticated" : "Protected";
     state->message = s_message;
     portEXIT_CRITICAL(&s_lock);
+}
+
+/* Optional runtime-UI host hooks. */
+void pvdg_ui_engineering_host_refresh(pvdg_ui_engineering_state_t *state)
+{
+    engineering_runtime_bridge_refresh(state);
+}
+
+void pvdg_ui_engineering_host_submit_password(const char *password, void *user)
+{
+    engineering_runtime_bridge_submit_password(password, user);
+}
+
+void pvdg_ui_engineering_host_logout(void *user)
+{
+    engineering_runtime_bridge_logout(user);
+}
+
+void pvdg_ui_engineering_host_open_section(pvdg_ui_engineering_section_t section,
+                                           void *user)
+{
+    (void)user;
+    if (section != PVDG_UI_ENGINEERING_DIAGNOSTICS &&
+        !engineering_runtime_bridge_is_authorized()) {
+        return;
+    }
+    engineering_sections_open(section);
 }
