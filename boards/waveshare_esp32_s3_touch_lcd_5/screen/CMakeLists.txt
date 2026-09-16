@@ -20,6 +20,7 @@ idf_component_register(
         "pages/source_commissioning_screen.c"
         "screen_app.c"
         "screen_runtime.c"
+        "wifi_runtime_bridge.c"
     INCLUDE_DIRS
         "."
         "api"
@@ -30,6 +31,7 @@ idf_component_register(
         cjson
         lvgl
         pvdg_runtime_ui
+        network_manager
         esp_lvgl_adapter
         esp_lcd_touch_gt911
         esp_lcd
