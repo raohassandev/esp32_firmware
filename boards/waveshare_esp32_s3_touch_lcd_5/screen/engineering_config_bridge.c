@@ -6,7 +6,13 @@
 #include "config_manager.h"
 #include "control_engine.h"
 #include "engineering_runtime_bridge.h"
+#include "inverter_profile_store.h"
+#include "inverter_profiles.h"
 #include "solar_grid_config.h"
+
+static bool s_inverter_config_available;
+static bool s_inverter_profiles_available;
+static bool s_inverter_assignments_available;
 
 static void copy_text(char *target, size_t capacity, const char *source)
 {
@@ -286,12 +292,12 @@ void engineering_config_meter_submit(const pvdg_ui_meter_list_t *list, void *use
     meter_state(true, "Meter configuration saved. Automatic control is disabled; restart required.", true);
 }
 
-static void inverter_state(bool available, const char *message, bool restart_required)
+static void inverter_state(const char *message, bool restart_required)
 {
     const pvdg_ui_inverter_setup_state_t state = {
-        .config_available = available,
-        .profiles_available = false,
-        .assignments_available = false,
+        .config_available = s_inverter_config_available,
+        .profiles_available = s_inverter_profiles_available,
+        .assignments_available = s_inverter_assignments_available,
         .write_allowed = engineering_runtime_bridge_is_authorized(),
         .busy = false,
         .restart_required = restart_required,
@@ -305,7 +311,8 @@ void engineering_config_inverter_request(void *user)
     (void)user;
     app_config_t app = {0};
     if (config_manager_get_snapshot(&app) != ESP_OK) {
-        inverter_state(false, "Current inverter configuration is unavailable.", false);
+        s_inverter_config_available = false;
+        inverter_state("Current inverter configuration is unavailable.", false);
         return;
     }
     pvdg_ui_inverter_list_t list = {0};
@@ -323,28 +330,98 @@ void engineering_config_inverter_request(void *user)
         target->rated_kw = source->rated_power_kw;
     }
     pvdg_ui_inverter_setup_set_config(&list);
-    inverter_state(true,
-                   engineering_runtime_bridge_is_authorized()
-                       ? "Inverter list loaded. Advanced profile assignment remains Core-owned."
+    s_inverter_config_available = true;
+    inverter_state(engineering_runtime_bridge_is_authorized()
+                       ? "Inverter list loaded. Edits disable automatic control and require restart."
                        : "Read-only until Engineering authentication.",
                    false);
+}
+
+void engineering_config_inverter_profiles_request(void *user)
+{
+    (void)user;
+    pvdg_ui_inverter_profile_catalog_t catalog = {0};
+    const size_t total = inverter_profiles_count();
+    const size_t count = total > PVDG_UI_MAX_INVERTER_PROFILES
+                             ? PVDG_UI_MAX_INVERTER_PROFILES : total;
+    catalog.count = (uint8_t)count;
+    catalog.truncated = total > count;
+
+    for (size_t i = 0U; i < count; ++i) {
+        const inverter_profile_t *source = inverter_profiles_get(i);
+        if (!source || !source->id) {
+            s_inverter_profiles_available = false;
+            inverter_state("Compiled inverter profile catalog is unavailable.", false);
+            return;
+        }
+        pvdg_ui_inverter_profile_t *target = &catalog.profiles[i];
+        copy_text(target->id, sizeof(target->id), source->id);
+        copy_text(target->manufacturer, sizeof(target->manufacturer), source->manufacturer);
+        copy_text(target->model_family, sizeof(target->model_family), source->model_family);
+        copy_text(target->protocol, sizeof(target->protocol), source->protocol);
+        copy_text(target->connection, sizeof(target->connection),
+                  inverter_profile_connection_label(source->connection));
+        copy_text(target->manual_reference, sizeof(target->manual_reference),
+                  source->manual_reference);
+        target->qualification =
+            (pvdg_ui_profile_qualification_t)source->qualification;
+        target->simulator_only = source->simulator_only;
+        target->read_allowed = inverter_profile_allows_read(source);
+        target->write_allowed = inverter_profile_allows_write(source);
+        target->identity_probe_supported = source->has_identity_probe;
+        target->active_power_supported = source->has_active_power;
+        target->power_limit_supported = source->has_power_limit;
+        target->power_limit_readback_supported = source->has_power_limit_readback;
+        target->status_register_supported = inverter_profile_has_status_register(source);
+        target->status_register_commissioning_required =
+            !inverter_profile_has_status_register(source);
+        target->minimum_percent = source->minimum_percent;
+        target->maximum_percent = source->maximum_percent;
+        target->fingerprint[0] = '\0';
+    }
+
+    pvdg_ui_inverter_setup_set_profiles(&catalog);
+    s_inverter_profiles_available = true;
+    inverter_state("Compiled inverter profiles loaded.", false);
+}
+
+void engineering_config_inverter_assignments_request(void *user)
+{
+    (void)user;
+    inverter_profile_assignment_manifest_t manifest = {0};
+    if (inverter_profile_store_get_all(&manifest) != ESP_OK) {
+        s_inverter_assignments_available = false;
+        inverter_state("Inverter profile assignments are unavailable.", false);
+        return;
+    }
+
+    pvdg_ui_inverter_assignment_map_t assignments = {0};
+    for (uint8_t i = 0U; i < PVDG_UI_MAX_INVERTER_CONFIGS; ++i) {
+        copy_text(assignments.assignments[i].profile_id,
+                  sizeof(assignments.assignments[i].profile_id),
+                  manifest.profile_ids[i]);
+        assignments.assignments[i].fingerprint[0] = '\0';
+    }
+    pvdg_ui_inverter_setup_set_assignments(&assignments);
+    s_inverter_assignments_available = true;
+    inverter_state("Inverter profile assignments loaded.", false);
 }
 
 void engineering_config_inverter_submit(const pvdg_ui_inverter_list_t *list, void *user)
 {
     (void)user;
     if (!list || !engineering_runtime_bridge_is_authorized()) {
-        inverter_state(list != NULL, "Engineering authentication required for inverter writes.", false);
+        inverter_state("Engineering authentication required for inverter writes.", false);
         return;
     }
     char error[192] = {0};
     if (pvdg_ui_inverter_list_validate(list, error, sizeof(error)) != PVDG_UI_INVERTER_CONFIG_OK) {
-        inverter_state(true, error[0] ? error : "Inverter configuration validation failed.", false);
+        inverter_state(error[0] ? error : "Inverter configuration validation failed.", false);
         return;
     }
     app_config_t app = {0};
     if (config_manager_get_snapshot(&app) != ESP_OK) {
-        inverter_state(true, "Current controller configuration is unavailable.", false);
+        inverter_state("Current controller configuration is unavailable.", false);
         return;
     }
     inverter_config_t next[APP_MAX_INVERTERS] = {0};
@@ -365,11 +442,57 @@ void engineering_config_inverter_submit(const pvdg_ui_inverter_list_t *list, voi
     app.control.enabled = false;
     control_engine_force_disable();
     if (config_manager_save(&app) != ESP_OK) {
-        inverter_state(true, "Inverter save failed. Automatic control remains disabled.", false);
+        inverter_state("Inverter save failed. Automatic control remains disabled.", false);
         return;
     }
+    s_inverter_config_available = true;
     pvdg_ui_inverter_setup_set_config(list);
-    inverter_state(true, "Inverter configuration saved. Automatic control is disabled; restart required.", true);
+    inverter_state("Inverter configuration saved. Automatic control is disabled; restart required.", true);
+}
+
+void engineering_config_inverter_assign_profile(uint8_t inverter_index,
+                                                const char *profile_id,
+                                                void *user)
+{
+    (void)user;
+    if (!engineering_runtime_bridge_is_authorized()) {
+        inverter_state("Engineering authentication required for profile assignment.", false);
+        return;
+    }
+    if (!profile_id || !profile_id[0] || inverter_index >= APP_MAX_INVERTERS) {
+        inverter_state("Invalid inverter profile assignment.", false);
+        return;
+    }
+    const inverter_profile_t *profile = inverter_profiles_find(profile_id);
+    if (!profile) {
+        inverter_state("Selected inverter profile is not compiled into this firmware.", false);
+        return;
+    }
+
+    app_config_t app = {0};
+    if (config_manager_get_snapshot(&app) != ESP_OK ||
+        inverter_index >= app.inverter_count) {
+        inverter_state("Profile can only be assigned to a configured inverter slot.", false);
+        return;
+    }
+
+    app.control.enabled = false;
+    control_engine_force_disable();
+    if (config_manager_save(&app) != ESP_OK) {
+        inverter_state("Could not persist the control-disable interlock; profile change aborted.", false);
+        return;
+    }
+    if (inverter_profile_store_set(inverter_index, profile->id) != ESP_OK) {
+        inverter_state("Profile assignment save failed. Automatic control remains disabled.", false);
+        return;
+    }
+
+    engineering_config_inverter_assignments_request(NULL);
+    char message[160];
+    snprintf(message, sizeof(message),
+             "Profile '%s' assigned to inverter %u. Automatic control is disabled; restart required.",
+             profile->id, (unsigned)inverter_index + 1U);
+    inverter_state(message, true);
 }
 
 void engineering_config_export_request(void *user)
