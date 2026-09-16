@@ -256,10 +256,10 @@ static void create_overlay(void)
     };
     const pvdg_ui_inverter_setup_callbacks_t inverter_callbacks = {
         .request_config = engineering_config_inverter_request,
-        .request_profiles = NULL,
-        .request_assignments = NULL,
+        .request_profiles = engineering_config_inverter_profiles_request,
+        .request_assignments = engineering_config_inverter_assignments_request,
         .submit_config = engineering_config_inverter_submit,
-        .assign_profile = NULL,
+        .assign_profile = engineering_config_inverter_assign_profile,
         .user = NULL,
     };
     const pvdg_ui_export_control_callbacks_t export_callbacks = {
@@ -339,6 +339,8 @@ void engineering_sections_open(pvdg_ui_engineering_section_t section)
         break;
     case PVDG_UI_ENGINEERING_INVERTER_SETUP:
         engineering_config_inverter_request(NULL);
+        engineering_config_inverter_profiles_request(NULL);
+        engineering_config_inverter_assignments_request(NULL);
         break;
     case PVDG_UI_ENGINEERING_EXPORT_CONTROL:
         engineering_config_export_request(NULL);
