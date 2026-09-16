@@ -23,6 +23,25 @@ static source_mode_result_t grid_source(bool fresh, bool available,
     return source_mode_evaluate(&evidence);
 }
 
+static grid_gate_output_t direct_gate_step(grid_gate_memory_t *memory,
+                                           uint32_t timestamp_ms,
+                                           bool configured,
+                                           bool fresh,
+                                           source_mode_t mode,
+                                           bool source_control_allowed)
+{
+    grid_gate_input_t input = {
+        .configured = configured,
+        .evidence_fresh = fresh,
+        .source_mode = mode,
+        .source_control_allowed = source_control_allowed,
+        .timestamp_ms = timestamp_ms,
+        .loss_trip_ms = 250U,
+        .recovery_stable_ms = 5000U,
+    };
+    return grid_control_gate_step(memory, &input);
+}
+
 static grid_gate_output_t gate_step(grid_gate_memory_t *memory,
                                     uint32_t timestamp_ms,
                                     bool configured,
@@ -31,16 +50,8 @@ static grid_gate_output_t gate_step(grid_gate_memory_t *memory,
                                     bool breaker_closed)
 {
     source_mode_result_t source = grid_source(fresh, available, breaker_closed);
-    grid_gate_input_t input = {
-        .configured = configured,
-        .evidence_fresh = fresh,
-        .source_mode = source.mode,
-        .source_control_allowed = source.control_allowed,
-        .timestamp_ms = timestamp_ms,
-        .loss_trip_ms = 250U,
-        .recovery_stable_ms = 5000U,
-    };
-    return grid_control_gate_step(memory, &input);
+    return direct_gate_step(memory, timestamp_ms, configured, fresh,
+                            source.mode, source.control_allowed);
 }
 
 static power_control_output_t policy_step(grid_policy_t policy,
@@ -91,8 +102,6 @@ static void test_grid_gate(void)
     assert(gate.control_allowed);
     assert(gate.recovery_stable);
 
-    /* Communication loss blocks control immediately, before the outage is
-     * classified as persistent. */
     gate = gate_step(&memory, 6001U, true, false, true, true);
     assert(gate.state == GRID_GATE_WAITING_EVIDENCE);
     assert(!gate.control_allowed);
@@ -103,7 +112,6 @@ static void test_grid_gate(void)
     assert(!gate.control_allowed);
     assert(gate.loss_confirmed);
 
-    /* Recovery must earn a new uninterrupted stabilization interval. */
     gate = gate_step(&memory, 7000U, true, true, true, true);
     assert(gate.state == GRID_GATE_RECOVERY_STABILIZING);
     assert(!gate.control_allowed);
@@ -113,10 +121,60 @@ static void test_grid_gate(void)
     assert(gate.state == GRID_GATE_READY);
     assert(gate.control_allowed);
 
-    /* Closed breaker without grid availability is contradictory evidence. */
     gate = gate_step(&memory, 12001U, true, true, false, true);
     assert(gate.state == GRID_GATE_CONFLICT);
     assert(!gate.control_allowed);
+}
+
+static void test_source_change_requires_new_dwell(void)
+{
+    grid_gate_memory_t memory = {0};
+
+    grid_gate_output_t gate = direct_gate_step(&memory, 1000U, true, true,
+                                                SOURCE_MODE_GRID_ONLY, true);
+    assert(!gate.control_allowed);
+    gate = direct_gate_step(&memory, 6000U, true, true,
+                            SOURCE_MODE_GRID_ONLY, true);
+    assert(gate.state == GRID_GATE_READY && gate.control_allowed);
+
+    gate = direct_gate_step(&memory, 6001U, true, true,
+                            SOURCE_MODE_GENERATOR_ONLY, true);
+    assert(gate.state == GRID_GATE_RECOVERY_STABILIZING);
+    assert(!gate.control_allowed);
+    assert(memory.recovery_mode == SOURCE_MODE_GENERATOR_ONLY);
+    gate = direct_gate_step(&memory, 11000U, true, true,
+                            SOURCE_MODE_GENERATOR_ONLY, true);
+    assert(!gate.control_allowed);
+    gate = direct_gate_step(&memory, 11001U, true, true,
+                            SOURCE_MODE_GENERATOR_ONLY, true);
+    assert(gate.state == GRID_GATE_READY && gate.control_allowed);
+
+    gate = direct_gate_step(&memory, 11002U, true, true,
+                            SOURCE_MODE_TRANSFER, false);
+    assert(gate.state == GRID_GATE_WAITING_EVIDENCE);
+    assert(!gate.control_allowed && !gate.loss_confirmed);
+
+    gate = direct_gate_step(&memory, 11003U, true, true,
+                            SOURCE_MODE_ISLAND, true);
+    assert(!gate.control_allowed);
+    gate = direct_gate_step(&memory, 16003U, true, true,
+                            SOURCE_MODE_ISLAND, true);
+    assert(gate.state == GRID_GATE_READY && gate.control_allowed);
+
+    gate = direct_gate_step(&memory, 16004U, true, true,
+                            SOURCE_MODE_GRID_GENERATOR_SYNC, true);
+    assert(gate.state == GRID_GATE_RECOVERY_STABILIZING);
+    assert(!gate.control_allowed);
+    gate = direct_gate_step(&memory, 21004U, true, true,
+                            SOURCE_MODE_GRID_GENERATOR_SYNC, true);
+    assert(gate.state == GRID_GATE_READY && gate.control_allowed);
+
+    gate = direct_gate_step(&memory, 21005U, true, true,
+                            SOURCE_MODE_CONFLICT, false);
+    assert(gate.state == GRID_GATE_CONFLICT && !gate.control_allowed);
+    gate = direct_gate_step(&memory, 21006U, true, false,
+                            SOURCE_MODE_GENERATOR_ONLY, true);
+    assert(gate.state == GRID_GATE_WAITING_EVIDENCE && !gate.control_allowed);
 }
 
 static void test_policy_targets_and_load_steps(void)
@@ -139,7 +197,6 @@ static void test_policy_targets_and_load_steps(void)
     expect_close(output.error_kw, 3.0f);
     expect_close(output.requested_pv_kw, 41.5f);
 
-    /* A load rejection toward export must curtail PV in the safe direction. */
     output = policy_step(GRID_POLICY_ZERO_EXPORT, -20.0f, 80.0f, 0.0f, 0.0f);
     assert(output.valid);
     expect_close(output.error_kw, -20.0f);
@@ -167,6 +224,7 @@ static void test_policy_blocks_without_evidence(void)
 int main(void)
 {
     test_grid_gate();
+    test_source_change_requires_new_dwell();
     test_policy_targets_and_load_steps();
     test_policy_blocks_without_evidence();
     puts("Solar-Grid integration tests passed");
