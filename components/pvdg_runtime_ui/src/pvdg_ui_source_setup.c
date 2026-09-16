@@ -131,7 +131,11 @@ lv_obj_t *pvdg_ui_source_setup_create(lv_obj_t *parent,
     s.refresh = button(actions, "Refresh", refresh_event);
     s.save = button(actions, "Validate + Save", save_event);
 
-    s.keyboard = lv_keyboard_create(lv_layer_top());
+    /* Keep the keyboard inside the page so changing Engineering sections or
+     * closing the overlay cannot leave a global top-layer object intercepting
+     * touches on the next page. FLOATING keeps it out of the flex layout. */
+    s.keyboard = lv_keyboard_create(s.root);
+    lv_obj_add_flag(s.keyboard, LV_OBJ_FLAG_FLOATING);
     lv_obj_set_size(s.keyboard, 718, 190);
     lv_obj_align(s.keyboard, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
     lv_obj_add_event_cb(s.keyboard, keyboard_event, LV_EVENT_READY, NULL);
