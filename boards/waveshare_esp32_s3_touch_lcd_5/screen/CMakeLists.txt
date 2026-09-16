@@ -38,6 +38,7 @@ idf_component_register(
         config_manager
         control_engine
         solar_grid_config
+        inverter_manager
         web_server
         nvs_flash
         mbedtls
