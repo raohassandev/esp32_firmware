@@ -209,26 +209,50 @@ static screen_page_t active_page(void)
 
 static void refresh_active_context(screen_page_t page, uint32_t elapsed_ms, bool page_changed)
 {
+    const bool status_due = page_changed || (elapsed_ms % SCREEN_STATUS_MS) == 0U;
+    const bool devices_due = page_changed || (elapsed_ms % SCREEN_DEVICES_MS) == 0U;
+    const bool operations_due = page_changed || (elapsed_ms % SCREEN_OPERATIONS_MS) == 0U;
+
     switch (page) {
     case SCREEN_PAGE_OVERVIEW:
         refresh_fast();
-        if (page_changed || (elapsed_ms % SCREEN_STATUS_MS) == 0U) refresh_status();
+        if (status_due) refresh_status();
+        if (devices_due) refresh_devices();
+        if (operations_due) refresh_operations();
         break;
     case SCREEN_PAGE_GRID:
+        refresh_fast();
+        if (status_due) refresh_status();
+        if (devices_due) refresh_devices();
+        break;
     case SCREEN_PAGE_SOLAR:
-        if (page_changed || (elapsed_ms % SCREEN_DEVICES_MS) == 0U) refresh_devices();
+        refresh_fast();
+        if (status_due) refresh_status();
+        if (devices_due) refresh_devices();
         break;
-    case SCREEN_PAGE_ALARMS:
-        if (page_changed || (elapsed_ms % SCREEN_OPERATIONS_MS) == 0U) refresh_operations();
+    case SCREEN_PAGE_GENERATOR:
+        refresh_fast();
+        if (status_due) refresh_status();
+        if (devices_due) refresh_devices();
         break;
-    case SCREEN_PAGE_READINESS:
-        if (page_changed || (elapsed_ms % SCREEN_STATUS_MS) == 0U) refresh_status();
+    case SCREEN_PAGE_LOAD:
+        refresh_fast();
+        if (status_due) refresh_status();
+        if (devices_due) refresh_devices();
         break;
-    case SCREEN_PAGE_COMMISSIONING:
-        if (page_changed || (elapsed_ms % SCREEN_STATUS_MS) == 0U) refresh_status();
-        if (page_changed || (elapsed_ms % SCREEN_DEVICES_MS) == 0U) refresh_devices();
+    case SCREEN_PAGE_REPORTS:
+        refresh_fast();
+        if (status_due) refresh_status();
+        if (devices_due) refresh_devices();
         break;
-    case SCREEN_PAGE_SOURCE:
+    case SCREEN_PAGE_WIFI:
+        if (status_due) refresh_status();
+        break;
+    case SCREEN_PAGE_ENGINEERING:
+        if (status_due) refresh_status();
+        if (devices_due) refresh_devices();
+        if (operations_due) refresh_operations();
+        break;
     case SCREEN_PAGE_COUNT:
     default:
         break;

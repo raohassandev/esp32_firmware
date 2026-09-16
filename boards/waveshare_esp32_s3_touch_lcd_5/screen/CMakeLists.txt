@@ -29,6 +29,7 @@ idf_component_register(
     REQUIRES
         cjson
         lvgl
+        pvdg_runtime_ui
         esp_lvgl_adapter
         esp_lcd_touch_gt911
         esp_lcd
