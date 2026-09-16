@@ -18,6 +18,11 @@ CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=65536
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
 CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM=y
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+# Native runtime UI typography. Montserrat 14 is the LVGL default on this target;
+# title and hero text additionally require the 20px and 24px built-in fonts.
+CONFIG_LV_FONT_MONTSERRAT_14=y
+CONFIG_LV_FONT_MONTSERRAT_20=y
+CONFIG_LV_FONT_MONTSERRAT_24=y
 # A/B diagnostic: keep RGB bounce/timing unchanged and disable automatic DMA
 # restart at every VSYNC. ESP-IDF documents this option as a recovery path for
 # RGB drift that can itself produce visible flicker. Stable standalone HIL does
