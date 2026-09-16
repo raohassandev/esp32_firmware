@@ -183,6 +183,14 @@ void wifi_runtime_bridge_refresh(pvdg_ui_model_t *model,
 {
     if (!model || !scan) return;
 
+    /* screen_app initializes the generic Wi-Fi surface fail-closed. Restore the
+     * real Product Core baseline whenever the Wi-Fi page is rendered so Save is
+     * enabled only against a validated current configuration. */
+    pvdg_ui_wifi_config_t baseline;
+    if (wifi_runtime_bridge_load_config(&baseline)) {
+        pvdg_ui_wifi_set_config_snapshot(&baseline, true);
+    }
+
     network_status_t status = {0};
     network_manager_get_status(&status);
     model->network.online = status.network_ready;
