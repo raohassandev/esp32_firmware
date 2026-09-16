@@ -11,27 +11,25 @@ CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_SPIRAM_USE_MALLOC=y
-CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096
-# Preserve explicit DMA/internal headroom for the RGB bounce path and task stacks.
-# Normal malloc prefers the non-reserved heaps first; Wi-Fi/LWIP already prefer PSRAM.
-CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=65536
+CONFIG_SPIRAM_XIP_FROM_PSRAM=y
+CONFIG_ESP32S3_INSTRUCTION_CACHE_16KB=y
+CONFIG_ESP32S3_DATA_CACHE_32KB=y
+CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=512
+CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=98304
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=4
+CONFIG_ESP_WIFI_STATIC_TX_BUFFER=y
+CONFIG_ESP_WIFI_STATIC_TX_BUFFER_NUM=4
+CONFIG_ESP_WIFI_RX_BA_WIN=8
 CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM=y
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
-# Native runtime UI typography. Montserrat 14 is the LVGL default on this target;
-# title and hero text additionally require the 20px and 24px built-in fonts.
 CONFIG_LV_FONT_MONTSERRAT_14=y
 CONFIG_LV_FONT_MONTSERRAT_20=y
 CONFIG_LV_FONT_MONTSERRAT_24=y
-# A/B diagnostic: keep RGB bounce/timing unchanged and disable automatic DMA
-# restart at every VSYNC. ESP-IDF documents this option as a recovery path for
-# RGB drift that can itself produce visible flicker. Stable standalone HIL does
-# not force this option on; this isolates restart-induced shaking from genuine
-# bandwidth underrun before any larger SRAM rebalance.
 # CONFIG_LCD_RGB_RESTART_IN_VSYNC is not set
 CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
 CONFIG_HTTPD_MAX_URI_LEN=256
-# Bench-only Waveshare provisioning. Remove before any production/customer build.
 CONFIG_PVDG_PRIMARY_WIFI_SSID="Automatrix-4G"
 CONFIG_PVDG_PRIMARY_WIFI_PASSWORD="Automatrix1234"
 CONFIG_PVDG_APPLY_BUILD_WIFI_PROVISIONING=y
@@ -43,3 +41,5 @@ CONFIG_MDNS_PREDEF_NETIF_AP=y
 CONFIG_MDNS_PREDEF_NETIF_ETH=n
 CONFIG_MDNS_MAX_INTERFACES=2
 CONFIG_MDNS_MAX_SERVICES=2
+CONFIG_LV_USE_BUILTIN_MALLOC=n
+CONFIG_LV_USE_CLIB_MALLOC=y

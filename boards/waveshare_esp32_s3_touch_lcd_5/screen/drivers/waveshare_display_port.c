@@ -8,6 +8,7 @@
 #include "esp_lcd_touch_gt911.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 
 #define CH422G_SYSTEM_ADDRESS 0x24U
@@ -242,6 +243,70 @@ static esp_err_t create_touch(const waveshare_display_profile_t *profile,
     return err;
 }
 
+/* Keep the RGB scanout refill off the core that runs Product Core's periodic
+ * critical sections.
+ *
+ * The panel is scanned out of a PSRAM framebuffer through a 6-line bounce
+ * buffer, and that bounce buffer is refilled from the GDMA end-of-frame
+ * interrupt with a hard per-chunk deadline. esp_lcd_new_rgb_panel() allocates
+ * the interrupt on whichever core calls it, which would otherwise be app_main
+ * on CPU0.
+ *
+ * Product Core's operational_task takes portENTER_CRITICAL once per sample
+ * period, and portENTER_CRITICAL disables interrupts on the core it runs on.
+ * With the refill on the same core, that window makes the refill late, the
+ * bounce buffer runs dry and the panel scanout slips - seen on the glass as a
+ * top-to-bottom sweep at exactly the task's period.
+ *
+ * This was established on the board by elimination, not assumption:
+ *   - disabling the whole 5 s Overview status path did not remove the sweep,
+ *     so it was not LVGL layout or redraw churn;
+ *   - changing only operational_task's period to 3 s moved the sweep to ~3 s,
+ *     which identified that task as the trigger;
+ *   - suppressing only its flash write did not remove the sweep, so the
+ *     cache-disable window was not the mechanism;
+ *   - moving only this interrupt to CPU1 did not remove it either, because
+ *     operational_task is created without affinity and could still land on the
+ *     same core;
+ *   - pinning both - refill on CPU1, operational_task on CPU0 - removed the
+ *     sweep and left touch working.
+ *
+ * Both halves are required. Pinning only one leaves the two free to collide. */
+typedef struct {
+    const waveshare_display_port_config_t *config;
+    esp_lcd_panel_handle_t *panel;
+    esp_err_t err;
+    SemaphoreHandle_t done;
+} rgb_panel_build_ctx_t;
+
+static void rgb_panel_build_task(void *argument)
+{
+    rgb_panel_build_ctx_t *ctx = (rgb_panel_build_ctx_t *)argument;
+    ctx->err = create_rgb_panel(ctx->config, ctx->panel);
+    xSemaphoreGive(ctx->done);
+    vTaskDelete(NULL);
+}
+
+static esp_err_t create_rgb_panel_on_core1(const waveshare_display_port_config_t *config,
+                                           esp_lcd_panel_handle_t *panel)
+{
+    rgb_panel_build_ctx_t ctx = {.config = config, .panel = panel, .err = ESP_FAIL};
+    ctx.done = xSemaphoreCreateBinary();
+    if (!ctx.done) return create_rgb_panel(config, panel);
+    /* A failure to build on CPU1 must not cost the operator a display: fall back
+     * to the calling core, which is the previous behaviour. */
+    if (xTaskCreatePinnedToCore(rgb_panel_build_task, "rgb_build", 4096, &ctx, 10, NULL, 1) !=
+        pdPASS) {
+        vSemaphoreDelete(ctx.done);
+        ESP_LOGW(TAG, "Could not build the RGB panel on CPU1; using the calling core");
+        return create_rgb_panel(config, panel);
+    }
+    xSemaphoreTake(ctx.done, portMAX_DELAY);
+    vSemaphoreDelete(ctx.done);
+    ESP_LOGI(TAG, "RGB refill interrupt pinned to CPU1, away from Product Core critical sections");
+    return ctx.err;
+}
+
 esp_err_t waveshare_display_port_init(const waveshare_display_port_config_t *config,
                                       waveshare_display_port_handles_t *out)
 {
@@ -263,7 +328,7 @@ esp_err_t waveshare_display_port_init(const waveshare_display_port_config_t *con
     esp_err_t err = create_ch422g_devices(config->profile);
     if (err != ESP_OK) goto fail;
 
-    err = create_rgb_panel(config, &out->panel);
+    err = create_rgb_panel_on_core1(config, &out->panel);
     if (err != ESP_OK) goto fail;
 
     if (config->enable_touch) {
