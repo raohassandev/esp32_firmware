@@ -435,6 +435,7 @@ void pvdg_ui_wifi_set_action_state(bool busy, const char *message)
 
 void pvdg_ui_wifi_set_write_authorized(bool authorized)
 {
+    const bool changed = s.write_authorized != authorized;
     s.write_authorized = authorized;
     if (!s.root) return;
     update_save_state();
@@ -442,6 +443,10 @@ void pvdg_ui_wifi_set_write_authorized(bool authorized)
         pvdg_ui_label_set_if_changed(
             s.msg,
             "Engineering login required before Save & Connect. Tap the gear icon to sign in.");
+    } else if (changed && s.config_available) {
+        pvdg_ui_label_set_if_changed(
+            s.msg,
+            "Engineering authenticated. Select a network, enter its password, then tap Save & Connect.");
     }
 }
 
