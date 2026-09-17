@@ -159,10 +159,12 @@ void wifi_runtime_bridge_submit_config(const pvdg_ui_wifi_config_t *config,
     if (!config) return;
 
     if (!engineering_runtime_bridge_is_authorized()) {
+        pvdg_ui_wifi_set_write_authorized(false);
         pvdg_ui_wifi_set_action_state(false,
-            "Engineering authentication required. Open the gear icon and sign in first.");
+            "Engineering login required. Tap the gear icon, sign in, then return and tap Save & Connect.");
         return;
     }
+    pvdg_ui_wifi_set_write_authorized(true);
 
     char validation_error[160] = {0};
     if (!pvdg_ui_wifi_config_valid(config, validation_error, sizeof(validation_error))) {
@@ -203,11 +205,15 @@ void wifi_runtime_bridge_submit_config(const pvdg_ui_wifi_config_t *config,
         return;
     }
 
+    /* Clear the entered credential only after the protected configuration write
+     * has actually succeeded. The restart reloads network_manager's cached
+     * profile from NVS and applies the new SSID/password cleanly. */
+    pvdg_ui_wifi_clear_password_input();
     pvdg_ui_wifi_set_action_state(true,
-        "Wi-Fi saved safely. Control disabled; restarting to apply the new network...");
+        "Wi-Fi saved. Control disabled; restarting now to connect to the selected network...");
     if (xTaskCreate(restart_task, "wifi_restart", 2048, NULL, 4, NULL) != pdPASS) {
         pvdg_ui_wifi_set_action_state(false,
-            "Wi-Fi saved. Restart controller manually to apply it; control is disabled.");
+            "Wi-Fi saved. Restart controller manually to connect; control remains disabled.");
     }
 }
 
@@ -271,6 +277,11 @@ void wifi_runtime_bridge_refresh(pvdg_ui_model_t *model,
     } else if (s_scan_snapshot.state == NETWORK_SCAN_FAILED) {
         pvdg_ui_wifi_set_action_state(false, "Wi-Fi scan failed. Tap Scan to retry.");
     }
+
+    /* Authorization is intentionally checked live. An expired Engineering
+     * session immediately disables Save & Connect; no network write bypasses
+     * the existing commissioning security contract. */
+    pvdg_ui_wifi_set_write_authorized(engineering_runtime_bridge_is_authorized());
 }
 
 void wifi_runtime_bridge_request_scan(void *user)
