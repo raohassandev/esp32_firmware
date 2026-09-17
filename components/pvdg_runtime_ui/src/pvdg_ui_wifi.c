@@ -22,6 +22,7 @@ extern void pvdg_ui_wifi_host_submit_config(const pvdg_ui_wifi_config_t *config,
 
 typedef struct {
     lv_obj_t *root;
+    lv_obj_t *left;
     lv_obj_t *badge;
     lv_obj_t *ssid;
     lv_obj_t *ip;
@@ -43,6 +44,7 @@ typedef struct {
     bool supported[PVDG_UI_WIFI_MAX_NETWORKS];
     bool selected_secure;
     bool config_available;
+    bool write_authorized;
     bool busy;
     bool auto_scan_requested;
 } wifi_ui_t;
@@ -80,6 +82,8 @@ static void keyboard_hide(void)
     if (!s.keyboard) return;
     lv_keyboard_set_textarea(s.keyboard, NULL);
     lv_obj_add_flag(s.keyboard, LV_OBJ_FLAG_HIDDEN);
+    if (s.root) lv_obj_update_layout(s.root);
+    if (s.left) lv_obj_scroll_to_y(s.left, 0, LV_ANIM_OFF);
 }
 
 static void keyboard_event(lv_event_t *event)
@@ -91,10 +95,11 @@ static void keyboard_event(lv_event_t *event)
 static void password_event(lv_event_t *event)
 {
     (void)event;
-    if (!s.keyboard) return;
+    if (!s.keyboard || !s.password) return;
     lv_keyboard_set_textarea(s.keyboard, s.password);
     lv_obj_remove_flag(s.keyboard, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_foreground(s.keyboard);
+    if (s.root) lv_obj_update_layout(s.root);
+    lv_obj_scroll_to_view(s.password, LV_ANIM_OFF);
 }
 
 static void request_scan_from_host(void)
@@ -123,7 +128,8 @@ static void update_save_state(void)
 {
     if (!s.save) return;
     const bool can_submit = s.cb.submit_config || pvdg_ui_wifi_host_submit_config;
-    if (!s.busy && s.config_available && s.selected_ssid[0] && can_submit) {
+    if (!s.busy && s.config_available && s.write_authorized &&
+        s.selected_ssid[0] && can_submit) {
         lv_obj_remove_state(s.save, LV_STATE_DISABLED);
     } else {
         lv_obj_add_state(s.save, LV_STATE_DISABLED);
@@ -151,6 +157,13 @@ static void save_event(lv_event_t *event)
     if (s.busy || (!s.cb.submit_config && !host_submit) ||
         !s.config_available || !s.selected_ssid[0]) return;
 
+    if (!s.write_authorized) {
+        pvdg_ui_label_set_if_changed(
+            s.msg,
+            "Engineering login required. Tap the gear icon, sign in, then return and tap Save & Connect.");
+        return;
+    }
+
     pvdg_ui_wifi_config_t next;
     bool changed = false;
     char error[160] = {0};
@@ -172,14 +185,19 @@ static void save_event(lv_event_t *event)
     keyboard_hide();
     if (s.cb.submit_config) s.cb.submit_config(&next, changed, s.cb.user);
     else pvdg_ui_wifi_host_submit_config(&next, changed, NULL);
-    lv_textarea_set_text(s.password, "");
+    /* Do not clear the credential here. The product host may reject the write
+     * (for example, an expired Engineering session). It clears the field only
+     * after persistence succeeds, so the operator does not have to re-enter it. */
 }
 
 static void create_keyboard(void)
 {
-    s.keyboard = lv_keyboard_create(lv_layer_top());
-    lv_obj_set_size(s.keyboard, 718, 190);
-    lv_obj_align(s.keyboard, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+    /* Keep the keyboard inside the Wi-Fi page's flex column instead of the
+     * global top layer. When visible it consumes layout space, shrinking the
+     * body rather than covering the password field or intercepting other pages. */
+    s.keyboard = lv_keyboard_create(s.root);
+    lv_obj_set_width(s.keyboard, LV_PCT(100));
+    lv_obj_set_height(s.keyboard, 168);
     lv_obj_add_event_cb(s.keyboard, keyboard_event, LV_EVENT_READY, NULL);
     lv_obj_add_event_cb(s.keyboard, keyboard_event, LV_EVENT_CANCEL, NULL);
     lv_obj_add_flag(s.keyboard, LV_OBJ_FLAG_HIDDEN);
@@ -218,19 +236,22 @@ lv_obj_t *pvdg_ui_wifi_create(lv_obj_t *parent,
     lv_obj_set_flex_flow(body, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_column(body, PVDG_UI_GAP_SM, LV_PART_MAIN);
 
-    lv_obj_t *left = pvdg_ui_make_card(body);
-    lv_obj_set_width(left, 300);
-    lv_obj_set_height(left, LV_PCT(100));
-    lv_obj_set_layout(left, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(left, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_all(left, 8, LV_PART_MAIN);
-    lv_obj_set_style_pad_row(left, 3, LV_PART_MAIN);
+    s.left = pvdg_ui_make_card(body);
+    lv_obj_set_width(s.left, 300);
+    lv_obj_set_height(s.left, LV_PCT(100));
+    lv_obj_set_layout(s.left, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(s.left, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(s.left, 8, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(s.left, 3, LV_PART_MAIN);
+    lv_obj_add_flag(s.left, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(s.left, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(s.left, LV_SCROLLBAR_MODE_OFF);
 
-    pvdg_ui_make_metric_row(left, "SSID", &s.ssid);
-    pvdg_ui_make_metric_row(left, "IP", &s.ip);
-    pvdg_ui_make_metric_row(left, "Signal", &s.rssi);
+    pvdg_ui_make_metric_row(s.left, "SSID", &s.ssid);
+    pvdg_ui_make_metric_row(s.left, "IP", &s.ip);
+    pvdg_ui_make_metric_row(s.left, "Signal", &s.rssi);
 
-    lv_obj_t *actions = lv_obj_create(left);
+    lv_obj_t *actions = lv_obj_create(s.left);
     pvdg_ui_style_root(actions);
     lv_obj_set_width(actions, LV_PCT(100));
     lv_obj_set_height(actions, 46);
@@ -242,12 +263,18 @@ lv_obj_t *pvdg_ui_wifi_create(lv_obj_t *parent,
     lv_obj_set_flex_grow(s.scan, 1);
     lv_obj_set_flex_grow(s.reconnect, 1);
 
-    pvdg_ui_make_muted(left, "Selected network");
-    s.selected = label(left, "Select a network", PVDG_UI_COLOR_TEXT);
+    /* Keep action/auth feedback above the credential controls so an operator
+     * can always see why Save & Connect is unavailable. */
+    s.msg = pvdg_ui_make_muted(s.left, "Tap Scan to find nearby Wi-Fi networks.");
+    lv_obj_set_width(s.msg, LV_PCT(100));
+    lv_label_set_long_mode(s.msg, LV_LABEL_LONG_WRAP);
+
+    pvdg_ui_make_muted(s.left, "Selected network");
+    s.selected = label(s.left, "Select a network", PVDG_UI_COLOR_TEXT);
     lv_obj_set_width(s.selected, LV_PCT(100));
     lv_label_set_long_mode(s.selected, LV_LABEL_LONG_DOT);
 
-    s.password = lv_textarea_create(left);
+    s.password = lv_textarea_create(s.left);
     lv_textarea_set_one_line(s.password, true);
     lv_textarea_set_password_mode(s.password, true);
     lv_textarea_set_placeholder_text(s.password, "Wi-Fi password");
@@ -256,12 +283,9 @@ lv_obj_t *pvdg_ui_wifi_create(lv_obj_t *parent,
     lv_obj_add_event_cb(s.password, password_event, LV_EVENT_FOCUSED, NULL);
     lv_obj_add_event_cb(s.password, password_event, LV_EVENT_CLICKED, NULL);
 
-    s.save = button(left, "Save Primary Wi-Fi", save_event);
+    s.save = button(s.left, "Save & Connect", save_event);
     lv_obj_set_width(s.save, LV_PCT(100));
     lv_obj_add_state(s.save, LV_STATE_DISABLED);
-    s.msg = pvdg_ui_make_muted(left, "Tap Scan to find nearby Wi-Fi networks.");
-    lv_obj_set_width(s.msg, LV_PCT(100));
-    lv_label_set_long_mode(s.msg, LV_LABEL_LONG_WRAP);
 
     lv_obj_t *right = pvdg_ui_make_card(body);
     lv_obj_set_flex_grow(right, 1);
@@ -380,8 +404,11 @@ void pvdg_ui_wifi_set_config_snapshot(const pvdg_ui_wifi_config_t *config,
                          pvdg_ui_wifi_config_valid(config, error, sizeof(error));
     if (s.config_available) {
         s.config = *config;
-        pvdg_ui_label_set_if_changed(s.msg,
-            "Wi-Fi config loaded. Saving requires Engineering authentication.");
+        if (!s.write_authorized) {
+            pvdg_ui_label_set_if_changed(
+                s.msg,
+                "Engineering login required before Save & Connect. Tap the gear icon to sign in.");
+        }
     } else {
         memset(&s.config, 0, sizeof(s.config));
         pvdg_ui_label_set_if_changed(s.msg,
@@ -404,4 +431,22 @@ void pvdg_ui_wifi_set_action_state(bool busy, const char *message)
     }
     update_save_state();
     if (message) pvdg_ui_label_set_if_changed(s.msg, message);
+}
+
+void pvdg_ui_wifi_set_write_authorized(bool authorized)
+{
+    s.write_authorized = authorized;
+    if (!s.root) return;
+    update_save_state();
+    if (!authorized) {
+        pvdg_ui_label_set_if_changed(
+            s.msg,
+            "Engineering login required before Save & Connect. Tap the gear icon to sign in.");
+    }
+}
+
+void pvdg_ui_wifi_clear_password_input(void)
+{
+    if (s.password) lv_textarea_set_text(s.password, "");
+    keyboard_hide();
 }
