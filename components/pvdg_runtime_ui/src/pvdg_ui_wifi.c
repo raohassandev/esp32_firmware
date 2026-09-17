@@ -29,8 +29,12 @@ typedef struct {
     lv_obj_t *rssi;
     lv_obj_t *scan;
     lv_obj_t *reconnect;
+    lv_obj_t *scan_spinner;
+    lv_obj_t *scan_empty;
     lv_obj_t *selected;
     lv_obj_t *password;
+    lv_obj_t *password_toggle;
+    lv_obj_t *password_toggle_label;
     lv_obj_t *save;
     lv_obj_t *msg;
     lv_obj_t *keyboard;
@@ -43,10 +47,13 @@ typedef struct {
     bool secure[PVDG_UI_WIFI_MAX_NETWORKS];
     bool supported[PVDG_UI_WIFI_MAX_NETWORKS];
     bool selected_secure;
+    bool password_visible;
     bool config_available;
     bool write_authorized;
     bool busy;
-    bool auto_scan_requested;
+    bool scan_visual_running;
+    bool rendered_scan_valid;
+    uint32_t rendered_scan_signature;
 } wifi_ui_t;
 
 static wifi_ui_t s;
@@ -77,29 +84,83 @@ static lv_obj_t *button(lv_obj_t *parent, const char *text, lv_event_cb_t callba
     return obj;
 }
 
+static void set_hidden(lv_obj_t *obj, bool hidden)
+{
+    if (!obj) return;
+    const bool is_hidden = lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN);
+    if (hidden && !is_hidden) lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
+    else if (!hidden && is_hidden) lv_obj_remove_flag(obj, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void set_scan_indicator(bool running)
+{
+    if (s.scan_visual_running == running) return;
+    s.scan_visual_running = running;
+    set_hidden(s.scan_spinner, !running);
+}
+
 static void keyboard_hide(void)
 {
     if (!s.keyboard) return;
     lv_keyboard_set_textarea(s.keyboard, NULL);
-    lv_obj_add_flag(s.keyboard, LV_OBJ_FLAG_HIDDEN);
+    set_hidden(s.keyboard, true);
     if (s.root) lv_obj_update_layout(s.root);
-    if (s.left) lv_obj_scroll_to_y(s.left, 0, LV_ANIM_OFF);
 }
 
 static void keyboard_event(lv_event_t *event)
 {
     const lv_event_code_t code = lv_event_get_code(event);
-    if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL) keyboard_hide();
+    if (code == LV_EVENT_READY) {
+        keyboard_hide();
+        if (s.save) lv_obj_scroll_to_view(s.save, LV_ANIM_OFF);
+    } else if (code == LV_EVENT_CANCEL) {
+        keyboard_hide();
+        if (s.left) lv_obj_scroll_to_y(s.left, 0, LV_ANIM_OFF);
+    }
 }
 
 static void password_event(lv_event_t *event)
 {
     (void)event;
-    if (!s.keyboard || !s.password) return;
+    if (!s.keyboard || !s.password || !s.selected_secure) return;
     lv_keyboard_set_textarea(s.keyboard, s.password);
-    lv_obj_remove_flag(s.keyboard, LV_OBJ_FLAG_HIDDEN);
+    set_hidden(s.keyboard, false);
     if (s.root) lv_obj_update_layout(s.root);
     lv_obj_scroll_to_view(s.password, LV_ANIM_OFF);
+}
+
+static void password_visibility_apply(void)
+{
+    if (!s.password) return;
+    lv_textarea_set_password_mode(s.password, !s.password_visible);
+    if (s.password_toggle_label) {
+        pvdg_ui_label_set_if_changed(s.password_toggle_label,
+                                     s.password_visible ? "Hide" : "Show");
+    }
+}
+
+static void password_toggle_event(lv_event_t *event)
+{
+    (void)event;
+    if (!s.password || !s.selected_secure) return;
+    s.password_visible = !s.password_visible;
+    password_visibility_apply();
+    lv_obj_scroll_to_view(s.password, LV_ANIM_OFF);
+}
+
+static void set_password_controls(bool secure)
+{
+    if (!s.password || !s.password_toggle) return;
+    if (secure) {
+        lv_obj_remove_state(s.password, LV_STATE_DISABLED);
+        lv_obj_remove_state(s.password_toggle, LV_STATE_DISABLED);
+    } else {
+        lv_obj_add_state(s.password, LV_STATE_DISABLED);
+        lv_obj_add_state(s.password_toggle, LV_STATE_DISABLED);
+        s.password_visible = false;
+        password_visibility_apply();
+        keyboard_hide();
+    }
 }
 
 static void request_scan_from_host(void)
@@ -112,7 +173,12 @@ static void scan_event(lv_event_t *event)
 {
     (void)event;
     if (s.busy) return;
-    s.auto_scan_requested = true;
+
+    /* Give immediate operator feedback; the host snapshot will keep this state
+     * authoritative on the next refresh. Existing rows intentionally remain
+     * visible while a new scan is running so the layout does not thrash. */
+    set_scan_indicator(true);
+    pvdg_ui_label_set_if_changed(s.msg, "Scanning for nearby Wi-Fi networks...");
     request_scan_from_host();
 }
 
@@ -120,6 +186,7 @@ static void reconnect_event(lv_event_t *event)
 {
     (void)event;
     if (s.busy) return;
+    keyboard_hide();
     if (s.cb.request_reconnect) s.cb.request_reconnect(s.cb.user);
     else if (pvdg_ui_wifi_host_request_reconnect) pvdg_ui_wifi_host_request_reconnect(NULL);
 }
@@ -142,12 +209,30 @@ static void row_event(lv_event_t *event)
     if (index < 0 || index >= PVDG_UI_WIFI_MAX_NETWORKS || !s.supported[index]) return;
 
     const char *name = lv_label_get_text(s.row_name[index]);
-    snprintf(s.selected_ssid, sizeof(s.selected_ssid), "%s", name ? name : "");
+    if (!name || !name[0] || strcmp(name, "<hidden>") == 0) return;
+
+    snprintf(s.selected_ssid, sizeof(s.selected_ssid), "%s", name);
     s.selected_secure = s.secure[index];
+    s.password_visible = false;
     pvdg_ui_label_set_if_changed(s.selected, s.selected_ssid);
     lv_textarea_set_text(s.password, "");
+    password_visibility_apply();
+    set_password_controls(s.selected_secure);
     update_save_state();
-    if (s.selected_secure) password_event(NULL);
+
+    if (s.selected_secure) {
+        if (s.write_authorized) {
+            pvdg_ui_label_set_if_changed(s.msg,
+                "Secured network selected. Enter the password, then tap Save & Connect.");
+        }
+        password_event(NULL);
+    } else {
+        if (s.write_authorized) {
+            pvdg_ui_label_set_if_changed(s.msg,
+                "Open network selected. No password is required; tap Save & Connect.");
+        }
+        if (s.save) lv_obj_scroll_to_view(s.save, LV_ANIM_OFF);
+    }
 }
 
 static void save_event(lv_event_t *event)
@@ -200,7 +285,107 @@ static void create_keyboard(void)
     lv_obj_set_height(s.keyboard, 168);
     lv_obj_add_event_cb(s.keyboard, keyboard_event, LV_EVENT_READY, NULL);
     lv_obj_add_event_cb(s.keyboard, keyboard_event, LV_EVENT_CANCEL, NULL);
-    lv_obj_add_flag(s.keyboard, LV_OBJ_FLAG_HIDDEN);
+    set_hidden(s.keyboard, true);
+}
+
+static uint32_t hash_byte(uint32_t hash, uint8_t value)
+{
+    return (hash ^ value) * 16777619U;
+}
+
+static uint32_t hash_text(uint32_t hash, const char *text)
+{
+    if (!text) return hash_byte(hash, 0U);
+    while (*text) hash = hash_byte(hash, (uint8_t)*text++);
+    return hash_byte(hash, 0U);
+}
+
+static uint32_t scan_signature(const pvdg_ui_wifi_scan_t *scan)
+{
+    uint32_t hash = 2166136261U;
+    if (!scan) return hash;
+    hash = hash_byte(hash, scan->count);
+    for (uint8_t i = 0U; i < scan->count && i < PVDG_UI_WIFI_MAX_NETWORKS; ++i) {
+        const pvdg_ui_wifi_network_t *network = &scan->networks[i];
+        hash = hash_text(hash, network->ssid);
+        hash = hash_byte(hash, (uint8_t)network->rssi);
+        hash = hash_byte(hash, network->channel);
+        hash = hash_byte(hash, network->auth_mode);
+        hash = hash_byte(hash, network->connected ? 1U : 0U);
+        hash = hash_byte(hash, network->configured_primary ? 1U : 0U);
+        hash = hash_byte(hash, network->configured_fallback ? 1U : 0U);
+        hash = hash_byte(hash, network->supported ? 1U : 0U);
+    }
+    return hash;
+}
+
+static void render_scan_rows(const pvdg_ui_wifi_scan_t *scan)
+{
+    if (!scan || scan->scan_running || scan->scan_failed) return;
+
+    const uint32_t signature = scan_signature(scan);
+    if (s.rendered_scan_valid && s.rendered_scan_signature == signature) return;
+
+    const uint8_t count = scan->count > PVDG_UI_WIFI_MAX_NETWORKS
+                              ? PVDG_UI_WIFI_MAX_NETWORKS : scan->count;
+    bool selected_still_visible = s.selected_ssid[0] == '\0';
+
+    for (uint8_t i = 0U; i < PVDG_UI_WIFI_MAX_NETWORKS; ++i) {
+        if (i >= count) {
+            s.secure[i] = false;
+            s.supported[i] = false;
+            set_hidden(s.rows[i], true);
+            continue;
+        }
+
+        const pvdg_ui_wifi_network_t *network = &scan->networks[i];
+        const char *name = network->ssid[0] ? network->ssid : "<hidden>";
+        pvdg_ui_label_set_if_changed(s.row_name[i], name);
+
+        char meta[96];
+        snprintf(meta, sizeof(meta), "%d dBm | Ch %u | %s%s%s",
+                 network->rssi, (unsigned)network->channel,
+                 network->security[0] ? network->security : "Unknown",
+                 network->connected ? " | Connected" : "",
+                 network->configured_primary && !network->connected ? " | Primary" : "");
+        pvdg_ui_label_set_if_changed(s.row_meta[i], meta);
+
+        s.secure[i] = network->secure;
+        s.supported[i] = network->supported && network->ssid[0];
+        if (s.supported[i]) lv_obj_remove_state(s.rows[i], LV_STATE_DISABLED);
+        else lv_obj_add_state(s.rows[i], LV_STATE_DISABLED);
+        set_hidden(s.rows[i], false);
+
+        if (s.selected_ssid[0] && network->ssid[0] &&
+            strcmp(s.selected_ssid, network->ssid) == 0) {
+            selected_still_visible = true;
+            s.selected_secure = network->secure;
+        }
+    }
+
+    if (!selected_still_visible) {
+        s.selected_ssid[0] = '\0';
+        s.selected_secure = false;
+        s.password_visible = false;
+        pvdg_ui_label_set_if_changed(s.selected, "Select a network");
+        lv_textarea_set_text(s.password, "");
+        password_visibility_apply();
+        set_password_controls(false);
+    }
+
+    if (count == 0U) {
+        pvdg_ui_label_set_if_changed(
+            s.scan_empty,
+            scan->generation == 0U ? "Tap Scan to discover nearby Wi-Fi networks."
+                                   : "No networks found. Tap Scan to retry.");
+        set_hidden(s.scan_empty, false);
+    } else {
+        set_hidden(s.scan_empty, true);
+    }
+
+    s.rendered_scan_signature = signature;
+    s.rendered_scan_valid = true;
+    update_save_state();
 }
 
 lv_obj_t *pvdg_ui_wifi_create(lv_obj_t *parent,
@@ -257,7 +442,15 @@ lv_obj_t *pvdg_ui_wifi_create(lv_obj_t *parent,
     lv_obj_set_height(actions, 46);
     lv_obj_set_layout(actions, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(actions, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(actions, LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(actions, 4, LV_PART_MAIN);
+
+    s.scan_spinner = lv_spinner_create(actions);
+    lv_spinner_set_anim_params(s.scan_spinner, 800, 70);
+    lv_obj_set_size(s.scan_spinner, 22, 22);
+    set_hidden(s.scan_spinner, true);
+
     s.scan = button(actions, "Scan", scan_event);
     s.reconnect = button(actions, "Reconnect", reconnect_event);
     lv_obj_set_flex_grow(s.scan, 1);
@@ -274,14 +467,31 @@ lv_obj_t *pvdg_ui_wifi_create(lv_obj_t *parent,
     lv_obj_set_width(s.selected, LV_PCT(100));
     lv_label_set_long_mode(s.selected, LV_LABEL_LONG_DOT);
 
-    s.password = lv_textarea_create(s.left);
+    lv_obj_t *password_row = lv_obj_create(s.left);
+    pvdg_ui_style_root(password_row);
+    lv_obj_set_width(password_row, LV_PCT(100));
+    lv_obj_set_height(password_row, 42);
+    lv_obj_set_layout(password_row, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(password_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(password_row, LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_all(password_row, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_column(password_row, 4, LV_PART_MAIN);
+
+    s.password = lv_textarea_create(password_row);
     lv_textarea_set_one_line(s.password, true);
     lv_textarea_set_password_mode(s.password, true);
     lv_textarea_set_placeholder_text(s.password, "Wi-Fi password");
-    lv_obj_set_width(s.password, LV_PCT(100));
     lv_obj_set_height(s.password, 40);
+    lv_obj_set_flex_grow(s.password, 1);
     lv_obj_add_event_cb(s.password, password_event, LV_EVENT_FOCUSED, NULL);
     lv_obj_add_event_cb(s.password, password_event, LV_EVENT_CLICKED, NULL);
+
+    s.password_toggle = button(password_row, "Show", password_toggle_event);
+    lv_obj_set_width(s.password_toggle, 66);
+    lv_obj_set_height(s.password_toggle, 40);
+    s.password_toggle_label = lv_obj_get_child(s.password_toggle, 0);
+    set_password_controls(false);
 
     s.save = button(s.left, "Save & Connect", save_event);
     lv_obj_set_width(s.save, LV_PCT(100));
@@ -294,7 +504,14 @@ lv_obj_t *pvdg_ui_wifi_create(lv_obj_t *parent,
     lv_obj_set_flex_flow(right, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(right, 6, LV_PART_MAIN);
     lv_obj_set_style_pad_row(right, 2, LV_PART_MAIN);
-    pvdg_ui_make_muted(right, "Nearby Networks · strongest 8");
+    lv_obj_add_flag(right, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(right, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(right, LV_SCROLLBAR_MODE_AUTO);
+    pvdg_ui_make_muted(right, "Nearby Networks | strongest 8");
+
+    s.scan_empty = pvdg_ui_make_muted(right, "Tap Scan to discover nearby Wi-Fi networks.");
+    lv_obj_set_width(s.scan_empty, LV_PCT(100));
+    lv_label_set_long_mode(s.scan_empty, LV_LABEL_LONG_WRAP);
 
     for (uint8_t i = 0; i < PVDG_UI_WIFI_MAX_NETWORKS; ++i) {
         s.rows[i] = lv_button_create(right);
@@ -312,7 +529,7 @@ lv_obj_t *pvdg_ui_wifi_create(lv_obj_t *parent,
         lv_obj_set_style_text_align(s.row_meta[i], LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
         lv_obj_add_event_cb(s.rows[i], row_event, LV_EVENT_CLICKED,
                             (void *)(intptr_t)i);
-        lv_obj_add_flag(s.rows[i], LV_OBJ_FLAG_HIDDEN);
+        set_hidden(s.rows[i], true);
     }
 
     create_keyboard();
@@ -339,12 +556,6 @@ void pvdg_ui_wifi_apply(const pvdg_ui_model_t *model,
         pvdg_ui_wifi_host_refresh(&s_host_model, &s_host_scan);
         model = &s_host_model;
         scan = &s_host_scan;
-
-        if (!s.auto_scan_requested && !s_host_scan.scan_running && s_host_scan.count == 0U) {
-            s.auto_scan_requested = true;
-            request_scan_from_host();
-            s_host_scan.scan_running = true;
-        }
     }
 
     if (model) {
@@ -362,35 +573,23 @@ void pvdg_ui_wifi_apply(const pvdg_ui_model_t *model,
         pvdg_ui_label_set_if_changed(s.rssi, rssi);
     }
 
-    for (uint8_t i = 0; i < PVDG_UI_WIFI_MAX_NETWORKS; ++i) {
-        lv_obj_add_flag(s.rows[i], LV_OBJ_FLAG_HIDDEN);
-        s.secure[i] = false;
-        s.supported[i] = false;
-    }
-
     if (!scan) return;
 
-    const uint8_t count = scan->count > PVDG_UI_WIFI_MAX_NETWORKS
-                              ? PVDG_UI_WIFI_MAX_NETWORKS : scan->count;
-    for (uint8_t i = 0; i < count; ++i) {
-        const pvdg_ui_wifi_network_t *network = &scan->networks[i];
-        pvdg_ui_label_set_if_changed(s.row_name[i],
-                                     network->ssid[0] ? network->ssid : "<hidden>");
-        char meta[96];
-        snprintf(meta, sizeof(meta), "%d dBm · Ch %u · %s%s",
-                 network->rssi, (unsigned)network->channel,
-                 network->security[0] ? network->security : "Unknown",
-                 network->connected ? " · Connected" : "");
-        pvdg_ui_label_set_if_changed(s.row_meta[i], meta);
-        s.secure[i] = network->secure;
-        s.supported[i] = network->supported;
-        if (network->supported) lv_obj_remove_state(s.rows[i], LV_STATE_DISABLED);
-        else lv_obj_add_state(s.rows[i], LV_STATE_DISABLED);
-        lv_obj_remove_flag(s.rows[i], LV_OBJ_FLAG_HIDDEN);
-    }
+    set_scan_indicator(scan->scan_running);
 
-    if (scan->scan_running) lv_obj_add_state(s.scan, LV_STATE_DISABLED);
-    else if (!s.busy) lv_obj_remove_state(s.scan, LV_STATE_DISABLED);
+    /* Do not tear down and rebuild eight rows on every telemetry render. The
+     * screen runtime can render this active page several times per refresh
+     * cycle; toggling HIDDEN on every row each time caused unnecessary layout
+     * invalidation exactly when a scan result arrived. Preserve the prior list
+     * while scanning and render a completed generation only when its content
+     * actually changed. */
+    if (!scan->scan_running && !scan->scan_failed) render_scan_rows(scan);
+
+    if (scan->scan_running) {
+        lv_obj_add_state(s.scan, LV_STATE_DISABLED);
+    } else if (!s.busy) {
+        lv_obj_remove_state(s.scan, LV_STATE_DISABLED);
+    }
     update_save_state();
 }
 
@@ -404,15 +603,17 @@ void pvdg_ui_wifi_set_config_snapshot(const pvdg_ui_wifi_config_t *config,
                          pvdg_ui_wifi_config_valid(config, error, sizeof(error));
     if (s.config_available) {
         s.config = *config;
-        if (!s.write_authorized) {
+        if (!s.write_authorized && !s.busy) {
             pvdg_ui_label_set_if_changed(
                 s.msg,
                 "Engineering login required before Save & Connect. Tap the gear icon to sign in.");
         }
     } else {
         memset(&s.config, 0, sizeof(s.config));
-        pvdg_ui_label_set_if_changed(s.msg,
-                                     error[0] ? error : "Wi-Fi baseline unavailable.");
+        if (!s.busy) {
+            pvdg_ui_label_set_if_changed(s.msg,
+                                         error[0] ? error : "Wi-Fi baseline unavailable.");
+        }
     }
     update_save_state();
 }
@@ -428,6 +629,7 @@ void pvdg_ui_wifi_set_action_state(bool busy, const char *message)
     } else {
         lv_obj_remove_state(s.scan, LV_STATE_DISABLED);
         lv_obj_remove_state(s.reconnect, LV_STATE_DISABLED);
+        set_scan_indicator(false);
     }
     update_save_state();
     if (message) pvdg_ui_label_set_if_changed(s.msg, message);
@@ -439,11 +641,14 @@ void pvdg_ui_wifi_set_write_authorized(bool authorized)
     s.write_authorized = authorized;
     if (!s.root) return;
     update_save_state();
-    if (!authorized) {
+
+    /* Scan/reconnect progress messages take priority while an action is active;
+     * otherwise an auth refresh would overwrite "Scanning..." every render. */
+    if (!authorized && !s.busy) {
         pvdg_ui_label_set_if_changed(
             s.msg,
             "Engineering login required before Save & Connect. Tap the gear icon to sign in.");
-    } else if (changed && s.config_available) {
+    } else if (authorized && changed && s.config_available && !s.busy) {
         pvdg_ui_label_set_if_changed(
             s.msg,
             "Engineering authenticated. Select a network, enter its password, then tap Save & Connect.");
@@ -453,5 +658,7 @@ void pvdg_ui_wifi_set_write_authorized(bool authorized)
 void pvdg_ui_wifi_clear_password_input(void)
 {
     if (s.password) lv_textarea_set_text(s.password, "");
+    s.password_visible = false;
+    password_visibility_apply();
     keyboard_hide();
 }
