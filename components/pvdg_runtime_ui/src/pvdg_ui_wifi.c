@@ -49,6 +49,14 @@ typedef struct {
 
 static wifi_ui_t s;
 
+/* pvdg_ui_model_t intentionally carries the full runtime inverter surface and
+ * is several kilobytes. Do not place a temporary copy on the LVGL task stack:
+ * Wi-Fi rendering nests into the product host refresh, which also needs scan
+ * and configuration scratch space. Keep the single UI-owned refresh snapshot
+ * in module storage, matching the screen runtime's stack-safety contract. */
+static pvdg_ui_model_t s_host_model;
+static pvdg_ui_wifi_scan_t s_host_scan;
+
 static lv_obj_t *label(lv_obj_t *parent, const char *text, uint32_t color)
 {
     lv_obj_t *obj = lv_label_create(parent);
@@ -300,20 +308,18 @@ void pvdg_ui_wifi_apply(const pvdg_ui_model_t *model,
 {
     if (!s.root) return;
 
-    pvdg_ui_model_t host_model;
-    pvdg_ui_wifi_scan_t host_scan;
     if (!scan && pvdg_ui_wifi_host_refresh) {
-        if (model) host_model = *model;
-        else memset(&host_model, 0, sizeof(host_model));
-        memset(&host_scan, 0, sizeof(host_scan));
-        pvdg_ui_wifi_host_refresh(&host_model, &host_scan);
-        model = &host_model;
-        scan = &host_scan;
+        if (model) s_host_model = *model;
+        else memset(&s_host_model, 0, sizeof(s_host_model));
+        memset(&s_host_scan, 0, sizeof(s_host_scan));
+        pvdg_ui_wifi_host_refresh(&s_host_model, &s_host_scan);
+        model = &s_host_model;
+        scan = &s_host_scan;
 
-        if (!s.auto_scan_requested && !host_scan.scan_running && host_scan.count == 0U) {
+        if (!s.auto_scan_requested && !s_host_scan.scan_running && s_host_scan.count == 0U) {
             s.auto_scan_requested = true;
             request_scan_from_host();
-            host_scan.scan_running = true;
+            s_host_scan.scan_running = true;
         }
     }
 
