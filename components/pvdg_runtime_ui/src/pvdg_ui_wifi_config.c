@@ -134,6 +134,19 @@ pvdg_ui_wifi_config_result_t pvdg_ui_wifi_prepare_primary(
     snprintf(out->primary.ssid, sizeof(out->primary.ssid), "%s", ssid);
     out->primary.clear_password = false;
 
+    /* Static IP settings are network-specific. Carrying an old subnet onto a
+     * newly selected SSID can associate successfully but never obtain usable
+     * connectivity. A scanned SSID change therefore starts on DHCP; advanced
+     * static-IP commissioning can still be applied explicitly elsewhere. */
+    if (changed) {
+        out->primary.ip_mode = PVDG_UI_WIFI_IP_DHCP;
+        out->primary.static_ip[0] = '\0';
+        out->primary.gateway[0] = '\0';
+        out->primary.netmask[0] = '\0';
+        out->primary.dns1[0] = '\0';
+        out->primary.dns2[0] = '\0';
+    }
+
     if (password_length > 0U) {
         snprintf(out->primary.password, sizeof(out->primary.password), "%s", supplied);
     } else if (changed && !secure_network) {
