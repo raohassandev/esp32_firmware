@@ -15,6 +15,8 @@ lv_obj_t *pvdg_ui_wifi_create(lv_obj_t *parent,const pvdg_ui_wifi_callbacks_t *c
 void pvdg_ui_wifi_apply(const pvdg_ui_model_t *model,const pvdg_ui_wifi_scan_t *scan);
 void pvdg_ui_wifi_set_config_snapshot(const pvdg_ui_wifi_config_t *config,bool available);
 void pvdg_ui_wifi_set_action_state(bool busy,const char *message);
+void pvdg_ui_wifi_set_write_authorized(bool authorized);
+void pvdg_ui_wifi_clear_password_input(void);
 #ifdef __cplusplus
 }
 #endif
