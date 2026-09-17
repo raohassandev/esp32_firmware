@@ -43,6 +43,8 @@ idf_component_register(
         nvs_flash
         mbedtls
         esp_system
+        esp_wifi
+        esp_netif
         spi_flash
         esp_timer
         esp_lvgl_adapter
