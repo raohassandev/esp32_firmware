@@ -18,6 +18,14 @@
 
 #define MASKED_PASSWORD "********"
 
+/* Wi-Fi rendering runs inside the LVGL task. app_config_t and the 24-entry
+ * network scan snapshot are too large to stack together with the runtime UI
+ * model, so keep the bridge's serialized scratch snapshots in module storage. */
+static app_config_t s_config_snapshot;
+static app_config_t s_save_snapshot;
+static pvdg_ui_wifi_config_t s_baseline_snapshot;
+static network_scan_snapshot_t s_scan_snapshot;
+
 static void copy_text(char *target, size_t capacity, const char *source)
 {
     if (!target || capacity == 0U) return;
@@ -117,21 +125,21 @@ static void ui_to_profile(const pvdg_ui_wifi_profile_config_t *source,
 bool wifi_runtime_bridge_load_config(pvdg_ui_wifi_config_t *out)
 {
     if (!out) return false;
-    app_config_t config = {0};
-    if (config_manager_get_snapshot(&config) != ESP_OK) return false;
+    memset(&s_config_snapshot, 0, sizeof(s_config_snapshot));
+    if (config_manager_get_snapshot(&s_config_snapshot) != ESP_OK) return false;
 
     memset(out, 0, sizeof(*out));
-    profile_to_ui(&config.wifi.primary, &out->primary);
-    profile_to_ui(&config.wifi.fallback, &out->fallback);
-    out->scan_before_connect = config.wifi.scan_before_connect;
-    out->fallback_ap_enabled = config.wifi.fallback_ap_enabled;
+    profile_to_ui(&s_config_snapshot.wifi.primary, &out->primary);
+    profile_to_ui(&s_config_snapshot.wifi.fallback, &out->fallback);
+    out->scan_before_connect = s_config_snapshot.wifi.scan_before_connect;
+    out->fallback_ap_enabled = s_config_snapshot.wifi.fallback_ap_enabled;
     copy_text(out->fallback_ap_ssid, sizeof(out->fallback_ap_ssid),
-              config.wifi.fallback_ap_ssid);
-    if (config.wifi.fallback_ap_password[0]) {
+              s_config_snapshot.wifi.fallback_ap_ssid);
+    if (s_config_snapshot.wifi.fallback_ap_password[0]) {
         copy_text(out->fallback_ap_password, sizeof(out->fallback_ap_password), MASKED_PASSWORD);
     }
-    out->max_retries_per_profile = config.wifi.max_retries_per_profile;
-    out->reconnect_backoff_ms = config.wifi.reconnect_backoff_ms;
+    out->max_retries_per_profile = s_config_snapshot.wifi.max_retries_per_profile;
+    out->reconnect_backoff_ms = s_config_snapshot.wifi.reconnect_backoff_ms;
     return true;
 }
 
@@ -163,33 +171,33 @@ void wifi_runtime_bridge_submit_config(const pvdg_ui_wifi_config_t *config,
         return;
     }
 
-    app_config_t next = {0};
-    if (config_manager_get_snapshot(&next) != ESP_OK) {
+    memset(&s_save_snapshot, 0, sizeof(s_save_snapshot));
+    if (config_manager_get_snapshot(&s_save_snapshot) != ESP_OK) {
         pvdg_ui_wifi_set_action_state(false, "Current controller configuration is unavailable.");
         return;
     }
 
-    ui_to_profile(&config->primary, &next.wifi.primary, &next.wifi.primary);
-    ui_to_profile(&config->fallback, &next.wifi.fallback, &next.wifi.fallback);
-    next.wifi.scan_before_connect = config->scan_before_connect;
-    next.wifi.fallback_ap_enabled = config->fallback_ap_enabled;
-    copy_text(next.wifi.fallback_ap_ssid, sizeof(next.wifi.fallback_ap_ssid),
+    ui_to_profile(&config->primary, &s_save_snapshot.wifi.primary, &s_save_snapshot.wifi.primary);
+    ui_to_profile(&config->fallback, &s_save_snapshot.wifi.fallback, &s_save_snapshot.wifi.fallback);
+    s_save_snapshot.wifi.scan_before_connect = config->scan_before_connect;
+    s_save_snapshot.wifi.fallback_ap_enabled = config->fallback_ap_enabled;
+    copy_text(s_save_snapshot.wifi.fallback_ap_ssid, sizeof(s_save_snapshot.wifi.fallback_ap_ssid),
               config->fallback_ap_ssid);
     if (config->fallback_ap_password[0] &&
         strcmp(config->fallback_ap_password, MASKED_PASSWORD) != 0) {
-        copy_text(next.wifi.fallback_ap_password,
-                  sizeof(next.wifi.fallback_ap_password),
+        copy_text(s_save_snapshot.wifi.fallback_ap_password,
+                  sizeof(s_save_snapshot.wifi.fallback_ap_password),
                   config->fallback_ap_password);
     }
-    next.wifi.max_retries_per_profile = config->max_retries_per_profile;
-    next.wifi.reconnect_backoff_ms = config->reconnect_backoff_ms;
+    s_save_snapshot.wifi.max_retries_per_profile = config->max_retries_per_profile;
+    s_save_snapshot.wifi.reconnect_backoff_ms = config->reconnect_backoff_ms;
 
     /* A network change can invalidate every meter/inverter transport. Match the
      * web commissioning safety contract: remove command authority first, then
      * persist control.enabled=false together with the new network settings. */
-    next.control.enabled = false;
+    s_save_snapshot.control.enabled = false;
     control_engine_force_disable();
-    if (config_manager_save(&next) != ESP_OK) {
+    if (config_manager_save(&s_save_snapshot) != ESP_OK) {
         pvdg_ui_wifi_set_action_state(false,
             "Wi-Fi configuration could not be persisted. Control remains disabled.");
         return;
@@ -211,9 +219,9 @@ void wifi_runtime_bridge_refresh(pvdg_ui_model_t *model,
     /* screen_app initializes the generic Wi-Fi surface fail-closed. Restore the
      * real Product Core baseline whenever the Wi-Fi page is rendered so Save is
      * enabled only against a validated current configuration. */
-    pvdg_ui_wifi_config_t baseline;
-    if (wifi_runtime_bridge_load_config(&baseline)) {
-        pvdg_ui_wifi_set_config_snapshot(&baseline, true);
+    memset(&s_baseline_snapshot, 0, sizeof(s_baseline_snapshot));
+    if (wifi_runtime_bridge_load_config(&s_baseline_snapshot)) {
+        pvdg_ui_wifi_set_config_snapshot(&s_baseline_snapshot, true);
     }
 
     network_status_t status = {0};
@@ -224,17 +232,17 @@ void wifi_runtime_bridge_refresh(pvdg_ui_model_t *model,
     copy_text(model->network.ip, sizeof(model->network.ip), status.ip);
     fill_live_sta_identity(model);
 
-    network_scan_snapshot_t snapshot = {0};
-    network_manager_get_scan_snapshot(&snapshot);
+    memset(&s_scan_snapshot, 0, sizeof(s_scan_snapshot));
+    network_manager_get_scan_snapshot(&s_scan_snapshot);
     memset(scan, 0, sizeof(*scan));
-    scan->scan_running = snapshot.state == NETWORK_SCAN_RUNNING;
+    scan->scan_running = s_scan_snapshot.state == NETWORK_SCAN_RUNNING;
 
-    uint16_t count = snapshot.count;
+    uint16_t count = s_scan_snapshot.count;
     if (count > PVDG_UI_WIFI_MAX_NETWORKS) count = PVDG_UI_WIFI_MAX_NETWORKS;
     scan->count = (uint8_t)count;
 
     for (uint16_t i = 0U; i < count; ++i) {
-        const network_scan_ap_t *source = &snapshot.results[i];
+        const network_scan_ap_t *source = &s_scan_snapshot.results[i];
         pvdg_ui_wifi_network_t *target = &scan->networks[i];
         const char *security = NULL;
         bool secure = true;
@@ -253,14 +261,14 @@ void wifi_runtime_bridge_refresh(pvdg_ui_model_t *model,
         target->supported = supported;
     }
 
-    if (snapshot.state == NETWORK_SCAN_RUNNING) {
+    if (s_scan_snapshot.state == NETWORK_SCAN_RUNNING) {
         pvdg_ui_wifi_set_action_state(true, "Scanning for Wi-Fi networks...");
-    } else if (snapshot.state == NETWORK_SCAN_COMPLETE) {
+    } else if (s_scan_snapshot.state == NETWORK_SCAN_COMPLETE) {
         char message[64];
         snprintf(message, sizeof(message), "%u network%s found.",
                  (unsigned)scan->count, scan->count == 1U ? "" : "s");
         pvdg_ui_wifi_set_action_state(false, message);
-    } else if (snapshot.state == NETWORK_SCAN_FAILED) {
+    } else if (s_scan_snapshot.state == NETWORK_SCAN_FAILED) {
         pvdg_ui_wifi_set_action_state(false, "Wi-Fi scan failed. Tap Scan to retry.");
     }
 }
