@@ -9,6 +9,7 @@
 #include "control_engine.h"
 #include "engineering_runtime_bridge.h"
 #include "esp_err.h"
+#include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_system.h"
 #include "esp_wifi.h"
@@ -18,6 +19,8 @@
 
 #define MASKED_PASSWORD "********"
 
+static const char *TAG = "wifi_panel";
+
 /* Wi-Fi rendering runs inside the LVGL task. app_config_t and the 24-entry
  * network scan snapshot are too large to stack together with the runtime UI
  * model, so keep the bridge's serialized scratch snapshots in module storage. */
@@ -25,6 +28,9 @@ static app_config_t s_config_snapshot;
 static app_config_t s_save_snapshot;
 static pvdg_ui_wifi_config_t s_baseline_snapshot;
 static network_scan_snapshot_t s_scan_snapshot;
+static uint32_t s_logged_scan_generation;
+static network_scan_state_t s_logged_scan_state = NETWORK_SCAN_IDLE;
+static bool s_logged_scan_valid;
 
 static void copy_text(char *target, size_t capacity, const char *source)
 {
@@ -154,11 +160,11 @@ void wifi_runtime_bridge_submit_config(const pvdg_ui_wifi_config_t *config,
                                        bool primary_changed,
                                        void *user)
 {
-    (void)primary_changed;
     (void)user;
     if (!config) return;
 
     if (!engineering_runtime_bridge_is_authorized()) {
+        ESP_LOGW(TAG, "Save & Connect rejected: Engineering session is not authorized");
         pvdg_ui_wifi_set_write_authorized(false);
         pvdg_ui_wifi_set_action_state(false,
             "Engineering login required. Tap the gear icon, sign in, then return and tap Save & Connect.");
@@ -166,8 +172,15 @@ void wifi_runtime_bridge_submit_config(const pvdg_ui_wifi_config_t *config,
     }
     pvdg_ui_wifi_set_write_authorized(true);
 
+    ESP_LOGI(TAG, "Save & Connect requested for SSID '%s' (%s profile, %s)",
+             config->primary.ssid,
+             primary_changed ? "new" : "existing",
+             config->primary.ip_mode == PVDG_UI_WIFI_IP_STATIC ? "static IP" : "DHCP");
+
     char validation_error[160] = {0};
     if (!pvdg_ui_wifi_config_valid(config, validation_error, sizeof(validation_error))) {
+        ESP_LOGW(TAG, "Wi-Fi configuration validation failed: %s",
+                 validation_error[0] ? validation_error : "unknown validation error");
         pvdg_ui_wifi_set_action_state(false,
             validation_error[0] ? validation_error : "Wi-Fi configuration is invalid.");
         return;
@@ -175,6 +188,7 @@ void wifi_runtime_bridge_submit_config(const pvdg_ui_wifi_config_t *config,
 
     memset(&s_save_snapshot, 0, sizeof(s_save_snapshot));
     if (config_manager_get_snapshot(&s_save_snapshot) != ESP_OK) {
+        ESP_LOGE(TAG, "Current configuration snapshot unavailable during Save & Connect");
         pvdg_ui_wifi_set_action_state(false, "Current controller configuration is unavailable.");
         return;
     }
@@ -200,10 +214,15 @@ void wifi_runtime_bridge_submit_config(const pvdg_ui_wifi_config_t *config,
     s_save_snapshot.control.enabled = false;
     control_engine_force_disable();
     if (config_manager_save(&s_save_snapshot) != ESP_OK) {
+        ESP_LOGE(TAG, "Wi-Fi configuration persistence failed for SSID '%s'",
+                 config->primary.ssid);
         pvdg_ui_wifi_set_action_state(false,
             "Wi-Fi configuration could not be persisted. Control remains disabled.");
         return;
     }
+
+    ESP_LOGI(TAG, "Wi-Fi configuration persisted for SSID '%s'; restarting to reload network profile",
+             config->primary.ssid);
 
     /* Clear the entered credential only after the protected configuration write
      * has actually succeeded. The restart reloads network_manager's cached
@@ -212,8 +231,42 @@ void wifi_runtime_bridge_submit_config(const pvdg_ui_wifi_config_t *config,
     pvdg_ui_wifi_set_action_state(true,
         "Wi-Fi saved. Control disabled; restarting now to connect to the selected network...");
     if (xTaskCreate(restart_task, "wifi_restart", 2048, NULL, 4, NULL) != pdPASS) {
+        ESP_LOGE(TAG, "Restart task could not be created after Wi-Fi save");
         pvdg_ui_wifi_set_action_state(false,
             "Wi-Fi saved. Restart controller manually to connect; control remains disabled.");
+    }
+}
+
+static void log_scan_transition(void)
+{
+    if (s_logged_scan_valid &&
+        s_logged_scan_generation == s_scan_snapshot.generation &&
+        s_logged_scan_state == s_scan_snapshot.state) {
+        return;
+    }
+
+    s_logged_scan_valid = true;
+    s_logged_scan_generation = s_scan_snapshot.generation;
+    s_logged_scan_state = s_scan_snapshot.state;
+
+    switch (s_scan_snapshot.state) {
+    case NETWORK_SCAN_RUNNING:
+        ESP_LOGI(TAG, "Panel scan generation %u running",
+                 (unsigned)s_scan_snapshot.generation);
+        break;
+    case NETWORK_SCAN_COMPLETE:
+        ESP_LOGI(TAG, "Panel scan generation %u complete: %u unique network(s)",
+                 (unsigned)s_scan_snapshot.generation,
+                 (unsigned)s_scan_snapshot.count);
+        break;
+    case NETWORK_SCAN_FAILED:
+        ESP_LOGW(TAG, "Panel scan generation %u failed: %s",
+                 (unsigned)s_scan_snapshot.generation,
+                 esp_err_to_name(s_scan_snapshot.last_error));
+        break;
+    case NETWORK_SCAN_IDLE:
+    default:
+        break;
     }
 }
 
@@ -240,8 +293,12 @@ void wifi_runtime_bridge_refresh(pvdg_ui_model_t *model,
 
     memset(&s_scan_snapshot, 0, sizeof(s_scan_snapshot));
     network_manager_get_scan_snapshot(&s_scan_snapshot);
+    log_scan_transition();
+
     memset(scan, 0, sizeof(*scan));
     scan->scan_running = s_scan_snapshot.state == NETWORK_SCAN_RUNNING;
+    scan->scan_failed = s_scan_snapshot.state == NETWORK_SCAN_FAILED;
+    scan->generation = s_scan_snapshot.generation;
 
     uint16_t count = s_scan_snapshot.count;
     if (count > PVDG_UI_WIFI_MAX_NETWORKS) count = PVDG_UI_WIFI_MAX_NETWORKS;
@@ -270,12 +327,18 @@ void wifi_runtime_bridge_refresh(pvdg_ui_model_t *model,
     if (s_scan_snapshot.state == NETWORK_SCAN_RUNNING) {
         pvdg_ui_wifi_set_action_state(true, "Scanning for Wi-Fi networks...");
     } else if (s_scan_snapshot.state == NETWORK_SCAN_COMPLETE) {
-        char message[64];
-        snprintf(message, sizeof(message), "%u network%s found.",
-                 (unsigned)scan->count, scan->count == 1U ? "" : "s");
+        char message[80];
+        if (s_scan_snapshot.count > PVDG_UI_WIFI_MAX_NETWORKS) {
+            snprintf(message, sizeof(message), "%u networks found; showing strongest %u.",
+                     (unsigned)s_scan_snapshot.count,
+                     (unsigned)PVDG_UI_WIFI_MAX_NETWORKS);
+        } else {
+            snprintf(message, sizeof(message), "%u network%s found.",
+                     (unsigned)scan->count, scan->count == 1U ? "" : "s");
+        }
         pvdg_ui_wifi_set_action_state(false, message);
     } else if (s_scan_snapshot.state == NETWORK_SCAN_FAILED) {
-        pvdg_ui_wifi_set_action_state(false, "Wi-Fi scan failed. Tap Scan to retry.");
+        pvdg_ui_wifi_set_action_state(false, "Wi-Fi scan failed. Previous results kept; tap Scan to retry.");
     }
 
     /* Authorization is intentionally checked live. An expired Engineering
@@ -289,11 +352,14 @@ void wifi_runtime_bridge_request_scan(void *user)
     (void)user;
     esp_err_t err = network_manager_request_scan();
     if (err == ESP_OK) {
+        ESP_LOGI(TAG, "Panel requested Wi-Fi scan");
         pvdg_ui_wifi_set_action_state(true, "Scanning for Wi-Fi networks...");
     } else if (err == ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(TAG, "Panel scan rejected because Wi-Fi radio is busy");
         pvdg_ui_wifi_set_action_state(false,
                                       "Wi-Fi radio is busy connecting. Retry Scan shortly.");
     } else {
+        ESP_LOGW(TAG, "Panel scan request failed: %s", esp_err_to_name(err));
         pvdg_ui_wifi_set_action_state(false, "Unable to start Wi-Fi scan.");
     }
 }
@@ -303,8 +369,10 @@ void wifi_runtime_bridge_request_reconnect(void *user)
     (void)user;
     esp_err_t err = network_manager_rescan_and_connect();
     if (err == ESP_OK) {
+        ESP_LOGI(TAG, "Panel requested reconnect using the persisted profile");
         pvdg_ui_wifi_set_action_state(true, "Wi-Fi reconnect requested...");
     } else {
+        ESP_LOGW(TAG, "Panel reconnect request failed: %s", esp_err_to_name(err));
         pvdg_ui_wifi_set_action_state(false, "Unable to start Wi-Fi reconnect.");
     }
 }
