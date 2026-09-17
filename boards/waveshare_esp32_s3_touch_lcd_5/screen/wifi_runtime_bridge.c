@@ -9,7 +9,9 @@
 #include "control_engine.h"
 #include "engineering_runtime_bridge.h"
 #include "esp_err.h"
+#include "esp_netif.h"
 #include "esp_system.h"
+#include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "network_manager.h"
@@ -49,6 +51,29 @@ static void security_info(uint8_t auth_mode,
     if (label) *label = name;
     if (secure) *secure = is_secure;
     if (supported) *supported = is_supported;
+}
+
+static void fill_live_sta_identity(pvdg_ui_model_t *model)
+{
+    if (!model || !model->network.online) return;
+
+    if (!model->network.ssid[0]) {
+        wifi_ap_record_t ap = {0};
+        if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK && ap.ssid[0]) {
+            copy_text(model->network.ssid, sizeof(model->network.ssid),
+                      (const char *)ap.ssid);
+            model->network.rssi = ap.rssi;
+        }
+    }
+
+    if (!model->network.ip[0]) {
+        esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+        esp_netif_ip_info_t info = {0};
+        if (sta && esp_netif_get_ip_info(sta, &info) == ESP_OK && info.ip.addr != 0U) {
+            snprintf(model->network.ip, sizeof(model->network.ip),
+                     IPSTR, IP2STR(&info.ip));
+        }
+    }
 }
 
 static void profile_to_ui(const app_wifi_sta_profile_t *source,
@@ -197,6 +222,7 @@ void wifi_runtime_bridge_refresh(pvdg_ui_model_t *model,
     model->network.rssi = status.rssi;
     copy_text(model->network.ssid, sizeof(model->network.ssid), status.ssid);
     copy_text(model->network.ip, sizeof(model->network.ip), status.ip);
+    fill_live_sta_identity(model);
 
     network_scan_snapshot_t snapshot = {0};
     network_manager_get_scan_snapshot(&snapshot);
