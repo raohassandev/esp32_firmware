@@ -80,6 +80,16 @@ static void field_event(lv_event_t *event)
 {
     if (!s.keyboard) return;
     lv_obj_t *field = lv_event_get_target_obj(event);
+
+    /* LV_EVENT_FOCUSED is followed by LV_EVENT_CLICKED for a normal tap.
+     * Re-applying the same keyboard target and foreground operation on both
+     * events forces an unnecessary layout/focus cycle that can make the form
+     * appear to shake on the touch display. Keep repeat events idempotent. */
+    if (lv_keyboard_get_textarea(s.keyboard) == field &&
+        !lv_obj_has_flag(s.keyboard, LV_OBJ_FLAG_HIDDEN)) {
+        return;
+    }
+
     lv_keyboard_set_textarea(s.keyboard, field);
     lv_obj_remove_flag(s.keyboard, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(s.keyboard);
@@ -93,6 +103,7 @@ static lv_obj_t *row(lv_obj_t *parent, const char *name)
     lv_obj_set_height(obj, 34);
     lv_obj_set_layout(obj, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(obj, LV_FLEX_FLOW_ROW);
+    lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_align(obj, LV_FLEX_ALIGN_SPACE_BETWEEN,
                           LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_t *caption = pvdg_ui_make_muted(obj, name);
@@ -419,6 +430,7 @@ lv_obj_t *pvdg_ui_meter_setup_create(
     lv_obj_set_size(s.root, LV_PCT(100), LV_PCT(100));
     lv_obj_set_layout(s.root, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(s.root, LV_FLEX_FLOW_COLUMN);
+    lv_obj_remove_flag(s.root, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_pad_all(s.root, 5, LV_PART_MAIN);
     lv_obj_set_style_pad_row(s.root, 3, LV_PART_MAIN);
 
@@ -460,6 +472,7 @@ lv_obj_t *pvdg_ui_meter_setup_create(
     lv_obj_set_flex_grow(form, 1);
     lv_obj_set_layout(form, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(form, LV_FLEX_FLOW_ROW);
+    lv_obj_remove_flag(form, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_pad_all(form, 5, LV_PART_MAIN);
     lv_obj_set_style_pad_column(form, 8, LV_PART_MAIN);
 
@@ -469,6 +482,7 @@ lv_obj_t *pvdg_ui_meter_setup_create(
     lv_obj_set_height(left, LV_PCT(100));
     lv_obj_set_layout(left, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(left, LV_FLEX_FLOW_COLUMN);
+    lv_obj_remove_flag(left, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_pad_row(left, 1, LV_PART_MAIN);
 
     lv_obj_t *right = lv_obj_create(form);
@@ -477,6 +491,7 @@ lv_obj_t *pvdg_ui_meter_setup_create(
     lv_obj_set_height(right, LV_PCT(100));
     lv_obj_set_layout(right, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(right, LV_FLEX_FLOW_COLUMN);
+    lv_obj_remove_flag(right, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_pad_row(right, 1, LV_PART_MAIN);
 
     s.enabled = switch_field(left, "Enabled");
@@ -498,7 +513,10 @@ lv_obj_t *pvdg_ui_meter_setup_create(
     s.scale = text_field(right, "Scale");
     s.poll_ms = text_field(right, "Poll ms");
 
-    s.keyboard = lv_keyboard_create(lv_layer_top());
+    /* Keep the keyboard local to Meter Setup and out of flex layout. This
+     * avoids global top-layer focus/scroll interactions with the form. */
+    s.keyboard = lv_keyboard_create(s.root);
+    lv_obj_add_flag(s.keyboard, LV_OBJ_FLAG_FLOATING);
     lv_obj_set_size(s.keyboard, 718, 190);
     lv_obj_align(s.keyboard, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
     lv_obj_add_event_cb(s.keyboard, keyboard_event, LV_EVENT_READY, NULL);
