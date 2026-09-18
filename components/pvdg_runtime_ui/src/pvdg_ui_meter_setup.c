@@ -92,7 +92,6 @@ static void field_event(lv_event_t *event)
 
     lv_keyboard_set_textarea(s.keyboard, field);
     lv_obj_remove_flag(s.keyboard, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_foreground(s.keyboard);
 }
 
 static lv_obj_t *row(lv_obj_t *parent, const char *name)
@@ -118,7 +117,8 @@ static lv_obj_t *text_field(lv_obj_t *parent, const char *name)
     lv_textarea_set_one_line(field, true);
     lv_obj_set_height(field, 30);
     lv_obj_set_flex_grow(field, 1);
-    lv_obj_add_event_cb(field, field_event, LV_EVENT_FOCUSED, NULL);
+    /* Open the on-screen keyboard once per deliberate tap. Handling both
+     * FOCUSED and CLICKED makes LVGL run two focus/scroll passes for one touch. */
     lv_obj_add_event_cb(field, field_event, LV_EVENT_CLICKED, NULL);
     return field;
 }
