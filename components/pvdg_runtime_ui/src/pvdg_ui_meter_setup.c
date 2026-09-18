@@ -158,6 +158,37 @@ static lv_obj_t *text_field(lv_obj_t *parent, const char *name)
     return field;
 }
 
+static void numeric_field_event(lv_event_t *event)
+{
+    if (!s.keyboard) return;
+    lv_obj_t *field = lv_event_get_target_obj(event);
+
+    if (lv_keyboard_get_textarea(s.keyboard) == field &&
+        !lv_obj_has_flag(s.keyboard, LV_OBJ_FLAG_HIDDEN)) {
+        return;
+    }
+
+    lv_textarea_set_cursor_pos(field, LV_TEXTAREA_CURSOR_LAST);
+    lv_keyboard_set_textarea(s.keyboard, field);
+
+    /* LVGL 9.5 keyboard attachment forces LV_STATE_FOCUSED on the textarea.
+     * That focus state causes a STYLE_CHANGED event and can make one-line
+     * numeric textareas jump back toward the caret. Keep the keyboard target
+     * but immediately remove the visual focus state for numeric fields. */
+    lv_obj_remove_state(field, LV_STATE_FOCUSED);
+    lv_obj_remove_flag(s.keyboard, LV_OBJ_FLAG_HIDDEN);
+}
+
+static lv_obj_t *numeric_field(lv_obj_t *parent, const char *name)
+{
+    lv_obj_t *field = text_field(parent, name);
+    lv_obj_remove_event_cb(field, field_event);
+    lv_textarea_set_accepted_chars(field, "0123456789.-");
+    lv_textarea_set_max_length(field, 16);
+    lv_obj_add_event_cb(field, numeric_field_event, LV_EVENT_CLICKED, NULL);
+    return field;
+}
+
 static lv_obj_t *dropdown_field(lv_obj_t *parent, const char *name,
                                 const char *options)
 {
@@ -532,21 +563,21 @@ lv_obj_t *pvdg_ui_meter_setup_create(
     s.enabled = switch_field(left, "Enabled");
     s.name = text_field(left, "Name");
     s.host = text_field(left, "Host / IP");
-    s.port = text_field(left, "TCP port");
-    s.unit_id = text_field(left, "Unit ID");
-    s.timeout_ms = text_field(left, "Timeout ms");
+    s.port = numeric_field(left, "TCP port");
+    s.unit_id = numeric_field(left, "Unit ID");
+    s.timeout_ms = numeric_field(left, "Timeout ms");
     s.role = dropdown_field(left, "Role", "Unassigned\nGrid\nGenerator\nLoad\nPV");
     s.generator_index = dropdown_field(
         left, "Generator", "Generator 1\nGenerator 2\nGenerator 3");
     lv_obj_add_event_cb(s.role, role_event, LV_EVENT_VALUE_CHANGED, NULL);
 
     s.function_code = dropdown_field(right, "Function", "FC03 Holding\nFC04 Input");
-    s.address = text_field(right, "Power address");
+    s.address = numeric_field(right, "Power address");
     s.data_type = dropdown_field(
         right, "Data type", "UINT16\nINT16\nUINT32\nINT32\nFLOAT32");
     s.word_order = dropdown_field(right, "Word order", "ABCD\nCDAB\nBADC\nDCBA");
-    s.scale = text_field(right, "Scale");
-    s.poll_ms = text_field(right, "Poll ms");
+    s.scale = numeric_field(right, "Scale");
+    s.poll_ms = numeric_field(right, "Poll ms");
 
     /* Keep the keyboard local to Meter Setup and out of flex layout. This
      * avoids global top-layer focus/scroll interactions with the form. */
