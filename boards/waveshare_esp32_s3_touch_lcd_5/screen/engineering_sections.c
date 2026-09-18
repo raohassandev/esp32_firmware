@@ -226,10 +226,12 @@ static void create_overlay(void)
     lv_obj_set_size(s_overlay, LV_PCT(100), LV_PCT(100));
     lv_obj_set_layout(s_overlay, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(s_overlay, LV_FLEX_FLOW_COLUMN);
+    lv_obj_remove_flag(s_overlay, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *top = pvdg_ui_make_card(s_overlay);
     lv_obj_set_width(top, LV_PCT(100));
     lv_obj_set_height(top, 44);
+    lv_obj_remove_flag(top, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_layout(top, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(top, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(top, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -243,6 +245,7 @@ static void create_overlay(void)
     pvdg_ui_style_root(s_content);
     lv_obj_set_width(s_content, LV_PCT(100));
     lv_obj_set_flex_grow(s_content, 1);
+    lv_obj_remove_flag(s_content, LV_OBJ_FLAG_SCROLLABLE);
 
     const pvdg_ui_source_setup_callbacks_t source_callbacks = {
         .request_config = engineering_config_source_request,
