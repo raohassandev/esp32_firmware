@@ -125,7 +125,28 @@ static lv_obj_t *text_field(lv_obj_t *parent, const char *name)
     lv_obj_remove_flag(field, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(field, LV_OBJ_FLAG_SCROLL_ELASTIC);
     lv_obj_remove_flag(field, LV_OBJ_FLAG_SCROLL_MOMENTUM);
+    lv_obj_remove_flag(field, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+    lv_obj_remove_flag(field, LV_OBJ_FLAG_SCROLL_CHAIN_HOR);
+    lv_obj_remove_flag(field, LV_OBJ_FLAG_SCROLL_CHAIN_VER);
+    lv_obj_remove_flag(field, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_set_scrollbar_mode(field, LV_SCROLLBAR_MODE_OFF);
+
+    /* Lock geometry across normal/pressed/focused states. The default LVGL
+     * theme can apply state-specific outline/transform values; on this touch
+     * panel that appears as the white input rectangle jittering under a finger. */
+    lv_obj_set_style_transform_width(field, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_transform_height(field, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_translate_x(field, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_translate_y(field, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_transform_width(field, 0, LV_PART_MAIN | LV_STATE_PRESSED);
+    lv_obj_set_style_transform_height(field, 0, LV_PART_MAIN | LV_STATE_PRESSED);
+    lv_obj_set_style_translate_x(field, 0, LV_PART_MAIN | LV_STATE_PRESSED);
+    lv_obj_set_style_translate_y(field, 0, LV_PART_MAIN | LV_STATE_PRESSED);
+    lv_obj_set_style_transform_width(field, 0, LV_PART_MAIN | LV_STATE_FOCUSED);
+    lv_obj_set_style_transform_height(field, 0, LV_PART_MAIN | LV_STATE_FOCUSED);
+    lv_obj_set_style_translate_x(field, 0, LV_PART_MAIN | LV_STATE_FOCUSED);
+    lv_obj_set_style_translate_y(field, 0, LV_PART_MAIN | LV_STATE_FOCUSED);
+    lv_obj_set_style_outline_width(field, 0, LV_PART_MAIN | LV_STATE_FOCUSED);
     /* Open the on-screen keyboard once per deliberate tap. Handling both
      * FOCUSED and CLICKED makes LVGL run two focus/scroll passes for one touch. */
     lv_obj_add_event_cb(field, field_event, LV_EVENT_CLICKED, NULL);
