@@ -80,7 +80,6 @@ static void field_event(lv_event_t *event)
 {
     if (!s.keyboard) return;
     lv_obj_t *field = lv_event_get_target_obj(event);
-    const bool numeric = (intptr_t)lv_event_get_user_data(event) != 0;
 
     /* LV_EVENT_FOCUSED is followed by LV_EVENT_CLICKED for a normal tap.
      * Re-applying the same keyboard target and foreground operation on both
@@ -94,9 +93,6 @@ static void field_event(lv_event_t *event)
     /* Keep touch from relocating the caret and provoking textarea scroll.
      * For commissioning fields editing always starts at the end. */
     lv_textarea_set_cursor_pos(field, LV_TEXTAREA_CURSOR_LAST);
-    lv_keyboard_set_mode(s.keyboard,
-                         numeric ? LV_KEYBOARD_MODE_NUMBER
-                                 : LV_KEYBOARD_MODE_TEXT_LOWER);
     lv_keyboard_set_textarea(s.keyboard, field);
     lv_obj_remove_flag(s.keyboard, LV_OBJ_FLAG_HIDDEN);
 }
@@ -117,7 +113,7 @@ static lv_obj_t *row(lv_obj_t *parent, const char *name)
     return obj;
 }
 
-static lv_obj_t *text_field(lv_obj_t *parent, const char *name, bool numeric)
+static lv_obj_t *text_field(lv_obj_t *parent, const char *name)
 {
     lv_obj_t *container = row(parent, name);
     lv_obj_t *field = lv_textarea_create(container);
@@ -158,12 +154,7 @@ static lv_obj_t *text_field(lv_obj_t *parent, const char *name, bool numeric)
     lv_obj_set_style_outline_width(field, 0, LV_PART_MAIN | LV_STATE_FOCUSED);
     /* Open the on-screen keyboard once per deliberate tap. Handling both
      * FOCUSED and CLICKED makes LVGL run two focus/scroll passes for one touch. */
-    if (numeric) {
-        lv_textarea_set_accepted_chars(field, "0123456789.-");
-        lv_textarea_set_max_length(field, 16);
-    }
-    lv_obj_add_event_cb(field, field_event, LV_EVENT_CLICKED,
-                        (void *)(intptr_t)(numeric ? 1 : 0));
+    lv_obj_add_event_cb(field, field_event, LV_EVENT_CLICKED, NULL);
     return field;
 }
 
@@ -226,28 +217,18 @@ static bool parse_double(lv_obj_t *field, double minimum, double maximum,
     return true;
 }
 
-static void set_text_if_changed(lv_obj_t *field, const char *text)
-{
-    if (!field) return;
-    const char *current = lv_textarea_get_text(field);
-    const char *next = text ? text : "";
-    if (!current || strcmp(current, next) != 0) {
-        lv_textarea_set_text(field, next);
-    }
-}
-
 static void set_u32(lv_obj_t *field, uint32_t value)
 {
     char text[24];
     snprintf(text, sizeof(text), "%lu", (unsigned long)value);
-    set_text_if_changed(field, text);
+    lv_textarea_set_text(field, text);
 }
 
 static void set_double(lv_obj_t *field, double value)
 {
     char text[32];
     snprintf(text, sizeof(text), "%.6g", value);
-    set_text_if_changed(field, text);
+    lv_textarea_set_text(field, text);
 }
 
 static void update_generator_state(void)
@@ -364,8 +345,8 @@ static void load_editor(void)
     const pvdg_ui_meter_config_t *meter = &s.list.meters[s.index];
     if (meter->enabled) lv_obj_add_state(s.enabled, LV_STATE_CHECKED);
     else lv_obj_remove_state(s.enabled, LV_STATE_CHECKED);
-    set_text_if_changed(s.name, meter->name);
-    set_text_if_changed(s.host, meter->host);
+    lv_textarea_set_text(s.name, meter->name);
+    lv_textarea_set_text(s.host, meter->host);
     set_u32(s.port, meter->port);
     set_u32(s.unit_id, meter->unit_id);
     set_u32(s.timeout_ms, meter->timeout_ms);
@@ -549,23 +530,23 @@ lv_obj_t *pvdg_ui_meter_setup_create(
     lv_obj_set_style_pad_row(right, 1, LV_PART_MAIN);
 
     s.enabled = switch_field(left, "Enabled");
-    s.name = text_field(left, "Name", false);
-    s.host = text_field(left, "Host / IP", false);
-    s.port = text_field(left, "TCP port", true);
-    s.unit_id = text_field(left, "Unit ID", true);
-    s.timeout_ms = text_field(left, "Timeout ms", true);
+    s.name = text_field(left, "Name");
+    s.host = text_field(left, "Host / IP");
+    s.port = text_field(left, "TCP port");
+    s.unit_id = text_field(left, "Unit ID");
+    s.timeout_ms = text_field(left, "Timeout ms");
     s.role = dropdown_field(left, "Role", "Unassigned\nGrid\nGenerator\nLoad\nPV");
     s.generator_index = dropdown_field(
         left, "Generator", "Generator 1\nGenerator 2\nGenerator 3");
     lv_obj_add_event_cb(s.role, role_event, LV_EVENT_VALUE_CHANGED, NULL);
 
     s.function_code = dropdown_field(right, "Function", "FC03 Holding\nFC04 Input");
-    s.address = text_field(right, "Power address", true);
+    s.address = text_field(right, "Power address");
     s.data_type = dropdown_field(
         right, "Data type", "UINT16\nINT16\nUINT32\nINT32\nFLOAT32");
     s.word_order = dropdown_field(right, "Word order", "ABCD\nCDAB\nBADC\nDCBA");
-    s.scale = text_field(right, "Scale", true);
-    s.poll_ms = text_field(right, "Poll ms", true);
+    s.scale = text_field(right, "Scale");
+    s.poll_ms = text_field(right, "Poll ms");
 
     /* Keep the keyboard local to Meter Setup and out of flex layout. This
      * avoids global top-layer focus/scroll interactions with the form. */
