@@ -90,6 +90,9 @@ static void field_event(lv_event_t *event)
         return;
     }
 
+    /* Keep touch from relocating the caret and provoking textarea scroll.
+     * For commissioning fields editing always starts at the end. */
+    lv_textarea_set_cursor_pos(field, LV_TEXTAREA_CURSOR_LAST);
     lv_keyboard_set_textarea(s.keyboard, field);
     lv_obj_remove_flag(s.keyboard, LV_OBJ_FLAG_HIDDEN);
 }
@@ -115,8 +118,10 @@ static lv_obj_t *text_field(lv_obj_t *parent, const char *name)
     lv_obj_t *container = row(parent, name);
     lv_obj_t *field = lv_textarea_create(container);
     lv_textarea_set_one_line(field, true);
+    lv_textarea_set_cursor_click_pos(field, false);
     lv_obj_set_height(field, 30);
     lv_obj_set_flex_grow(field, 1);
+    lv_obj_remove_flag(field, LV_OBJ_FLAG_CLICK_FOCUSABLE);
 
     /* These fields are short commissioning values. Letting the textarea itself
      * scroll causes visible horizontal/vertical jitter on touch because LVGL
